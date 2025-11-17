@@ -227,7 +227,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderTabs() {
-        dom.tabsContainer.innerHTML = '';
+        const fragment = document.createDocumentFragment();
         
         const isSplitPairDefined = splitPair.left !== null && splitPair.right !== null;
         const isSplitLayoutActive = document.body.classList.contains('split-view');
@@ -253,8 +253,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 tabEl.classList.add('active');
             }
 
-            dom.tabsContainer.appendChild(tabEl);
+            fragment.appendChild(tabEl);
         });
+
+        dom.tabsContainer.innerHTML = '';
+        dom.tabsContainer.appendChild(fragment);
     }
 
     window.WavesApp.renderTabs = renderTabs;

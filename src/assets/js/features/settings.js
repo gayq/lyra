@@ -498,94 +498,113 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="settings-container">
                 <div class="settings-tabs">
                     <button class="tab-button active" id="preferences-tab">
-                        <i class="fa-solid fa-sliders-simple"></i> Preferences
+                        <i class="fa-regular fa-gear"></i> Preferences
                     </button>
                     <button class="tab-button" id="cloaking-tab">
-                        <i class="fa-solid fa-ghost"></i> Cloaking
+                        <i class="fa-regular fa-ghost"></i> Cloaking
                     </button>
                     <button class="tab-button" id="advanced-tab">
-                        <i class="fa-solid fa-face-monocle"></i> Advanced
+                        <i class="fa-regular fa-server"></i> Advanced
                     </button>
                     <button class="tab-button" id="data-tab">
-                        <i class="fa-solid fa-database"></i> Data
+                        <i class="fa-regular fa-user"></i> Data
                     </button>
                     <button class="tab-button" id="about-tab">
-                        <i class="fa-solid fa-heart"></i> About
+                        <i class="fa-regular fa-heart"></i> Credits
                     </button>
                     <div class="settings-version-label" id="settings-version-label">Fetching...</div>
                 </div>
                 <div class="settings-content-wrapper">
                     <div id="preferences-content" class="tab-content active">
-                        <label for="search-engine-selector">Search Engine</label>
-                        <p>Choose your preferred search engine</p>
-                        <div class="search-engine-selector">
-                            <div class="search-engine-selected"></div>
-                            <div class="search-engine-options"></div>
+                        <div class="settings-item">
+                            <label>Search Engine</label>
+                            <p>The engine used for queries</p>
+                            <div class="search-engine-selector">
+                                <div class="search-engine-selected"></div>
+                                <div class="search-engine-options"></div>
+                            </div>
                         </div>
-                        <label for="prevent-closing-toggle">Prevent Closing</label>
-                        <p>Prevent the tab from being closed</p>
-                        <input type="checkbox" id="prevent-closing-toggle">
+                        <div class="settings-item">
+                            <label>Prevent Closing</label>
+                            <p>Prevent the tab from being closed</p>
+                            <input type="checkbox" id="prevent-closing-toggle">
+                        </div>
                     </div>
                     <div id="cloaking-content" class="tab-content">
-                        <label for="decoy-selector">Decoy</label>
-                        <p>Cloak the current tab as a different website</p>
-                        <div class="decoy-selector">
-                            <div class="decoy-selected"></div>
-                            <div class="decoy-options"></div>
+                        <div class="settings-item">
+                            <label>Decoy</label>
+                            <p>Cloak the title and icon as a different website</p>
+                            <div class="decoy-selector">
+                                <div class="decoy-selected"></div>
+                                <div class="decoy-options"></div>
+                            </div>
                         </div>
-                        <label for="cloak-link-selector">Cloak Link</label>
-                        <p>Cloak the website link on the URL bar</p>
-                        <div class="cloak-link-selector">
-                            <div class="cloak-link-selected"></div>
-                            <div class="cloak-link-options"></div>
+                        <div class="settings-item">
+                            <label>Cloak Link</label>
+                            <p>Cloak the website link on the URL bar</p>
+                            <div class="cloak-link-selector">
+                                <div class="cloak-link-selected"></div>
+                                <div class="cloak-link-options"></div>
+                            </div>
                         </div>
                     </div>
                     <div id="advanced-content" class="tab-content">
-                        <label for="backend-selector">Backend</label>
-                        <p>Choose your preferred backend for browsing</p>
-                        <div class="backend-selector">
-                            <div class="backend-selected"></div>
-                            <div class="backend-options"></div>
+                        <div class="settings-item">
+                            <label>Backend</label>
+                            <p>Responsible for loading your sites</p>
+                            <div class="backend-selector">
+                                <div class="backend-selected"></div>
+                                <div class="backend-options"></div>
+                            </div>
                         </div>
-                        <label for="transport-selector">Transport</label>
-                        <p>Transport is how information will be sent</p>
-                        <div class="transport-selector">
-                            <div class="transport-selected"></div>
-                            <div class="transport-options"></div>
+                        <div class="settings-item">
+                            <label>Transport</label>
+                            <p>How information will be sent</p>
+                            <div class="transport-selector">
+                                <div class="transport-selected"></div>
+                                <div class="transport-options"></div>
+                            </div>
                         </div>
-                        <label for="wisp-server">Wisp Server</label>
-                        <p>Enter a different Wisp Server to connect to</p>
-                        <p>Recommended to keep this as default</p>
-                        <input type="text" id="wisp-server" placeholder="Wisp Server URL Here..." autocomplete="off">
-                        <button id="save-wisp-url">Save</button>
+                        <div class="settings-item">
+                            <label>Wisp Server</label>
+                            <p>Configure the websocket endpoint</p>
+                            <input type="text" id="wisp-server" placeholder="Wisp Server URL Here..." autocomplete="off">
+                            <button id="save-wisp-url">Save</button>
+                        </div>
                     </div>
                     <div id="data-content" class="tab-content">
-                        <label for="export-data-btn">Data Management</label>
-                        <p>Export or Import all your data</p>
-                        <button id="export-data-btn" class="data-action-btn">
-                            <i class="fa-solid fa-file-export"></i> Export Data
-                        </button>
-                        <button id="import-data-btn" class="data-action-btn">
-                            <i class="fa-solid fa-file-import"></i> Import Data
-                        </button>
+                        <div class="settings-item">
+                            <label>Data Management</label>
+                            <p>Export or Import all your data</p>
+                            <button id="export-data-btn" class="data-action-btn">
+                                <i class="fa-solid fa-file-export"></i> Export Data
+                            </button>
+                            <button id="import-data-btn" class="data-action-btn">
+                                <i class="fa-solid fa-file-import"></i> Import Data
+                            </button>
+                        </div>
                     </div>
                     <div id="about-content" class="tab-content">
-                        <label>Credits:</label>
-                        <p>GN-Math - All of the games</p>
-                        <p>Bog - Ports for Hollow Knight, RE:RUN, and Touhou Mother
-                        <p>Titanium Network - Ultraviolet</p>
-                        <p>Mercury Workshop - Scramjet, Epxoy, and Libcurl</p>
-                        <label>You have reached the end!</label>
-                        <p>
-                            Thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">Waves!</a> 
-                            If you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">Discord server</a> 
-                            or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">Github repository</a> <3
-                        </p>
+                        <div class="settings-item">
+                            <label>Credits</label>
+                            <p>GN-Math - All of the games</p>
+                            <p>Bog - Ports for Hollow Knight, RE:RUN, and Touhou Mother
+                            <p>Titanium Network - Ultraviolet</p>
+                            <p>Mercury Workshop - Scramjet, Epxoy, and Libcurl</p>
+                        </div>
+                        <div class="settings-item">
+                            <label>You have reached the end!</label>
+                            <p>
+                                Thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">Waves!</a> 
+                                If you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">Discord server</a> 
+                                or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">Github repository</a> <3
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>
             <button id="close-settings">
-                <i class="fa-solid fa-times"></i>
+                <i class="fa-regular fa-times"></i>
             </button>
         `;
 

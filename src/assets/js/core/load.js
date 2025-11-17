@@ -193,7 +193,7 @@ document.addEventListener('DOMContentLoaded', function () {
         localStorage.setItem("wavesVisited", "true");
         this.showSharePrompt();
       } else {
-        if (Math.random() < 0.20) {
+        if (Math.random() < 0.10) { 
           this.showSharePrompt();
         }
       }
@@ -388,7 +388,7 @@ function loadBannerAdsSequentially(adsQueue) {
   
   const invokeScript = document.createElement('script');
   invokeScript.type = 'text/javascript';
-  invokeScript.src = `//spaniardinformationbookworm.com/${adConfig.options.key}/invoke.js`;
+  invokeScript.src = `//patienthercoldness.com/${adConfig.options.key}/invoke.js`;
   invokeScript.async = true;
 
   const onFinish = () => {
@@ -410,9 +410,9 @@ window.addEventListener("load", function () {
       const script = document.createElement("script");
       script.type = "text/javascript";
       script.src = src + (src.includes("?") ? "&" : "?") + "cb=" + Date.now();
-      script.async = true;
+      script.async = true; 
 
-      script.onload = () =>
+      script.onload = () => {};
       script.onerror = () => {
         console.warn(
           `Failed to load ${src}. Remaining attempts: ${remaining - 1}`
@@ -429,18 +429,36 @@ window.addEventListener("load", function () {
     attempt(retries);
   }
 
-  function loadAdScripts() {
-    const adSources = [
-      "//spaniardinformationbookworm.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js",
-      "//spaniarlinformationbookworm.com/1d/8d/ce/1d8dce254be83f85ebd908954bceb5f1.js",
-    ];
+  const adSources = [
+    "//patienthercoldness.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js",
+    "//patienthercoldness.com/69/2c/e9/692ce9b5c34fb01f7f9c3f9c6e809e94.js",
+    "//patienthercoldness.com/1d/8d/ce/1d8dce254be83f85ebd908954bceb5f1.js"
+  ];
 
-    const incrementalDelay = 300000;
-
-    adSources.forEach((src, index) => {
-      setTimeout(() => loadAdScriptWithRetry(src, 3, 5000), index * incrementalDelay);
+  let adsLoaded = false;
+  
+  function loadDelayedAdScripts() {
+    if (adsLoaded) return;
+    adsLoaded = true;
+    
+    adSources.forEach((src) => {
+      loadAdScriptWithRetry(src, 3, 5000);
     });
+
+    document.removeEventListener('scroll', loadDelayedAdScripts);
+    document.removeEventListener('mousemove', loadDelayedAdScripts);
+    document.removeEventListener('touchstart', loadDelayedAdScripts);
   }
 
-  loadAdScripts();
+  if (window.bannerAdsQueue && window.bannerAdsQueue.length > 0) {
+    setTimeout(() => {
+        loadBannerAdsSequentially(window.bannerAdsQueue);
+    }, 1000); 
+  }
+
+  document.addEventListener('scroll', loadDelayedAdScripts, { once: true });
+  document.addEventListener('mousemove', loadDelayedAdScripts, { once: true });
+  document.addEventListener('touchstart', loadDelayedAdScripts, { once: true });
+
+  setTimeout(loadDelayedAdScripts, 8000); 
 });

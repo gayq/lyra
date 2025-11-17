@@ -5,9 +5,8 @@
     transform: translate(-50%, -50%);
     background-color: #080808;
     padding: 25px 25px;
-    border-radius: 20px;
-    width: 600px;
-    max-width: 90vw;
+    border-radius: 15px;
+    width: 590px;
     z-index: 999999;
     color: #e0e0e0;
     text-align: center;
@@ -16,25 +15,23 @@
 }
 
 #settings-menu h2 {
-    margin-bottom: 20px;
+    color: #e0e0e0;
+    margin-bottom: 15px;
     margin-top: -15px;
     margin-left: 0;
     text-align: left;
-    font-size: 35px;
+    font-size: 25px;
     font-weight: 500;
-    color: #ffffff;
-    letter-spacing: 2px;
 }
 
 #settings-menu label {
     display: block;
     margin-bottom: 15px;
     text-align: left;
-    font-size: 20px;
+    font-size: 17px;
     font-weight: 500;
     color: #e0e0e0;
-    pointer-events: none;
-    transition: color 0.3s ease;
+    cursor: text;
 }
 
 #settings-menu p {
@@ -77,7 +74,7 @@
     z-index: 1000;
     outline: none;
     display: inline-flex;
-    transition: 0.3s ease;
+    transition: 0.15s ease;
 }
 
 #close-settings:hover {
@@ -106,7 +103,7 @@
 .transport-selector, .search-engine-selector, .backend-selector, .decoy-selector, .cloak-link-selector {
     position: relative;
     width: 100%;
-    max-width: 300px;
+    max-width: 255px;
     margin-bottom: 15px;
 }
 
@@ -114,13 +111,12 @@
     background-color: #181818;
     border: 2px solid #ffffff00;
     color: #e0e0e0;
-    padding: 10px;
-    border-radius: 15px;
+    padding: 8px;
+    border-radius: 13px;
     cursor: pointer;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    transition: all 0.1s ease;
 }
 
 .transport-selected:hover, .search-engine-selected:hover, .backend-selected:hover, .decoy-selected:hover, .cloak-link-selected:hover {
@@ -132,7 +128,8 @@
     font-family: "Font Awesome 6 Pro";
     font-weight: 900;
     font-size: 0.8em;
-    transition: all 0.3s ease;
+    color: #9b9b9b;
+    transition: all 0.12s ease;
 }
 
 .transport-selected.transport-arrow-active::after, .search-engine-selected.search-engine-arrow-active::after, .backend-selected.backend-arrow-active::after, .decoy-selected.decoy-arrow-active::after, .cloak-link-selected.cloak-link-arrow-active::after {
@@ -148,11 +145,12 @@
     color: #9b9b9b;
     background-color: #181818;
     border: 2px solid #ffffff00;
-    border-radius: 15px;
+    border-radius: 13px;
     max-height: 0;
     text-align: left;
     overflow: hidden;
-    transition: all 0.3s ease;
+    margin-top: -5px;
+    transition: all 0.12s ease;
     opacity: 0;
     z-index: 10;
     padding: 3px 0;
@@ -161,15 +159,15 @@
 .transport-options.transport-show, .search-engine-options.search-engine-show, .backend-options.backend-show, .decoy-options.decoy-show, .cloak-link-options.cloak-link-show {
     max-height: 400px;
     opacity: 1;
+    margin-top: 5px;
 }
 
 .transport-options div, .search-engine-options div, .backend-options div, .decoy-options div, .cloak-link-options div {
-    padding: 8px;
-    border-radius: 10px;
+    padding: 7px;
+    border-radius: 8px;
     cursor: pointer;
     width: 93%;
     margin: 0 auto;
-    transition: all 0.1s ease;
 }
 
 .transport-options div:hover, .search-engine-options div:hover, .backend-options div:hover, .decoy-options div:hover, .cloak-link-options div:hover {
@@ -224,7 +222,7 @@
 input[type="checkbox"] {
     appearance: none;
     width: 64px;
-    height: 35px;
+    height: 33px;
     margin-left: -343px;
     background-color: #2e2e2e;
     margin-bottom: 5px;
@@ -241,55 +239,43 @@ input[type="checkbox"]:checked {
 
 input[type="checkbox"]::before {
     content: '';
-    width: 24px;
-    height: 24px;
+    width: 20px;
+    height: 20px;
     background-color: #dddddd;
     border-radius: 50%;
     position: absolute;
-    top: 6px;
-    left: 4px;
+    top: 7px;
+    left: 6px;
     transition: all 0.1s ease;
+}
+
+input[type="checkbox"]:hover::before {
+    width: 23px;
+    height: 23px;
+    top: 5px;
+    left: 5px;
+    background-color: #ffffff;
 }
 
 input[type="checkbox"]:checked::before {
     transform: translateX(33px);
 }
 
-input[type="checkbox"]:hover::before {
-    background-color: #ffffff;
-}
-
-input[type="checkbox"]::after {
-    content: '\f00d';
-    font-family: "Font Awesome 6 Pro";
-    font-weight: 900;
-    position: absolute;
-    top: 50%;
-    right: 12px;
-    transform: translateY(-50%);
-    color: #e0e0e0;
-    font-size: 15px;
-    transition: all 0.3s ease-out;
-}
-
-input[type="checkbox"]:checked::after {
-    content: '\f00c';
-    left: 12px;
-    right: auto;
-    color: #e0e0e0;
+input[type="checkbox"]:checked:hover::before {
+    transform: translateX(32px);
 }
 
 .settings-container {
     display: flex;
-    gap: 30px;
-    margin-top: 10px;
+    gap: 15px;
+    margin-top: 5px;
 }
 
 .settings-tabs {
     display: flex;
     flex-direction: column;
     flex: 0 0 160px;
-    gap: 10px;
+    gap: 5px;
 }
 
 .settings {
@@ -305,16 +291,15 @@ input[type="checkbox"]:checked::after {
     border: none;
     color: #888888;
     padding: 12px 14px;
-    border-radius: 15px;
+    border-radius: 11px;
     font-size: 17px;
     cursor: pointer;
-    transition: all 0.1s ease;
     margin: 0;
-    width: 100%;
+    width: 180px;
     text-align: left;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 
 .tab-button i {
@@ -322,12 +307,11 @@ input[type="checkbox"]:checked::after {
 }
 
 .tab-button:hover {
-    background-color: #ffffff23;
     color: #c2c2c2;
 }
 
 .tab-button.active {
-    background-color: #ffffff1f;
+    background-color: #0e0e0e;
     color: #ffffff;
 }
 
@@ -344,33 +328,104 @@ input[type="checkbox"]:checked::after {
     width: 100%;
     height: 100%;
     opacity: 0;
-    transform: translateX(20px);
     visibility: hidden;
-    transition: all 0.1s ease;
 }
 
 .tab-content.active {
     opacity: 1;
-    transform: translateX(0);
     visibility: visible;
-    transition: all 0.1s ease;
 }
 
 .settings-version-label {
     margin-top: auto;
     font-size: 14px;
-    color: #858585;
-    cursor: default;
+    color: #5a5a5a;
+    cursor: text;
     text-align: left;
     padding-left: 2px;
-    padding-top: 18px;
-    opacity: 0.7;
-    transition: all 0.3s ease;
 }
 
-.settings-version-label:hover {
-    color: #ffffff;
+.settings-item {
+    border-radius: 14px;
+    padding: 15px;
+    border: 1px solid #1f1f1f80;
+    margin-bottom: 10px;
+    box-sizing: border-box;
+    text-align: left;
 }
+
+.settings-item:last-child {
+    margin-bottom: 0;
+}
+
+.settings-item label {
+    margin-top: 0;
+    margin-bottom: 5px;
+}
+
+.settings-item p {
+    margin-top: 0;
+}
+
+.settings-item p:last-of-type {
+    margin-bottom: 15px;
+}
+
+.settings-item .transport-selector,
+.settings-item .search-engine-selector,
+.settings-item .backend-selector,
+.settings-item .decoy-selector,
+.settings-item .cloak-link-selector {
+    margin-bottom: 0;
+}
+
+.settings-item input[type="checkbox"] {
+    margin-left: 0;
+    margin-bottom: 0;
+}
+
+.settings-item #wisp-server {
+    margin-left: 0;
+    margin-bottom: 0;
+    max-width: calc(100% - 80px);
+    display: inline-block;
+    box-sizing: border-box;
+}
+
+.settings-item #save-wisp-url {
+    margin-left: 5px;
+    display: inline-block;
+    vertical-align: top;
+    width: 65px;
+    box-sizing: border-box;
+}
+
+.settings-item .data-action-btn {
+    margin-bottom: 10px;
+}
+
+.settings-item .data-action-btn:last-child {
+    margin-bottom: 0;
+}
+
+.tab-content.active::-webkit-scrollbar {
+    width: 5px;
+}
+
+.tab-content.active::-webkit-scrollbar-track {
+    background: #0f0f0f;
+    border-radius: 6px;
+}
+
+.tab-content.active::-webkit-scrollbar-thumb {
+    background: #4e4e4e;
+    border-radius: 6px;
+}
+
+.tab-content.active::-webkit-scrollbar-thumb:hover {
+    background: #6b6b6b;
+}
+
 
 @keyframes openMenu {
     0% {

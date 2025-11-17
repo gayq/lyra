@@ -1,6 +1,6 @@
 export const DEFAULT_BOOKMARKS = [
-    { name: 'CrazyGames', url: 'https://crazygames.com/' },
-    { name: 'Youtube', url: 'https://youtube.com/' },
+    { name: 'CrazyGames', url: 'https://www.crazygames.com/' },
+    { name: 'Youtube', url: 'https://www.youtube.com/?themeRefresh=1' },
     { name: 'SoundCloud', url: 'https://soundcloud.com/' },
     { name: 'Cineby', url: 'https://www.cineby.gd/' },
     { name: 'Discord', url: 'https://discord.com/login/' },

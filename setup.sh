@@ -76,173 +76,12 @@ run_task() {
     fi
 }
 
-configure_caddy_no_proxy() {
-    local OVERRIDE_DIR="/etc/systemd/system/caddy.service.d"
-    local OVERRIDE_PATH="$OVERRIDE_DIR/override.conf"
-    local NO_PROXY_VALUE="127.0.0.1"
-    
-    if [ ! -d "$OVERRIDE_DIR" ]; then
-        sudo mkdir -p "$OVERRIDE_DIR"
-    fi
-
-    sudo tee "$OVERRIDE_PATH" > /dev/null <<EOF
-[Service]
-Environment="NO_PROXY=$NO_PROXY_VALUE"
-EOF
-    
-    sudo systemctl daemon-reload
-}
-
-
-create_config_files() {
-  sudo mkdir -p /etc/epoxy-server
-  sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
-{
-    email sefiicc@gmail.com
-    
-    on_demand_tls {
-        ask http://127.0.0.1:3001/
-    }
-}
-
-:443 {
-    tls {
-        on_demand
-    }
-    
-    @websockets {
-        path /w/*
-        header Connection *Upgrade*
-        header Upgrade websocket
-    }
-    reverse_proxy @websockets http://localhost:8080
-    reverse_proxy http://localhost:3000
-    encode zstd gzip
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        X-Frame-Options "ALLOWALL"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "no-referrer"
-    }
-}
-
-:80 {
-    redir https://{host}{uri} permanent
-}
-EOF
-
-  sudo tee /etc/epoxy-server/config.toml >/dev/null <<EOF
-[server]
-bind = ["tcp", "0.0.0.0:8080"]
-transport = "websocket"
-resolve_ipv6 = false
-tcp_nodelay = true
-file_raw_mode = false
-use_real_ip_headers = false
-non_ws_response = "Hii! You should join discord.gg/dJvdkPRheV"
-max_message_size = 65536
-log_level = "INFO"
-runtime = "multithread"
-
-[wisp]
-allow_wsproxy = true
-buffer_size = 131072
-prefix = "/w"
-wisp_v2 = true
-extensions = ["udp", "motd"]
-password_extension_required = true
-certificate_extension_required = true
-[stream]
-tcp_nodelay = true
-buffer_size = 131072
-allow_udp = true
-allow_wsproxy_udp = false
-dns_servers = ["1.1.1.1", "1.0.0.1"]
-allow_direct_ip = true
-allow_loopback = true
-allow_multicast = true
-allow_global = true
-allow_non_global = true
-allow_tcp_hosts = []
-block_tcp_hosts = []
-allow_udp_hosts = []
-block_udp_hosts = []
-allow_hosts = []
-block_hosts = []
-allow_ports = []
-block_ports = []
-EOF
-  tee ecosystem.config.cjs >/dev/null <<EOF
-module.exports = {
-  apps: [
-    {
-      name: "ask",
-      script: "bun",
-      args: "run ask.js",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: "100M"
-    },
-    {
-      name: "waves",
-      script: "bun",
-      args: "start",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: "4G",
-      env: {
-        NODE_ENV: "production",
-      }
-    },
-    {
-      name: "wireproxy",
-      script: "/usr/local/bin/wireproxy",
-      args: "-c /etc/wireproxy/wireproxy.conf",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: "1G"
-    },
-    {
-      name: "epoxy-server",
-      script: "proxychains4",
-      args: "/usr/local/bin/epoxy-server /etc/epoxy-server/config.toml",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: "4G"
-    }
-  ]
-};
-EOF
-}
-
-configure_proxychains() {
-    sudo tee /etc/proxychains4.conf >/dev/null <<EOF
-strict_chain
-proxy_dns
-remote_dns_subnet 224
-tcp_read_time_out 15000
-tcp_connect_time_out 8000
-[ProxyList]
-socks5 127.0.0.1 1080
-EOF
-}
-
 check_and_configure_ports() {
     info "Checking network ports and firewall"
     local ports_to_check="80 443 3000 8080"
-    local ufw_ports_to_open="80 443 3000 8080" 
-    local allowed_processes="caddy epoxy-server bun wireproxy"
+    local allowed_processes="caddy epoxy-server bun"
 
-    for port in $ports_to_check 1080; do 
+    for port in $ports_to_check; do
         if ss -tlpn | grep -q ":$port\b"; then
             local process_info
             process_info=$(ss -tlpn | grep ":$port\b")
@@ -269,7 +108,7 @@ check_and_configure_ports() {
 
     if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
         info "UFW firewall detected! Configuring rules..."
-        for port in $ufw_ports_to_open; do 
+        for port in $ports_to_check; do
             if ! sudo ufw status | grep -q "$port/tcp"; then
                 run_task "Allowing port $port/tcp through UFW" "Port $port/tcp allowed" "sudo ufw allow $port/tcp"
             else
@@ -278,31 +117,6 @@ check_and_configure_ports() {
         done
     fi
 }
-
-install_epoxy_server() {
-    echo "Cloning and ensuring latest source..."
-    if [ ! -d "$HOME/epoxy-tls" ]; then
-        git clone https://github.com/MercuryWorkshop/epoxy-tls.git "$HOME/epoxy-tls"
-    fi
-    
-    cd "$HOME/epoxy-tls"
-    git fetch
-    if git rev-parse --verify main >/dev/null 2>&1; then
-        git checkout prod
-    fi
-    git pull
-
-    echo "Compiling..."
-    if ! grep -q "^\[profile.release\]" Cargo.toml; then
-        printf "\n[profile.release]\nlto = \"fat\"\ncodegen-units = 1\n" >> Cargo.toml
-    fi
-    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
-    
-    echo "Installing binary..."
-    sudo cp "$HOME/epoxy-tls/target/release/epoxy-server" /usr/local/bin/epoxy-server
-    cd - >/dev/null 2>&1
-}
-
 
 clear
 printf "${MAUVE}"
@@ -320,50 +134,34 @@ check_and_configure_ports
 info "Checking dependencies"
 
 dependencies_needed=false
-if ! command -v unzip >/dev/null 2>&1 || ! command -v bun >/dev/null 2>&1 || ! $HOME/.bun/bin/bun pm -g ls | grep -q 'pm2@' || ! command -v cargo >/dev/null 2>&1 || ! command -v proxychains4 >/dev/null 2>&1 || ! dpkg-query -l 2>/dev/null | grep -q caddy || ! command -v jq >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1 || ! command -v dig >/dev/null 2>&1; then
+if ! command -v unzip >/dev/null 2>&1 || ! command -v bun >/dev/null 2>&1 || ! $HOME/.bun/bin/bun pm -g ls | grep -q 'pm2@' || ! command -v cargo >/dev/null 2>&1 || ! dpkg-query -l 2>/dev/null | grep -q caddy; then
   dependencies_needed=true
 fi
 
 if [ "$dependencies_needed" = true ]; then
   run_task "Installing missing dependencies" "Dependencies installed" '
-    sudo apt-get update -y >/dev/null 2>&1
-
     if ! command -v unzip >/dev/null 2>&1; then
-      sudo apt-get install -y unzip >/dev/null 2>&1
+      sudo apt-get update -y >/dev/null 2>&1 && sudo apt-get install -y unzip >/dev/null 2>&1
     fi
-    if ! command -v proxychains4 >/dev/null 2>&1; then
-      sudo apt-get install -y proxychains-ng >/dev/null 2>&1
-    fi
-    if ! command -v jq >/dev/null 2>&1; then
-      sudo apt-get install -y jq >/dev/null 2>&1
-    fi
-    if ! command -v dig >/dev/null 2>&1; then
-      sudo apt-get install -y dnsutils >/dev/null 2>&1
-    fi
-    
     if ! command -v bun >/dev/null 2>&1; then
       curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1
+      export PATH="$HOME/.bun/bin:$PATH"
     fi
-    
     if ! $HOME/.bun/bin/bun pm -g ls | grep -q "pm2@"; then
-      "$HOME/.bun/bin/bun" add -g pm2 >/dev/null 2>&1
-    else
-      "$HOME/.bun/bin/bun" update -g pm2 >/dev/null 2>&1
+      $HOME/.bun/bin/bun add -g pm2 >/dev/null 2>&1
     fi
-
     if ! command -v cargo >/dev/null 2>&1; then
       curl https://sh.rustup.rs -sSf | sh -s -- -y >/dev/null 2>&1
       export PATH="$HOME/.cargo/bin:$PATH"
     fi
-    
     if ! dpkg-query -l 2>/dev/null | grep -q caddy; then
-      sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https git build-essential pkg-config libssl-dev jq proxychains-ng dnsutils >/dev/null 2>&1
+      sudo apt-get update -y >/dev/null 2>&1
+      sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https git build-essential pkg-config libssl-dev >/dev/null 2>&1
       curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg >/dev/null 2>&1
       curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null 2>&1
       sudo apt-get update -y >/dev/null 2>&1
       sudo apt-get install -y caddy >/dev/null 2>&1
     fi
-    
     if ! command -v node >/dev/null 2>&1; then
       curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
       sudo apt-get install -y nodejs >/dev/null 2>&1
@@ -373,51 +171,6 @@ if [ "$dependencies_needed" = true ]; then
 else
   success "All dependencies are already installed"
 fi
-
-info "Setting up WireProxy"
-
-WGCF_LATEST_URL=$(curl -s https://api.github.com/repos/ViRb3/wgcf/releases/latest | jq -r '.assets[] | select(.name | endswith("_linux_amd64")) | .browser_download_url')
-WIREPROXY_LATEST_URL=$(curl -s https://api.github.com/repos/whyvl/wireproxy/releases/latest | jq -r '.assets[] | select(.name | endswith("_linux_amd64.tar.gz")) | .browser_download_url')
-
-run_task "Installing WireProxy and WGCF" "Binaries installed" "
-    curl -L -o wgcf \"$WGCF_LATEST_URL\"
-    chmod +x wgcf
-    sudo mv wgcf /usr/local/bin/wgcf
-
-    curl -L -o wireproxy.tar.gz \"$WIREPROXY_LATEST_URL\"
-    tar -xzf wireproxy.tar.gz
-    chmod +x wireproxy
-    sudo mv wireproxy /usr/local/bin/wireproxy
-    rm wireproxy.tar.gz
-"
-
-if [ ! -f "/etc/wireproxy/wireproxy.conf" ]; then
-    run_task "Generating Cloudflare WARP config" "WireGuard config created" '
-        sudo mkdir -p /etc/wireproxy
-        wgcf register --accept-tos
-        wgcf generate
-        
-        ENDPOINT_LINE=`grep "Endpoint" wgcf-profile.conf`
-        HOSTNAME=`echo $ENDPOINT_LINE | cut -d " " -f 3 | cut -d ":" -f 1`
-        PORT=`echo $ENDPOINT_LINE | cut -d " " -f 3 | cut -d ":" -f 2`
-        
-        IP=`dig +short $HOSTNAME | head -n 1`
-        
-        sudo cp wgcf-profile.conf /etc/wireproxy/wireproxy.conf
-        
-        sudo sed -i "s|$HOSTNAME:$PORT|$IP:$PORT|" /etc/wireproxy/wireproxy.conf
-
-        sudo sed -i "/^Endpoint = /a PersistentKeepalive = 25\nMTU = 1280" /etc/wireproxy/wireproxy.conf
-        
-        echo "\n[Socks5]\nBindAddress = 127.0.0.1:1080" | sudo tee -a /etc/wireproxy/wireproxy.conf
-        
-        rm wgcf-profile.conf
-    '
-else
-    success "WireGuard configuration already exists"
-fi
-
-run_task "Configuring ProxyChains" "ProxyChains configured" "configure_proxychains"
 
 info "Tuning system"
 if grep -q "net.core.somaxconn = 65535" /etc/sysctl.d/99-waves-optimizations.conf 2>/dev/null; then
@@ -467,24 +220,149 @@ fi
 warn "A reboot may be required for all system optimizations to take full effect"
 
 info "Setting up epoxy-server"
-run_task "Compiling and installing epoxy-server" "epoxy-server compiled and installed" "install_epoxy_server"
+if [ ! -d "$HOME/epoxy-tls" ]; then
+    run_task "Cloning repository" "Repository cloned" "git clone https://github.com/MercuryWorkshop/epoxy-tls.git '$HOME/epoxy-tls'"
+else
+    cd "$HOME/epoxy-tls"
+    run_task "Updating repository" "Repository updated" "git pull"
+fi
+
+run_task "Compiling" "Compiled" '
+  cd "$HOME/epoxy-tls"
+
+  if ! grep -q "^\[profile.release\]" Cargo.toml; then
+      printf "\n[profile.release]\n" >> Cargo.toml
+  fi
+  if ! grep -q "^lto = " Cargo.toml; then
+      sed -i "/^\[profile.release\]/a lto = \"fat\"" Cargo.toml
+  fi
+  if ! grep -q "^codegen-units = " Cargo.toml; then
+      sed -i "/^\[profile.release\]/a codegen-units = 1" Cargo.toml
+  fi
+  if ! grep -q "^panic = " Cargo.toml; then
+      sed -i "/^\[profile.release\]/a panic = \"abort\"" Cargo.toml
+  fi
+  
+  RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  sudo cp "$HOME/epoxy-tls/target/release/epoxy-server" /usr/local/bin/epoxy-server
+'
+cd - >/dev/null 2>&1
 
 info "Getting Waves ready"
-run_task "Building" "Built successfully" '
+run_task "Installing and building" "Built successfully" '
   cd "$HOME/waves"
-  "$HOME/.bun/bin/bun" install && "$HOME/.bun/bin/bun" run build
+  bun install && bun run build
 '
 
 info "Creating configuration files"
-run_task "Creating configuration files" "Configuration files created" "create_config_files"
+run_task "Creating configuration files (Caddy, Epoxy, PM2)" "Configuration files created" '
+  sudo mkdir -p /etc/epoxy-server
+  sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
+{
+    email sefiicc@gmail.com
+}
+:443 {
+    tls {
+        on_demand
+    }
+    @websockets {
+        path /w/*
+        header Connection *Upgrade*
+        header Upgrade websocket
+    }
+    reverse_proxy @websockets http://localhost:8080
+    reverse_proxy http://localhost:3000
+    encode zstd gzip
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Frame-Options "ALLOWALL"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer"
+    }
+}
+:80 {
+    redir https://{host}{uri} permanent
+}
+EOF
+
+  sudo tee /etc/epoxy-server/config.toml >/dev/null <<EOF
+[server]
+bind = ["tcp", "0.0.0.0:8080"]
+transport = "websocket"
+resolve_ipv6 = false
+tcp_nodelay = true
+file_raw_mode = false
+use_real_ip_headers = false
+non_ws_response = "Hii! You should join discord.gg/dJvdkPRheV"
+max_message_size = 65536
+log_level = "INFO"
+runtime = "multithread"
+[wisp]
+allow_wsproxy = true
+buffer_size = 524288
+prefix = "/w"
+wisp_v2 = true
+extensions = ["udp", "motd"]
+password_extension_required = true
+certificate_extension_required = true
+[stream]
+tcp_nodelay = true
+buffer_size = 524288
+allow_udp = true
+allow_wsproxy_udp = false
+dns_servers = ["1.1.1.3", "1.0.0.3"]
+allow_direct_ip = true
+allow_loopback = true
+allow_multicast = true
+allow_global = true
+allow_non_global = true
+allow_tcp_hosts = []
+block_tcp_hosts = []
+allow_udp_hosts = []
+block_udp_hosts = []
+allow_hosts = []
+block_hosts = []
+allow_ports = []
+block_ports = []
+EOF
+  tee ecosystem.config.cjs >/dev/null <<EOF
+module.exports = {
+  apps: [
+    {
+      name: "waves",
+      script: "bun",
+      args: "start",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "4G",
+      env: {
+        NODE_ENV: "production",
+      }
+    },
+    {
+      name: "epoxy-server",
+      script: "/usr/local/bin/epoxy-server",
+      args: "/etc/epoxy-server/config.toml",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: "4G"
+    }
+  ]
+};
+EOF
+'
 
 info "Checking services"
 run_task "Configuring and starting services" "All services are up and running" '
-  configure_caddy_no_proxy
   sudo caddy fmt --overwrite /etc/caddy/Caddyfile
   sudo caddy validate --config /etc/caddy/Caddyfile
   sudo systemctl restart caddy
-  "$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env
+  "$HOME/.bun/bin/pm2" start ecosystem.config.cjs
   "$HOME/.bun/bin/pm2" save
   sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 '

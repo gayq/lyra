@@ -36,8 +36,10 @@
     <title>Coursera | Degrees, Certificates, & Free Online Courses</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link rel="icon" href="/assets/images/icons/favicon.ico" type="image/x-icon" />
-    <link rel="preload" href="/assets/css/index.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
-    <link rel="preload" href="/assets/css/vendors/font-awesome/css/all.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+    
+    <link rel="stylesheet" href="/assets/css/index.css" />
+    <link rel="stylesheet" href="/assets/css/vendors/font-awesome/css/all.css" />
+
     <link rel="preload" href="/assets/css/settings.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
     <link rel="preload" href="/assets/css/games.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
     <link rel="preload" href="/assets/css/toast.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
@@ -45,6 +47,10 @@
     <noscript>
     <link rel="stylesheet" href="/assets/css/index.css" />
     <link rel="stylesheet" href="/assets/css/vendors/font-awesome/css/all.css" />
+    <link rel="stylesheet" href="/assets/css/settings.css" />
+    <link rel="stylesheet" href="/assets/css/games.css" />
+    <link rel="stylesheet" href="/assets/css/toast.css" />
+    <link rel="stylesheet" href="/assets/css/vendors/nprogress/nprogress.css" />
     </noscript>
     <script>
         (function() {
@@ -100,7 +106,7 @@
         <button class="prompt-close-btn" id="sharePromptClose">Okay</button>
     </div>
     <script src="/assets/js/core/load.js"></script>
-    <script src="/assets/js/features/settings.js"></script>
+    <script src="/assets/js/features/settings.js" defer></script>
     <script type="module" src="/assets/js/index.js"></script>
     <script src="/assets/js/core/register.js" defer></script>
     <nav class="sidebar">
@@ -208,9 +214,9 @@
         </div>
         <div id="bookmark-prompt" class="popup" style="display:none;">
             <div class="input-container">
-                <label for="bookmarkName">Bookmark Name:</label>
+                <label>Bookmark Name:</label>
                 <input type="text" id="bookmarkName" placeholder="My Cool Website" autocomplete="off">
-                <label for="bookmarkUrl" style="margin-top:15px;">Bookmark URL:</label>
+                <label style="margin-top:15px;">Bookmark URL:</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
                     <button id="saveBookmarkBtn">Save</button>

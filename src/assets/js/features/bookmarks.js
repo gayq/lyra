@@ -81,7 +81,6 @@ const renderBookmarks = () => {
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'bookmark-delete-trigger';
         deleteBtn.innerHTML = '<i class="fa-regular fa-times"></i>';
-        deleteBtn.title = 'Delete Bookmark';
         deleteBtn.onclick = (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -91,7 +90,6 @@ const renderBookmarks = () => {
         const editBtn = document.createElement('button');
         editBtn.className = 'bookmark-edit-trigger';
         editBtn.innerHTML = '<i class="fa-regular fa-edit"></i>';
-        editBtn.title = 'Edit Bookmark';
         editBtn.onclick = (e) => {
             e.stopPropagation();
             e.preventDefault();
