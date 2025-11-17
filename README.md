@@ -64,6 +64,10 @@ bun start
 - [Titanium Network](https://github.com/titaniumnetwork-dev/Ultraviolet/) - Ultraviolet
 - [Mercury Workshop](https://github.com/MercuryWorkshop/) - Scramjet, Epoxy, and Libcurl
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=l4uy/waves&type=date&legend=top-left)](https://www.star-history.com/#l4uy/waves&type=date&legend=top-left)
+
 
 ## License
 
