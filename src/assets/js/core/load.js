@@ -187,10 +187,10 @@ document.addEventListener('DOMContentLoaded', function () {
     closeBtn: document.getElementById("sharePromptClose"),
     init() {
       this.closeBtn?.addEventListener('click', () => this.hideSharePrompt(false));
-      const visited = localStorage.getItem("wavesVisited");
+      const visited = localStorage.getItem("xinVisited");
       
       if (!visited) {
-        localStorage.setItem("wavesVisited", "true");
+        localStorage.setItem("xinVisited", "true");
         this.showSharePrompt();
       } else {
         if (Math.random() < 0.10) { 
@@ -361,10 +361,23 @@ document.addEventListener('DOMContentLoaded', function () {
   if (window.NProgress) {
     NProgress.configure({ showSpinner: false });
   }
-  const titleElement = document.querySelector(".search-title");
+  const phrasesElement = document.querySelector(".phrases");
   const phrases = ["hihihi", "<33", "Uhh....", "Hello!"];
-  if (titleElement) {
-    titleElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+  if (phrasesElement) {
+    phrasesElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
+  }
+
+  const searchInput = document.getElementById('searchInput');
+  const placeholders = [
+      "Have anything in mind?",
+      "(˶˃ ᵕ ˂˶)",
+      "The website lowkey breaks a lot",
+      "1 update per year",
+      "Waves is such a good website!!"
+  ];
+
+  if (searchInput) {
+      searchInput.placeholder = placeholders[Math.floor(Math.random() * placeholders.length)];
   }
 
   window.SharePromoter.init();

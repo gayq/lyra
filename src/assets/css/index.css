@@ -61,7 +61,7 @@ body.is-resizing .iframe {
     box-sizing: border-box;
     overflow: hidden;
     white-space: nowrap;
-    transition: width 0.3s ease-in-out, padding 0.3s ease-in-out, opacity 0.3s ease-in-out;
+    transition: width 0.2s ease-in-out, padding 0.2s ease-in-out, opacity 0.2s ease-in-out;
     position: relative;
     z-index: 3;
 }
@@ -79,7 +79,7 @@ body.sidebar-hidden .sidebar {
     width: 0;
     padding: 0;
     opacity: 0;
-    transition: width 0.3s ease-in-out, padding 0.3s ease-in-out, opacity 0.3s ease-in-out, visibility 0s 0.3s;
+    transition: width 0.2s ease-in-out, padding 0.2s ease-in-out, opacity 0.2s ease-in-out, visibility 0s 0.2s;
     visibility: hidden; 
 }
 
@@ -100,7 +100,7 @@ body:not(.browser-view) .sidebar {
     height: 99%;
     margin-left: 0; 
     margin-bottom: 8px;
-    transition: margin-left 0.3s ease-in-out, width 0.3s ease-in-out;
+    transition: margin-left 0.2s ease-in-out, width 0.2s ease-in-out;
     border: 1px solid #ffffff1f;
     border-radius: 6px;
     overflow: hidden; 
@@ -149,15 +149,12 @@ body.is-picking-split #iframe-container .iframe {
     top: auto; 
     left: auto;
     transition: none;
-
     border: 1px solid #ffffff1f; 
     border-radius: 6px; 
     overflow: hidden; 
     display: none; 
-
     flex-grow: 1;
     flex-basis: 0;
-
     z-index: 0; 
     transform: translateZ(0); 
 }
@@ -251,14 +248,53 @@ body.is-picking-split .tab.split-active-left {
 
 body.browser-view .main-container,
 body.browser-view #bookmarks-container,
-body.browser-view #ad-container-right,
 body.browser-view #ad-container-left,
-body.browser-view #ad-container-bottom,
+body.browser-view #ad-container-right,
 body.browser-view #left-icons,
 body.browser-view #right-top-icons,
 body.browser-view #right-bottom-icons,
 body.browser-view #disclaimer { 
     display: none;
+}
+
+.ad-container-right {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 220px;
+    height: 300px;
+    z-index: 1000;
+    background-color: transparent;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    filter: brightness(0.4);
+}
+
+.ad-container-right:hover {
+    filter: brightness(1);
+    transform: translateY(-50%) scale(1.02);
+}
+
+.ad-container-left {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 220px;
+    height: 300px;
+    z-index: 1000;
+    background-color: transparent;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    filter: brightness(0.4);
+}
+
+.ad-container-left:hover {
+    filter: brightness(1);
+    transform: translateY(-50%) scale(1.02);
 }
 
 body.browser-view #iframe-container {
@@ -709,7 +745,8 @@ body.browser-view .main-header {
     z-index: 20;
 }
 
-.search-title {
+.phrases {
+    font-family: 'Comic Neue', cursive;
     font-size: 55px;
     font-weight: 500;
     margin-bottom: 5px;
@@ -717,17 +754,6 @@ body.browser-view .main-header {
     display: inline-block;
     color: white;
     transition: all 0.1s ease;
-}
-
-.search-version {
-    font-size: 20px;
-    color: #ffffff;
-    margin-bottom: -40px;
-    margin-right: -255px;
-    font-weight: 500;
-    transition: all 0.1s ease;
-    transform: rotate(33deg);
-    animation: fadeUp 0.6s forwards;
 }
 
 .search-bar {
@@ -757,7 +783,7 @@ body.browser-view .main-header {
 }
 
 .search-bar input[type=text]::placeholder {
-    color: #ffffff69;
+    color: #ffffff43;
 }
 
 .light-border {
@@ -792,13 +818,13 @@ body.browser-view .main-header {
     position: absolute;
     inset: 0.8px; 
     border-radius: 24px; 
-    background-color: #0e0e0e;
+    background-color: #0d0d0d;
     transition: background-color 0.1s ease;
     z-index: 2;
 }
 
 .search-bar:focus-within .light-inset-bg {
-    background-color: #161616;
+    background-color: #111111;
 }
 
 .suggestions-box {
@@ -1206,7 +1232,7 @@ body.browser-view .main-header {
 
 #bookmarks-title {
     font-size: 15px;
-    color: #adadad;
+    color: #a5a5a5;
     font-weight: 400;
     margin: 0;
 }
