@@ -464,7 +464,7 @@ run_task "Compiling and installing epoxy-server" "epoxy-server compiled and inst
 info "Getting Waves ready"
 run_task "Building" "Built successfully" '
   cd "$HOME/waves"
-  bun install && bun run build
+  "$HOME/.bun/bin/bun" install && "$HOME/.bun/bin/bun" run build
 '
 
 info "Creating configuration files"
