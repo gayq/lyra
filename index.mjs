@@ -11,6 +11,7 @@ import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
+import { Readable } from "stream";
 
 dotenv.config();
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -53,8 +54,81 @@ app.use((req, res, next) => {
   next();
 });
 
+const MIME_TYPES = {
+    '.html': 'text/html',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.wasm': 'application/wasm',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.ttf': 'font/ttf',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2'
+};
+
+app.use(/^\/!!\/(.*)/, async (req, res) => {
+    try {
+        let targetUrl = req.params[0]; 
+        
+        if (!targetUrl) {
+             const prefix = "/!!/";
+             if (req.originalUrl.includes(prefix)) {
+                 targetUrl = req.originalUrl.substring(req.originalUrl.indexOf(prefix) + prefix.length);
+             }
+        }
+
+        if (!targetUrl || !targetUrl.startsWith("http")) {
+             return res.status(400).send("Invalid URL");
+        }
+
+        const response = await fetch(targetUrl);
+        
+        if (!response.ok) {
+            return res.status(response.status).send(response.statusText);
+        }
+
+        const urlObj = new URL(targetUrl);
+        const ext = path.extname(urlObj.pathname).toLowerCase();
+        let contentType = MIME_TYPES[ext];
+
+        if (!contentType) {
+            contentType = response.headers.get("content-type");
+        }
+
+        if (contentType) {
+            res.setHeader("Content-Type", contentType);
+        }
+
+        if (ext !== '.html' && ext !== '.json') {
+            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        } else {
+            res.setHeader("Cache-Control", "public, max-age=3600");
+        }
+
+        if (response.body) {
+           Readable.fromWeb(response.body).pipe(res);
+        } else {
+           res.end();
+        }
+
+    } catch (err) {
+        if (err.code !== 'ECONNRESET' && err.code !== 'EPIPE') {
+             console.error("Error:", err.message);
+        }
+        if (!res.headersSent) {
+            res.status(500).send("Uh oh!! We got an error while fetching the game :( Check the console for more info");
+        }
+    }
+});
+
 app.use((req, res, next) => {
-  if (req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/api/") || req.originalUrl.includes("/!!/")) return next();
+  
   const key = req.originalUrl;
   const val = pageCache.get(key);
   if (val) {
@@ -107,6 +181,7 @@ app.get("/api/version", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
+app.get("/s", (_req, res) => {res.sendFile(path.join(srcPath, "settings.html"));});
 app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
 
 server.keepAliveTimeout = 5000;
@@ -127,5 +202,5 @@ if (NODE_ENV === 'development') {
 
 server.on("error", err => console.error(`Server error: ${err}`));
 server.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
+  console.log(`Listening on port ${PORT} (˶ᵔ ᵕ ᵔ˶)`);
 });

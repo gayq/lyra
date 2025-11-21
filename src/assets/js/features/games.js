@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gamesMenu = document.getElementById('games-menu');
     if (!gamesMenu) return;
 
-    const ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@latest/zones.json";
+    const ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
     const COVER_URL = "https://cdn.jsdelivr.net/gh/gn-math/covers@main";
     const HTML_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
 
@@ -52,7 +52,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 featured: zone.featured || false
                             };
                         })
-                        .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'));
+                        .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'))
+                        .sort((a, b) => {
+                            if (a.featured && !b.featured) return -1;
+                            if (!a.featured && b.featured) return 1;
+                            return a.name.localeCompare(b.name);
+                        });
                                         
                     gamesDataLoaded = true;
                     
