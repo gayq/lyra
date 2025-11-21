@@ -112,8 +112,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
             window.toggleSettingsMenu();
         }
-        if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-            window.SharePromoter.hideSharePrompt(true); 
+        if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function') {
+            const sharePrompt = document.getElementById('sharePrompt');
+            if (sharePrompt && sharePrompt.style.display === 'block') {
+              window.SharePromoter.hideSharePrompt(true); 
+            }
         }
         if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
             window.hideBookmarkPrompt(true);
@@ -188,6 +191,10 @@ document.addEventListener('DOMContentLoaded', function () {
     init() {
       this.closeBtn?.addEventListener('click', () => this.hideSharePrompt(false));
       const visited = localStorage.getItem("xinVisited");
+      
+      if (localStorage.getItem("justUpdated") === "true") {
+        return;
+      }
       
       if (!visited) {
         localStorage.setItem("xinVisited", "true");

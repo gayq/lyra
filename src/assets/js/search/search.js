@@ -98,36 +98,28 @@ export async function handleSearch(query, activeTab, gameName) {
 
     showLoadingScreen();
     
-    const isInjectableGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/");
+    const isInjectableGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/") || 
+                             searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
+                             searchURL.startsWith("https://rawcdn.githack.com/");
 
     if (isInjectableGame) {
         try {
-            const response = await fetch(searchURL, { cache: 'no-store' });
-            if (!response.ok) {
-                throw new Error(`Failed to fetch game: ${response.statusText}`);
-            }
-            const htmlContent = await response.text();
+            let processedURL = searchURL;
+            const path = new URL(searchURL).pathname;
+            const lastSegment = path.split('/').pop();
+            const isFile = lastSegment.includes('.');
 
-            const iframe = activeTab.iframe;
-            if (!iframe) {
-                throw new Error("Active tab has no iframe.");
+            if (!isFile) {
+                if (!processedURL.endsWith('/')) {
+                    processedURL += '/';
+                }
+                processedURL += 'index.html';
             }
 
-            const baseTag = `<base href="${searchURL}">`;
-            let finalHtml = htmlContent;
+            const pedUrl = '/!!/' + processedURL;
             
-            if (finalHtml.includes('<head>')) {
-                finalHtml = finalHtml.replace('<head>', `<head>${baseTag}`);
-            } else if (finalHtml.includes('<html>')) {
-                 finalHtml = finalHtml.replace('<html>', `<html><head>${baseTag}</head>`);
-            } else {
-                finalHtml = baseTag + finalHtml;
-            }
+            navigateIframeTo(activeTab.iframe, pedUrl);
 
-            iframe.dataset.manualUrl = searchURL; 
-            iframe.srcdoc = finalHtml;
-            iframe.src = '';
-            
             if (activeTab.historyManager && typeof activeTab.historyManager.add === 'function') {
                 activeTab.historyManager.push(searchURL);
             }
@@ -138,7 +130,6 @@ export async function handleSearch(query, activeTab, gameName) {
                 canGoForward: activeTab.historyManager.canGoForward()
             });
 
-            hideLoadingScreen();
         } catch (error) {
             hideLoadingScreen();
             showToast('error', error.message || 'Failed to load game content.', 'error');
