@@ -69,7 +69,7 @@ run_task() {
     prefix=$(styled_prefix "$category" "$YELLOW")
 
     local output_file
-    output_file=$(mptemp) 
+    output_file=$(mktemp) 
     
     ( eval "$cmd" ) >"$output_file" 2>&1 &
     local pid=$!
