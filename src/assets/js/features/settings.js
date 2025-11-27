@@ -1,7 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-    
-    const settingsIcon = document.getElementById('settings');
-    if (!settingsIcon) return;
 
     function openDB(dbName) {
         return new Promise((resolve, reject) => {
@@ -41,15 +38,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (usesOutOfLineKeys) {
                         const keysRequest = store.getAllKeys();
                         keysRequest.onerror = (event) => {
-                             console.error(`Error reading keys from store ${storeName}:`, event.target.error);
-                             reject(event.target.error);
+                            console.error(`Error reading keys from store ${storeName}:`, event.target.error);
+                            reject(event.target.error);
                         };
                         keysRequest.onsuccess = (keyEvent) => {
                             const keys = keyEvent.target.result;
                             exportData[storeName] = {
                                 __isExportFormatV2: true,
                                 usesOutOfLineKeys: true,
-                                data: keys.map((key, i) => ({ key: key, value: values[i] }))
+                                data: keys.map((key, i) => ({
+                                    key: key,
+                                    value: values[i]
+                                }))
                             };
                             resolve();
                         };
@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         exportData[storeName] = {
                             __isExportFormatV2: true,
                             usesOutOfLineKeys: false,
-                            data: values 
+                            data: values
                         };
                         resolve();
                     }
@@ -72,8 +72,10 @@ document.addEventListener('DOMContentLoaded', function() {
     async function exportAllData(fileName) {
         try {
             const masterExport = {
-                localStorage: { ...localStorage },
-                sessionStorage: { ...sessionStorage },
+                localStorage: { ...localStorage
+                },
+                sessionStorage: { ...sessionStorage
+                },
                 indexedDB: {}
             };
 
@@ -96,19 +98,21 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 console.warn('indexedDB.databases() is not supported, exporting only __op.');
                 try {
-                     const dbData = await _exportDB('__op');
-                     if (dbData) {
-                         masterExport.indexedDB['__op'] = dbData;
-                     }
+                    const dbData = await _exportDB('__op');
+                    if (dbData) {
+                        masterExport.indexedDB['__op'] = dbData;
+                    }
                 } catch (err) {
-                     console.error('Failed to export default DB: __op', err);
+                    console.error('Failed to export default DB: __op', err);
                 }
             }
-            
+
             const dataStr = JSON.stringify(masterExport, null, 2);
-            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const dataBlob = new Blob([dataStr], {
+                type: 'application/json'
+            });
             const url = URL.createObjectURL(dataBlob);
-            
+
             const a = document.createElement('a');
             a.href = url;
             a.download = fileName;
@@ -116,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            
+
             if (typeof showToast === 'function') {
                 showToast('success', 'All data exported!', 'check-circle');
             }
@@ -134,7 +138,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.json,application/json';
-            
+
             input.onchange = e => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -171,7 +175,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         sessionStorage.clear();
                         for (const [key, value] of Object.entries(importedData.sessionStorage)) {
-                             try {
+                            try {
                                 sessionStorage.setItem(key, value);
                             } catch (e) {
                                 console.warn(`Failed to import sessionStorage key: ${key}`, e);
@@ -189,7 +193,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 try {
                                     const db = await openDB(dbName);
                                     const dbStoreNames = Array.from(db.objectStoreNames);
-                                    
+
                                     const validStoreNames = storeNames.filter(name => {
                                         if (!dbStoreNames.includes(name)) {
                                             console.warn(`Skipping unknown store: ${name} in DB: ${dbName}`);
@@ -211,12 +215,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                             showToast('error', `Import transaction error: ${event.target.error}`, 'times-circle');
                                         }
                                     };
-                                    
+
                                     await Promise.all(validStoreNames.map(storeName => {
                                         return new Promise((resolve, reject) => {
                                             const store = transaction.objectStore(storeName);
                                             const clearRequest = store.clear();
-                                            
+
                                             clearRequest.onerror = (event) => reject(`Failed to clear store ${storeName}: ${event.target.error}`);
                                             clearRequest.onsuccess = () => {
                                                 const storeData = dbData[storeName];
@@ -228,14 +232,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                                     usesOutOfLineKeys = storeData.usesOutOfLineKeys;
                                                 } else {
                                                     records = storeData;
-                                                    usesOutOfLineKeys = false; 
+                                                    usesOutOfLineKeys = false;
                                                 }
-                                                
+
                                                 if (!Array.isArray(records)) {
                                                     reject(`Data for store ${storeName} is not an array.`);
                                                     return;
                                                 }
-                                                
+
                                                 Promise.all(records.map(record => {
                                                     return new Promise((resolveAdd) => {
                                                         let addRequest;
@@ -248,7 +252,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                                 return;
                                                             }
                                                         } else {
-                                                            addRequest = store.put(record); 
+                                                            addRequest = store.put(record);
                                                         }
 
                                                         addRequest.onsuccess = () => {
@@ -258,14 +262,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         addRequest.onerror = (event) => {
                                                             const keyInfo = usesOutOfLineKeys ? (record ? record.key : 'unknown') : 'N/A';
                                                             console.warn(`Failed to add record to ${storeName} (key: ${keyInfo}):`, event.target.error);
-                                                            resolveAdd(); 
+                                                            resolveAdd();
                                                         };
                                                     });
                                                 })).then(resolve);
                                             };
                                         });
                                     }));
-                                    
+
                                     transaction.oncomplete = () => {
                                         console.log(`Imported ${importCount} records into ${dbName}.`);
                                     };
@@ -295,7 +299,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 };
                 reader.readAsText(file);
             };
-            
+
             input.click();
         } catch (err) {
             console.error('Error importing settings:', err);
@@ -305,7 +309,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    window.addEventListener('beforeunload', function (e) {
+    window.addEventListener('beforeunload', function(e) {
         const preventClosingEnabled = localStorage.getItem('preventClosing') === 'true';
         if (preventClosingEnabled) {
             e.preventDefault();
@@ -337,6 +341,14 @@ document.addEventListener('DOMContentLoaded', function() {
         'Schoology': {
             title: 'Home | Schoology',
             icon: 'https://asset-cdn.schoology.com/sites/all/themes/schoology_theme/favicon.ico'
+        },
+        'Wikipedia': {
+            title: 'Wikipedia, the free encyclopedia',
+            icon: 'https://en.wikipedia.org/static/favicon/wikipedia.ico'
+        },
+        'Canva': {
+            title: 'Home - Canva',
+            icon: 'https://static.canva.com/domain-assets/canva/static/images/favicon-1.ico'
         }
     };
 
@@ -370,7 +382,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (cloakLink.toLowerCase() === 'none' || inFrame) return;
 
         const preset = decoyPresets[decoyName];
-        
+
         let title;
         let icon;
 
@@ -394,7 +406,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             popup.document.head.innerHTML = `<title>${title}</title><link rel="icon" href="${icon}">`;
             popup.document.body.innerHTML = `<iframe style="height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;" src="${window.location.origin}"></iframe>`;
-        
+
         } else if (cloakLink === 'blob:') {
             const iframeSrc = window.location.origin;
             const html = `<html><head><title>${title}</title><link rel="icon" href="${icon}"></head><body><iframe style="height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;" src="${iframeSrc}"></iframe></body></html>`;
@@ -405,7 +417,7 @@ document.addEventListener('DOMContentLoaded', function() {
             popup = window.open(blobUrl, "_blank");
             if (!popup || popup.closed) {
                 if (typeof showToast === 'function') {
-                     showToast('error', 'Please allow popups and refresh the page!', 'times-circle');
+                    showToast('error', 'Please allow popups and refresh the page!', 'times-circle');
                 }
                 return;
             }
@@ -424,9 +436,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const initialCloakLink = localStorage.getItem('cloakLink') || 'None';
 
     applyInitialDecoy(initialDecoy);
-    
+
     window.addEventListener("load", () => runInitialCloak(initialCloakLink));
-    
+
     let settingsInitialized = false;
 
     function initializeSettingsMenu() {
@@ -472,11 +484,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const settingsMenu = document.getElementById('settings-menu');
         const overlay = document.getElementById('overlay');
-        const shortcutPrompt = document.getElementById('shortcut-prompt');
-        const gamesMenu = document.getElementById('games-menu');
-
-        let isToggling = false;
-
         const appSettings = {
             backend: localStorage.getItem('backend') || 'scramjet',
             transport: localStorage.getItem('transport') || 'libcurl',
@@ -485,8 +492,11 @@ document.addEventListener('DOMContentLoaded', function() {
             cloakLink: localStorage.getItem('cloakLink') || 'None',
             decoy: localStorage.getItem('decoy') || 'None',
             searchEngine: localStorage.getItem('searchEngine') || 'DuckDuckGo',
+            gameSource: localStorage.getItem('gameSource') || 'GN-Math',
             preventClosing: localStorage.getItem('preventClosing') === 'true'
         };
+
+        let isToggling = false;
 
         if (appSettings.cloakLink.toLowerCase() === 'none') {
             appSettings.cloakLink = 'None';
@@ -498,19 +508,19 @@ document.addEventListener('DOMContentLoaded', function() {
             <div class="settings-container">
                 <div class="settings-tabs">
                     <button class="tab-button active" id="preferences-tab">
-                        <i class="fa-regular fa-gear"></i> Preferences
+                        <i class="fa-solid fa-gear"></i> Preferences
                     </button>
                     <button class="tab-button" id="cloaking-tab">
-                        <i class="fa-regular fa-ghost"></i> Cloaking
+                        <i class="fa-solid fa-ghost"></i> Cloaking
                     </button>
                     <button class="tab-button" id="advanced-tab">
-                        <i class="fa-regular fa-server"></i> Advanced
+                        <i class="fa-solid fa-server"></i> Advanced
                     </button>
                     <button class="tab-button" id="data-tab">
-                        <i class="fa-regular fa-user"></i> Data
+                        <i class="fa-solid fa-user"></i> Data
                     </button>
                     <button class="tab-button" id="about-tab">
-                        <i class="fa-regular fa-heart"></i> Credits
+                        <i class="fa-solid fa-heart"></i> Credits
                     </button>
                     <div class="settings-version-label" id="settings-version-label">Fetching...</div>
                 </div>
@@ -518,22 +528,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="preferences-content" class="tab-content active">
                         <div class="settings-item">
                             <label>Search Engine</label>
-                            <p>The engine used for queries</p>
+                            <p>The engine that is used for your search queries.</p>
                             <div class="search-engine-selector">
                                 <div class="search-engine-selected"></div>
                                 <div class="search-engine-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
+                            <label>Game Source</label>
+                            <p>Where all the games are fetched from.</p>
+                            <div class="game-source-selector">
+                                <div class="game-source-selected"></div>
+                                <div class="game-source-options"></div>
+                            </div>
+                        </div>
+                        <div class="settings-item">
                             <label>Prevent Closing</label>
-                            <p>Prevent the tab from being closed</p>
+                            <p>Prevent the tab from being closed.</p>
                             <input type="checkbox" id="prevent-closing-toggle">
                         </div>
                     </div>
                     <div id="cloaking-content" class="tab-content">
                         <div class="settings-item">
                             <label>Decoy</label>
-                            <p>Cloak the title and icon as a different website</p>
+                            <p>Cloak the current website title and favicon as a different website.</p>
                             <div class="decoy-selector">
                                 <div class="decoy-selected"></div>
                                 <div class="decoy-options"></div>
@@ -541,7 +559,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="settings-item">
                             <label>Cloak Link</label>
-                            <p>Cloak the website link on the URL bar</p>
+                            <p>Cloak the website link on the URL bar.</p>
                             <div class="cloak-link-selector">
                                 <div class="cloak-link-selected"></div>
                                 <div class="cloak-link-options"></div>
@@ -551,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
                             <label>Backend</label>
-                            <p>Responsible for loading your sites</p>
+                            <p>The engine that is responsible for loading all your websites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>
@@ -559,7 +577,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="settings-item">
                             <label>Transport</label>
-                            <p>How information will be sent</p>
+                            <p>How all the information will be sent.</p>
                             <div class="transport-selector">
                                 <div class="transport-selected"></div>
                                 <div class="transport-options"></div>
@@ -567,7 +585,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="settings-item">
                             <label>Wisp Server</label>
-                            <p>Configure the websocket endpoint</p>
+                            <p>Configure the websocket endpoint.</p>
                             <input type="text" id="wisp-server" placeholder="Wisp Server URL Here..." autocomplete="off">
                             <button id="save-wisp-url">Save</button>
                         </div>
@@ -575,7 +593,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="data-content" class="tab-content">
                         <div class="settings-item">
                             <label>Data Management</label>
-                            <p>Export or Import all your data</p>
+                            <p>Export or Import all your data.</p>
                             <button id="export-data-btn" class="data-action-btn">
                                 <i class="fa-solid fa-file-export"></i> Export Data
                             </button>
@@ -587,7 +605,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="about-content" class="tab-content">
                         <div class="settings-item">
                             <label>Credits</label>
-                            <p>GN-Math - All of the games</p>
+                            <p>GN-Math - Game Source</p>
+                            <p>Selenite - Game Source</p>
+                            <p>Truffled - Game Source</p>
                             <p>Bog - Ports for Hollow Knight, RE:RUN, and Touhou Mother
                             <p>Titanium Network - Ultraviolet</p>
                             <p>Mercury Workshop - Scramjet, Epxoy, and Libcurl</p>
@@ -603,12 +623,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </div>
-            <button id="close-settings">
+            <button id="close-settings-menu">
                 <i class="fa-regular fa-times"></i>
             </button>
         `;
 
-        const closeSettingsBtn = document.getElementById('close-settings');
+        const closeSettingsBtn = document.getElementById('close-settings-menu');
         const saveWispBtn = document.getElementById('save-wisp-url');
         const preventClosingToggle = document.getElementById('prevent-closing-toggle');
         const wispInput = document.querySelector("#wisp-server");
@@ -629,41 +649,32 @@ document.addEventListener('DOMContentLoaded', function() {
         const cloakLinkSelector = document.querySelector('.cloak-link-selector');
         const cloakLinkSelected = cloakLinkSelector.querySelector('.cloak-link-selected');
         const cloakLinkOptions = cloakLinkSelector.querySelector('.cloak-link-options');
-
+        const gameSourceSelector = document.querySelector('.game-source-selector');
+        const gameSourceSelected = gameSourceSelector.querySelector('.game-source-selected');
+        const gameSourceOptions = gameSourceSelector.querySelector('.game-source-options');
         const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
         const allBackendOptions = ['Ultraviolet', 'Scramjet'];
         const allTransportOptions = ['Epoxy', 'Libcurl'];
-        const allSearchEngineOptions = ['DuckDuckGo', 'Google', 'Bing', 'Startpage'];
-        const allDecoyOptions = ['None', 'Google', 'Google Docs', 'Youtube', 'Google Drive', 'Schoology'];
+        const allSearchEngineOptions = ['Google','Bing','DuckDuckGo','Startpage','Brave','Mojeek','Swisscows'];
+        const allDecoyOptions = ['None', 'Google', 'Google Docs', 'Youtube', 'Google Drive', 'Schoology', 'Wikipedia', 'Canva'];
         const allCloakLinkOptions = ['None', 'about:blank', 'blob:'];
+        const allGameSourceOptions = ['GN-Math', 'Selenite', 'Truffled'];
 
         let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 
         window.toggleSettingsMenu = function() {
             if (isToggling) return;
             isToggling = true;
-            const icon = document.querySelector('#settings i.settings'); 
+            const icon = document.querySelector('#settings i.settings');
             const isOpen = settingsMenu.classList.contains('open');
 
             if (isOpen) {
                 settingsMenu.classList.add('close');
-                if(icon) icon.classList.remove('active-icon');
+                if (icon) icon.classList.remove('active-icon');
                 if (overlay) {
-                    const sharePrompt = document.getElementById('sharePrompt');
-                    const updateSuccess = document.getElementById('updateSuccess');
-                    const bookmarkPrompt = document.getElementById('bookmark-prompt');
-                    const isOtherModalOpen = (gamesMenu && gamesMenu.classList.contains('open')) ||
-                                             (sharePrompt && sharePrompt.style.display === 'block' && !sharePrompt.classList.contains('fade-out')) ||
-                                             (updateSuccess && updateSuccess.style.display === 'block' && !updateSuccess.classList.contains('fade-out')) ||
-                                             (bookmarkPrompt && bookmarkPrompt.style.display === 'block' && !bookmarkPrompt.classList.contains('fade-out-prompt')) ||
-                                             (shortcutPrompt && shortcutPrompt.style.display === 'block');
-    
-                    if (!isOtherModalOpen) {
-                        overlay.classList.remove('show');
-                    }
+                    overlay.classList.remove('show');
                 }
             } else {
-                if (window.hideGamesMenu) window.hideGamesMenu(true);
                 if (window.xinUpdate && typeof window.xinUpdate.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
                     window.xinUpdate.hideSuccess(true);
                 }
@@ -675,24 +686,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 settingsMenu.classList.add('open');
-                if(icon) icon.classList.add('active-icon');
+                if (icon) icon.classList.add('active-icon');
                 if (overlay) {
                     overlay.classList.add('show');
                 }
             }
-            
+
             if (isOpen) {
                 settingsMenu.addEventListener('animationend', (e) => {
-                    if (e.animationName !== 'closeMenu') return;
+                    if (e.animationName !== 'fadeOut') return;
                     settingsMenu.classList.remove('open', 'close');
                     isToggling = false;
-                }, { once: true });
+                }, {
+                    once: true
+                });
             } else {
                 settingsMenu.addEventListener('animationend', (e) => {
-                    if (e.animationName !== 'openMenu') return;
+                    if (e.animationName !== 'fadeIn') return;
                     settingsMenu.classList.remove('close');
                     isToggling = false;
-                }, { once: true });
+                }, {
+                    once: true
+                });
             }
         }
 
@@ -704,7 +719,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return false;
             }
         }
-        
+
         function runMenuCloak() {
             executeTabCloak(appSettings.cloakLink, appSettings.decoy);
         }
@@ -730,8 +745,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function closeAllSelectors() {
-            document.querySelectorAll('.backend-show, .transport-show, .search-engine-show, .decoy-show, .cloak-link-show').forEach(el => el.classList.remove('backend-show', 'transport-show', 'search-engine-show', 'decoy-show', 'cloak-link-show'));
-            document.querySelectorAll('.backend-arrow-active, .transport-arrow-active, .search-engine-arrow-active, .decoy-arrow-active, .cloak-link-arrow-active').forEach(el => el.classList.remove('backend-arrow-active', 'transport-arrow-active', 'search-engine-arrow-active', 'decoy-arrow-active', 'cloak-link-arrow-active'));
+            document.querySelectorAll('.backend-show, .transport-show, .search-engine-show, .decoy-show, .cloak-link-show, .game-source-show').forEach(el => el.classList.remove('backend-show', 'transport-show', 'search-engine-show', 'decoy-show', 'cloak-link-show', 'game-source-show'));
+            document.querySelectorAll('.backend-arrow-active, .transport-arrow-active, .search-engine-arrow-active, .decoy-arrow-active, .cloak-link-arrow-active, .game-source-arrow-active').forEach(el => el.classList.remove('backend-arrow-active', 'transport-arrow-active', 'search-engine-arrow-active', 'decoy-arrow-active', 'cloak-link-arrow-active', 'game-source-arrow-active'));
         }
 
         function changeTab(targetId) {
@@ -764,7 +779,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 selectedEl.textContent = val;
 
                                 const storageVal = (storageKey === 'backend' || storageKey === 'transport') ? val.toLowerCase() : val;
-                                
+
                                 appSettings[storageKey] = storageVal;
                                 localStorage.setItem(storageKey, storageVal);
                                 closeAllSelectors();
@@ -794,10 +809,11 @@ document.addEventListener('DOMContentLoaded', function() {
         createSelector('cloak-link', cloakLinkSelected, cloakLinkOptions, allCloakLinkOptions, appSettings.cloakLink, 'cloakLink', null, 'Successfully updated Cloak Link method!');
         createSelector('search-engine', searchEngineSelected, searchEngineOptions, allSearchEngineOptions, appSettings.searchEngine, 'searchEngine', null, 'Successfully updated Search Engine!');
         createSelector('decoy', decoySelected, decoyOptions, allDecoyOptions, appSettings.decoy, 'decoy', 'decoyUpdated', 'Successfully updated Decoy!');
+        createSelector('game-source', gameSourceSelected, gameSourceOptions, allGameSourceOptions, appSettings.gameSource, 'gameSource', 'gameSourceUpdated', 'Successfully updated Game Source!');
 
         closeSettingsBtn.addEventListener('click', window.toggleSettingsMenu);
         saveWispBtn.addEventListener('click', () => updateWispServerUrl(wispInput.value.trim()));
-        
+
         document.addEventListener('decoyUpdated', (e) => applyInitialDecoy(e.detail));
 
         if (exportDataBtn) {
@@ -814,7 +830,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 exportAllData(fileName);
             });
         }
-        
+
         if (importDataBtn) {
             importDataBtn.addEventListener('click', () => {
                 importAllData();
@@ -829,7 +845,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         window.addEventListener('click', (e) => {
-            if (!e.target.closest('.backend-selector, .transport-selector, .search-engine-selector, .decoy-selector, .cloak-link-selector')) {
+            if (!e.target.closest('.backend-selector, .transport-selector, .search-engine-selector, .decoy-selector, .cloak-link-selector, .game-source-selector')) {
                 closeAllSelectors();
             }
         });
@@ -864,14 +880,26 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(() => {});
 
+        document.addEventListener('keydown', (e) => {
+            const settingsMenu = document.getElementById('settings-menu');
+            if (e.key === 'Escape' && settingsMenu && settingsMenu.classList.contains('open') && !settingsMenu.classList.contains('close')) {
+                window.toggleSettingsMenu();
+            }
+        });
+
         settingsInitialized = true;
     }
 
     window.initializeSettingsMenu = initializeSettingsMenu;
 
-    settingsIcon.addEventListener('click', e => {
-        e.preventDefault();
-        initializeSettingsMenu();
-        window.toggleSettingsMenu();
+    document.addEventListener('click', e => {
+        const settingsBtn = e.target.closest('#settings');
+        if (settingsBtn) {
+            e.preventDefault();
+            initializeSettingsMenu();
+            if (typeof window.toggleSettingsMenu === 'function') {
+                window.toggleSettingsMenu();
+            }
+        }
     });
 });

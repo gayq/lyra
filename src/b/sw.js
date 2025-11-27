@@ -11,6 +11,8 @@ const scope = self.registration.scope;
 const isScramjet = scope.endsWith('/b/s/');
 const isUltraviolet = scope.endsWith('/b/u/hi/');
 
+const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
+
 let scramjet;
 let uv;
 let scramjetConfigLoaded = false;
@@ -28,7 +30,7 @@ if (isScramjet) {
     uv = new UVServiceWorker();
 }
 
-const CACHE_NAME = 'xin-cache';
+const CACHE_NAME = 'xin-assets-cache-v1';
 
 self.addEventListener('activate', event => {
     event.waitUntil(self.clients.claim());
@@ -40,6 +42,47 @@ self.addEventListener("fetch", (event) => {
 
     event.respondWith((async () => {
         try {
+            if (request.method === 'GET' && STATIC_ASSET_REGEX.test(url.pathname)) {
+                let realUrl = null;
+
+                if (isScramjet && url.pathname.startsWith('/b/s/')) {
+                    const raw = url.pathname.slice(5) + url.search;
+                    const httpIndex = raw.indexOf('http');
+                    if (httpIndex !== -1) {
+                        realUrl = raw.substring(httpIndex);
+                    }
+                } 
+                else if (isUltraviolet && self.__uv$config && self.__uv$config.decodeUrl) {
+                    const prefix = self.__uv$config.prefix || '/b/u/hi/';
+                    if (url.pathname.startsWith(prefix)) {
+                        const encoded = url.pathname.slice(prefix.length);
+                        try {
+                            realUrl = self.__uv$config.decodeUrl(encoded) + url.search;
+                        } catch(e) {}
+                    }
+                }
+
+                if (realUrl && realUrl.startsWith('http')) {
+                    const proxyUrl = `/!!/${realUrl}`;
+
+                    const cache = await caches.open(CACHE_NAME);
+                    const cachedRes = await cache.match(proxyUrl);
+                    if (cachedRes) return cachedRes;
+
+                    try {
+                        const response = await fetch(proxyUrl);
+                        
+                        if (response.ok) {
+                            const resClone = response.clone();
+                            cache.put(proxyUrl, resClone);
+                            return response;
+                        }
+                    } catch (e) {
+                    }
+                }
+            }
+
+
             if (isScramjet) {
                 if (!scramjetConfigLoaded) {
                     await scramjet.loadConfig();
@@ -51,23 +94,13 @@ self.addEventListener("fetch", (event) => {
                 }
 
                 if (scramjet.route(event)) {
-                    const response = await scramjet.fetch(event);
-                    if (request.method === 'GET') {
-                        const responseClone = response.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
-                    }
-                    return response;
+                    return scramjet.fetch(event);
                 }
             }
 
             if (isUltraviolet) {
                 if (uv.route(event)) {
-                    const response = await uv.fetch(event);
-                    if (request.method === 'GET') {
-                        const responseClone = response.clone();
-                        caches.open(CACHE_NAME).then(cache => cache.put(request, responseClone));
-                    }
-                    return response;
+                    return uv.fetch(event);
                 }
             }
 
@@ -78,10 +111,6 @@ self.addEventListener("fetch", (event) => {
             }
 
             const networkResponse = await fetch(request);
-            if (request.method === 'GET' && networkResponse && networkResponse.ok) {
-                const responseClone = networkResponse.clone();
-                cache.put(request, responseClone);
-            }
             return networkResponse;
 
         } catch (err) {

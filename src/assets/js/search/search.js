@@ -1,6 +1,6 @@
 import { dom } from '../ui/dom.js';
 import { BANGS, SEARCH_ENGINES } from '../core/config.js';
-import { showLoadingScreen, hideLoadingScreen, showBrowserView } from '../ui/ui.js';
+import { showLoading, hideLoading, showBrowserView } from '../ui/ui.js';
 import { navigateIframeTo, updateHistoryUI } from '../core/iframe.js';
 
 function isBangQuery(query) {
@@ -81,7 +81,7 @@ async function getUrl(url) {
 }
 
 export async function handleSearch(query, activeTab, gameName) {
-        if (!activeTab) {
+    if (!activeTab) {
         showToast('error', 'No active tab found!', 'error');
         return;
     }
@@ -96,11 +96,11 @@ export async function handleSearch(query, activeTab, gameName) {
     const bangUrl = executeBang(query);
     let searchURL = bangUrl || generateSearchUrl(query);
 
-    showLoadingScreen();
-    
     const isInjectableGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/") || 
                              searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
-                             searchURL.startsWith("https://rawcdn.githack.com/");
+                             searchURL.startsWith("https://rawcdn.githack.com/") ||
+                             searchURL.startsWith("https://selenite.cc/") ||
+                             searchURL.startsWith("https://truffled.lol/");
 
     if (isInjectableGame) {
         try {
@@ -120,6 +120,9 @@ export async function handleSearch(query, activeTab, gameName) {
             
             navigateIframeTo(activeTab.iframe, pedUrl);
 
+            activeTab.iframe.addEventListener('load', () => {
+            }, { once: true });
+
             if (activeTab.historyManager && typeof activeTab.historyManager.add === 'function') {
                 activeTab.historyManager.push(searchURL);
             }
@@ -131,11 +134,20 @@ export async function handleSearch(query, activeTab, gameName) {
             });
 
         } catch (error) {
-            hideLoadingScreen();
             showToast('error', error.message || 'Failed to load game content.', 'error');
         }
     } else {
         try {
+            if (!gameName) {
+                showLoading();
+            } else {
+                activeTab.iframe.addEventListener('load', () => {
+                }, { once: true });
+                
+                setTimeout(() => {
+                }, 10000);
+            }
+
             let finalUrlToLoad;
             if (searchURL.includes('/assets/gs/')) {
                 finalUrlToLoad = new URL(searchURL, window.location.origin).href;
@@ -151,7 +163,6 @@ export async function handleSearch(query, activeTab, gameName) {
                 canGoForward: activeTab.historyManager.canGoForward()
             });
         } catch (error) {
-            hideLoadingScreen();
             showToast('error', error.message || 'Failed to generate a valid URL. Please try again.', 'error');
         }
     }

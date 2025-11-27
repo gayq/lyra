@@ -2,15 +2,18 @@ export const DEFAULT_BOOKMARKS = [
     { name: 'CrazyGames', url: 'https://www.crazygames.com/' },
     { name: 'Youtube', url: 'https://www.youtube.com/?themeRefresh=1' },
     { name: 'SoundCloud', url: 'https://soundcloud.com/' },
-    { name: 'Cineby', url: 'https://www.cineby.gd/' },
+    { name: 'TikTok', url: 'https://www.tiktok.com/' },
     { name: 'Discord', url: 'https://discord.com/login/' },
 ];
 
 export const SEARCH_ENGINES = {
     'Google': 'https://www.google.com/search?q=',
     'Bing': 'https://www.bing.com/search?q=',
+    'DuckDuckGo': 'https://duckduckgo.com/?q=',
     'Startpage': 'https://startpage.com/search?q=',
-    'DuckDuckGo': 'https://duckduckgo.com/?q='
+    'Brave': 'https://search.brave.com/search?q=',
+    'Mojeek': 'https://www.mojeek.com/search?q=',
+    'Swisscows': 'https://swisscows.com/en/web?query='
 };
 
 export const BANGS = {
@@ -43,7 +46,6 @@ export const BANGS = {
     'netflix': { name: 'Netflix', url: 'https://www.netflix.com/search?q={query}' },
     'spotify': { name: 'Spotify', url: 'https://open.spotify.com/search/{query}' },
     'ytm': { name: 'YouTube Music', url: 'https://music.youtube.com/search?q={query}' },
-    'youtubemusic': { name: 'YouTube Music', url: 'https://music.youtube.com/search?q={query}' },
     'news': { name: 'Google News', url: 'https://news.google.com/search?q={query}' },
     'weather': { name: 'Weather', url: 'https://www.google.com/search?q=weather+{query}' },
     'maps': { name: 'Google Maps', url: 'https://www.google.com/maps/search/{query}' },

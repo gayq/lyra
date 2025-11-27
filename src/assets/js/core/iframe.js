@@ -1,12 +1,12 @@
 import { dom } from '../ui/dom.js';
-import { showLoadingScreen, hideLoadingScreen } from '../ui/ui.js';
-import { decodeUrl } from './utils.js';
+import { showLoading, hideLoading } from '../ui/ui.js';
+import { decodeUrl, getProxyUrl } from './utils.js';
 
 let loadingTimeout = null;
 
 export function navigateIframeTo(iframe, url) {
     if (!url || !iframe) return;
-    showLoadingScreen();
+    showLoading();
     window.WavesApp.isLoading = true;
     delete iframe.dataset.reloadAttempted;
 
@@ -15,7 +15,7 @@ export function navigateIframeTo(iframe, url) {
     if (loadingTimeout) clearTimeout(loadingTimeout);
     loadingTimeout = setTimeout(() => {
         console.warn('Loading timed out. Forcing UI update...');
-        hideLoadingScreen();
+        hideLoading();
         window.WavesApp.isLoading = false;
         
         updateTabDetails(iframe);
@@ -46,13 +46,15 @@ function updateTabDetails(iframe) {
     try {
         const iframeWindow = iframe.contentWindow;
         const doc = iframeWindow.document;
-        const newUrl = iframe.dataset.manualUrl || iframeWindow.location.href;
+        const currentProxiedUrl = iframe.dataset.manualUrl || iframeWindow.location.href;
+        
+        const realUrl = decodeUrl(currentProxiedUrl);
 
         tabToUpdate.title = doc.title || 'New Tab';
 
         if ((tabToUpdate.title === '404!!' || tabToUpdate.title === 'Scramjet' || tabToUpdate.title === 'Error')) {
             let reloadCount = parseInt(iframe.dataset.reloadCount || '0', 10);
-            if (reloadCount < 5) {
+            if (reloadCount < 400) {
                 try {
                     iframe.dataset.reloadCount = (reloadCount + 1).toString();
                     iframe.contentWindow.location.reload(true);
@@ -65,9 +67,17 @@ function updateTabDetails(iframe) {
 
         const iconLink = doc.querySelector("link[rel*='icon']");
         if (iconLink) {
-            tabToUpdate.favicon = new URL(iconLink.href, newUrl).href;
+            const resolvedProxiedIconUrl = iconLink.href;
+            const realIconUrl = decodeUrl(resolvedProxiedIconUrl);
+            tabToUpdate.favicon = getProxyUrl(realIconUrl);
         } else {
-            tabToUpdate.favicon = new URL('/favicon.ico', newUrl).origin + '/favicon.ico';
+            try {
+                const realOrigin = new URL('/', realUrl).href;
+                const defaultIconUrl = new URL('favicon.ico', realOrigin).href;
+                tabToUpdate.favicon = getProxyUrl(defaultIconUrl);
+            } catch (e) {
+                tabToUpdate.favicon = null;
+            }
         }
     } catch (e) {
         tabToUpdate.title = 'New Tab';
@@ -140,7 +150,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
 
         iframeWindow.removeEventListener('beforeunload', iframeWindow.__beforeUnloadHandler);
         iframeWindow.__beforeUnloadHandler = () => {
-            showLoadingScreen();
+            showLoading();
             window.WavesApp.isLoading = true;
         }
         iframeWindow.addEventListener('beforeunload', iframeWindow.__beforeUnloadHandler);
@@ -148,7 +158,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         iframeWindow.removeEventListener('DOMContentLoaded', iframeWindow.__domContentLoadedHandler);
         iframeWindow.__domContentLoadedHandler = () => {
             if (loadingTimeout) clearTimeout(loadingTimeout);
-            hideLoadingScreen();
+            hideLoading();
             window.WavesApp.isLoading = false;
 
             historyManager.push(baseUrl);
@@ -205,14 +215,14 @@ export function updateHistoryUI(activeTab, { currentUrl, canGoBack, canGoForward
 export function initializeIframe(iframe, historyManager, tabId) {
     iframe.addEventListener('error', () => {
         if (loadingTimeout) clearTimeout(loadingTimeout);
-        hideLoadingScreen();
+        hideLoading();
         window.WavesApp.isLoading = false;
     });
 
     iframe.addEventListener('load', () => {
         if (loadingTimeout) clearTimeout(loadingTimeout);
 
-        hideLoadingScreen();
+        hideLoading();
         window.WavesApp.isLoading = false;
 
         const manualUrl = iframe.dataset.manualUrl;

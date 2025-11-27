@@ -1,4 +1,4 @@
-import { normalizeUrl, canonicalize } from './utils.js';
+import { canonicalize } from './utils.js';
 
 export class HistoryManager {
     #stack = [];

@@ -18,12 +18,12 @@ try {
     window.scramjetReady = Promise.resolve();
   }
 } catch(e) {
-    console.warn("Could not initialize Scramjet, which is expected if you are on Ultraviolet.");
     window.scramjetReady = Promise.resolve();
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+export function initializeLoad() {
   const searchBar = document.querySelector('.search-bar');
+  
   if (searchBar) {
     const lightBg = searchBar.querySelector('.light');
     const lightBorder = searchBar.querySelector('.light-border');
@@ -31,14 +31,41 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let targetX = 0, currentX = 0, lastX = 0, velocityX = 0;
     let targetY = 0, currentY = 0, lastY = 0, velocityY = 0;
-    let raf;
+    let raf = null;
+    let rect = searchBar.getBoundingClientRect();
+    let isHovering = false;
+    let isSettled = false;
+
+    const updateRect = () => {
+        if (isHovering) rect = searchBar.getBoundingClientRect();
+    };
+
+    window.addEventListener('scroll', updateRect, { passive: true });
+    window.addEventListener('resize', updateRect, { passive: true });
 
     function animate() {
-      currentX += (targetX - currentX) * 0.15;
-      currentY += (targetY - currentY) * 0.15;
+      const deltaX = targetX - currentX;
+      const deltaY = targetY - currentY;
+
+      currentX += deltaX * 0.15;
+      currentY += deltaY * 0.15;
 
       const elasticX = Math.min(Math.max(velocityX * 0.5, -20), 20);
       const elasticY = Math.min(Math.max(velocityY * 0.5, -20), 20);
+
+      if (Math.abs(deltaX) < 0.1 && Math.abs(deltaY) < 0.1 && 
+          Math.abs(elasticX) < 0.1 && Math.abs(elasticY) < 0.1) {
+          isSettled = true;
+          raf = null;
+          
+          const finalBgX = `${targetX - lightSize / 2}px`;
+          const finalBgY = `${targetY - lightSize / 2}px`;
+          lightBg.style.setProperty('--bg-x', finalBgX);
+          lightBg.style.setProperty('--bg-y', finalBgY);
+          lightBorder.style.setProperty('--bg-x', finalBgX);
+          lightBorder.style.setProperty('--bg-y', finalBgY);
+          return;
+      }
 
       const bgX = `${currentX - lightSize / 2 + elasticX}px`;
       const bgY = `${currentY - lightSize / 2 + elasticY}px`;
@@ -52,8 +79,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     searchBar.addEventListener('mouseenter', () => {
-      cancelAnimationFrame(raf);
+      isHovering = true;
+      updateRect();
+      if (raf) cancelAnimationFrame(raf);
+      isSettled = false;
       raf = requestAnimationFrame(animate);
+
       lightBg.style.opacity = 1;
       lightBorder.style.opacity = 1;
       lightBg.style.transition = "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
@@ -70,7 +101,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     searchBar.addEventListener('mouseleave', () => {
-      cancelAnimationFrame(raf);
+      isHovering = false;
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
       lightBg.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
       lightBorder.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
       lightBg.style.opacity = 0;
@@ -82,41 +117,68 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     searchBar.addEventListener('mousemove', (e) => {
-      const rect = searchBar.getBoundingClientRect();
       targetX = e.clientX - rect.left;
       targetY = e.clientY - rect.top;
+      
       velocityX = targetX - lastX;
       velocityY = targetY - lastY;
       lastX = targetX;
       lastY = targetY;
+
       const glowStrength = Math.min(1.2, 1.2 + targetX / rect.width * 0.4);
       lightBg.style.transform = `scale(${glowStrength})`;
+
+      if (isSettled && !raf) {
+          isSettled = false;
+          raf = requestAnimationFrame(animate);
+      }
     });
   }
 
   window.xinUpdater = {
-    successEl: document.getElementById("updateSuccess"),
+    successEl: null,
     overlay: document.getElementById("overlay"),
-    closeBtn: document.getElementById("updateSuccessClose"),
+    closeBtn: null,
     init() {
+      this.successEl = document.getElementById("updateSuccess");
+      if (!this.successEl) {
+          this.successEl = document.createElement('div');
+          this.successEl.id = 'updateSuccess';
+          document.body.appendChild(this.successEl);
+          this.successEl.innerHTML = `
+            <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
+            <label>Successfully Updated!</label>
+            <p>If you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
+            <button class="prompt-close-btn" id="updateSuccessClose">Okay</button>
+          `;
+      }
+      this.closeBtn = document.getElementById("updateSuccessClose");
+
       this.closeBtn?.addEventListener('click', () => this.hideSuccess(false));
+      this.overlay?.addEventListener('click', (e) => {
+        if (e.target === this.overlay && this.successEl.style.display === "block") {
+          this.hideSuccess(false);
+        }
+      });
       if (localStorage.getItem("justUpdated") === "true") {
         localStorage.removeItem("justUpdated");
         this.showSuccess();
       }
       this.checkVersion();
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.successEl && this.successEl.style.display === 'block' && !this.successEl.classList.contains('fade-out')) {
+          this.hideSuccess(false);
+        }
+      });
     },
     showSuccess() {
       if (this.successEl && this.overlay) {
-        if (window.hideGamesMenu) window.hideGamesMenu(true);
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
             window.toggleSettingsMenu();
         }
-        if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function') {
-            const sharePrompt = document.getElementById('sharePrompt');
-            if (sharePrompt && sharePrompt.style.display === 'block') {
-              window.SharePromoter.hideSharePrompt(true); 
-            }
+        if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
+            window.SharePromoter.hideSharePrompt(true); 
         }
         if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
             window.hideBookmarkPrompt(true);
@@ -136,21 +198,8 @@ document.addEventListener('DOMContentLoaded', function () {
             this.successEl.classList.remove("fade-out");
             
             if (calledByOther) return;
-
-            const settingsMenu = document.getElementById('settings-menu');
-            const gamesMenu = document.getElementById('games-menu');
-            const sharePrompt = document.getElementById('sharePrompt');
-            const bookmarkPrompt = document.getElementById('bookmark-prompt');
-            const shortcutPrompt = document.getElementById('shortcut-prompt');
-            const isOtherModalOpen = (settingsMenu && settingsMenu.classList.contains('open')) ||
-                                     (gamesMenu && gamesMenu.classList.contains('open')) ||
-                                     (sharePrompt && sharePrompt.style.display === 'block' && !sharePrompt.classList.contains('fade-out')) ||
-                                     (bookmarkPrompt && bookmarkPrompt.style.display === 'block' && !bookmarkPrompt.classList.contains('fade-out-prompt')) ||
-                                     (shortcutPrompt && shortcutPrompt.style.display === 'block');
-
-            if (!isOtherModalOpen) {
-                this.overlay.classList.remove("show");
-            }
+            
+            this.overlay.classList.remove("show");
         }, { once: true });
     },
     async performUpdate() {
@@ -185,29 +234,54 @@ document.addEventListener('DOMContentLoaded', function () {
   window.xinUpdater.init();
 
   window.SharePromoter = {
-    shareEl: document.getElementById("sharePrompt"),
+    shareEl: null,
     overlay: document.getElementById("overlay"),
-    closeBtn: document.getElementById("sharePromptClose"),
+    closeBtn: null,
     init() {
+      this.shareEl = document.getElementById("sharePrompt");
+      if (!this.shareEl) {
+          this.shareEl = document.createElement('div');
+          this.shareEl.id = 'sharePrompt';
+          this.shareEl.style.display = 'none';
+          document.body.appendChild(this.shareEl);
+          this.shareEl.innerHTML = `
+            <i class="fa-solid fa-seedling" style="font-size:40px;margin-bottom:15px;"></i>
+            <label>Help The Website Grow!</label>
+            <p>Share this website with all your friends to help keep the traffic up and everything else running smoothly!</p>
+            <button class="prompt-close-btn" id="sharePromptClose">Okay</button>
+          `;
+      }
+      this.closeBtn = document.getElementById("sharePromptClose");
+
       this.closeBtn?.addEventListener('click', () => this.hideSharePrompt(false));
-      const visited = localStorage.getItem("xinVisited");
-      
-      if (localStorage.getItem("justUpdated") === "true") {
-        return;
-      }
-      
-      if (!visited) {
-        localStorage.setItem("xinVisited", "true");
-        this.showSharePrompt();
-      } else {
-        if (Math.random() < 0.10) { 
-          this.showSharePrompt();
+      this.overlay?.addEventListener('click', (e) => {
+        if (e.target === this.overlay && this.shareEl.style.display === "block") {
+          this.hideSharePrompt(false);
         }
-      }
+      });
+      
+      const trigger = () => {
+        const visited = localStorage.getItem("xinVisited");
+        if (!visited) {
+          localStorage.setItem("xinVisited", "true");
+          this.showSharePrompt();
+        } else {
+          if (Math.random() < 0.10) { 
+            this.showSharePrompt();
+          }
+        }
+      };
+
+      trigger();
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && this.shareEl && this.shareEl.style.display === 'block' && !this.shareEl.classList.contains('fade-out')) {
+          this.hideSharePrompt(false);
+        }
+      });
     },
     showSharePrompt() {
       if (this.shareEl && this.overlay) {
-        if (window.hideGamesMenu) window.hideGamesMenu(true);
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
             window.toggleSettingsMenu();
         }
@@ -232,144 +306,14 @@ document.addEventListener('DOMContentLoaded', function () {
             this.shareEl.classList.remove("fade-out");
             
             if (calledByOther) return;
-
-            const settingsMenu = document.getElementById('settings-menu');
-            const gamesMenu = document.getElementById('games-menu');
-            const updateSuccess = document.getElementById('updateSuccess');
-            const bookmarkPrompt = document.getElementById('bookmark-prompt');
-            const shortcutPrompt = document.getElementById('shortcut-prompt');
-
-            const isOtherModalOpen = (settingsMenu && settingsMenu.classList.contains('open')) ||
-                                     (gamesMenu && gamesMenu.classList.contains('open')) ||
-                                     (updateSuccess && updateSuccess.style.display === 'block' && !updateSuccess.classList.contains('fade-out')) ||
-                                     (bookmarkPrompt && bookmarkPrompt.style.display === 'block' && !bookmarkPrompt.classList.contains('fade-out-prompt')) ||
-                                     (shortcutPrompt && shortcutPrompt.style.display === 'block');
             
-            if (!isOtherModalOpen) {
-                this.overlay.classList.remove("show");
-            }
+            this.overlay.classList.remove("show");
         }, { once: true });
     }
   };
 
-  const erudaBtn = document.getElementById('erudaBtn');
-  const erudaLoadingScreen = document.getElementById('erudaLoadingScreen');
-  let erudaLoaded = false;
-  let loadingTimeoutId = null;
-
-  function showErudaMessage(text, isError = false) {
-    if (!erudaLoadingScreen) return;
-    erudaLoadingScreen.textContent = text;
-    erudaLoadingScreen.style.display = 'block';
-    erudaLoadingScreen.style.color = isError ? 'red' : 'white';
-  }
-
-  function hideErudaLoadingScreen() {
-    if (erudaLoadingScreen) {
-      erudaLoadingScreen.style.display = 'none';
-      erudaLoadingScreen.style.color = 'white';
-    }
-    clearTimeout(loadingTimeoutId);
-  }
-
-  function injectErudaScript() {
-    const activeTab = window.WavesApp.getActiveTab();
-    if (!activeTab || !activeTab.iframe) {
-        showErudaMessage('Error: No active iframe found.', true);
-        return;
-    }
-    const iframe = activeTab.iframe;
-    
-    if (!iframe.contentDocument || !iframe.contentWindow) {
-      showErudaMessage('Error: Iframe content not ready.', true);
-      return;
-    }
-    if (iframe.contentDocument.getElementById('erudaScript')) {
-      initializeEruda();
-      return;
-    }
-    showErudaMessage('Eruda is loading...');
-    loadingTimeoutId = setTimeout(() => {
-      showErudaMessage('Error: Eruda is taking too long to load.', true);
-      const existingScript = iframe.contentDocument.getElementById('erudaScript');
-      if (existingScript) existingScript.remove();
-    }, 15000);
-    const script = iframe.contentDocument.createElement('script');
-    script.id = 'erudaScript';
-    script.src = 'https://cdn.jsdelivr.net/npm/eruda';
-    script.async = true;
-    script.onload = () => {
-      clearTimeout(loadingTimeoutId);
-      initializeEruda();
-    };
-    script.onerror = () => {
-      clearTimeout(loadingTimeoutId);
-      showErudaMessage('Error: Could not load Eruda script. Check network connection.', true);
-      script.remove();
-    };
-    iframe.contentDocument.head.appendChild(script);
-  }
-
-  function initializeEruda() {
-    const activeTab = window.WavesApp.getActiveTab();
-    if (!activeTab || !activeTab.iframe) {
-        showErudaMessage('Error: No active iframe found to initialize Eruda.', true);
-        return;
-    }
-    const iframe = activeTab.iframe;
-
-    try {
-      const ew = iframe.contentWindow;
-      if (!ew.eruda) {
-        showErudaMessage('Error: Eruda object not found after script load.', true);
-        console.error('Eruda object undefined.');
-        return;
-      }
-      ew.eruda.init();
-      ew.eruda.show();
-      erudaLoaded = true;
-      hideErudaLoadingScreen();
-    } catch (err) {
-      console.error('Error initializing Eruda:', err);
-      showErudaMessage('Error: Could not initialize Eruda. ' + err.message, true);
-    }
-  }
-
-  function toggleEruda() {
-    const activeTab = window.WavesApp.getActiveTab();
-    if (!activeTab || !activeTab.iframe) {
-        showErudaMessage('Error: No active iframe found in the DOM.', true);
-        return;
-    }
-    const iframe = activeTab.iframe;
-
-    if (!iframe.contentWindow) {
-      showErudaMessage('Error: Iframe not accessible.', true);
-      return;
-    }
-    try {
-      if (erudaLoaded && iframe.contentWindow.eruda) {
-        iframe.contentWindow.eruda.destroy();
-        erudaLoaded = false;
-        hideErudaLoadingScreen();
-      } else {
-        injectErudaScript();
-      }
-    } catch (err) {
-      console.error('Error toggling Eruda:', err);
-      showErudaMessage('Error: Could not toggle Eruda. ' + err.message, true);
-    }
-  }
-
-  if (erudaBtn) {
-    erudaBtn.addEventListener('click', toggleEruda);
-  }
-  
-  if (window.NProgress) {
-    NProgress.configure({ showSpinner: false });
-  }
   const phrasesElement = document.querySelector(".phrases");
-  const phrases = ["hihihi", "<33", "Uhh....", "Hello!"];
+  const phrases = ["hihihi", "<33", "Uhh....", "Xin chào!"];
   if (phrasesElement) {
     phrasesElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
   }
@@ -378,7 +322,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const placeholders = [
       "Have anything in mind?",
       "(˶˃ ᵕ ˂˶)",
-      "The website lowkey breaks a lot",
+      "Join the Discord server!",
       "1 update per year",
       "Waves is such a good website!!"
   ];
@@ -388,97 +332,4 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   window.SharePromoter.init();
-});
-
-function loadBannerAdsSequentially(adsQueue) {
-  if (!adsQueue || adsQueue.length === 0) {
-    return;
-  }
-
-  const adConfig = adsQueue.shift();
-  const adContainer = document.getElementById(adConfig.containerId);
-
-  if (!adContainer) {
-    console.warn(`Skipping ad: Could not find container ${adConfig.containerId}`);
-    loadBannerAdsSequentially(adsQueue);
-    return;
-  }
-  
-  window.atOptions = adConfig.options;
-  
-  const invokeScript = document.createElement('script');
-  invokeScript.type = 'text/javascript';
-  invokeScript.src = `//patienthercoldness.com/${adConfig.options.key}/invoke.js`;
-  invokeScript.async = true;
-
-  const onFinish = () => {
-    invokeScript.removeEventListener('load', onFinish);
-    invokeScript.removeEventListener('error', onFinish);
-    loadBannerAdsSequentially(adsQueue);
-  };
-
-  invokeScript.addEventListener('load', onFinish);
-  invokeScript.addEventListener('error', onFinish);
-
-  adContainer.appendChild(invokeScript);
 }
-
-
-window.addEventListener("load", function () {
-  function loadAdScriptWithRetry(src, retries = 3, delay = 5000) {
-    function attempt(remaining) {
-      const script = document.createElement("script");
-      script.type = "text/javascript";
-      script.src = src + (src.includes("?") ? "&" : "?") + "cb=" + Date.now();
-      script.async = true; 
-
-      script.onload = () => {};
-      script.onerror = () => {
-        console.warn(
-          `Failed to load ${src}. Remaining attempts: ${remaining - 1}`
-        );
-        if (remaining > 1) {
-          setTimeout(() => attempt(remaining - 1), delay);
-        } else {
-          console.error(`All attempts to load ${src} has failed!`);
-        }
-      };
-
-      document.body.appendChild(script);
-    }
-    attempt(retries);
-  }
-
-  const adSources = [
-    "//patienthercoldness.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js",
-    "//patienthercoldness.com/69/2c/e9/692ce9b5c34fb01f7f9c3f9c6e809e94.js",
-    "//patienthercoldness.com/1d/8d/ce/1d8dce254be83f85ebd908954bceb5f1.js"
-  ];
-
-  let adsLoaded = false;
-  
-  function loadDelayedAdScripts() {
-    if (adsLoaded) return;
-    adsLoaded = true;
-    
-    adSources.forEach((src) => {
-      loadAdScriptWithRetry(src, 3, 5000);
-    });
-
-    document.removeEventListener('scroll', loadDelayedAdScripts);
-    document.removeEventListener('mousemove', loadDelayedAdScripts);
-    document.removeEventListener('touchstart', loadDelayedAdScripts);
-  }
-
-  if (window.bannerAdsQueue && window.bannerAdsQueue.length > 0) {
-    setTimeout(() => {
-        loadBannerAdsSequentially(window.bannerAdsQueue);
-    }, 1000); 
-  }
-
-  document.addEventListener('scroll', loadDelayedAdScripts, { once: true });
-  document.addEventListener('mousemove', loadDelayedAdScripts, { once: true });
-  document.addEventListener('touchstart', loadDelayedAdScripts, { once: true });
-
-  setTimeout(loadDelayedAdScripts, 8000); 
-});

@@ -11,6 +11,14 @@ export function normalizeUrl(urlStr) {
 
 export function decodeUrl(encodedUrl) {
     if (!encodedUrl) return '';
+    
+    try {
+        const urlObject = new URL(encodedUrl, window.location.origin);
+        if (urlObject.pathname.startsWith('/!!/')) {
+            return urlObject.pathname.slice('/!!/'.length) + urlObject.search + urlObject.hash;
+        }
+    } catch(e) {}
+
     try {
         const selectedBackend = localStorage.getItem("backend") ?? "scramjet";
         if (selectedBackend === 'ultraviolet') {
@@ -36,11 +44,17 @@ export function decodeUrl(encodedUrl) {
             }
         }
     } catch (e) {}
+
     try {
         return decodeURIComponent(encodedUrl);
     } catch {
         return encodedUrl;
     }
+}
+
+export function getProxyUrl(url) {
+    if (!url) return '';
+    return '/!!/' + url;
 }
 
 export function canonicalize(u) {

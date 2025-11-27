@@ -16,7 +16,7 @@
       this.healthCheckInterval = null;
       this.isInitialLoad = true;
 
-      window.addEventListener("load", () => {
+      window.addEventListener("DOMContentLoaded", () => {
         if (!this.preFlightChecks()) return;
         this.loadConfig();
         this.initializeApp();
@@ -105,8 +105,6 @@
       this.updateStatus('Connecting...', 'info');
 
       try {
-        await this.unregisterAllServiceWorkers();
-
         if (!this.bareMuxConnection) {
           this.bareMuxConnection = new BareMux.BareMuxConnection("/bmux/worker.js");
           window.WavesApp = window.WavesApp || {};
@@ -115,15 +113,16 @@
 
         const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
         this.currentWispUrl = this.appConfig.customWispUrl || defaultWispUrl;
-        await this.ensureWispServerConnection(this.currentWispUrl);
-        
+
         const scope = { 'ultraviolet': "/b/u/hi/", 'scramjet': "/b/s/" }[this.appConfig.backend];
         if (!scope) throw new Error(`Unknown backend: ${this.appConfig.backend}`);
+
         await navigator.serviceWorker.register("./b/sw.js", { scope });
 
         const transportMap = { epoxy: "/epoxy/index.mjs", libcurl: "/libcurl/index.mjs" };
         const transportModule = transportMap[this.appConfig.transport];
         if (!transportModule) throw new Error(`Unknown transport: ${this.appConfig.transport}`);
+        
         this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
 
         const transportName = this.appConfig.transport.charAt(0).toUpperCase() + this.appConfig.transport.slice(1);
@@ -169,7 +168,7 @@
         
         isChecking = true;
         try {
-          await this.ensureWispServerConnection(this.currentWispUrl, 2500);
+            await this.ensureWispServerConnection(this.currentWispUrl, 2500);
         } catch (err) {
           this.updateStatus('Health check failed. Reconnecting...', 'error');
           await this.initializeApp();

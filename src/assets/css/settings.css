@@ -20,8 +20,8 @@
     margin-top: -15px;
     margin-left: 0;
     text-align: left;
-    font-size: 25px;
-    font-weight: 500;
+    font-size: 20px;
+    font-weight: lighter;
 }
 
 #settings-menu label {
@@ -41,7 +41,7 @@
     text-align: left;
     font-weight: 500;
     margin-bottom: 10px;
-    transition: color 0.3s ease;
+    transition: color 0.1s ease;
 }
 
 #settings-menu select {
@@ -54,14 +54,14 @@
     border-radius: 15px;
     font-size: 18px;
     outline: none;
-    transition: all 0.3s ease;
+    transition: all 0.1s ease;
 }
 
 #settings-menu select:focus {
     transform: scale(1.02);
 }
 
-#close-settings {
+#close-settings-menu {
     position: absolute;
     top: 17px;
     right: 10px;
@@ -74,14 +74,13 @@
     z-index: 1000;
     outline: none;
     display: inline-flex;
-    transition: 0.15s ease;
 }
 
-#close-settings:hover {
+#close-settings-menu:hover {
     color: #ffffff;
 }
 
-#close-settings i {
+#close-settings-menu i {
     font-size: 20px;
     line-height: 0;
 }
@@ -93,21 +92,21 @@
 .settings-menu.open {
     display: block;
     opacity: 1;
-    animation: openMenu 0.1s forwards;
+    animation: fadeIn 0.1s forwards;
 }
 
 .settings-menu.close {
-    animation: closeMenu 0.1s forwards;
+    animation: fadeOut 0.1s forwards;
 }
 
-.transport-selector, .search-engine-selector, .backend-selector, .decoy-selector, .cloak-link-selector {
+.transport-selector, .search-engine-selector, .backend-selector, .decoy-selector, .cloak-link-selector, .game-source-selector {
     position: relative;
     width: 100%;
     max-width: 255px;
     margin-bottom: 15px;
 }
 
-.transport-selected, .search-engine-selected, .backend-selected, .decoy-selected, .cloak-link-selected {
+.transport-selected, .search-engine-selected, .backend-selected, .decoy-selected, .cloak-link-selected, .game-source-selected {
     background-color: #181818;
     border: 2px solid #ffffff00;
     color: #e0e0e0;
@@ -119,11 +118,11 @@
     align-items: center;
 }
 
-.transport-selected:hover, .search-engine-selected:hover, .backend-selected:hover, .decoy-selected:hover, .cloak-link-selected:hover {
+.transport-selected:hover, .search-engine-selected:hover, .backend-selected:hover, .decoy-selected:hover, .cloak-link-selected:hover, .game-source-selected:hover {
     background-color: #333;
 }
 
-.transport-selected::after, .search-engine-selected::after, .backend-selected::after, .decoy-selected::after, .cloak-link-selected::after {
+.transport-selected::after, .search-engine-selected::after, .backend-selected::after, .decoy-selected::after, .cloak-link-selected::after, .game-source-selected::after {
     content: "\f107";
     font-family: "Font Awesome 6 Pro";
     font-weight: 900;
@@ -132,11 +131,11 @@
     transition: all 0.12s ease;
 }
 
-.transport-selected.transport-arrow-active::after, .search-engine-selected.search-engine-arrow-active::after, .backend-selected.backend-arrow-active::after, .decoy-selected.decoy-arrow-active::after, .cloak-link-selected.cloak-link-arrow-active::after {
+.transport-selected.transport-arrow-active::after, .search-engine-selected.search-engine-arrow-active::after, .backend-selected.backend-arrow-active::after, .decoy-selected.decoy-arrow-active::after, .cloak-link-selected.cloak-link-arrow-active::after, .game-source-selected.game-source-arrow-active::after {
     transform: rotate(180deg);
 }
 
-.transport-options, .search-engine-options, .backend-options, .decoy-options, .cloak-link-options {
+.transport-options, .search-engine-options, .backend-options, .decoy-options, .cloak-link-options, .game-source-options {
     position: absolute;
     top: 100%;
     margin-top: 5px;
@@ -154,15 +153,17 @@
     opacity: 0;
     z-index: 10;
     padding: 3px 0;
+    pointer-events: none;
 }
 
-.transport-options.transport-show, .search-engine-options.search-engine-show, .backend-options.backend-show, .decoy-options.decoy-show, .cloak-link-options.cloak-link-show {
+.transport-options.transport-show, .search-engine-options.search-engine-show, .backend-options.backend-show, .decoy-options.decoy-show, .cloak-link-options.cloak-link-show, .game-source-options.game-source-show {
     max-height: 400px;
     opacity: 1;
     margin-top: 5px;
+    pointer-events: auto;
 }
 
-.transport-options div, .search-engine-options div, .backend-options div, .decoy-options div, .cloak-link-options div {
+.transport-options div, .search-engine-options div, .backend-options div, .decoy-options div, .cloak-link-options div, .game-source-options div {
     padding: 7px;
     border-radius: 8px;
     cursor: pointer;
@@ -170,7 +171,7 @@
     margin: 0 auto;
 }
 
-.transport-options div:hover, .search-engine-options div:hover, .backend-options div:hover, .decoy-options div:hover, .cloak-link-options div:hover {
+.transport-options div:hover, .search-engine-options div:hover, .backend-options div:hover, .decoy-options div:hover, .cloak-link-options div:hover, .game-source-options div:hover {
     background-color: #333;
     color: #d6d6d6;
 }
@@ -208,7 +209,7 @@
     margin-left: 5px;
     border-radius: 15px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.1s ease;
 }
 
 #save-wisp-url:hover {
@@ -230,7 +231,7 @@ input[type="checkbox"] {
     position: relative;
     outline: none;
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: background-color 0.1s;
 }
 
 input[type="checkbox"]:checked {
@@ -279,7 +280,7 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .settings {
-    transition: all 0.3s ease;
+    transition: all 1 ease;
 }
 
 .settings.active-icon {
@@ -375,7 +376,8 @@ input[type="checkbox"]:checked:hover::before {
 .settings-item .search-engine-selector,
 .settings-item .backend-selector,
 .settings-item .decoy-selector,
-.settings-item .cloak-link-selector {
+.settings-item .cloak-link-selector,
+.settings-item .game-source-selector {
     margin-bottom: 0;
 }
 
@@ -424,27 +426,4 @@ input[type="checkbox"]:checked:hover::before {
 
 .tab-content.active::-webkit-scrollbar-thumb:hover {
     background: #6b6b6b;
-}
-
-
-@keyframes openMenu {
-    0% {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.9);
-    }
-    100% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
-}
-
-@keyframes closeMenu {
-    0% {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
-    100% {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.9);
-    }
 }

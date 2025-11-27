@@ -1,9 +1,13 @@
 import { dom } from './ui/dom.js';
 import { HistoryManager } from './core/history.js';
-import { initializeUI, hideLoadingScreen, showHomeView, showBrowserView } from './ui/ui.js';
+import { initializeUI, hideLoading, showHomeView, showBrowserView } from './ui/ui.js';
 import { initializeIframe, updateHistoryUI } from './core/iframe.js';
 import { initializeSearch, handleSearch as performSearch } from './search/search.js';
 import { initializeBookmarks } from './features/bookmarks.js';
+import { initializeNotifications } from './features/notifications.js';
+import { initializeLayout } from './core/layout.js';
+import { initializeLoad } from './core/load.js';
+import { initializeGame } from './features/games.js';
 
 function handleServiceWorkerMessage(event) {
     const { data } = event;
@@ -22,15 +26,18 @@ function handleServiceWorkerMessage(event) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    initializeLayout();
+    initializeLoad();
+    initializeGame();
+
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
     }
-
     window.WavesApp = window.WavesApp || {};
     window.WavesApp.isLoading = false;
 
-     if (document.getElementById('new-tab-modal')) {
-        document.getElementById('new-tab-modal').style.display = '';
+    if (dom.newTabModal) {
+        dom.newTabModal.style.display = '';
     }
 
     let tabs = [];
@@ -45,11 +52,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     let newTabUnifiedWrapper = null;
     let newTabResultsContainer = null;
+    let newTabInputEl = document.createElement('input');
+    newTabInputEl.type = 'text';
+    newTabInputEl.id = 'newTabInput';
+    newTabInputEl.placeholder = 'Search or enter address';
+    newTabInputEl.autocomplete = 'off';
 
     const ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@latest/zones.json";
     const HTML_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
 
-    function loadNewTabGamesData() {
+    function loadNewTabGameData() {
         if (allGames.length > 0) return Promise.resolve(allGames);
         
         return fetch(ZONES_URL)
@@ -308,7 +320,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderTabs();
 
                     const isSplitModalVisible = dom.newTabModal.classList.contains('is-visible');
-                    const isSplitMode = dom.newTabInput.dataset.mode === 'splitSelect';
+                    const isSplitMode = newTabInputEl.dataset.mode === 'splitSelect';
                     if (isSplitModalVisible && isSplitMode) {
                         updateSplitSelectResults();
                     }
@@ -465,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function initializeNewTabModal() {
-        if (!newTabUnifiedWrapper) {
+        if (!newTabUnifiedWrapper && dom.newTabModal) {
             newTabUnifiedWrapper = document.createElement('div');
             newTabUnifiedWrapper.className = 'new-tab-unified-wrapper';
     
@@ -476,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
             icon.className = 'fa-regular fa-magnifying-glass';
             newTabSearchContainer.appendChild(icon);
     
-            newTabSearchContainer.appendChild(dom.newTabInput);
+            newTabSearchContainer.appendChild(newTabInputEl);
             
             newTabResultsContainer = document.createElement('div');
             newTabResultsContainer.className = 'new-tab-results-container';
@@ -490,7 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const item = e.target.closest('.new-tab-result-item');
                 if (!item) return;
     
-                const mode = dom.newTabInput.dataset.mode;
+                const mode = newTabInputEl.dataset.mode;
                 const { action, url, title, tabId } = item.dataset;
                 
                 if (mode === 'newTab') {
@@ -508,8 +520,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showTabSelectionModal(mode = 'newTab') {
+        initializeNewTabModal();
         dom.newTabModal.classList.add('is-visible');
-        dom.newTabInput.focus();
+        newTabInputEl.focus();
         
         if (newTabResultsContainer) {
             newTabResultsContainer.innerHTML = '';
@@ -520,14 +533,14 @@ document.addEventListener('DOMContentLoaded', () => {
             newTabUnifiedWrapper.classList.remove('has-results');
         }
 
-        dom.newTabInput.dataset.mode = mode;
+        newTabInputEl.dataset.mode = mode;
 
         if (mode === 'newTab') {
-            dom.newTabInput.placeholder = "Search or enter address";
-            loadNewTabGamesData();
+            newTabInputEl.placeholder = "Search or enter address";
+            loadNewTabGameData();
             updateNewTabResults();
         } else if (mode === 'splitSelect') {
-            dom.newTabInput.placeholder = "Select a tab to split with...";
+            newTabInputEl.placeholder = "Select a tab to split with...";
             updateSplitSelectResults();
         }
 
@@ -536,15 +549,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function hideTabSelectionModal() {
-        if (!dom.newTabModal.classList.contains('is-visible')) return;
+        if (!dom.newTabModal || !dom.newTabModal.classList.contains('is-visible')) return;
 
         window.removeEventListener('click', outsideClickListener);
         window.removeEventListener('blur', onWindowBlur);
 
         dom.newTabModal.classList.remove('is-visible');
         
-        dom.newTabInput.value = '';
-        dom.newTabInput.dataset.mode = '';
+        newTabInputEl.value = '';
+        newTabInputEl.dataset.mode = '';
         
         if (newTabResultsContainer) {
             newTabResultsContainer.innerHTML = '';
@@ -564,7 +577,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateNewTabResults() {
-        const query = dom.newTabInput.value.trim();
+        const query = newTabInputEl.value.trim();
         const lowerCaseQuery = query.toLowerCase();
         newTabResultsContainer.innerHTML = '';
 
@@ -601,7 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateSplitSelectResults() {
-        const query = dom.newTabInput.value.trim().toLowerCase();
+        const query = newTabInputEl.value.trim().toLowerCase();
         newTabResultsContainer.innerHTML = '';
 
         const tabsToSearch = tabs.filter(t => t.id !== splitPair.left);
@@ -726,18 +739,17 @@ document.addEventListener('DOMContentLoaded', () => {
         updateIframeView();
     }
 
-
-    window.WavesApp.handleSearch = async (query) => {
+    window.WavesApp.handleSearch = async (query, gameName) => {
         const activeTab = getActiveTab();
         if (activeTab) {
-            await performSearch(query, activeTab);
+            await performSearch(query, activeTab, gameName);
         }
     };
     
     initializeUI(getActiveTab);
     initializeSearch(getActiveTab);
     initializeBookmarks();
-    initializeNewTabModal();
+    initializeNotifications();
     initializeSplitResize();
 
     if (dom.splitViewBtn) {
@@ -773,8 +785,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     dom.addTabBtn.addEventListener('click', () => showTabSelectionModal('newTab'));
     
-    dom.newTabInput.addEventListener('keyup', (e) => {
-        const mode = dom.newTabInput.dataset.mode;
+    newTabInputEl.addEventListener('keyup', (e) => {
+        const mode = newTabInputEl.dataset.mode;
 
         if (e.key === 'Escape') {
             hideTabSelectionModal();
@@ -791,7 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (firstResult) {
                     firstResult.click();
                 } else {
-                    handleNewTabAction(dom.newTabInput.value.trim(), 'Loading...');
+                    handleNewTabAction(newTabInputEl.value.trim(), 'Loading...');
                 }
             } else {
                 updateNewTabResults();
@@ -825,7 +837,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('load', () => {
         const activeTab = getActiveTab();
         if (activeTab && !activeTab.isUrlLoaded) {
-            hideLoadingScreen();
+            hideLoading();
             window.WavesApp.isLoading = false;
             showHomeView();
             if (dom.searchInputMain) dom.searchInputMain.disabled = false;

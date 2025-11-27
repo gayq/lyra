@@ -77,13 +77,9 @@ function updateFilePaths(filePath, manifest) {
 }
 
 const htmlMinifierOptions = [
-    "--collapse-whitespace",
     "--use-short-doctype",
-    "--minify-css", "true",
-    "--minify-js", "true",
     "--collapse-boolean-attributes"
 ];
-
 
 const steps = [
     { name: "Cleaning up old build", task: () => fs.rmSync("dist", { recursive: true, force: true }) },
@@ -237,7 +233,8 @@ const steps = [
                 'assets/js/features/toast.js',
                 'assets/css/settings.css',
                 'assets/css/games.css',
-                'assets/css/toast.css'
+                'assets/css/toast.css',
+                'assets/css/notifications.css'
             ];
 
             for (const [pathInHtml, pathOnDisk] of Object.entries(filesToHashMap)) {
@@ -276,7 +273,7 @@ const steps = [
                         const escapedOriginal = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                         const regex = new RegExp(`(src|href)=["']/?${escapedOriginal}["']`);
                         if (regex.test(content)) {
-                            content = content.replace(regex, `$1="/${hashedPath}"`);
+                            content = content.replace(regex, `$1="/${hashedPath}" defer`);
                             isUpdated = true;
                         }
                     }
@@ -295,24 +292,6 @@ const steps = [
                          content = content.replace(linkRegex, '');
                          isUpdated = true;
                      }
-                }
-
-                const noscriptRegex = /<noscript>[\s\S]*?<\/noscript>/gi;
-                if (noscriptRegex.test(content)) {
-                    const cssBundleHashedPath = manifest['assets/css/index.css'];
-                    if (cssBundleHashedPath) {
-                         content = content.replace(noscriptRegex, (match) => {
-                             let noscriptContent = `<link rel="stylesheet" href="/${cssBundleHashedPath}">`;
-                             if (match.includes('font-awesome/css/all.css')) {
-                                 noscriptContent += `<link rel="stylesheet" href="/assets/css/vendors/font-awesome/css/all.css">`;
-                             }
-                             return `<noscript>${noscriptContent}</noscript>`;
-                         });
-                         isUpdated = true;
-                    } else {
-                        content = content.replace(noscriptRegex, ''); 
-                        isUpdated = true;
-                    }
                 }
 
                 if (isUpdated) {

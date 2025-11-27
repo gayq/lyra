@@ -22,7 +22,7 @@ You **cannot** deploy Waves on any static hosting services!
 ## Self-Hosting
    
 ```bash
-git clone --depth 1 https://github.com/l4uy/waves
+git clone https://github.com/l4uy/waves/
 
 cd waves
 
@@ -34,7 +34,7 @@ sh setup.sh
 Development
 
 ```bash
-git clone --depth 1 https://github.com/l4uy/waves
+git clone https://github.com/l4uy/waves/
 
 cd waves
 
@@ -46,7 +46,7 @@ bun dev
 Production
 
 ```bash
-git clone --depth 1 https://github.com/l4uy/waves
+git clone https://github.com/l4uy/waves/
 
 cd waves
 
@@ -59,7 +59,9 @@ bun start
 
 ## Credits
 
-- [GN-Math](https://github.com/gn-math/gn-math.github.io/) - All of the games
+- [GN-Math](https://github.com/gn-math/gn-math.github.io/) - Game Source
+- [Selenite](https://git.ceres.rip/selenite/) - Game Source
+- [Truffled](https://github.com/aukak/) - Game Source
 - [Bog](https://github.com/aukak/) - Ports for Hollow Knight, RE:RUN, and Touhou Mother
 - [Titanium Network](https://github.com/titaniumnetwork-dev/Ultraviolet/) - Ultraviolet
 - [Mercury Workshop](https://github.com/MercuryWorkshop/) - Scramjet, Epoxy, and Libcurl

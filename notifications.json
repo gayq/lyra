@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "title": "v3.4.0 Release!!",
+    "message": "Loads of bug fixes, performance improvements, and new features!",
+    "date": "2025-11-26T01:56:19.293Z",
+    "isNew": true,
+    "type": "Update",
+    "changes": [
+      "Added \"Bridge\": a brand new system that handles all the games, improving the proxy speed, and fixed other assets, such as bookmark and tab favicons being blocked! A lot more efficient and reliable than what we had before.",
+      "Added this very cool little notifications menu.",
+      "Added 3 new search engines: Brave, Mojeek, and Swisscows.",
+      "Added 2 new decoy options: Wikipedia and Canva.",
+      "Added a game source selector in the settings menu: GN-Math, Selenite, and Truffled. More sources will be added very soon! Different sources offer different games. So if you can't find a game you want, try switching sources!",
+      "Added the ability to close any modals, menus, and prompts by pressing ESC.",
+      "Improved the website loading speed.",
+      "Improved the Wisp server overall performance and stability.",
+      "Improved Scramjet and Ultraviolet speed.",
+      "Improved the UI and its animations.",
+      "Reduced the build size.",
+      "Reduced bandwidth usage.",
+      "Fixed various minor bugs.",
+      "Fixed the title not updating to the set decoy title.",
+      "Fixed favicon being blocked on bookmarks and tabs.",
+      "Fixed some of the UI elements being misaligned.",
+      "Fixed detection issues."
+    ],
+    "endMessage": "Thank you everyone so much for all the recent support! Enjoy the new update! :D"
+  }
+]

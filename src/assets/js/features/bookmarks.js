@@ -1,9 +1,17 @@
 import { dom } from '../ui/dom.js';
 import { DEFAULT_BOOKMARKS } from '../core/config.js';
-import { canonicalize } from '../core/utils.js';
+import { canonicalize, getProxyUrl } from '../core/utils.js';
 
 let bookmarksCache = null;
 let isEditMode = false;
+let bookmarksListEl = null;
+let addBookmarkLiEl = null;
+let addBookmarkBtnEl = null;
+let bookmarkPromptEl = null;
+let bookmarkNameInputEl = null;
+let bookmarkUrlInputEl = null;
+let saveBookmarkBtnEl = null;
+let cancelBookmarkBtnEl = null;
 
 const getBookmarks = () => {
     if (bookmarksCache) return bookmarksCache;
@@ -28,18 +36,19 @@ const saveBookmarks = bookmarks => {
 
 function updateAddButtonVisibility() {
     const bookmarks = getBookmarks();
-    if (dom.addBookmarkLi) {
+    if (addBookmarkLiEl) {
         if (isEditMode && bookmarks.length < 5) {
-            dom.addBookmarkLi.style.display = 'list-item';
+            addBookmarkLiEl.style.display = 'list-item';
         } else {
-            dom.addBookmarkLi.style.display = 'none';
+            addBookmarkLiEl.style.display = 'none';
         }
     }
 }
 
 const renderBookmarks = () => {
+    if (!bookmarksListEl) return;
     const bookmarks = getBookmarks();
-    dom.bookmarksList.querySelectorAll('.bookmark-item').forEach(item => item.remove());
+    bookmarksListEl.querySelectorAll('.bookmark-item').forEach(item => item.remove());
 
     const fragment = document.createDocumentFragment();
     bookmarks.forEach((bookmark, index) => {
@@ -60,7 +69,8 @@ const renderBookmarks = () => {
         icon.className = 'bookmark-icon-img';
         icon.loading = 'lazy';
         try {
-            icon.src = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
+            const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
+            icon.src = getProxyUrl(originalFavicon);
         } catch {
             icon.src = '';
         }
@@ -89,7 +99,7 @@ const renderBookmarks = () => {
 
         const editBtn = document.createElement('button');
         editBtn.className = 'bookmark-edit-trigger';
-        editBtn.innerHTML = '<i class="fa-regular fa-edit"></i>';
+        editBtn.innerHTML = '<i class="fa-regular fa-pencil"></i>';
         editBtn.onclick = (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -102,10 +112,10 @@ const renderBookmarks = () => {
         fragment.appendChild(listItem);
     });
     
-    if (dom.addBookmarkLi) {
-        dom.bookmarksList.insertBefore(fragment, dom.addBookmarkLi);
+    if (addBookmarkLiEl) {
+        bookmarksListEl.insertBefore(fragment, addBookmarkLiEl);
     } else {
-        dom.bookmarksList.appendChild(fragment);
+        bookmarksListEl.appendChild(fragment);
     }
     
     setupDragAndDrop();
@@ -115,7 +125,9 @@ const renderBookmarks = () => {
 let draggedItem = null, draggedIndex = null;
 const setupDragAndDrop = () => {
     const bookmarksContainer = document.getElementById('bookmarks-container');
-    const bookmarkItems = dom.bookmarksList.querySelectorAll('.bookmark-item');
+    if (!bookmarksContainer || !bookmarksListEl) return;
+    
+    const bookmarkItems = bookmarksListEl.querySelectorAll('.bookmark-item');
     
     bookmarkItems.forEach((item) => {
         item.addEventListener('dragstart', (e) => {
@@ -186,13 +198,13 @@ const setupAndShowBookmarkPrompt = (index) => {
     const isEditing = typeof index === 'number';
     if (isEditing) {
         const bookmark = getBookmarks()[index];
-        dom.bookmarkNameInput.value = bookmark.name;
-        dom.bookmarkUrlInput.value = bookmark.url;
+        if(bookmarkNameInputEl) bookmarkNameInputEl.value = bookmark.name;
+        if(bookmarkUrlInputEl) bookmarkUrlInputEl.value = bookmark.url;
     }
     showBookmarkPrompt();
-    dom.saveBookmarkBtn.onclick = () => {
-        const name = dom.bookmarkNameInput.value.trim();
-        let rawUrl = dom.bookmarkUrlInput.value.trim();
+    if(saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = () => {
+        const name = bookmarkNameInputEl ? bookmarkNameInputEl.value.trim() : '';
+        let rawUrl = bookmarkUrlInputEl ? bookmarkUrlInputEl.value.trim() : '';
         if (!name || !rawUrl) { showToast('error', 'Name and URL cannot be empty!', 'warning'); return; }
         if (!/^https?:\/\//i.test(rawUrl)) rawUrl = 'https://' + rawUrl;
         try { new URL(rawUrl); } catch { showToast('error', 'Please enter a valid URL!', 'warning'); return; }
@@ -211,7 +223,6 @@ const setupAndShowBookmarkPrompt = (index) => {
 };
 
 const showBookmarkPrompt = () => {
-    if (window.hideGamesMenu) window.hideGamesMenu(true);
     if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
         window.toggleSettingsMenu();
     }
@@ -224,55 +235,103 @@ const showBookmarkPrompt = () => {
 
     dom.bookmarkPromptOverlay?.classList.add('show');
 
-    dom.bookmarkPrompt.style.display = 'block';
-    
-    dom.bookmarkPrompt.classList.remove('fade-out-prompt');
-    dom.bookmarkPrompt.classList.add('fade-in-prompt');
+    if(bookmarkPromptEl) {
+        bookmarkPromptEl.style.display = 'block';
+        bookmarkPromptEl.classList.remove('fade-out-prompt');
+        bookmarkPromptEl.classList.add('fade-in-prompt');
+    }
 };
 
 const hideBookmarkPrompt = (calledByOther) => {
-    dom.bookmarkNameInput.value = '';
-    dom.bookmarkUrlInput.value = '';
-    if (dom.saveBookmarkBtn) dom.saveBookmarkBtn.onclick = null;
+    if(bookmarkNameInputEl) bookmarkNameInputEl.value = '';
+    if(bookmarkUrlInputEl) bookmarkUrlInputEl.value = '';
+    if (saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = null;
 
-    if (!calledByOther) {
-        const settingsMenu = document.getElementById('settings-menu');
-        const gamesMenu = document.getElementById('games-menu');
-        const sharePrompt = document.getElementById('sharePrompt');
-        const updateSuccess = document.getElementById('updateSuccess');
-        const shortcutPrompt = document.getElementById('shortcut-prompt');
-        const isOtherModalOpen = (settingsMenu && settingsMenu.classList.contains('open')) ||
-                                 (gamesMenu && gamesMenu.classList.contains('open')) ||
-                                 (sharePrompt && sharePrompt.style.display === 'block' && !sharePrompt.classList.contains('fade-out')) ||
-                                 (updateSuccess && updateSuccess.style.display === 'block' && !updateSuccess.classList.contains('fade-out')) ||
-                                 (shortcutPrompt && shortcutPrompt.style.display === 'block');
-
-        if (dom.bookmarkPromptOverlay && !isOtherModalOpen) {
-            dom.bookmarkPromptOverlay.classList.remove('show');
-        }
+    if (!calledByOther && dom.bookmarkPromptOverlay) {
+        dom.bookmarkPromptOverlay.classList.remove('show');
     }
 
-    dom.bookmarkPrompt.classList.add('fade-out-prompt');
-
-    dom.bookmarkPrompt.addEventListener('animationend', (e) => {
-        if (e.animationName === 'fadeOutPrompt') {
-            dom.bookmarkPrompt.style.display = 'none';
-            dom.bookmarkPrompt.classList.remove('fade-in-prompt', 'fade-out-prompt');
-        }
-    }, { once: true });
+    if(bookmarkPromptEl) {
+        bookmarkPromptEl.classList.add('fade-out-prompt');
+        bookmarkPromptEl.addEventListener('animationend', (e) => {
+            if (e.animationName === 'fadeOut') {
+                bookmarkPromptEl.style.display = 'none';
+                bookmarkPromptEl.classList.remove('fade-in-prompt', 'fade-out-prompt');
+            }
+        }, { once: true });
+    }
 };
 
 export function initializeBookmarks() {
-    const bookmarksContainer = document.getElementById('bookmarks-container');
+    let bookmarksContainer = document.getElementById('bookmarks-container');
+    if (!bookmarksContainer) {
+        bookmarksContainer = document.createElement('div');
+        bookmarksContainer.id = 'bookmarks-container';
+        bookmarksContainer.innerHTML = `
+            <div class="bookmarks-header">
+                <h3 id="bookmarks-title">Bookmarks</h3>
+                <button id="bookmarks-edit-toggle">Edit</button>
+            </div>
+            <div class="bookmarks-wrapper">
+                <ul id="bookmarks-list">
+                    <li class="bookmark-item-add">
+                        <button id="add-bookmark-btn"><i class="fa-regular fa-plus"></i></button>
+                    </li>
+                </ul>
+            </div>
+        `;
+        
+        const iframeContainer = document.getElementById('iframe-container');
+        const contentWrapper = document.querySelector('.wrapper');
+        if (contentWrapper && iframeContainer) {
+            contentWrapper.insertBefore(bookmarksContainer, iframeContainer);
+        } else if (contentWrapper) {
+             contentWrapper.appendChild(bookmarksContainer);
+        }
+    }
+
+    bookmarksListEl = document.getElementById('bookmarks-list');
+    addBookmarkLiEl = bookmarksContainer.querySelector('.bookmark-item-add');
+    addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
+    
+    bookmarkPromptEl = document.getElementById('bookmark-prompt');
+    if (!bookmarkPromptEl) {
+        bookmarkPromptEl = document.createElement('div');
+        bookmarkPromptEl.id = 'bookmark-prompt';
+        bookmarkPromptEl.className = 'popup';
+        bookmarkPromptEl.style.display = 'none';
+        document.body.appendChild(bookmarkPromptEl);
+
+        bookmarkPromptEl.innerHTML = `
+            <div class="input-container">
+                <label>Bookmark Name:</label>
+                <input type="text" id="bookmarkName" placeholder="My Cool Website" autocomplete="off">
+                <label style="margin-top:15px;">Bookmark URL:</label>
+                <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
+                <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
+                    <button id="saveBookmarkBtn">Save</button>
+                    <button id="cancelBookmarkBtn" style="background-color:#0f0f0f;color:white;" onmouseover="this.style.backgroundColor='#1f1f1f';" onmouseout="this.style.backgroundColor='#0f0f0f';">Cancel</button>
+                </div>
+            </div>
+        `;
+    }
+
+    bookmarkNameInputEl = document.getElementById('bookmarkName');
+    bookmarkUrlInputEl = document.getElementById('bookmarkUrl');
+    saveBookmarkBtnEl = document.getElementById('saveBookmarkBtn');
+    cancelBookmarkBtnEl = document.getElementById('cancelBookmarkBtn');
+
     const editToggleButton = document.getElementById('bookmarks-edit-toggle');
 
     window.hideBookmarkPrompt = hideBookmarkPrompt;
     renderBookmarks();
     
-    dom.addBookmarkBtn?.addEventListener('click', () => setupAndShowBookmarkPrompt());
-    dom.cancelBookmarkBtn?.addEventListener('click', () => hideBookmarkPrompt(false));
+    if (addBookmarkBtnEl) addBookmarkBtnEl.addEventListener('click', () => setupAndShowBookmarkPrompt());
+    
+    if(cancelBookmarkBtnEl) cancelBookmarkBtnEl.addEventListener('click', () => hideBookmarkPrompt(false));
+    
     dom.bookmarkPromptOverlay?.addEventListener('click', e => {
-        if (e.target === dom.bookmarkPromptOverlay && dom.bookmarkPrompt.style.display === 'block') hideBookmarkPrompt(false);
+        if (e.target === dom.bookmarkPromptOverlay && bookmarkPromptEl.style.display === 'block') hideBookmarkPrompt(false);
     });
 
     if (editToggleButton && bookmarksContainer) {
@@ -283,4 +342,13 @@ export function initializeBookmarks() {
             updateAddButtonVisibility();
         });
     }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const prompt = document.getElementById('bookmark-prompt');
+            if (prompt && prompt.style.display === 'block' && !prompt.classList.contains('fade-out-prompt')) {
+                hideBookmarkPrompt(false);
+            }
+        }
+    });
 }
