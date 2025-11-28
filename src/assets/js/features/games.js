@@ -24,13 +24,16 @@ export function initializeGame() {
         `;
   }
 
-  const GN_ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
-  const GN_COVER_URL = "https://cdn.jsdelivr.net/gh/gn-math/covers@main";
-  const GN_HTML_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
-  const SELENITE_GAME_URL = "https://selenite.cc/resources/games.json";
+  const GN_ZONES_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
+  const GN_COVER_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/covers@main";
+  const GN_HTML_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/html@main";
+  const SELENITE_GAME_URL = "/!!/https://selenite.cc/resources/games.json";
   const SELENITE_ASSETS_URL = "https://selenite.cc/resources/semag";
-  const TRUFFLED_GAME_URL = "https://truffled.lol/js/json/g.json";
+  const TRUFFLED_GAME_URL = "/!!/https://truffled.lol/js/json/g.json";
   const TRUFFLED_ASSETS_URL = "https://truffled.lol";
+  const VELARA_GAME_URL = "/!!/https://velara.cc/json/gg.json";
+  const VELARA_ASSETS_URL = "https://velara.cc";
+  const DUCKMATH_GAME_URL = "/!!/https://cdn.jsdelivr.net/gh/duckmath/duckmath.github.io@main/backup_classes.json";
   const gameMenuContent = gameMenu.querySelector('.game-menu-content');
   const closeGameMenuBtn = document.getElementById('close-game-menu');
   const gameSearchInput = document.getElementById('gameSearchInput');
@@ -121,7 +124,7 @@ export function initializeGame() {
               }
 
               return {
-                id: game.name, 
+                id: game.name,
                 name: game.name,
                 author: "Truffled",
                 coverUrl: `/!!/${finalCover}`,
@@ -140,6 +143,87 @@ export function initializeGame() {
           })
           .catch(err => {
             console.error('Failed to load Truffled games:', err);
+            gameDataPromise = null;
+            throw err;
+          });
+
+      } else if (source === 'Velara') {
+        gameDataPromise = fetch(VELARA_GAME_URL)
+          .then(res => {
+            if (!res.ok) throw new Error(`Velara fetch failed: ${res.statusText}`);
+            return res.json();
+          })
+          .then(data => {
+            allGames = data
+              .filter(game => game.name !== "!!DMCA" && game.name !== "!!Game Request")
+              .map(game => {
+                let finalUrl = game.link;
+                const isExternal = !finalUrl && !!game.grdmca;
+
+                if (finalUrl) {
+                  if (!finalUrl.startsWith('http')) {
+                    finalUrl = VELARA_ASSETS_URL + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
+                  }
+                } else if (game.grdmca) {
+                  finalUrl = game.grdmca;
+                }
+
+                return {
+                  id: game.name,
+                  name: game.name,
+                  author: "Velara",
+                  coverUrl: `/!!/${VELARA_ASSETS_URL}/assets/game-imgs/${game.imgpath}`,
+                  gameUrl: finalUrl,
+                  isExternal: isExternal,
+                  featured: false
+                };
+              })
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            gameDataLoaded = true;
+            updateGamePlaceholder();
+            try {
+              sessionStorage.setItem(cacheKey, JSON.stringify(allGames));
+            } catch (e) {}
+            return allGames;
+          })
+          .catch(err => {
+            console.error('Failed to load Velara games:', err);
+            gameDataPromise = null;
+            throw err;
+          });
+
+      } else if (source === 'DuckMath') {
+        gameDataPromise = fetch(DUCKMATH_GAME_URL)
+          .then(res => {
+            if (!res.ok) throw new Error(`DuckMath fetch failed: ${res.statusText}`);
+            return res.json();
+          })
+          .then(data => {
+            allGames = data
+              .map(game => {
+                const formattedName = game.title.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                return {
+                  id: game.id,
+                  name: formattedName,
+                  author: game.developer_name || "DuckMath",
+                  coverUrl: `/!!/${game.icon}`,
+                  gameUrl: game.link,
+                  isExternal: false,
+                  featured: game.is_featured || false
+                };
+              })
+              .sort((a, b) => a.name.localeCompare(b.name));
+
+            gameDataLoaded = true;
+            updateGamePlaceholder();
+            try {
+              sessionStorage.setItem(cacheKey, JSON.stringify(allGames));
+            } catch (e) {}
+            return allGames;
+          })
+          .catch(err => {
+            console.error('Failed to load DuckMath games:', err);
             gameDataPromise = null;
             throw err;
           });
@@ -293,7 +377,7 @@ export function initializeGame() {
     gameMenuContent.classList.add('close');
 
     if (shortcutPromptOverlay && !calledByOther) {
-        shortcutPromptOverlay.classList.remove('show');
+      shortcutPromptOverlay.classList.remove('show');
     }
 
     gameMenuContent.addEventListener('animationend', function onHideAnimationEnd(e) {
