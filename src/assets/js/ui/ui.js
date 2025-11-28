@@ -226,6 +226,14 @@ export function initializeUI(getActiveTab) {
         }
       } else if (activeTab.iframe.contentWindow && activeTab.iframe.src && activeTab.iframe.src !== 'about-blank') {
         showLoading();
+
+        activeTab.iframe.classList.remove('loaded');
+        activeTab.title = 'Loading...';
+        activeTab.favicon = null;
+        if (window.WavesApp.renderTabs) {
+             window.WavesApp.renderTabs();
+        }
+
         try {
           activeTab.iframe.contentWindow.location.reload();
         } catch (e) {
