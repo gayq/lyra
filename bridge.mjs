@@ -437,7 +437,7 @@ export async function bridgeHandler(req, res) {
                                 const jsonObject = JSON.parse(processedContent);
                                 processedContent = JSON.stringify(jsonObject); 
                             } catch(e) {
-                                console.error(`JSON parsing failed for ${targetUrl}:`, e.message);
+                                console.error(`JSON parsing failed for ${targetUrl} (not minifying):`, e.message);
                             }
                         }
 

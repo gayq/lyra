@@ -492,10 +492,6 @@ export function initializeGame() {
     }
   }
 
-  getGameData().then(() => {
-    renderGame();
-  });
-
   if (gameSearchInput) gameSearchInput.addEventListener('input', filterAndDisplayGame);
 
   gameGrid.addEventListener('click', (e) => {

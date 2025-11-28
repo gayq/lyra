@@ -10,6 +10,8 @@ export function navigateIframeTo(iframe, url) {
     window.WavesApp.isLoading = true;
     delete iframe.dataset.reloadAttempted;
 
+    iframe.classList.remove('loaded');
+
     iframe.dataset.navigationStarted = 'true';
 
     if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -17,6 +19,8 @@ export function navigateIframeTo(iframe, url) {
         console.warn('Loading timed out. Forcing UI update...');
         hideLoading();
         window.WavesApp.isLoading = false;
+        
+        iframe.classList.add('loaded');
         
         updateTabDetails(iframe);
         
@@ -28,7 +32,7 @@ export function navigateIframeTo(iframe, url) {
                     tab.historyManager.push(currentUrl);
                 }
             } catch (e) {
-                console.warn("Could not force-grab URL on timeout.", e);
+                console.warn("Could not force grab URL on timeout.", e);
             }
         }
     }, 10000);
@@ -42,6 +46,8 @@ function updateTabDetails(iframe) {
     const tabToUpdate = window.WavesApp.tabs.find(tab => tab.iframe === iframe);
     
     if (!tabToUpdate) return;
+
+    let isReloading = false; 
 
     try {
         const iframeWindow = iframe.contentWindow;
@@ -57,10 +63,11 @@ function updateTabDetails(iframe) {
             if (reloadCount < 400) {
                 try {
                     iframe.dataset.reloadCount = (reloadCount + 1).toString();
+                    isReloading = true;
                     iframe.contentWindow.location.reload(true);
                     return;
                 } catch (e) {
-                    console.warn('Could not force-reload page:', e);
+                    console.warn('Could not force reload page:', e);
                 }
             }
         }
@@ -83,7 +90,7 @@ function updateTabDetails(iframe) {
         tabToUpdate.title = 'New Tab';
         tabToUpdate.favicon = null;
     } finally {
-        if (window.WavesApp.renderTabs) {
+        if (!isReloading && window.WavesApp.renderTabs) {
             window.WavesApp.renderTabs();
         }
     }
@@ -224,6 +231,8 @@ export function initializeIframe(iframe, historyManager, tabId) {
 
         hideLoading();
         window.WavesApp.isLoading = false;
+
+        iframe.classList.add('loaded');
 
         const manualUrl = iframe.dataset.manualUrl;
         let newUrl;

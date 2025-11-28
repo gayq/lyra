@@ -28,15 +28,35 @@
     "endMessage": "Thank you everyone so much for all the recent support! Enjoy the new update! :D"
   },
   {
-    "id": 1,
+    "id": 2,
     "title": "HAPPY THANKSGIVING!!!!",
     "message": "Just wanted to say how thankful I am for every single one of you guys for supporting Waves and helping it get this far! If you ever told me that Waves was ever gonna get this far 10 months ago, I would've never believed it. So seriously, thank you!",
-    "date": "2025-11-27T06:20:29.231Z",
+    "date": "2025-11-27T06:15:51.836Z",
     "isNew": true,
     "type": "Announcement",
     "changes":[
       "Enjoy your holiday but if it's not Thanksgiving for you yet, happy early Thanksgiving! 🦃"
     ],
     "endMessage": "Also join the Discord server for more links!"
+  },
+  {
+    "id": 3,
+    "title": "v3.4.1 Release!!",
+    "message": "Bunch of more bug fixes, some improvements, and new stuff!",
+    "date": "2025-11-28T21:24:21.245Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Improved Bridge performance, added support for more stuff, and added protection to ensure it never accidentally corrupt any game binary files.",
+      "Added 2 new game sources: Velara and DuckMath.",
+      "Changed some of the UI animation speed.",
+      "Fixed WebRTC leaking your actual IP address.",
+      "Fixed the font loading very slow.",
+      "Fixed the page hanging on load.",
+      "Fixed the iframe flashing you like crazy.",
+      "Fixed game lists not going through Bridge.",
+      "Fixed some stuff in the setup file."
+    ],
+    "endMessage": "If you want more game sources added, join the Discord server and request them!"
   }
 ]
