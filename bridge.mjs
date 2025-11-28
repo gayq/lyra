@@ -389,6 +389,8 @@ export async function bridgeHandler(req, res) {
             contentType = 'text/css';
         } else if (ext === '.js') {
             contentType = 'application/javascript';
+        } else if (ext === '.json') {
+            contentType = 'application/json';
         }
 
         res.setHeader("Content-Type", contentType);
@@ -399,9 +401,10 @@ export async function bridgeHandler(req, res) {
         const isHtml = contentType.includes('text/html');
         const isCss = contentType.includes('text/css');
         const isJs = contentType.includes('javascript');
+        const isJson = contentType.includes('application/json');
         const isBinaryGameFile = BINARY_EXCLUSIONS.has(ext);
         const shouldRewrite = HTML_REWRITING && (isHtml || isCss) && !isBinaryGameFile;
-        const shouldOptimize = (isHtml || isCss || isJs) && !isBinaryGameFile; 
+        const shouldOptimize = (isHtml || isCss || isJs || isJson) && !isBinaryGameFile; 
 
         if (req.method === 'GET' && response.status === 200) {
             const buffer = await response.arrayBuffer();
@@ -409,7 +412,7 @@ export async function bridgeHandler(req, res) {
 
             if (shouldRewrite || shouldOptimize) {
                  try {
-                    if (isHtml || isCss || isJs) {
+                    if (isHtml || isCss || isJs || isJson) {
                         let processedContent = nodeBuffer.toString('utf8');
                         let resolutionBase = targetUrl;
                     
@@ -429,6 +432,13 @@ export async function bridgeHandler(req, res) {
                             }
                         } else if (isJs) {
                             processedContent = await minifyJsTerser(processedContent);
+                        } else if (isJson) {
+                             try {
+                                const jsonObject = JSON.parse(processedContent);
+                                processedContent = JSON.stringify(jsonObject); 
+                            } catch(e) {
+                                console.error(`JSON parsing failed for ${targetUrl}:`, e.message);
+                            }
                         }
 
                         nodeBuffer = Buffer.from(processedContent, 'utf8');
