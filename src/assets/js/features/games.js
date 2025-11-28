@@ -24,12 +24,12 @@ export function initializeGame() {
         `;
   }
 
-  const GN_ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
-  const GN_COVER_URL = "https://cdn.jsdelivr.net/gh/gn-math/covers@main";
-  const GN_HTML_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
-  const SELENITE_GAME_URL = "https://selenite.cc/resources/games.json";
+  const GN_ZONES_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json";
+  const GN_COVER_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/covers@main";
+  const GN_HTML_URL = "/!!/https://cdn.jsdelivr.net/gh/gn-math/html@main";
+  const SELENITE_GAME_URL = "/!!/https://selenite.cc/resources/games.json";
   const SELENITE_ASSETS_URL = "https://selenite.cc/resources/semag";
-  const TRUFFLED_GAME_URL = "https://truffled.lol/js/json/g.json";
+  const TRUFFLED_GAME_URL = "/!!/https://truffled.lol/js/json/g.json";
   const TRUFFLED_ASSETS_URL = "https://truffled.lol";
   const gameMenuContent = gameMenu.querySelector('.game-menu-content');
   const closeGameMenuBtn = document.getElementById('close-game-menu');
