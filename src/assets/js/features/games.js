@@ -349,7 +349,7 @@ export function initializeGame() {
       filterAndDisplayGame();
     } else {
       if (noResultsEl) {
-        noResultsEl.textContent = 'Fetching games..';
+        noResultsEl.textContent = 'Fetching games...';
         noResultsEl.style.display = 'block';
       }
       gameGridContainer.style.display = 'none';
