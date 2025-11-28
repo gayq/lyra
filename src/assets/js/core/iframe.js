@@ -12,6 +12,15 @@ export function navigateIframeTo(iframe, url) {
 
     iframe.classList.remove('loaded');
 
+    const tab = window.WavesApp.tabs.find(t => t.iframe === iframe);
+    if (tab) {
+        tab.title = 'Loading...';
+        tab.favicon = null;
+        if (window.WavesApp.renderTabs) {
+            window.WavesApp.renderTabs();
+        }
+    }
+
     iframe.dataset.navigationStarted = 'true';
 
     if (loadingTimeout) clearTimeout(loadingTimeout);
@@ -159,7 +168,17 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         iframeWindow.__beforeUnloadHandler = () => {
             showLoading();
             window.WavesApp.isLoading = true;
+            
             iframe.classList.remove('loaded');
+
+            const tab = window.WavesApp.tabs.find(t => t.id === tabId);
+            if (tab) {
+                tab.title = 'Loading...';
+                tab.favicon = null;
+                if (window.WavesApp.renderTabs) {
+                    window.WavesApp.renderTabs();
+                }
+            }
         }
         iframeWindow.addEventListener('beforeunload', iframeWindow.__beforeUnloadHandler);
 
@@ -177,7 +196,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         
         iframeWindow.removeEventListener('mousedown', iframeWindow.__wavesFocusHandler, true);
         iframeWindow.__wavesFocusHandler = () => {
-            const focusEvent = new CustomEvent('waves-iframe-focus', { 
+            const focusEvent = new CustomEvent('iframe-focus', { 
                 detail: { tabId: tabId }, 
                 bubbles: false 
             });

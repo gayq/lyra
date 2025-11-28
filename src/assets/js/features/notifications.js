@@ -39,7 +39,7 @@ function timeAgo(dateString) {
 
 function saveNotifications() {
     try {
-        localStorage.setItem('waves-notifications', JSON.stringify(notificationsCache));
+        localStorage.setItem('notifications', JSON.stringify(notificationsCache));
     } catch (e) {
         console.error('Failed to save notifications to localStorage:', e);
     }
@@ -47,7 +47,7 @@ function saveNotifications() {
 
 function loadNotifications() {
     try {
-        const raw = localStorage.getItem('waves-notifications');
+        const raw = localStorage.getItem('notifications');
         if (raw) {
             notificationsCache = JSON.parse(raw);
             notificationsCache = notificationsCache.map(n => ({

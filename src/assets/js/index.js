@@ -347,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
         newTab._iframeFocusHandler = iframeFocusHandler;
 
         iframe.addEventListener('load', iframeLoadHandler);
-        iframe.addEventListener('waves-iframe-focus', iframeFocusHandler);
+        iframe.addEventListener('iframe-focus', iframeFocusHandler);
 
         tabs.push(newTab);
         
@@ -421,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (closedTab.iframe) {
             closedTab.iframe.removeEventListener('load', closedTab._iframeLoadHandler);
-            closedTab.iframe.removeEventListener('waves-iframe-focus', closedTab._iframeFocusHandler);
+            closedTab.iframe.removeEventListener('iframe-focus', closedTab._iframeFocusHandler);
             closedTab.iframe.remove();
         }
 
