@@ -362,7 +362,7 @@ export function initializeGame() {
         })
         .catch(() => {
           if (noResultsEl) {
-            noResultsEl.textContent = 'Error loading games. Please try again!';
+            noResultsEl.textContent = 'Error loading games. Please try again later.';
             noResultsEl.style.display = 'block';
           }
         });
