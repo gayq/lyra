@@ -133,7 +133,6 @@
 
 .game-card:hover {
   background-color: #1f1f1f;
-  transform: none;
 }
 
 .game-image {
@@ -207,4 +206,39 @@
 #close-game-menu i {
     font-size: 20px;
     line-height: 0;
+}
+
+.arrow {
+  display: none;
+  position: absolute;
+  left: 155px; 
+  top: 52px;
+  rotate: -60deg;
+  z-index: 1003;
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  width: auto;
+}
+
+.arrow-svg {
+    width: 52px;
+    height: 40px;
+    flex-shrink: 0;
+}
+
+.arrow-text {
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 400;
+    white-space: nowrap;
+    margin-left: -60px;
+    transform: translate(8px, 10px) rotate(-10deg);
+    transform-origin: left center;
+}
+
+.arrow.show {
+  display: flex;
+  opacity: 1;
 }
