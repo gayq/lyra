@@ -159,6 +159,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         iframeWindow.__beforeUnloadHandler = () => {
             showLoading();
             window.WavesApp.isLoading = true;
+            iframe.classList.remove('loaded');
         }
         iframeWindow.addEventListener('beforeunload', iframeWindow.__beforeUnloadHandler);
 
