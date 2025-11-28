@@ -1,6 +1,6 @@
 import { dom } from '../ui/dom.js';
 import { toggleButtonAnimation } from '../core/utils.js';
-import { navigateIframeTo } from '../core/iframe.js';
+import { navigateIframeTo, stopIframeLoading } from '../core/iframe.js';
 
 let isLoading = false;
 let originalTitle = '';
@@ -214,13 +214,7 @@ export function initializeUI(getActiveTab) {
     if (!activeTab) return;
 
     if (isLoading) {
-      try {
-        activeTab.iframe.contentWindow.stop();
-      } catch (e) {
-        console.warn("Could not stop iframe loading:", e.message);
-      } finally {
-        hideLoading();
-      }
+      stopIframeLoading(activeTab.iframe);
     } else {
       const manualUrl = activeTab.iframe.dataset.manualUrl;
 

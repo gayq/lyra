@@ -4,6 +4,27 @@ import { decodeUrl, getProxyUrl } from './utils.js';
 
 let loadingTimeout = null;
 
+export function stopIframeLoading(iframe) {
+    if (!iframe) return;
+
+    if (loadingTimeout) clearTimeout(loadingTimeout);
+
+    try {
+        if (iframe.contentWindow) {
+            iframe.contentWindow.stop();
+        }
+    } catch (e) {
+        console.warn('Could not stop iframe loading:', e);
+    }
+
+    hideLoading();
+    window.WavesApp.isLoading = false;
+
+    iframe.classList.add('loaded');
+
+    updateTabDetails(iframe);
+}
+
 export function navigateIframeTo(iframe, url) {
     if (!url || !iframe) return;
     showLoading();
@@ -26,24 +47,7 @@ export function navigateIframeTo(iframe, url) {
     if (loadingTimeout) clearTimeout(loadingTimeout);
     loadingTimeout = setTimeout(() => {
         console.warn('Loading timed out. Forcing UI update...');
-        hideLoading();
-        window.WavesApp.isLoading = false;
-        
-        iframe.classList.add('loaded');
-        
-        updateTabDetails(iframe);
-        
-        const tab = window.WavesApp.tabs.find(t => t.iframe === iframe);
-        if (tab) {
-            try {
-                const currentUrl = iframe.contentWindow.location.href;
-                if (currentUrl && currentUrl !== 'about:blank') {
-                    tab.historyManager.push(currentUrl);
-                }
-            } catch (e) {
-                console.warn("Could not force grab URL on timeout.", e);
-            }
-        }
+        stopIframeLoading(iframe);
     }, 10000);
 
     iframe.removeAttribute('srcdoc'); 
@@ -65,7 +69,12 @@ function updateTabDetails(iframe) {
         
         const realUrl = decodeUrl(currentProxiedUrl);
 
-        tabToUpdate.title = doc.title || 'New Tab';
+        const newTitle = doc.title;
+        if (newTitle && newTitle.trim() !== '') {
+            tabToUpdate.title = newTitle;
+        } else {
+            tabToUpdate.title = iframeWindow.location.hostname || 'New Tab';
+        }
 
         if ((tabToUpdate.title === '404!!' || tabToUpdate.title === 'Scramjet' || tabToUpdate.title === 'Error')) {
             let reloadCount = parseInt(iframe.dataset.reloadCount || '0', 10);
