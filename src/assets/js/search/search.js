@@ -36,10 +36,6 @@ function generateSearchUrl(query) {
     const searchEngine = localStorage.getItem('searchEngine') ?? 'DuckDuckGo';
     const baseUrl = SEARCH_ENGINES[searchEngine] || SEARCH_ENGINES['DuckDuckGo'];
 
-    if (query.startsWith('/!!/')) {
-        return query;
-    }
-    
     if (!query) {
         return searchEngine === 'DuckDuckGo' ? 'https://duckduckgo.com/?q=&ia=web' : baseUrl;
     }
@@ -100,23 +96,11 @@ export async function handleSearch(query, activeTab, gameName) {
     const bangUrl = executeBang(query);
     let searchURL = bangUrl || generateSearchUrl(query);
 
-    if (searchURL.startsWith('/!!/')) {
-        navigateIframeTo(activeTab.iframe, searchURL);
-        activeTab.historyManager.push(searchURL);
-        updateHistoryUI(activeTab, {
-            currentUrl: searchURL,
-            canGoBack: activeTab.historyManager.canGoBack(),
-            canGoForward: activeTab.historyManager.canGoForward()
-        });
-        return;
-    }
-
     const isInjectableGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/") || 
                              searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
                              searchURL.startsWith("https://rawcdn.githack.com/") ||
                              searchURL.startsWith("https://selenite.cc/") ||
-                             searchURL.startsWith("https://truffled.lol/") ||
-                             searchURL.startsWith("https://maddox05.github.io/");
+                             searchURL.startsWith("https://truffled.lol/");
 
     if (isInjectableGame) {
         try {

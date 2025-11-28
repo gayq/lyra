@@ -658,7 +658,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const allSearchEngineOptions = ['Google','Bing','DuckDuckGo','Startpage','Brave','Mojeek','Swisscows'];
         const allDecoyOptions = ['None', 'Google', 'Google Docs', 'Youtube', 'Google Drive', 'Schoology', 'Wikipedia', 'Canva'];
         const allCloakLinkOptions = ['None', 'about:blank', 'blob:'];
-        const allGameSourceOptions = ['GN-Math', 'Selenite', 'Truffled', 'Velara', 'DuckMath'];
+        const allGameSourceOptions = ['GN-Math', 'Selenite', 'Truffled'];
 
         let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 

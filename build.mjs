@@ -237,7 +237,10 @@ const steps = [
                 'assets/css/settings.css',
                 'assets/css/games.css',
                 'assets/css/toast.css',
-                'assets/css/notifications.css'
+                'assets/css/notifications.css',
+                'assets/css/tabs.css',
+                'assets/css/newtab.css',
+                'assets/css/bookmarks.css'
             ];
 
             for (const [pathInHtml, pathOnDisk] of Object.entries(filesToHashMap)) {
