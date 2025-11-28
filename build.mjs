@@ -201,7 +201,10 @@ const steps = [
             
             fs.mkdirSync("dist/b", { recursive: true });
             
-            const swCode = await Bun.file(path.join("src", "b", "sw.js")).text();
+            let swCode = await Bun.file(path.join("src", "b", "sw.js")).text();
+            
+            const serverIP = process.env.IP || "127.0.0.1";
+            swCode = swCode.replace("__SERVER_IP__", serverIP);
 
             const swObfuscationResult = obfuscate(swCode, swObfuscationOptions);
             const swObfuscatedCode = swObfuscationResult.getObfuscatedCode();
@@ -257,7 +260,7 @@ const steps = [
             const htmlGlob = new Glob('dist/**/*.html');
             const htmlFiles = await Array.fromAsync(htmlGlob.scan({ absolute: true }));
 
-            const contentToPrepend = "<!-- ≽^•⩊•^≼ -->\n";
+            const contentToPrepend = "\n";
 
             for (const htmlFile of htmlFiles) {
                 let content = fs.readFileSync(htmlFile, 'utf8');

@@ -116,7 +116,12 @@ create_config_files() {
         header Upgrade websocket
     }
     reverse_proxy @websockets http://localhost:8080
-    reverse_proxy http://localhost:3000
+    
+    reverse_proxy http://localhost:3000 {
+        header_up X-Forwarded-For ""
+        header_up X-Real-IP ""
+    }
+
     encode zstd gzip
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -124,6 +129,7 @@ create_config_files() {
         X-Content-Type-Options "nosniff"
         X-XSS-Protection "1; mode=block"
         Referrer-Policy "no-referrer"
+        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
     }
 }
 
@@ -226,17 +232,17 @@ EOF
 
 check_and_configure_ports() {
     info "Checking network ports and firewall"
-    local ports_to_check="80 443 3000 8080"
-    local ufw_ports_to_open="80 443 3000 8080" 
-    local ufw_udp_ports="443"
-    local allowed_processes="caddy epoxy-server bun wireproxy"
+    local ports_to_check="80 443 3000 8080 3478"
+    local ufw_ports_to_open="80 443 3000 8080 3478" 
+    local ufw_udp_ports="443 3478"
+    local allowed_processes="caddy epoxy-server bun wireproxy turnserver"
 
     for port in $ports_to_check; do 
         if ss -tlpn | grep -q ":$port\b"; then
             local process_info
             process_info=$(ss -tlpn | grep ":$port\b")
             local process_name
-            process_name=$(echo "$process_info" | grep -o 'users:(("[^"]*"' | sed 's/users:(("//;s/"$//')
+            process_name=$(echo "$process_info" | grep -o 'users:(("[^"]*"' | head -n 1 | sed 's/users:(("//;s/"$//')
             
             local is_allowed=false
             if [ -n "$process_name" ]; then
@@ -267,11 +273,15 @@ check_and_configure_ports() {
         done
         for port in $ufw_udp_ports; do 
             if ! sudo ufw status | grep -q "$port/udp"; then
-                run_task "Allowing port $port/udp (HTTP/3) through UFW" "Port $port/udp allowed" "sudo ufw allow $port/udp"
+                run_task "Allowing port $port/udp through UFW" "Port $port/udp allowed" "sudo ufw allow $port/udp"
             else
                 success "Port $port/udp is already allowed"
             fi
         done
+        
+        if ! sudo ufw status | grep -q "49152:65535/udp"; then
+             run_task "Allowing WebRTC relay range" "Relay range allowed" "sudo ufw allow 49152:65535/udp"
+        fi
     fi
 }
 
@@ -308,6 +318,32 @@ EOF
     cd - >/dev/null 2>&1
 }
 
+install_coturn() {
+    local PUBLIC_IP
+    PUBLIC_IP=$(curl -s4 ifconfig.me)
+    
+    if [ -z "$PUBLIC_IP" ]; then
+        PUBLIC_IP=$(dig +short txt ch whoami.cloudflare @1.0.0.1 | tr -d '"')
+    fi
+    
+    echo "Public IP for TURN: $PUBLIC_IP"
+
+    sudo tee /etc/turnserver.conf >/dev/null <<EOF
+listening-port=3478
+fingerprint
+lt-cred-mech
+user=luy:l4uy
+realm=waves.lat
+external-ip=$PUBLIC_IP
+min-port=49152
+max-port=65535
+log-file=/var/log/turnserver.log
+verbose
+EOF
+
+    sudo systemctl enable coturn
+    sudo systemctl restart coturn
+}
 
 clear
 printf "${MAUVE}"
@@ -325,7 +361,7 @@ check_and_configure_ports
 info "Checking dependencies"
 
 dependencies_needed=false
-if ! command -v unzip >/dev/null 2>&1 || ! command -v bun >/dev/null 2>&1 || ! $HOME/.bun/bin/bun pm -g ls | grep -q 'pm2@' || ! command -v cargo >/dev/null 2>&1 || ! command -v setcap >/dev/null 2>&1 || ! dpkg-query -l 2>/dev/null | grep -q caddy || ! command -v jq >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1 || ! command -v dig >/dev/null 2>&1; then
+if ! command -v unzip >/dev/null 2>&1 || ! command -v bun >/dev/null 2>&1 || ! $HOME/.bun/bin/bun pm -g ls | grep -q 'pm2@' || ! command -v cargo >/dev/null 2>&1 || ! command -v setcap >/dev/null 2>&1 || ! dpkg-query -l 2>/dev/null | grep -q caddy || ! dpkg-query -l 2>/dev/null | grep -q coturn || ! command -v jq >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1 || ! command -v dig >/dev/null 2>&1; then
   dependencies_needed=true
 fi
 
@@ -344,6 +380,10 @@ if [ "$dependencies_needed" = true ]; then
     fi
     if ! command -v dig >/dev/null 2>&1; then
       sudo apt-get install -y dnsutils >/dev/null 2>&1
+    fi
+    
+    if ! dpkg-query -l 2>/dev/null | grep -q coturn; then
+      sudo apt-get install -y coturn >/dev/null 2>&1
     fi
     
     if ! command -v bun >/dev/null 2>&1; then
@@ -447,6 +487,9 @@ net.ipv4.tcp_max_syn_backlog = 65535
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.ip_local_port_range = 1024 65535
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.udp_rmem_min = 8192
@@ -471,10 +514,14 @@ warn "A reboot may be required for all system optimizations to take full effect"
 info "Setting up epoxy-server"
 run_task "Compiling and installing epoxy-server" "epoxy-server compiled and installed" "install_epoxy_server"
 
+info "Setting up Coturn TURN Server"
+run_task "Installing and configuring Coturn" "Coturn configured" "install_coturn"
+
 info "Getting Waves ready"
 run_task "Building" "Built successfully" '
   cd "$HOME/waves"
   export PATH="$HOME/.bun/bin:$PATH"
+  export IP="'$(curl -s4 ifconfig.me)'"
   bun install && bun run build
 '
 

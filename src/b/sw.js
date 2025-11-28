@@ -10,7 +10,6 @@ if (typeof crossOriginIsolated === 'undefined' && navigator.userAgent.includes('
 const scope = self.registration.scope;
 const isScramjet = scope.endsWith('/b/s/');
 const isUltraviolet = scope.endsWith('/b/u/hi/');
-
 const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
 
 let scramjet;
@@ -31,6 +30,34 @@ if (isScramjet) {
 }
 
 const CACHE_NAME = 'xin-assets-cache-v1';
+
+const INJECTION_SCRIPT = `
+<script>
+    (function(){
+        const O=window.RTCPeerConnection;
+        window.RTCPeerConnection=function(c){
+            c=c||{};
+            c.iceTransportPolicy='relay';
+            c.iceServers=[{urls:'turn:__SERVER_IP__:3478',username:'luy',credential:'l4uy'}];
+            return new O(c);
+        };
+    })();
+</script>
+`;
+
+async function handleProxyResponse(response) {
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('text/html')) {
+        let text = await response.text();
+        text = text.replace('<head>', '<head>' + INJECTION_SCRIPT);
+        return new Response(text, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+        });
+    }
+    return response;
+}
 
 self.addEventListener('activate', event => {
     event.waitUntil(self.clients.claim());
@@ -94,27 +121,34 @@ self.addEventListener("fetch", (event) => {
                 }
 
                 if (scramjet.route(event)) {
-                    return scramjet.fetch(event);
+                    const response = await scramjet.fetch(event);
+                    return handleProxyResponse(response);
                 }
             }
 
             if (isUltraviolet) {
                 if (uv.route(event)) {
-                    return uv.fetch(event);
+                    const response = await uv.fetch(event);
+                    return handleProxyResponse(response);
                 }
             }
 
-            const cache = await caches.open(CACHE_NAME);
-            const cachedResponse = await cache.match(request);
-            if (cachedResponse) {
-                return cachedResponse;
+            if (url.origin === self.location.origin) {
+                const cache = await caches.open(CACHE_NAME);
+                const cachedResponse = await cache.match(request);
+                if (cachedResponse) {
+                    return cachedResponse;
+                }
+                return await fetch(request);
             }
 
-            const networkResponse = await fetch(request);
-            return networkResponse;
+            return new Response("Uh-oh! Your request has been blocked. :(", { status: 403 });
 
         } catch (err) {
-            return fetch(request);
+            if (new URL(request.url).origin === self.location.origin) {
+                return fetch(request);
+            }
+            return new Response("Uh-oh! Your request has been blocked. :( (fallback)", { status: 403 });
         }
     })());
 });
