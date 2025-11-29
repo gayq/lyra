@@ -349,7 +349,7 @@ export function initializeGame() {
       filterAndDisplayGame();
     } else {
       if (noResultsEl) {
-        noResultsEl.textContent = 'Fetching games...';
+        noResultsEl.textContent = 'Fetching games..';
         noResultsEl.style.display = 'block';
       }
       gameGridContainer.style.display = 'none';
@@ -362,7 +362,7 @@ export function initializeGame() {
         })
         .catch(() => {
           if (noResultsEl) {
-            noResultsEl.textContent = 'Error loading games. Please try again later.';
+            noResultsEl.textContent = 'Error loading games. Please try again!';
             noResultsEl.style.display = 'block';
           }
         });
@@ -405,11 +405,20 @@ export function initializeGame() {
     card.dataset.gameName = game.name.toLowerCase();
 
     const imageContainer = document.createElement('div');
-    imageContainer.className = 'game-image';
+    imageContainer.className = 'game-image skeleton';
 
     const img = document.createElement('img');
     img.alt = `${game.name} Icon`;
+    img.loading = 'lazy';
     img.src = game.coverUrl;
+
+    img.onload = () => {
+        imageContainer.classList.remove('skeleton');
+    };
+
+    img.onerror = () => {
+        imageContainer.classList.remove('skeleton');
+    };
 
     imageContainer.appendChild(img);
     card.appendChild(imageContainer);
