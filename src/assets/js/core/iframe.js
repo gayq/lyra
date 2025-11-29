@@ -44,12 +44,6 @@ export function navigateIframeTo(iframe, url) {
 
     iframe.dataset.navigationStarted = 'true';
 
-    if (loadingTimeout) clearTimeout(loadingTimeout);
-    loadingTimeout = setTimeout(() => {
-        console.warn('Loading timed out. Forcing UI update...');
-        stopIframeLoading(iframe);
-    }, 10000);
-
     iframe.removeAttribute('srcdoc'); 
     delete iframe.dataset.manualUrl;
     iframe.src = url;
