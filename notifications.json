@@ -1,7 +1,7 @@
 [
   {
     "id": 1,
-    "title": "v3.4.0 Release!!",
+    "title": "v3.4.0 release!!",
     "message": "Loads of bug fixes, performance improvements, and new features!",
     "date": "2025-11-27T05:28:41.748Z",
     "isNew": true,
@@ -41,7 +41,7 @@
   },
   {
     "id": 3,
-    "title": "v3.4.1 Release!!",
+    "title": "v3.4.1 release!!",
     "message": "Bunch of bug fixes, some improvements, and new stuff!",
     "date": "2025-11-28T21:57:23.635Z",
     "isNew": true,
@@ -58,5 +58,17 @@
       "Fixed some stuff in the setup file."
     ],
     "endMessage": "If you want more game sources added, join the Discord server and request them!"
+  },
+  {
+    "id": 4,
+    "title": "Skeleton loading",
+    "message": "Added skeleton loading!",
+    "date": "2025-11-29T06:34:30.274Z",
+    "isNew": true,
+    "type": "New feature",
+    "changes":[
+      "Game covers, bookmark favicons, and tab favicons now use skeleton loading."
+    ],
+    "endMessage": "Join the Discord server for more links!"
   }
 ]

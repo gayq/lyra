@@ -824,3 +824,12 @@ body.browser-view .main-nav {
         transform: translate(-50%, -50%) scale(0.9);
     }
 }
+
+@keyframes skeleton {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}

@@ -63,18 +63,25 @@ const renderBookmarks = () => {
         link.onclick = e => { e.preventDefault(); window.WavesApp.handleSearch(bookmark.url); };
         
         const iconWrapper = document.createElement('div');
-        iconWrapper.className = 'bookmark-icon';
+        iconWrapper.className = 'bookmark-icon skeleton';
         
         const icon = document.createElement('img');
         icon.className = 'bookmark-icon-img';
         icon.loading = 'lazy';
+        
+        icon.onload = () => {
+            iconWrapper.classList.remove('skeleton');
+        };
+
         try {
             const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
             icon.src = getProxyUrl(originalFavicon);
         } catch {
             icon.src = '';
         }
+        
         icon.onerror = () => {
+            iconWrapper.classList.remove('skeleton');
             icon.remove();
             iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:#fff';
             iconWrapper.textContent = bookmark.name.charAt(0).toUpperCase();
