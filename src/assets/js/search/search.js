@@ -100,7 +100,9 @@ export async function handleSearch(query, activeTab, gameName) {
                              searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
                              searchURL.startsWith("https://rawcdn.githack.com/") ||
                              searchURL.startsWith("https://selenite.cc/") ||
-                             searchURL.startsWith("https://truffled.lol/");
+                             searchURL.startsWith("https://truffled.lol/") ||
+                             searchURL.startsWith("https://velara.cc/") ||
+                             searchURL.startsWith("https://maddox05.github.io/");
 
     if (isInjectableGame) {
         try {
