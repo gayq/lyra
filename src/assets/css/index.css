@@ -42,7 +42,7 @@ body.is-resizing .iframe {
 .sidebar {
     background-color: #0a0a0a;
     border-right: 1px solid #ffffff00;
-    width: 185px;
+    width: 190px;
     flex-shrink: 0;
     height: 100vh;
     flex-direction: column;

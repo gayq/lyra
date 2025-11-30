@@ -5,9 +5,9 @@ try {
     const scramjet = new ScramjetControllerRef({
       prefix: "/b/s/",
       files: {
-        wasm: "/b/s/scramjet.wasm.wasm",
-        all: "/b/s/scramjet.all.js",
-        sync: "/b/s/scramjet.sync.js"
+        wasm: "/b/s/jetty.wasm.wasm",
+        all: "/b/s/jetty.all.js",
+        sync: "/b/s/jetty.sync.js"
       },
       flags: {
         rewriterLogs: true

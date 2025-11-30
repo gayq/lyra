@@ -29,9 +29,7 @@ cd waves
 sh setup.sh
 ```
 
-## Development & Building
-
-Development
+## Running locally
 
 ```bash
 git clone https://github.com/l4uy/waves/
@@ -41,20 +39,6 @@ cd waves
 bun i
 
 bun dev
-```
-
-Production
-
-```bash
-git clone https://github.com/l4uy/waves/
-
-cd waves
-
-bun i
-
-bun run build
-
-bun start
 ```
 
 ## Credits

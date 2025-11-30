@@ -100,7 +100,7 @@ app.use(express.static(srcPath, staticOpts));
 
 const bMap = {
   "1": path.join(baremuxPath, "index.js"),
-  "2": path.join(publicPath, "b/s/scramjet.all.js"),
+  "2": path.join(publicPath, "b/s/jetty.all.js"),
   "3": path.join(publicPath, "b/u/bunbun.js"),
   "4": path.join(publicPath, "b/u/concon.js")
 };

@@ -364,7 +364,7 @@ export function initializeNotifications() {
                     </ul>
                 </div>
                 <button id="close-notifications-menu">
-                    <i class="fa-regular fa-times" style="font-size: 20px; line-height: 0;"></i>
+                    <i class="fa-regular fa-times"></i>
                 </button>
             </div>
         `;

@@ -62,7 +62,7 @@ function updateTabDetails(iframe) {
         const currentProxiedUrl = iframe.dataset.manualUrl || iframeWindow.location.href;
         
         const realUrl = decodeUrl(currentProxiedUrl);
-
+        
         const newTitle = doc.title;
         if (newTitle && newTitle.trim() !== '') {
             tabToUpdate.title = newTitle;
@@ -76,6 +76,7 @@ function updateTabDetails(iframe) {
                 try {
                     iframe.dataset.reloadCount = (reloadCount + 1).toString();
                     isReloading = true;
+                    iframe.classList.remove('loaded');
                     iframe.contentWindow.location.reload(true);
                     return;
                 } catch (e) {

@@ -844,7 +844,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-
     addTab(null, 'Loading...');
     updateSplitButtonState();
 

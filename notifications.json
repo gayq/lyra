@@ -62,7 +62,7 @@
   {
     "id": 4,
     "title": "Skeleton loading",
-    "message": "Added skeleton loading so images feel smoother while loading!",
+    "message": "Added skeleton loading!",
     "date": "2025-11-29T06:34:30.274Z",
     "isNew": true,
     "type": "New feature",

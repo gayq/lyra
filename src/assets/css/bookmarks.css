@@ -124,9 +124,9 @@
     display: none;
     position: absolute;
     top: -6px;
-    background: #1d1d1d;
-    color: white;
-    border: 1px solid #85858517;
+    background: #131313;
+    border: none;
+    color: #888888;
     border-radius: 50%;
     width: 22px;
     height: 22px;
@@ -148,7 +148,7 @@
 
 .bookmark-delete-trigger:hover,
 .bookmark-edit-trigger:hover {
-    background: #2a2a2a;
+    color: #ffffff;
     transform: scale(1.1);
 }
 

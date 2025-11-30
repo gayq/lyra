@@ -12,6 +12,9 @@
     text-align: center;
     display: none;
     transition: all 0.1s ease;
+    height: 430px;
+    max-height: 80vh;
+    flex-direction: column;
 }
 
 #settings-menu h2 {
@@ -63,25 +66,31 @@
 
 #close-settings-menu {
     position: absolute;
-    top: 17px;
+    top: 10px;
     right: 10px;
-    background-color: transparent;
+    background: #131313;
     border: none;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
     padding: 0;
-    font-size: 10px;
     color: #888888;
     cursor: pointer;
     z-index: 1000;
     outline: none;
     display: inline-flex;
+    transition: all 0.1s ease;
 }
 
 #close-settings-menu:hover {
     color: #ffffff;
+    transform: scale(1.1);
 }
 
-#close-settings-menu i {
-    font-size: 20px;
+#close-game-menu i {
+    font-size: 11.5px;
     line-height: 0;
 }
 
@@ -90,7 +99,7 @@
 }
 
 .settings-menu.open {
-    display: block;
+    display: flex;
     opacity: 1;
     animation: fadeIn 0.1s forwards;
 }
@@ -104,6 +113,7 @@
     width: 100%;
     max-width: 255px;
     margin-bottom: 15px;
+    user-select: none;
 }
 
 .transport-selected, .search-engine-selected, .backend-selected, .decoy-selected, .cloak-link-selected, .game-source-selected {
@@ -270,13 +280,16 @@ input[type="checkbox"]:checked:hover::before {
     display: flex;
     gap: 15px;
     margin-top: 5px;
+    flex: 1;
+    min-height: 0;
 }
 
 .settings-tabs {
     display: flex;
     flex-direction: column;
-    flex: 0 0 160px;
+    flex: 0 0 170px;
     gap: 5px;
+    overflow-y: hidden;
 }
 
 .settings {
@@ -296,7 +309,7 @@ input[type="checkbox"]:checked:hover::before {
     font-size: 17px;
     cursor: pointer;
     margin: 0;
-    width: 180px;
+    width: 170px;
     text-align: left;
     display: flex;
     align-items: center;
@@ -319,22 +332,16 @@ input[type="checkbox"]:checked:hover::before {
 .settings-content-wrapper {
     flex: 1;
     position: relative;
-    min-height: 400px;
+    overflow-y: auto;
 }
 
 .tab-content {
-    position: absolute;
-    top: 0;
-    left: 0;
+    display: none;
     width: 100%;
-    height: 100%;
-    opacity: 0;
-    visibility: hidden;
 }
 
 .tab-content.active {
-    opacity: 1;
-    visibility: visible;
+    display: block;
 }
 
 .settings-version-label {
@@ -408,22 +415,4 @@ input[type="checkbox"]:checked:hover::before {
 
 .settings-item .data-action-btn:last-child {
     margin-bottom: 0;
-}
-
-.tab-content.active::-webkit-scrollbar {
-    width: 5px;
-}
-
-.tab-content.active::-webkit-scrollbar-track {
-    background: #0f0f0f;
-    border-radius: 6px;
-}
-
-.tab-content.active::-webkit-scrollbar-thumb {
-    background: #4e4e4e;
-    border-radius: 6px;
-}
-
-.tab-content.active::-webkit-scrollbar-thumb:hover {
-    background: #6b6b6b;
 }

@@ -569,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
                             <label>Backend</label>
-                            <p>The engine that is responsible for loading all your websites.</p>
+                            <p>The engine responsible for loading all your websites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>

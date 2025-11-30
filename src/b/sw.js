@@ -17,7 +17,7 @@ let uv;
 let scramjetConfigLoaded = false;
 
 if (isScramjet) {
-    importScripts('/b/s/scramjet.all.js');
+    importScripts('/b/s/jetty.all.js');
     const { ScramjetServiceWorker } = $scramjetLoadWorker();
     scramjet = new ScramjetServiceWorker();
 } else if (isUltraviolet) {
@@ -31,17 +31,35 @@ if (isScramjet) {
 
 const CACHE_NAME = 'xin-assets-cache-v1';
 
-const INJECTION_SCRIPT = `
+const TURN_SCRIPT = `
 <script>
-    (function(){
-        const O=window.RTCPeerConnection;
-        window.RTCPeerConnection=function(c){
-            c=c||{};
-            c.iceTransportPolicy='relay';
-            c.iceServers=[{urls:'turn:__SERVER_IP__:3478',username:'luy',credential:'l4uy'}];
-            return new O(c);
-        };
-    })();
+(function() {
+    const OriginalRTCPeerConnection = window.RTCPeerConnection;
+
+    window.RTCPeerConnection = function(config) {
+        config = config || {};
+
+        config.iceTransportPolicy = "relay";
+
+        if (config.iceServers) {
+            config.iceServers = config.iceServers.filter(server => {
+                if (!server || !server.urls) return false;
+                const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+                return urls.every(url => url.startsWith("turn:"));
+            });
+        }
+
+        if (!config.iceServers || config.iceServers.length === 0) {
+            config.iceServers = [{
+                urls: "turn:__SERVER_IP__:3478",
+                username: "luy",
+                credential: "l4uy"
+            }];
+        }
+
+        return new OriginalRTCPeerConnection(config);
+    };
+})();
 </script>
 `;
 
@@ -49,7 +67,7 @@ async function handleProxyResponse(response) {
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('text/html')) {
         let text = await response.text();
-        text = text.replace('<head>', '<head>' + INJECTION_SCRIPT);
+        text = text.replace('<head>', '<head>' + TURN_SCRIPT);
         return new Response(text, {
             status: response.status,
             statusText: response.statusText,
@@ -116,7 +134,7 @@ self.addEventListener("fetch", (event) => {
                     scramjetConfigLoaded = true;
                 }
 
-                if (url.pathname.startsWith('/b/s/scramjet.') && !url.pathname.endsWith('scramjet.wasm.wasm')) {
+                if (url.pathname.startsWith('/b/s/jetty.') && !url.pathname.endsWith('jetty.wasm.wasm')) {
                     return fetch(request);
                 }
 

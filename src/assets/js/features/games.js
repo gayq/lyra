@@ -19,6 +19,7 @@ export function initializeGame() {
                     <div class="game-grid"></div>
                     <div id="gameSentinel" class="game-sentinel"></div>
                 </div>
+                <p class="no-results-message" style="color: #b1b1b1; text-align: center; display: none;"></p>
                 <button id="close-game-menu"><i class="fa-regular fa-times"></i></button>
             </div>
         `;
@@ -349,7 +350,7 @@ export function initializeGame() {
       filterAndDisplayGame();
     } else {
       if (noResultsEl) {
-        noResultsEl.textContent = 'Fetching games..';
+        noResultsEl.textContent = 'Fetching games...';
         noResultsEl.style.display = 'block';
       }
       gameGridContainer.style.display = 'none';
