@@ -196,11 +196,11 @@ module.exports = {
       name: "waves",
       script: "bun",
       args: "start",
-      exec_mode: "cluster",
-      instances: 8,
+      exec_mode: "fork",
+      instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: "3G",
+      max_memory_restart: "8G",
       env: {
         NODE_ENV: "production",
       }
