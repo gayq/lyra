@@ -608,6 +608,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p>GN-Math - Game Source</p>
                             <p>Selenite - Game Source</p>
                             <p>Truffled - Game Source</p>
+                            <p>Velara - Game Source</p>
+                            <p>DuckMath - Game Source</p>
                             <p>Bog - Ports for Hollow Knight, RE:RUN, and Touhou Mother
                             <p>Titanium Network - Ultraviolet</p>
                             <p>Mercury Workshop - Scramjet, Epxoy, and Libcurl</p>
