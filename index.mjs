@@ -11,7 +11,10 @@ import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
-import { bridgeHandler } from "./bridge.mjs";
+import rateLimit from "express-rate-limit";
+import { bridgeHandler } from "./bridge.mjs"; 
+
+process.env.UV_THREADPOOL_SIZE = 128;
 
 dotenv.config();
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -19,20 +22,30 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const packageJsonPath = path.resolve("package.json");
 const notificationsPath = path.resolve("notifications.json"); 
 
+const apiLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    max: 500,
+    standardHeaders: true, 
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later." }
+});
+
 let cachedNotifications = [];
 let notificationError = null;
 
 try {
   const data = fs.readFileSync(notificationsPath, "utf8");
   cachedNotifications = JSON.parse(data);
-  console.log("Notifications loaded");
 } catch (err) {
-  console.error("Error loading notifications:", err.message);
   notificationError = { error: "Unable to load notification :(" };
 }
 
-process.on("uncaughtException", err => console.error(`Unhandled Exception: ${err.stack || err.message || err}`));
-process.on("unhandledRejection", reason => console.error(`Unhandled Rejection: ${reason}`));
+if (global.gc) {
+    setInterval(() => {
+        const used = process.memoryUsage().heapUsed / 1024 / 1024;
+        if (used > 800) global.gc();
+    }, 60000);
+}
 
 const __dirname = process.cwd();
 const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src');
@@ -41,9 +54,7 @@ const publicPath = path.join(__dirname, "public");
 const app = express();
 const server = createServer(app);
 
-console.log(`Process ${process.pid} started in ${NODE_ENV} mode`);
-
-const pageCache = new LRUCache({ max: 25000, ttl: 1000 * 60 * 60 });
+const pageCache = new LRUCache({ max: 5000, ttl: 1000 * 60 * 15 });
 
 app.use(helmet({
   contentSecurityPolicy: false, 
@@ -51,22 +62,22 @@ app.use(helmet({
   frameguard: false
 }));
 
+app.use('/api/', apiLimiter);
+
 app.use(compression({
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
-    if (req.path.includes('/!!/')) return false;
+    if (req.path.includes('/!!/')) return false; 
     return compression.filter(req, res);
   },
   level: 6,
-  threshold: '1kb'
+  threshold: '5kb'
 }));
 
 app.use((req, res, next) => {
   if (req.path.endsWith(".wasm")) res.setHeader("Content-Type", "application/wasm");
   next();
 });
-
-app.use(/^\/!!\/(.*)/, bridgeHandler);
 
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/") || req.originalUrl.includes("/!!/")) return next();
@@ -102,51 +113,46 @@ const bMap = {
   "1": path.join(baremuxPath, "index.js"),
   "2": path.join(publicPath, "b/s/jetty.all.js"),
   "3": path.join(publicPath, "b/u/bunbun.js"),
-  "4": path.join(publicPath, "b/u/concon.js")
+  "4.": path.join(publicPath, "b/u/concon.js")
 };
 
 app.get("/b", (req, res) => {
   const id = req.query.id;
-  bMap[id] ? res.sendFile(bMap[id]) : res.status(404).send("File not found ૮◞ ‸ ◟ ა");
+  bMap[id] ? res.sendFile(bMap[id]) : res.status(404).send("File not found");
 });
 
 app.get("/api/version", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Unable to check version." });
-    try {
-      res.json({ version: JSON.parse(data).version });
-    } catch {
-      res.status(500).json({ error: "Invalid package.json file." });
-    }
+    if (err) return res.status(500).json({ error: "Version error" });
+    try { res.json({ version: JSON.parse(data).version }); } catch { res.status(500).json({}); }
   });
 });
 
 app.get("/api/notifications", (_req, res) => {
-  if (notificationError) {
-    return res.status(500).json(notificationError);
-  }
+  if (notificationError) return res.status(500).json(notificationError);
   res.json(cachedNotifications);
 });
-
-app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
-app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
-
-server.keepAliveTimeout = 5000;
-server.headersTimeout = 10000;
 
 if (NODE_ENV === 'development') {
   server.on("upgrade", (req, sock, head) => {
     if (req.url.startsWith("/w/")) {
       sock.setNoDelay(true);
-      sock.setKeepAlive(true, 30000); 
       wisp.routeRequest(req, sock, head);
     } else {
       sock.destroy();
     }
   });
+
+  console.log("Mounting Bridge on /!!/");
+  app.use(/^\/!!\/(.*)/, bridgeHandler);
 }
 
-server.on("error", err => console.error(`Server error: ${err}`));
+app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
+app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
+
+server.keepAliveTimeout = 60000;
+server.headersTimeout = 61000;
+
 server.listen(PORT, () => {
-  console.log(`Listening on port ${PORT} (˶ᵔ ᵕ ᵔ˶)`);
+  console.log(`Server listening on port ${PORT}`);
 });
