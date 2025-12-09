@@ -14,7 +14,7 @@ Bun.serve({
     const domain = domainFromQuery || domainFromHeader.split(':')[0].toLowerCase();
     
     if (!domain) {
-        return new Response('Missing domain parameter', { status: 400 });
+        return new Response('Missing domain parameter.', { status: 400 });
     }
 
     let isBlacklisted = false;

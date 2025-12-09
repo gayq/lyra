@@ -126,7 +126,7 @@
     top: -6px;
     background: #131313;
     border: none;
-    color: #888888;
+    color: #c2c2c2;
     border-radius: 50%;
     width: 22px;
     height: 22px;
@@ -160,7 +160,7 @@
 .bookmarks-edit-mode .bookmark-link {
     pointer-events: none;
     opacity: 0.6;
-    transition: opacity 0.1s ease;
+    transition: all 0.1s ease;
 }
 
 .bookmarks-edit-mode .bookmark-item {
@@ -251,13 +251,13 @@
 }
 
 .bookmark-icon.skeleton {
-    background: linear-gradient(90deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%);
+    background: linear-gradient(90deg, #0c0c0c 0%, #2a2a2a 50%, #0c0c0c 100%);
     background-size: 200% 100%;
     animation: skeleton 1s infinite linear;
 }
 
 .bookmark-icon img {
-    transition: opacity 0.1s ease;
+    transition: all 0.1s ease;
     opacity: 0;
 }
 

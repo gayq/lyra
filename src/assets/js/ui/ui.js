@@ -154,23 +154,6 @@ export function initializeUI(getActiveTab) {
 
   setupOnekoAnimation();
 
-  const phrasesElement = document.querySelector(".phrases");
-  const phrases = ["hihihi", "<33", "Uhh....", "Xin chào!"];
-  if (phrasesElement) {
-    phrasesElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
-  }
-
-  const placeholders = [
-    "Have anything in mind?",
-    "(˶˃ ᵕ ˂˶)",
-    "Join the Discord server!",
-    "1 update per year",
-    "Waves is such a good website!!"
-  ];
-  if (dom.searchInputMain) {
-    dom.searchInputMain.placeholder = placeholders[Math.floor(Math.random() * placeholders.length)];
-  }
-
   const erudaBtn = document.getElementById('erudaBtn');
   if (erudaBtn) {
     erudaBtn.addEventListener('click', (e) => {

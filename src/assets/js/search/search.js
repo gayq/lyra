@@ -96,15 +96,16 @@ export async function handleSearch(query, activeTab, gameName) {
     const bangUrl = executeBang(query);
     let searchURL = bangUrl || generateSearchUrl(query);
 
-    const isInjectableGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/") || 
-                             searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
-                             searchURL.startsWith("https://rawcdn.githack.com/") ||
-                             searchURL.startsWith("https://selenite.cc/") ||
-                             searchURL.startsWith("https://truffled.lol/") ||
-                             searchURL.startsWith("https://velara.cc/") ||
-                             searchURL.startsWith("https://maddox05.github.io/");
+    const isGame = searchURL.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/") || 
+                   searchURL.startsWith("https://googleusercontent.b-cdn.net/") ||
+                   searchURL.startsWith("https://rawcdn.githack.com/") ||
+                   searchURL.startsWith("https://selenite.cc/") ||
+                   searchURL.startsWith("https://truffled.lol/") ||
+                   searchURL.startsWith("https://velara.cc/") ||
+                   searchURL.startsWith("https://maddox05.github.io/") ||
+                   searchURL.startsWith("https://classroomlesson.github.io/");
 
-    if (isInjectableGame) {
+    if (isGame) {
         try {
             let processedURL = searchURL;
             const path = new URL(searchURL).pathname;

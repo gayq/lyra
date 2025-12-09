@@ -1,7 +1,6 @@
 import { dom } from '../ui/dom.js';
 
 let notificationsCache = [];
-let isMenuTransitioning = false;
 let notificationsMenuEl = null;
 
 function timeAgo(dateString) {
@@ -211,7 +210,6 @@ function handleNotificationClick(e) {
         }
     }
 
-
     if (notif.isNew) {
         notif.isNew = false;
         item.classList.remove('unread');
@@ -263,9 +261,17 @@ function updateNotificationIcon() {
     }
 }
 
-export function showNotificationsMenu() {
-    if (isMenuTransitioning || notificationsMenuEl.classList.contains('open')) return;
+function onHideAnimationEnd(e) {
+    if (e.animationName === 'fadeOut') {
+        const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
+        notificationsMenuEl.classList.remove('open'); 
+        contentEl.classList.remove('close');
+        notificationsMenuEl.style.display = 'none';
+        notificationsMenuEl.style.pointerEvents = '';
+    }
+}
 
+export function showNotificationsMenu() {
     if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
         window.toggleSettingsMenu();
     }
@@ -279,48 +285,48 @@ export function showNotificationsMenu() {
         window.hideBookmarkPrompt(true);
     }
 
-
-    isMenuTransitioning = true;
-    
     if (dom.bookmarkPromptOverlay) {
         dom.bookmarkPromptOverlay.classList.add('show');
     }
     
+    const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
+    
+    contentEl.removeEventListener('animationend', onHideAnimationEnd);
+
     notificationsMenuEl.style.display = 'flex';
+    notificationsMenuEl.style.pointerEvents = 'auto';
     notificationsMenuEl.classList.add('open');
-    notificationsMenuEl.querySelector('.notifications-menu-content').classList.remove('close');
-    notificationsMenuEl.querySelector('.notifications-menu-content').classList.add('open');
+    
+    contentEl.classList.remove('close');
+    void contentEl.offsetWidth;
+    contentEl.classList.add('open');
 
-    notificationsMenuEl.querySelector('.notifications-menu-content').addEventListener('animationend', function onShowAnimationEnd(e) {
-        if (e.animationName === 'fadeIn') {
-            isMenuTransitioning = false;
-            notificationsMenuEl.querySelector('.notifications-menu-content').removeEventListener('animationend', onShowAnimationEnd);
-        }
-    });
-
-    fetchNotificationsFromBackend();
+    setTimeout(() => fetchNotificationsFromBackend(), 10);
 }
 
 export function hideNotificationsMenu(calledByOther) {
-    if (isMenuTransitioning || !notificationsMenuEl.classList.contains('open')) return;
-    isMenuTransitioning = true;
+    if (!notificationsMenuEl.classList.contains('open')) return;
 
-    notificationsMenuEl.querySelector('.notifications-menu-content').classList.remove('open');
-    notificationsMenuEl.querySelector('.notifications-menu-content').classList.add('close');
-    
     if (dom.bookmarkPromptOverlay && !calledByOther) {
         dom.bookmarkPromptOverlay.classList.remove('show');
     }
 
-    notificationsMenuEl.querySelector('.notifications-menu-content').addEventListener('animationend', function onHideAnimationEnd(e) {
-        if (e.animationName === 'fadeOut') {
-            notificationsMenuEl.classList.remove('open');
-            notificationsMenuEl.querySelector('.notifications-menu-content').classList.remove('close');
-            notificationsMenuEl.querySelector('.notifications-menu-content').removeEventListener('animationend', onHideAnimationEnd);
-            notificationsMenuEl.style.display = 'none';
-            isMenuTransitioning = false;
-        }
-    });
+    notificationsMenuEl.style.pointerEvents = 'none';
+
+    const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
+    contentEl.classList.remove('open');
+    contentEl.classList.add('close');
+    
+    contentEl.addEventListener('animationend', onHideAnimationEnd, { once: true });
+}
+
+export function toggleNotificationsMenu() {
+    const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
+    if (notificationsMenuEl.classList.contains('open') && !contentEl.classList.contains('close')) {
+        hideNotificationsMenu(false);
+    } else {
+        showNotificationsMenu();
+    }
 }
 
 function markAllAsRead(silent = false) {
@@ -381,7 +387,7 @@ export function initializeNotifications() {
 
     dom.notificationsBtn.addEventListener('click', e => {
         e.preventDefault();
-        showNotificationsMenu();
+        toggleNotificationsMenu();
     });
 
     if (closeBtn) closeBtn.addEventListener('click', () => hideNotificationsMenu(false));
@@ -400,4 +406,5 @@ export function initializeNotifications() {
     
     window.hideNotificationsMenu = hideNotificationsMenu;
     window.showNotificationsMenu = showNotificationsMenu;
+    window.toggleNotificationsMenu = toggleNotificationsMenu;
 }

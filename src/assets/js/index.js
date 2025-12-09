@@ -1,7 +1,7 @@
 import { dom } from './ui/dom.js';
 import { HistoryManager } from './core/history.js';
 import { initializeUI, hideLoading, showHomeView, showBrowserView } from './ui/ui.js';
-import { initializeIframe, updateHistoryUI } from './core/iframe.js';
+import { initializeIframe, updateHistoryUI, cleanupIframe } from './core/iframe.js';
 import { initializeSearch, handleSearch as performSearch } from './search/search.js';
 import { initializeBookmarks } from './features/bookmarks.js';
 import { initializeNotifications } from './features/notifications.js';
@@ -436,11 +436,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (closedTab.iframe) {
             closedTab.iframe.removeEventListener('load', closedTab._iframeLoadHandler);
             closedTab.iframe.removeEventListener('iframe-focus', closedTab._iframeFocusHandler);
+            cleanupIframe(closedTab.iframe);
             closedTab.iframe.remove();
+            closedTab._iframeLoadHandler = null;
+            closedTab._iframeFocusHandler = null;
+            closedTab.iframe = null;
         }
 
-        if (closedTab.historyManager) {
-            closedTab.historyManager.onUpdate = null;
+        if (closedTab.historyManager?.destroy) {
+            closedTab.historyManager.destroy();
+            closedTab.historyManager = null;
         }
 
         const wasInSplitPair = tabId === splitPair.left || tabId === splitPair.right;

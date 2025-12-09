@@ -20,11 +20,11 @@ export function initializeLayout() {
     overlay.className = 'overlay';
     document.body.appendChild(overlay);
 
-    const leftIcons = document.createElement('div');
-    leftIcons.id = 'left-icons';
-    leftIcons.innerHTML = `
+    const topLeftIcons = document.createElement('div');
+    topLeftIcons.id = 'top-left-icons';
+    topLeftIcons.innerHTML = `
         <div id="branding-container" class="icon-btn">
-            <span id="brand"></span>
+            <span id="brand">Waves!</span>
             <div id="oneko"></div>
         </div>
         <a href="#" id="notifications" class="icon-btn">
@@ -33,34 +33,17 @@ export function initializeLayout() {
         <a href="#" id="choi" class="icon-btn">
             <i class="fa-solid fa-gamepad-modern"></i>
         </a>
-        <div id="arrow-pointer" class="arrow">
-            <svg class="arrow-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 40" width="52" height="40">
-                <path d="M2.5, 18.5 C10.5, 15.5 18.5, 12.5 26.5, 10.5 C34.5, 8.5 42.5, 7.5 50.5, 7.5" stroke="#FFF" stroke-width="2" fill="none" stroke-linecap="round"/>
-                <path d="M45.5, 2.5 L50.5, 7.5 L45.5, 12.5" stroke="#FFF" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span class="arrow-text"></span>
-        </div>
     `;
-    document.body.appendChild(leftIcons);
+    document.body.appendChild(topLeftIcons);
 
-    const rightTopIcons = document.createElement('div');
-    rightTopIcons.id = 'right-top-icons';
-    rightTopIcons.innerHTML = `
-        <a href="#" id="settings" class="icon-btn" title="Settings">
-            <i class="settings fa-regular fa-gear"></i>
+    const topRightIcons = document.createElement('div');
+    topRightIcons.id = 'top-right-icons';
+    topRightIcons.innerHTML = `
+        <a href="#" id="settings" class="icon-btn">
+            <i class="settings fa-solid fa-gear"></i>
         </a>
     `;
-    document.body.appendChild(rightTopIcons);
-
-    const rightBottomIcons = document.createElement('div');
-    rightBottomIcons.id = 'right-bottom-icons';
-    rightBottomIcons.innerHTML = `
-        <a href="https://discord.gg/dJvdkPRheV" target="_blank" id="discord" class="icon-btn">
-            <i class="fa-brands fa-discord"></i>
-            <span id="discord-text">Join the server!</span>
-        </a>
-    `;
-    document.body.appendChild(rightBottomIcons);
+    document.body.appendChild(topRightIcons);
 
     const mainNav = document.createElement('div');
     mainNav.className = 'main-nav';
@@ -105,18 +88,30 @@ export function initializeLayout() {
     resizeDivider.id = 'iframe-resize-divider';
     iframeContainer.appendChild(resizeDivider);
 
+    const footerInfo = document.createElement('div');
+    footerInfo.className = 'footer-info';
+
     const disclaimer = document.createElement('div');
     disclaimer.id = 'disclaimer';
     disclaimer.innerHTML = `
         <a><strong>Disclaimer</strong>: This website doesn't host any files. Any legal issues should be taken up with the 3rd party provider(s).</a>
     `;
 
+    const discord = document.createElement('div');
+    discord.id = 'discord';
+    discord.innerHTML = `
+        <a>discord.gg/dJvdkPRheV</a>
+    `;
+
+    footerInfo.appendChild(disclaimer);
+    footerInfo.appendChild(discord);
+
     const wrapper = document.querySelector('.wrapper');
     if (wrapper) {
         wrapper.prepend(mainNav); 
         mainNav.after(mainContainer);
         mainContainer.after(iframeContainer);
-        iframeContainer.after(disclaimer);
+        iframeContainer.after(footerInfo);
     }
 
     const newTabModal = document.createElement('div');
@@ -130,15 +125,6 @@ export function initializeLayout() {
     erudaLoadingScreen.style.display = 'none';
     erudaLoadingScreen.textContent = 'Eruda is loading...';
     document.body.appendChild(erudaLoadingScreen);
-
-    const encodedBrand = "V2F2ZXMh";
-    const encodedArrow = "R2FtZXMgaGVyZQ==";
-    
-    const brandEl = document.getElementById("brand");
-    if (brandEl) brandEl.textContent = atob(encodedBrand);
-    
-    const arrowEl = document.querySelector(".arrow-text");
-    if (arrowEl) arrowEl.textContent = atob(encodedArrow);
 
     const iconsPreloader = document.createElement('div');
     iconsPreloader.style.position = 'absolute';

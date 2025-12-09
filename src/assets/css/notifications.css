@@ -9,19 +9,17 @@
   z-index: 999999;
   justify-content: center;
   align-items: center;
-  opacity: 0;
-  visibility: hidden;
-  transition: all 0.1s ease;
 }
 
 .notifications-menu.open {
   display: flex;
-  opacity: 1;
-  visibility: visible;
+  pointer-events: auto;
 }
 
 .notifications-menu-content {
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
   padding: 25px 30px 25px 40px;
   width: 450px;
   max-height: 80vh;
@@ -30,20 +28,18 @@
   flex-direction: column;
   background-color: #080808; 
   border-radius: 20px; 
-  transform: translate(-50%, -50%) scale(0.9);
   opacity: 0;
-  transition: all 0.1s ease;
-  position: absolute;
-  top: 50%;
-  left: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
 }
 
 .notifications-menu-content.open {
-    animation: fadeIn 0.1s forwards;
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  animation: fadeIn 0.1s forwards;
 }
 
 .notifications-menu-content.close {
-    animation: fadeOut 0.1s forwards;
+  animation: fadeOut 0.1s forwards;
 }
 
 .notifications-menu-header {

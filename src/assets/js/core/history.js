@@ -4,6 +4,7 @@ export class HistoryManager {
     #stack = [];
     #currentIndex = -1;
     #onUpdateCallback;
+    static #MAX_ENTRIES = 150;
 
     constructor({ onUpdate = () => {} } = {}) {
         this.#onUpdateCallback = onUpdate;
@@ -33,6 +34,11 @@ export class HistoryManager {
         }
         this.#stack.push(url);
         this.#currentIndex++;
+        if (this.#stack.length > HistoryManager.#MAX_ENTRIES) {
+            const overflow = this.#stack.length - HistoryManager.#MAX_ENTRIES;
+            this.#stack.splice(0, overflow);
+            this.#currentIndex = Math.max(0, this.#currentIndex - overflow);
+        }
         this.#notify();
     }
 
@@ -78,5 +84,11 @@ export class HistoryManager {
 
     canGoForward() {
         return this.#currentIndex < this.#stack.length - 1;
+    }
+
+    destroy() {
+        this.#stack = [];
+        this.#currentIndex = -1;
+        this.#onUpdateCallback = () => {};
     }
 }

@@ -12,7 +12,8 @@ import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
 import rateLimit from "express-rate-limit";
-import { bridgeHandler } from "./bridge.mjs"; 
+import { bridgeHandler } from "./bridge.mjs";
+import { WebSocketServer, WebSocket } from "ws";
 
 process.env.UV_THREADPOOL_SIZE = 128;
 
@@ -53,6 +54,13 @@ const publicPath = path.join(__dirname, "public");
 
 const app = express();
 const server = createServer(app);
+
+const bridgeWss = new WebSocketServer({ 
+    noServer: true,
+    handleProtocols: (protocols) => {
+        return protocols.size > 0 ? [...protocols][0] : null;
+    }
+});
 
 const pageCache = new LRUCache({ max: 5000, ttl: 1000 * 60 * 15 });
 
@@ -134,21 +142,81 @@ app.get("/api/notifications", (_req, res) => {
 });
 
 if (NODE_ENV === 'development') {
-  server.on("upgrade", (req, sock, head) => {
-    if (req.url.startsWith("/w/")) {
-      sock.setNoDelay(true);
-      wisp.routeRequest(req, sock, head);
-    } else {
-      sock.destroy();
-    }
-  });
-
   console.log("Mounting Bridge on /!!/");
   app.use(/^\/!!\/(.*)/, bridgeHandler);
 }
 
 app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
 app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
+
+server.on("upgrade", (req, sock, head) => {
+  if (req.url.startsWith("/w/")) {
+    sock.setNoDelay(true);
+    wisp.routeRequest(req, sock, head);
+  } else if (req.url.includes("/!!/ws/")) {
+    bridgeWss.handleUpgrade(req, sock, head, (ws) => {
+      const targetEncoded = req.url.split("/!!/ws/")[1];
+      if (!targetEncoded) return ws.close();
+      
+      let targetUrl;
+      try {
+        targetUrl = decodeURIComponent(targetEncoded);
+        if (!targetUrl.startsWith('wss://') && !targetUrl.startsWith('ws://')) {
+            targetUrl = 'wss://' + targetUrl;
+        }
+      } catch(e) { return ws.close(); }
+
+      let protocols = req.headers['sec-websocket-protocol'];
+      const targetOrigin = new URL(targetUrl).origin;
+      const targetHost = new URL(targetUrl).host;
+
+      const wsOptions = {
+          headers: { 
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Origin': targetOrigin,
+            'Host': targetHost
+          },
+          rejectUnauthorized: false
+      };
+      
+      if (protocols) {
+          if (Array.isArray(protocols)) {
+              protocols = protocols.filter(p => p && p !== 'null' && p !== 'undefined');
+              if (protocols.length > 0) wsOptions.protocol = protocols.join(',');
+          } else if (typeof protocols === 'string' && protocols !== 'null' && protocols !== 'undefined') {
+              wsOptions.protocol = protocols;
+          }
+      }
+
+      const remote = new WebSocket(targetUrl, wsOptions);
+
+      remote.on('error', (e) => {
+          if (ws.readyState === WebSocket.OPEN) ws.close();
+      });
+      ws.on('error', (e) => {
+          if (remote.readyState === WebSocket.OPEN) remote.close();
+      });
+
+      remote.on('open', () => {
+          ws.on('message', (data, isBinary) => {
+             if (remote.readyState === WebSocket.OPEN) remote.send(data, { binary: isBinary });
+          });
+          remote.on('message', (data, isBinary) => {
+             if (ws.readyState === WebSocket.OPEN) ws.send(data, { binary: isBinary });
+          });
+      });
+
+      remote.on('close', () => {
+          if (ws.readyState === WebSocket.OPEN) ws.close();
+      });
+      ws.on('close', () => {
+          if (remote.readyState === WebSocket.OPEN) remote.close();
+      });
+    });
+  } else {
+    sock.destroy();
+  }
+});
 
 server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;

@@ -3,6 +3,29 @@ import { showLoading, hideLoading } from '../ui/ui.js';
 import { decodeUrl, getProxyUrl } from './utils.js';
 
 let loadingTimeout = null;
+function detachContentWindowListeners(iframe) {
+    try {
+        const iframeWindow = iframe.contentWindow;
+        if (!iframeWindow) return;
+
+        if (iframeWindow.__beforeUnloadHandler) {
+            iframeWindow.removeEventListener('beforeunload', iframeWindow.__beforeUnloadHandler);
+            iframeWindow.__beforeUnloadHandler = null;
+        }
+
+        if (iframeWindow.__domContentLoadedHandler) {
+            iframeWindow.removeEventListener('DOMContentLoaded', iframeWindow.__domContentLoadedHandler);
+            iframeWindow.__domContentLoadedHandler = null;
+        }
+
+        if (iframeWindow.__wavesFocusHandler) {
+            iframeWindow.removeEventListener('mousedown', iframeWindow.__wavesFocusHandler, true);
+            iframeWindow.__wavesFocusHandler = null;
+        }
+    } catch (e) {
+        console.warn('Unable to detach iframe window listeners:', e);
+    }
+}
 
 export function stopIframeLoading(iframe) {
     if (!iframe) return;
@@ -47,6 +70,35 @@ export function navigateIframeTo(iframe, url) {
     iframe.removeAttribute('srcdoc'); 
     delete iframe.dataset.manualUrl;
     iframe.src = url;
+}
+
+export function cleanupIframe(iframe) {
+    if (!iframe) return;
+
+    const handlers = iframe.__wavesInternalHandlers;
+    if (handlers) {
+        iframe.removeEventListener('error', handlers.onError);
+        iframe.removeEventListener('load', handlers.onLoad);
+        iframe.__wavesInternalHandlers = null;
+    }
+
+    detachContentWindowListeners(iframe);
+
+    iframe.removeAttribute('srcdoc');
+    iframe.removeAttribute('data-navigation-started');
+    iframe.removeAttribute('data-reload-attempted');
+    iframe.removeAttribute('data-manual-url');
+    delete iframe.dataset.reloadCount;
+
+    try {
+        iframe.contentWindow?.stop?.();
+    } catch (e) {}
+
+    try {
+        iframe.src = 'about:blank';
+    } catch (e) {}
+
+    iframe.classList.remove('loaded', 'active', 'active-split-left', 'active-split-right', 'active-focus');
 }
 
 function updateTabDetails(iframe) {
@@ -244,13 +296,13 @@ export function updateHistoryUI(activeTab, { currentUrl, canGoBack, canGoForward
 }
 
 export function initializeIframe(iframe, historyManager, tabId) {
-    iframe.addEventListener('error', () => {
+    const onError = () => {
         if (loadingTimeout) clearTimeout(loadingTimeout);
         hideLoading();
         window.WavesApp.isLoading = false;
-    });
+    };
 
-    iframe.addEventListener('load', () => {
+    const onLoad = () => {
         if (loadingTimeout) clearTimeout(loadingTimeout);
 
         hideLoading();
@@ -278,5 +330,9 @@ export function initializeIframe(iframe, historyManager, tabId) {
         }
 
         window.WavesApp.updateNavbarDisplay?.();
-    });
+    };
+
+    iframe.addEventListener('error', onError);
+    iframe.addEventListener('load', onLoad);
+    iframe.__wavesInternalHandlers = { onError, onLoad };
 }

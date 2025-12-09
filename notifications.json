@@ -4,7 +4,7 @@
     "title": "v3.4.0 release!!",
     "message": "Loads of bug fixes, performance improvements, and new features!",
     "date": "2025-11-27T05:28:41.748Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes": [
       "Added \"Bridge\": a brand new system that handles all the games, improving the proxy speed, and fixed other assets, such as bookmark and tab favicons being blocked! A lot more efficient and reliable than what we had before.",
@@ -32,7 +32,7 @@
     "title": "HAPPY THANKSGIVING!!!!",
     "message": "Just wanted to say how thankful I am for every single one of you guys for supporting Waves and helping it get this far! If you ever told me that Waves was ever gonna get this far 10 months ago, I would've never believed it. So seriously, thank you!",
     "date": "2025-11-27T06:15:51.836Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Announcement",
     "changes":[
       "Enjoy your holiday but if it's not Thanksgiving for you yet, happy early Thanksgiving! 🦃"
@@ -44,7 +44,7 @@
     "title": "v3.4.1 release!!",
     "message": "Bunch of bug fixes, some improvements, and new stuff!",
     "date": "2025-11-28T21:57:23.635Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Improved Bridge performance, added support for more stuff, and added protection to ensure it never accidentally corrupt any game binary files.",
@@ -64,11 +64,31 @@
     "title": "Skeleton loading",
     "message": "Added skeleton loading!",
     "date": "2025-11-29T06:34:30.274Z",
-    "isNew": true,
+    "isNew": false,
     "type": "New feature",
     "changes":[
       "Game covers, bookmark favicons, and tab favicons now use skeleton loading."
     ],
     "endMessage": "Join the Discord server for more links!"
+  },
+  {
+    "id": 5,
+    "title": "v3.4.2 release!!",
+    "message": "Loads of more bug fixes, improvements, new features, and now the whole website is also jolly!",
+    "date": "2025-11-29T06:34:30.274Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Added a brand new game page!",
+      "Added a bunch of jolly things!",
+      "Improved the website performance and stability.",
+      "Improved games loading speed.",
+      "Fixed memory leaks.",
+      "Fixed some games not loading.",
+      "Fixed the proxy barely working.",
+      "Fixed Bridge crashing on heavy load.",
+      "Overall just fixed a bunch of minor bugs and improved the website by a little bit."
+    ],
+    "endMessage": "If you have any issues or suggestions, please do join the Discord server and let me know!"
   }
 ]

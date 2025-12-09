@@ -21,119 +21,161 @@ try {
     window.scramjetReady = Promise.resolve();
 }
 
-export function initializeLoad() {
-  const searchBar = document.querySelector('.search-bar');
-  
-  if (searchBar) {
-    const lightBg = searchBar.querySelector('.light');
-    const lightBorder = searchBar.querySelector('.light-border');
-    const lightSize = 400;
+export function attachSearchLight(searchBar) {
+  if (!searchBar || searchBar.dataset.lightAttached === 'true') return;
 
-    let targetX = 0, currentX = 0, lastX = 0, velocityX = 0;
-    let targetY = 0, currentY = 0, lastY = 0, velocityY = 0;
-    let raf = null;
-    let rect = searchBar.getBoundingClientRect();
-    let isHovering = false;
-    let isSettled = false;
+  const lightBg = searchBar.querySelector('.light');
+  const lightBorder = searchBar.querySelector('.light-border');
+  if (!lightBg || !lightBorder) return;
 
-    const updateRect = () => {
-        if (isHovering) rect = searchBar.getBoundingClientRect();
-    };
+  searchBar.dataset.lightAttached = 'true';
+  const lightSize = 300;
 
-    window.addEventListener('scroll', updateRect, { passive: true });
-    window.addEventListener('resize', updateRect, { passive: true });
+  let targetX = 0, currentX = 0, lastX = 0, velocityX = 0;
+  let targetY = 0, currentY = 0, lastY = 0, velocityY = 0;
+  let raf = null;
+  let rect = searchBar.getBoundingClientRect();
+  let isHovering = false;
+  let isSettled = false;
+  let rectRaf = null;
 
-    function animate() {
-      const deltaX = targetX - currentX;
-      const deltaY = targetY - currentY;
+  const updateRect = () => {
+      rect = searchBar.getBoundingClientRect();
+  };
 
-      currentX += deltaX * 0.15;
-      currentY += deltaY * 0.15;
+  const scheduleRectUpdate = () => {
+    if (rectRaf) return;
+    rectRaf = requestAnimationFrame(() => {
+      rectRaf = null;
+      if (isHovering) updateRect();
+    });
+  };
 
-      const elasticX = Math.min(Math.max(velocityX * 0.5, -20), 20);
-      const elasticY = Math.min(Math.max(velocityY * 0.5, -20), 20);
+  const setBgPosition = (x, y) => {
+    lightBg.style.setProperty('--bg-x', x);
+    lightBg.style.setProperty('--bg-y', y);
+    lightBorder.style.setProperty('--bg-x', x);
+    lightBorder.style.setProperty('--bg-y', y);
+  };
 
-      if (Math.abs(deltaX) < 0.1 && Math.abs(deltaY) < 0.1 && 
-          Math.abs(elasticX) < 0.1 && Math.abs(elasticY) < 0.1) {
-          isSettled = true;
-          raf = null;
-          
-          const finalBgX = `${targetX - lightSize / 2}px`;
-          const finalBgY = `${targetY - lightSize / 2}px`;
-          lightBg.style.setProperty('--bg-x', finalBgX);
-          lightBg.style.setProperty('--bg-y', finalBgY);
-          lightBorder.style.setProperty('--bg-x', finalBgX);
-          lightBorder.style.setProperty('--bg-y', finalBgY);
-          return;
-      }
+  function animate() {
+    const deltaX = targetX - currentX;
+    const deltaY = targetY - currentY;
 
-      const bgX = `${currentX - lightSize / 2 + elasticX}px`;
-      const bgY = `${currentY - lightSize / 2 + elasticY}px`;
+    currentX += deltaX * 0.15;
+    currentY += deltaY * 0.15;
 
-      lightBg.style.setProperty('--bg-x', bgX);
-      lightBg.style.setProperty('--bg-y', bgY);
-      lightBorder.style.setProperty('--bg-x', bgX);
-      lightBorder.style.setProperty('--bg-y', bgY);
+    const elasticX = Math.min(Math.max(velocityX * 0.5, -20), 20);
+    const elasticY = Math.min(Math.max(velocityY * 0.5, -20), 20);
 
-      raf = requestAnimationFrame(animate);
+    if (Math.abs(deltaX) < 0.1 && Math.abs(deltaY) < 0.1 && 
+        Math.abs(elasticX) < 0.1 && Math.abs(elasticY) < 0.1) {
+        isSettled = true;
+        raf = null;
+
+        const finalBgX = `${targetX}px`;
+        const finalBgY = `${targetY}px`;
+
+        setBgPosition(finalBgX, finalBgY);
+        return;
     }
 
-    searchBar.addEventListener('mouseenter', () => {
-      isHovering = true;
-      updateRect();
-      if (raf) cancelAnimationFrame(raf);
-      isSettled = false;
-      raf = requestAnimationFrame(animate);
+    const bgX = `${currentX + elasticX}px`;
+    const bgY = `${currentY + elasticY}px`;
 
-      lightBg.style.opacity = 1;
-      lightBorder.style.opacity = 1;
-      lightBg.style.transition = "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
-      lightBorder.style.transition = "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
-      lightBg.style.filter = "blur(20px)";
-      lightBorder.style.filter = "blur(6px)";
+    setBgPosition(bgX, bgY);
 
-      setTimeout(() => {
-        lightBg.style.transform = "scale(1)";
-        lightBg.style.filter = "blur(12px)";
-        lightBorder.style.transform = "scale(1)";
-        lightBorder.style.filter = "blur(4px)";
-      }, 300);
-    });
-
-    searchBar.addEventListener('mouseleave', () => {
-      isHovering = false;
-      if (raf) {
-        cancelAnimationFrame(raf);
-        raf = null;
-      }
-      lightBg.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
-      lightBorder.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
-      lightBg.style.opacity = 0;
-      lightBorder.style.opacity = 0;
-      lightBg.style.transform = "scale(0.95)";
-      lightBorder.style.transform = "scale(0.95)";
-      lightBg.style.filter = "blur(30px)";
-      lightBorder.style.filter = "blur(12px)";
-    });
-
-    searchBar.addEventListener('mousemove', (e) => {
-      targetX = e.clientX - rect.left;
-      targetY = e.clientY - rect.top;
-      
-      velocityX = targetX - lastX;
-      velocityY = targetY - lastY;
-      lastX = targetX;
-      lastY = targetY;
-
-      const glowStrength = Math.min(1.2, 1.2 + targetX / rect.width * 0.4);
-      lightBg.style.transform = `scale(${glowStrength})`;
-
-      if (isSettled && !raf) {
-          isSettled = false;
-          raf = requestAnimationFrame(animate);
-      }
-    });
+    raf = requestAnimationFrame(animate);
   }
+
+  searchBar.addEventListener('mouseenter', () => {
+    isHovering = true;
+    updateRect();
+    if (raf) cancelAnimationFrame(raf);
+    isSettled = false;
+    raf = requestAnimationFrame(animate);
+
+    lightBg.style.opacity = 1;
+    lightBorder.style.opacity = 1;
+    lightBg.style.transition = "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
+    lightBorder.style.transition = "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
+    lightBg.style.filter = "blur(20px)";
+    lightBorder.style.filter = "blur(6px)";
+
+    setTimeout(() => {
+      lightBg.style.transform = "scale(1)";
+      lightBg.style.filter = "blur(12px)";
+      lightBorder.style.transform = "scale(1)";
+      lightBorder.style.filter = "blur(4px)";
+    }, 300);
+  });
+
+  searchBar.addEventListener('mouseleave', () => {
+    isHovering = false;
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = null;
+    }
+    lightBg.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
+    lightBorder.style.transition = "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
+    lightBg.style.opacity = 0;
+    lightBorder.style.opacity = 0;
+    lightBg.style.transform = "scale(0.95)";
+    lightBorder.style.transform = "scale(0.95)";
+    lightBg.style.filter = "blur(30px)";
+    lightBorder.style.filter = "blur(12px)";
+  });
+
+  searchBar.addEventListener('mousemove', (e) => {
+    targetX = (e.clientX - rect.left) - (lightSize / 2);
+    targetY = (e.clientY - rect.top) - (lightSize / 2);
+    
+    velocityX = targetX - lastX;
+    velocityY = targetY - lastY;
+    lastX = targetX;
+    lastY = targetY;
+
+    const glowStrength = Math.min(1.2, 1.2 + (e.clientX - rect.left) / rect.width * 0.4);
+    lightBg.style.transform = `scale(${glowStrength})`;
+
+    if (isSettled && !raf) {
+        isSettled = false;
+        raf = requestAnimationFrame(animate);
+    }
+  });
+
+  window.addEventListener('scroll', scheduleRectUpdate, { passive: true });
+  window.addEventListener('resize', scheduleRectUpdate, { passive: true });
+}
+
+function setupScrollShadow() {
+  const wrapper = document.querySelector('.wrapper');
+  const threshold = 48;
+  let raf = null;
+
+  const readScrollTop = () => Math.max(window.scrollY || 0, wrapper?.scrollTop || 0);
+
+  const updateShadow = () => {
+    raf = null;
+    const isGamesView = document.body.classList.contains('games-view');
+    const shouldShow = isGamesView && readScrollTop() > threshold;
+    document.body.classList.toggle('has-scroll-shadow', shouldShow);
+  };
+
+  const requestUpdate = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(updateShadow);
+  };
+
+  window.addEventListener('scroll', requestUpdate, { passive: true });
+  wrapper?.addEventListener('scroll', requestUpdate, { passive: true });
+
+  requestUpdate();
+}
+
+export function initializeLoad() {
+  document.querySelectorAll('.search-bar').forEach(attachSearchLight);
+  setupScrollShadow();
 
   window.xinUpdater = {
     successEl: null,
