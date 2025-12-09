@@ -5,6 +5,10 @@ import { HTMLRewriter } from 'html-rewriter-wasm';
 import dns from 'dns';
 
 const HTML_REWRITING = true;
+const isDevMode = process.env.NODE_ENV === 'development';
+const logBridge = (...args) => {
+    if (isDevMode) console.log("[Bridge:Dev]", ...args);
+};
 
 const agentOptions = {
     keepAliveTimeout: 120000,
@@ -144,6 +148,7 @@ export async function bridgeHandler(req, res) {
     try {
         const prefix = "/!!/";
         const fullRequestUrl = req.originalUrl || req.url;
+        logBridge("Incoming request", { method: req.method, url: fullRequestUrl, headers: req.headers });
         const prefixIndex = fullRequestUrl.indexOf(prefix);
         
         if (prefixIndex === -1) return res.status(400).json({ error: "No URL" });
@@ -152,6 +157,7 @@ export async function bridgeHandler(req, res) {
         if (targetUrl.indexOf('%') !== -1) {
              try { targetUrl = decodeURI(targetUrl); } catch(e) {}
         }
+        logBridge("Resolved target", targetUrl);
         
         if (targetUrl.startsWith('ws/')) return res.status(400).end(); 
         if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
@@ -159,6 +165,7 @@ export async function bridgeHandler(req, res) {
         if (req.method === 'GET') {
             const cached = CACHE.get(targetUrl);
             if (cached) {
+                logBridge("Cache HIT", targetUrl);
                 if (NOW - cached.timestamp < CACHE_LIFETIME_MS) { 
                     res.setHeader("X-Cache", "HIT");
                     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -172,6 +179,8 @@ export async function bridgeHandler(req, res) {
                     currentCacheSize -= cached.buffer.byteLength;
                     CACHE.delete(targetUrl);
                 }
+            } else {
+                logBridge("Cache MISS", targetUrl);
             }
         }
 
@@ -200,6 +209,7 @@ export async function bridgeHandler(req, res) {
         if (req.method === 'POST' && !requestHeaders['content-type']) requestHeaders['content-type'] = 'application/json';
 
         requestHeaders = sortHeaders(requestHeaders);
+        logBridge("Forwarding request", { targetUrl, method: req.method, headers: requestHeaders });
 
         const fetchOptions = {
             method: req.method,
@@ -216,12 +226,16 @@ export async function bridgeHandler(req, res) {
 
         let response;
         let retries = 1;
+        let attempt = 0;
         let lastError;
 
         while(retries >= 0) {
+            attempt++;
+            logBridge("Fetch attempt", { targetUrl, attempt });
             try {
                 response = await fetch(targetUrl, fetchOptions);
                 if (response.status === 429 && retries > 0) {
+                    logBridge("Retrying fetch 429", { targetUrl, remainingRetries: retries });
                     await new Promise(r => setTimeout(r, 200 + Math.random() * 500));
                     retries--;
                     continue;
@@ -229,6 +243,7 @@ export async function bridgeHandler(req, res) {
                 break;
             } catch(e) {
                 lastError = e;
+                logBridge("Fetch error", { targetUrl, attempt, error: e.message });
                 if (retries > 0) {
                     await new Promise(r => setTimeout(r, 100));
                     retries--;
@@ -239,7 +254,10 @@ export async function bridgeHandler(req, res) {
         }
 
         if (!response) {
-             if (lastError) console.error(`[Bridge] Fetch Failed: ${lastError.message}`);
+             if (lastError) {
+                 console.error(`[Bridge] Fetch Failed: ${lastError.message}`);
+                 logBridge("Final fetch failure", { targetUrl, error: lastError.message });
+             }
              return res.status(502).end();
         }
 
@@ -252,7 +270,9 @@ export async function bridgeHandler(req, res) {
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
         const responseHeaders = Object.create(null);
+        const responseSnapshot = {};
         response.headers.forEach((value, key) => {
+             responseSnapshot[key] = value;
              const keyLower = key.toLowerCase();
              if (BLACKLIST_RES_HEADERS.has(keyLower)) return;
              if (keyLower === 'set-cookie') {
@@ -264,6 +284,7 @@ export async function bridgeHandler(req, res) {
                 responseHeaders[key] = value;
              }
         });
+        logBridge("Response headers", { targetUrl, status: response.status, headers: responseSnapshot });
 
         const pathname = targetObj.pathname;
         const lastDot = pathname.lastIndexOf('.');
@@ -288,6 +309,7 @@ export async function bridgeHandler(req, res) {
 
         const shouldRewrite = HTML_REWRITING && contentType === 'text/html' && response.status === 200 && !isBinaryGameFile;
 
+        logBridge("Rewrite decision", { targetUrl, shouldRewrite, contentType });
         if (shouldRewrite) {
             let resolutionBase = response.url;
             const targetOrigin = new URL(response.url).origin;
@@ -465,13 +487,15 @@ export async function bridgeHandler(req, res) {
                     });
                 }
 
-            } catch (e) {
-                res.end();
-            } finally {
-                rewriter.free();
-            }
+                } catch (e) {
+                    logBridge("HTML rewrite error", e.message);
+                    res.end();
+                } finally {
+                    rewriter.free();
+                }
 
         } else {
+            logBridge("Streaming response body", { targetUrl, binary: !shouldRewrite });
             if (response.body) {
                 await pipeline(Readable.fromWeb(response.body), res);
             } else {
@@ -480,6 +504,7 @@ export async function bridgeHandler(req, res) {
         }
 
     } catch (err) {
+        logBridge("Bridge handler error", err.message);
         if (!res.headersSent) res.status(502).end();
     }
 }
