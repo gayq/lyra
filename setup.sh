@@ -193,7 +193,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         on_demand
         issuer acme {
             email sefiicc@gmail.com
-            directory https://acme-v02.api.letsencrypt.org/directory
         }
         issuer zerossl {
             email sefiicc@gmail.com
