@@ -91,7 +91,7 @@ async function fetchNotificationsFromBackend() {
         console.error('Failed to fetch notifications:', e);
         const statusEl = document.getElementById('notifications-status');
         if (statusEl) {
-            statusEl.textContent = 'Error loading notifications.';
+            statusEl.textContent = 'Error fetching notifications.';
             statusEl.style.display = 'block';
         }
     }
@@ -366,7 +366,7 @@ export function initializeNotifications() {
                 </div>
                 <div class="notifications-list-container">
                     <ul class="notifications-list">
-                        <p id="notifications-status" style="color: #b1b1b1; text-align: center; margin-top: 20px;">Loading notifications...</p>
+                        <p id="notifications-status" style="color: #b1b1b1; text-align: center; margin-top: 20px;">Fetching notifications...</p>
                     </ul>
                 </div>
                 <button id="close-notifications-menu">
