@@ -16,13 +16,19 @@
       this.healthCheckInterval = null;
       this.isInitialLoad = true;
 
-      window.addEventListener("DOMContentLoaded", () => {
-        if (!this.preFlightChecks()) return;
-        this.loadConfig();
-        this.initializeApp();
-        this.startHealthCheck();
-        this.setupEventListeners();
-      });
+      if (document.readyState === "complete" || document.readyState === "interactive") {
+        this.start();
+      } else {
+        window.addEventListener("DOMContentLoaded", () => this.start());
+      }
+    }
+
+    start() {
+      if (!this.preFlightChecks()) return;
+      this.loadConfig();
+      this.initializeApp();
+      this.startHealthCheck();
+      this.setupEventListeners();
     }
 
     setState(newState) {
@@ -51,7 +57,7 @@
         statusEl.className = `status-${type}`;
       }
       const logMethod = type === 'error' ? console.error : console.log;
-      logMethod(`Status: ${message}`);
+      if (type === 'error') logMethod(`Status: ${message}`);
     }
 
     loadConfig() {
@@ -73,7 +79,7 @@
       }
     }
 
-    async ensureWispServerConnection(url, timeout = 5000) {
+    async ensureWispServerConnection(url, timeout = 1500) {
       return new Promise((resolve, reject) => {
         let ws;
         try {
@@ -102,7 +108,8 @@
     async initializeApp(isRetry = false) {
       if (this.state === STATES.CONNECTING && !isRetry) return;
       this.setState(isRetry ? STATES.RECONNECTING : STATES.CONNECTING);
-      this.updateStatus('Connecting...', 'info');
+      
+      if(!isRetry) this.updateStatus('Connecting...', 'info');
 
       try {
         if (!this.bareMuxConnection) {
@@ -145,9 +152,9 @@
     
     async handleConnectionFailure(retryCount = 0) {
       this.setState(STATES.RECONNECTING);
-      if (retryCount < 3) {
-        const delay = Math.pow(2, retryCount) * 2000;
-        this.updateStatus(`Retrying in ${delay / 1000}s...`, 'info');
+      if (retryCount < 5) {
+        const delay = Math.pow(2, retryCount) * 250;
+        this.updateStatus(`Retrying in ${delay}ms...`, 'info');
         await new Promise(res => setTimeout(res, delay));
         await this.initializeApp(true);
       } else {
@@ -168,7 +175,7 @@
         
         isChecking = true;
         try {
-            await this.ensureWispServerConnection(this.currentWispUrl, 2500);
+            await this.ensureWispServerConnection(this.currentWispUrl, 2000);
         } catch (err) {
           this.updateStatus('Health check failed. Reconnecting...', 'error');
           await this.initializeApp();

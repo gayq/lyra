@@ -116,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         iframe.loading = 'lazy';
         iframe.allow = 'fullscreen';
         iframe.referrerPolicy = 'no-referrer';
+        iframe.tabIndex = -1;
         dom.iframeContainer.appendChild(iframe);
         return iframe;
     }
@@ -159,6 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let rightIframe = null;
 
         tabs.forEach(tab => {
+            tab.iframe.classList.remove('active-focus');
+
             const isSplitLeft = (isSplitViewActive && tab.id === splitPair.left) || (isPicking && tab.id === splitPair.left);
             const isSplitRight = isSplitViewActive && tab.id === splitPair.right;
             const isSingleActive = !isSplitViewActive && !isPicking && tab.id === activeTabId;
@@ -167,7 +170,14 @@ document.addEventListener('DOMContentLoaded', () => {
             tab.iframe.classList.toggle('active-split-right', isSplitRight);
             tab.iframe.classList.toggle('active', isSingleActive);
             
-            tab.iframe.classList.toggle('active-focus', (isSplitViewActive || isPicking) && tab.id === activeTabId);
+            const isActiveFocus = (isSplitViewActive || isPicking) && tab.id === activeTabId;
+            if (isActiveFocus) tab.iframe.classList.add('active-focus');
+
+            if (isSplitViewActive || isPicking) {
+                tab.iframe.style.boxShadow = isActiveFocus ? '0 0 0 1px #ffffff80' : 'none';
+            } else {
+                tab.iframe.style.boxShadow = '';
+            }
 
             if (isSplitLeft) leftIframe = tab.iframe;
             if (isSplitRight) rightIframe = tab.iframe;
@@ -357,11 +367,41 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
+        const iframeElementFocusHandler = (evt) => {
+            const isSplitView = document.body.classList.contains('split-view');
+            const isSplitTab = newTabId === splitPair.left || newTabId === splitPair.right;
+
+            if (evt?.type === 'mouseenter' && (!isSplitView || activeTabId === newTabId)) {
+                return;
+            }
+
+            if (evt?.type === 'pointerdown') {
+                try {
+                    iframe.focus({ preventScroll: true });
+                } catch (e) {}
+            }
+
+            if (isSplitView && isSplitTab && activeTabId !== newTabId) {
+                switchTab(newTabId);
+                return;
+            }
+
+            const focusEvent = new CustomEvent('iframe-focus', { 
+                detail: { tabId: newTabId }, 
+                bubbles: false 
+            });
+            iframe.dispatchEvent(focusEvent);
+        };
+
         newTab._iframeLoadHandler = iframeLoadHandler;
         newTab._iframeFocusHandler = iframeFocusHandler;
+        newTab._iframeElementFocusHandler = iframeElementFocusHandler;
 
         iframe.addEventListener('load', iframeLoadHandler);
         iframe.addEventListener('iframe-focus', iframeFocusHandler);
+        iframe.addEventListener('focus', iframeElementFocusHandler);
+        iframe.addEventListener('pointerdown', iframeElementFocusHandler);
+        iframe.addEventListener('mouseenter', iframeElementFocusHandler);
 
         tabs.push(newTab);
         
@@ -436,10 +476,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (closedTab.iframe) {
             closedTab.iframe.removeEventListener('load', closedTab._iframeLoadHandler);
             closedTab.iframe.removeEventListener('iframe-focus', closedTab._iframeFocusHandler);
+            closedTab.iframe.removeEventListener('focus', closedTab._iframeElementFocusHandler);
+            closedTab.iframe.removeEventListener('pointerdown', closedTab._iframeElementFocusHandler);
+            closedTab.iframe.removeEventListener('mouseenter', closedTab._iframeElementFocusHandler);
             cleanupIframe(closedTab.iframe);
             closedTab.iframe.remove();
             closedTab._iframeLoadHandler = null;
             closedTab._iframeFocusHandler = null;
+            closedTab._iframeElementFocusHandler = null;
             closedTab.iframe = null;
         }
 
@@ -850,6 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     addTab(null, 'Loading...');
+    updateIframeView();
     updateSplitButtonState();
 
     window.addEventListener('load', () => {

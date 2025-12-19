@@ -3,245 +3,243 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { Glob } from "bun";
 import { obfuscate } from 'javascript-obfuscator';
+import postcss from "postcss";
+import autoprefixer from "autoprefixer";
+import cssnano from "cssnano";
 
-async function runSilently(command, args = []) {
-  const process = Bun.spawn({
-    cmd: [command, ...args],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  
-  const exitCode = await process.exited;
-
-  if (exitCode !== 0) {
-    const stderr = await Bun.readableStreamToText(process.stderr);
-    const stdout = await Bun.readableStreamToText(process.stdout);
-    let errorMsg = `Command failed with exit code ${exitCode}: ${command} ${args.join(' ')}`;
-    if (stderr) errorMsg += `\n--- Stderr ---\n${stderr}`;
-    if (stdout) errorMsg += `\n--- Stdout ---\n${stdout}`;
-    throw new Error(errorMsg);
-  }
-}
+const CONFIG = {
+    dirs: {
+        src: "src",
+        dist: "dist",
+        cssSrc: "src/assets/css",
+        cssDest: "dist/assets/css",
+        jsDest: "dist/assets/js",
+        swSrc: "src/b",
+        swDest: "dist/b"
+    },
+    devFilesToRemove: [
+        'assets/js/core/register.js',
+        'assets/js/core/load.js',
+        'assets/js/features/settings.js',
+        'assets/js/features/games.js',
+        'assets/js/features/shortcuts.js',
+        'assets/js/features/toast.js',
+        'assets/css/settings.css',
+        'assets/css/games.css',
+        'assets/css/toast.css',
+        'assets/css/notifications.css'
+    ],
+    cssOrder: [
+        'index.css',
+        'settings.css',
+        'games.css',
+        'bookmarks.css',
+        'newtab.css',
+        'tabs.css',
+        'notifications.css',
+        'toast.css'
+    ],
+    obfuscation: {
+        compact: true,
+        controlFlowFlattening: true,
+        controlFlowFlatteningThreshold: 1, 
+        deadCodeInjection: true,
+        deadCodeInjectionThreshold: 1, 
+        disableConsoleOutput: true, 
+        identifierNamesGenerator: 'hexadecimal', 
+        log: false,
+        debugProtection: true,
+        debugProtectionInterval: 10,
+        renameGlobals: true, 
+        selfDefending: true, 
+        stringArray: true, 
+        stringArrayEncoding: ['rc4'], 
+        stringArrayRotate: true, 
+        stringArrayShuffle: true, 
+        stringArrayThreshold: 1, 
+        stringArrayWrappersCount: 5,
+        stringArrayWrappersChained: true,
+        stringArrayWrappersType: 'function',
+        splitStrings: true,
+        splitStringsChunkLength: 1,
+        unicodeEscapeSequence: true
+    },
+    htmlMinifierArgs: [
+        "--use-short-doctype",
+        "--collapse-boolean-attributes",
+        "--remove-comments",
+        "--collapse-whitespace",
+        "--minify-css",
+        "--minify-js"
+    ]
+};
 
 const colors = {
     reset: "\x1b[0m",
     bold: "\x1b[1m",
     red: "\x1b[31m",
     green: "\x1b[32m",
+    cyan: "\x1b[36m"
 };
 
-const style = (text, code) => `${code}${text}${colors.reset}`;
-const bold = (text) => style(text, colors.bold);
-const green = (text) => style(text, colors.green);
-const red = (text) => style(text, colors.red);
+const normalizePath = (p) => p.split(path.sep).join('/');
+
+async function runSilently(command, args = []) {
+    const process = Bun.spawn({
+        cmd: [command, ...args],
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+
+    const exitCode = await process.exited;
+
+    if (exitCode !== 0) {
+        const stderr = await Bun.readableStreamToText(process.stderr);
+        const stdout = await Bun.readableStreamToText(process.stdout);
+        throw new Error(`Command failed [${exitCode}]: ${command} ${args.join(' ')}\nStderr: ${stderr}\nStdout: ${stdout}`);
+    }
+}
 
 function getFileHash(filePath) {
-  if (!fs.existsSync(filePath)) {
-    console.error(`File not found, cannot hash: ${filePath}`);
-    return null;
-  }
-  const fileBuffer = fs.readFileSync(filePath);
-  return crypto.createHash('md5').update(fileBuffer).digest('hex').slice(0, 12);
+    if (!fs.existsSync(filePath)) return null;
+    const fileBuffer = fs.readFileSync(filePath);
+    return crypto.createHash('md5').update(fileBuffer).digest('hex').slice(0, 10);
 }
-
-function updateFilePaths(filePath, manifest) {
-  if (!fs.existsSync(filePath)) return;
-
-  let content = fs.readFileSync(filePath, 'utf8');
-  let isUpdated = false;
-
-  for (const [original, hashed] of Object.entries(manifest)) {
-    const originalEscaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    const htmlRegex = new RegExp(`(src|href)=["']/?${originalEscaped}["']`, 'g');
-    const jsImportRegex = new RegExp(`(['"\`])/?${originalEscaped}\\1`, 'g');
-    const swStringLiteralRegex = /(['"`])\.\/b\/sw\.js\1/g; 
-
-    if (htmlRegex.test(content)) {
-        content = content.replace(htmlRegex, `$1="/${hashed}"`);
-        isUpdated = true;
-    }
-    if (jsImportRegex.test(content)) {
-        content = content.replace(jsImportRegex, `$1/${hashed}$1`);
-        isUpdated = true;
-    }
-    if (original === 'b/sw.js' && swStringLiteralRegex.test(content)) {
-        content = content.replace(swStringLiteralRegex, `$1./${hashed}$1`);
-        isUpdated = true;
-    }
-  }
-
-  if (isUpdated) {
-    fs.writeFileSync(filePath, content, 'utf8');
-  }
-}
-
-const htmlMinifierOptions = [
-    "--use-short-doctype",
-    "--collapse-boolean-attributes"
-];
 
 const steps = [
-    { name: "Cleaning up old build", task: () => fs.rmSync("dist", { recursive: true, force: true }) },
-    { name: "Creating new build", task: () => fs.mkdirSync("dist", { recursive: true }) },
     {
-        name: "Processing HTML",
+        name: "Cleaning...",
+        task: () => {
+            fs.rmSync(CONFIG.dirs.dist, { recursive: true, force: true });
+            fs.mkdirSync(CONFIG.dirs.dist, { recursive: true });
+        }
+    },
+    {
+        name: "Processing HTML...",
         task: async () => {
-            await runSilently("html-minifier", [
-                "--output", "dist/index.html", 
-                "src/index.html", 
-                ...htmlMinifierOptions
-            ]);
-            await runSilently("html-minifier", [
-                "--output", "dist/404.html", 
-                "src/404.html", 
-                ...htmlMinifierOptions
+            await Promise.all([
+                runSilently("html-minifier", ["--output", `${CONFIG.dirs.dist}/index.html`, `${CONFIG.dirs.src}/index.html`, ...CONFIG.htmlMinifierArgs]),
+                runSilently("html-minifier", ["--output", `${CONFIG.dirs.dist}/404.html`, `${CONFIG.dirs.src}/404.html`, ...CONFIG.htmlMinifierArgs])
             ]);
         }
     },
     {
-        name: "Processing CSS",
+        name: "Processing CSS...",
         task: async () => {
-            fs.mkdirSync("dist/assets/css", { recursive: true });
-            const glob = new Glob("src/assets/css/**/*.css");
+            fs.mkdirSync(CONFIG.dirs.cssDest, { recursive: true });
             
-            const files = await Array.fromAsync(glob.scan());
-            if (files.length === 0) return;
-            files.sort();
+            const glob = new Glob("**/*.css");
+            const cssFiles = [];
+            for await (const file of glob.scan({ cwd: CONFIG.dirs.cssSrc, absolute: true })) {
+                cssFiles.push(file);
+            }
+            
+            if (cssFiles.length > 0) {
+                const getCssOrderIndex = (filePath) => {
+                    const name = path.basename(filePath);
+                    const relative = normalizePath(path.relative(CONFIG.dirs.cssSrc, filePath));
 
-            let combinedCss = "";
-            for (const file of files) {
-                combinedCss += await Bun.file(file).text() + "\n";
+                    const order = CONFIG.cssOrder || [];
+                    const relativeIndex = order.indexOf(relative);
+                    if (relativeIndex !== -1) return relativeIndex;
+
+                    const nameIndex = order.indexOf(name);
+                    if (nameIndex !== -1) return nameIndex;
+
+                    return Number.MAX_SAFE_INTEGER;
+                };
+
+                cssFiles.sort((a, b) => {
+                    const aIndex = getCssOrderIndex(a);
+                    const bIndex = getCssOrderIndex(b);
+                    if (aIndex !== bIndex) return aIndex - bIndex;
+                    return a.localeCompare(b);
+                }); 
+
+                const cssContents = await Promise.all(
+                    cssFiles.map(file => Bun.file(file).text())
+                );
+                const combinedCss = cssContents.join("\n");
+
+                const result = await postcss([
+                    autoprefixer(), 
+                    cssnano({ preset: 'default' }) 
+                ]).process(combinedCss, {
+                    from: undefined, 
+                    to: path.join(CONFIG.dirs.cssDest, "style.css"),
+                    map: false 
+                });
+
+                await Bun.write(path.join(CONFIG.dirs.cssDest, "style.css"), result.css);
             }
 
-            const tempCssPath = "dist/assets/css/temp.css";
-            await Bun.write(tempCssPath, combinedCss);
-            
-            await runSilently("bun", [ 
-                path.join(process.cwd(), "node_modules", "postcss-cli", "index.js"),
-                tempCssPath,
-                "--use", "cssnano",
-                "--output", "dist/assets/css/style.css",
-                "--no-map"
-            ]);
+            const copyAssets = async (src, dest) => {
+                if (!fs.existsSync(src)) return;
+                const entries = await fs.promises.readdir(src, { withFileTypes: true });
+                await Promise.all(entries.map(async (entry) => {
+                    const srcPath = path.join(src, entry.name);
+                    const destPath = path.join(dest, entry.name);
+                    if (entry.isDirectory()) {
+                        await fs.promises.mkdir(destPath, { recursive: true });
+                        await copyAssets(srcPath, destPath);
+                    } else if (!entry.name.endsWith('.css')) {
+                        const file = Bun.file(srcPath);
+                        await Bun.write(destPath, file);
+                    }
+                }));
+            };
 
-            fs.rmSync(tempCssPath);
+            await copyAssets(CONFIG.dirs.cssSrc, CONFIG.dirs.cssDest);
         }
     },
     {
-        name: "Processing JS",
+        name: "Processing JS...",
         task: async () => {
-            fs.mkdirSync("dist/assets/js", { recursive: true });
-            
-            const tempFilePath = path.join(process.cwd(), 'dist', 'assets', 'js', 'app.temp.js');
-            const finalFilePath = path.join(process.cwd(), 'dist', 'assets', 'js', 'app.js');
+            fs.mkdirSync(CONFIG.dirs.jsDest, { recursive: true });
+            fs.mkdirSync(CONFIG.dirs.swDest, { recursive: true });
 
             const bunBuildOutput = await Bun.build({
-                entrypoints: ['src/assets/js/entry.js'],
+                entrypoints: [path.join(CONFIG.dirs.src, 'assets/js/entry.js')],
                 minify: true,
                 sourcemap: 'none',
             });
 
-            if (!bunBuildOutput.success || bunBuildOutput.outputs.length === 0) {
+            if (!bunBuildOutput.success) {
                 console.error(bunBuildOutput.logs);
-                throw new Error("Bun.build for JS failed or produced no output");
+                throw new Error("Bun.build failed");
             }
 
-            await Bun.write(tempFilePath, bunBuildOutput.outputs[0]);
+            const appCode = await bunBuildOutput.outputs[0].text();
 
-            if (!fs.existsSync(tempFilePath)) {
-              throw new Error(`Bun.write failed to create temp file: ${tempFilePath}`);
-            }
+            const appObfuscated = obfuscate(appCode, {
+                ...CONFIG.obfuscation,
+                reservedStrings: ['./b/sw.js']
+            }).getObfuscatedCode();
+
+            await Bun.write(path.join(CONFIG.dirs.jsDest, 'app.js'), appObfuscated);
+
+            let swCode = await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text();
+            swCode = swCode.replace("__SERVER_IP__", process.env.IP || "127.0.0.1");
+
+            const swObfuscated = obfuscate(swCode, CONFIG.obfuscation).getObfuscatedCode();
             
-            const jsCode = await Bun.file(tempFilePath).text();
-
-            const obfuscationOptions = {
-                compact: true,
-                controlFlowFlattening: true,
-                controlFlowFlatteningThreshold: 1, 
-                deadCodeInjection: true,
-                deadCodeInjectionThreshold: 1, 
-                disableConsoleOutput: true, 
-                identifierNamesGenerator: 'hexadecimal', 
-                log: false,
-                debugProtection: true,
-                debugProtectionInterval: 10,
-                renameGlobals: true, 
-                selfDefending: true, 
-                stringArray: true, 
-                stringArrayEncoding: ['rc4'], 
-                stringArrayRotate: true, 
-                stringArrayShuffle: true, 
-                stringArrayThreshold: 1, 
-                stringArrayWrappersCount: 5,
-                stringArrayWrappersChained: true,
-                stringArrayWrappersType: 'function',
-                splitStrings: true,
-                splitStringsChunkLength: 1,
-                unicodeEscapeSequence: true
-            };
-            
-            const appObfuscationOptions = {
-                ...obfuscationOptions,
-                reservedStrings: ['./b/sw.js'] 
-            };
-            
-            const swObfuscationOptions = {
-                ...obfuscationOptions
-            };
-
-            const appObfuscationResult = obfuscate(jsCode, appObfuscationOptions);
-            const appObfuscatedCode = appObfuscationResult.getObfuscatedCode();
-
-            await Bun.write(finalFilePath, appObfuscatedCode);
-
-            if (fs.existsSync(tempFilePath)) { 
-              fs.rmSync(tempFilePath); 
-            }
-            
-            fs.mkdirSync("dist/b", { recursive: true });
-            
-            let swCode = await Bun.file(path.join("src", "b", "sw.js")).text();
-            
-            const serverIP = process.env.IP || "127.0.0.1";
-            swCode = swCode.replace("__SERVER_IP__", serverIP);
-
-            const swObfuscationResult = obfuscate(swCode, swObfuscationOptions);
-            const swObfuscatedCode = swObfuscationResult.getObfuscatedCode();
-
-            await Bun.write(
-                path.join("dist", "b", "sw.js"),
-                swObfuscatedCode
-            );
+            await Bun.write(path.join(CONFIG.dirs.swDest, "sw.js"), swObfuscated);
         }
     },
-    { 
-        name: "Hashing",
+    {
+        name: "Finishing up...",
         task: async () => {
             const manifest = {};
-            const distDir = "dist";
-            
-            const filesToHashMap = {
-                'assets/js/index.js': 'assets/js/app.js', 
+            const distDir = CONFIG.dirs.dist;
+
+            const filesToHash = {
+                'assets/js/index.js': 'assets/js/app.js',
                 'assets/css/index.css': 'assets/css/style.css',
                 'b/sw.js': 'b/sw.js'
             };
 
-            const pathsToRemoveFromHtml = [
-                'assets/js/core/register.js',
-                'assets/js/core/load.js',
-                'assets/js/features/settings.js',
-                'assets/js/features/games.js',
-                'assets/js/features/shortcuts.js',
-                'assets/js/features/toast.js',
-                'assets/css/settings.css',
-                'assets/css/games.css',
-                'assets/css/toast.css',
-                'assets/css/notifications.css'
-            ];
-
-            for (const [pathInHtml, pathOnDisk] of Object.entries(filesToHashMap)) {
-                const fullPath = path.join(distDir, pathOnDisk);
+            for (const [htmlRef, diskPath] of Object.entries(filesToHash)) {
+                const fullPath = path.join(distDir, diskPath);
                 if (!fs.existsSync(fullPath)) continue;
 
                 const hash = getFileHash(fullPath);
@@ -253,84 +251,69 @@ const steps = [
                 
                 fs.renameSync(fullPath, newFullPath);
                 
-                const newHashedPath = path.relative(distDir, newFullPath).replace(/\\/g, '/');
-                manifest[pathInHtml] = newHashedPath; 
+                const relPath = normalizePath(path.relative(distDir, newFullPath));
+                manifest[htmlRef] = relPath;
             }
 
-            const htmlGlob = new Glob('dist/**/*.html');
-            const htmlFiles = await Array.fromAsync(htmlGlob.scan({ absolute: true }));
+            const htmlGlob = new Glob('**/*.html');
+            for await (const htmlFile of htmlGlob.scan({ cwd: distDir, absolute: true })) {
+                let content = await Bun.file(htmlFile).text();
+                
+                if (!content.startsWith("\n")) content = "\n" + content;
 
-            const contentToPrepend = "\n";
-
-            for (const htmlFile of htmlFiles) {
-                let content = fs.readFileSync(htmlFile, 'utf8');
-                let isUpdated = false;
-
-                if (!content.startsWith(contentToPrepend)) {
-                    content = contentToPrepend + content;
-                    isUpdated = true;
-                }
-
-                for (const [original, hashedPath] of Object.entries(manifest)) {
+                for (const [original, hashed] of Object.entries(manifest)) {
                     if (original === 'assets/js/index.js' || original === 'assets/css/index.css') {
-                        const escapedOriginal = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        const regex = new RegExp(`(src|href)=["']/?${escapedOriginal}["']`);
-                        if (regex.test(content)) {
-                            content = content.replace(regex, `$1="/${hashedPath}" defer`);
-                            isUpdated = true;
-                        }
+                        const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        const regex = new RegExp(`(src|href)=["']/?${escaped}["']`, 'g');
+                        content = content.replace(regex, `$1="/${hashed}" defer`);
                     }
                 }
 
-                for (const originalPathToRemove of pathsToRemoveFromHtml) {
-                    const escapedPath = originalPathToRemove.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    const scriptRegex = new RegExp(`<script[^>]*src=["']/?${escapedPath}["'][^>]*>\\s*</script>\\s*\\n?`, 'gi');
-                    const linkRegex = new RegExp(`<link[^>]*href=["']/?${escapedPath}["'][^>]*>\\s*\\n?`, 'gi');
-
-                     if (scriptRegex.test(content)) {
-                         content = content.replace(scriptRegex, '');
-                         isUpdated = true;
-                     }
-                     if (linkRegex.test(content)) {
-                         content = content.replace(linkRegex, '');
-                         isUpdated = true;
-                     }
+                for (const fileToRemove of CONFIG.devFilesToRemove) {
+                    const escaped = fileToRemove.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    content = content.replace(new RegExp(`<script[^>]*src=["']/?${escaped}["'][^>]*>\\s*</script>\\s*\\n?`, 'gi'), '');
+                    content = content.replace(new RegExp(`<link[^>]*href=["']/?${escaped}["'][^>]*>\\s*\\n?`, 'gi'), '');
                 }
 
-                if (isUpdated) {
-                    fs.writeFileSync(htmlFile, content, 'utf8');
-                }
+                await Bun.write(htmlFile, content);
             }
-            
-            const appJsHashedPath = manifest['assets/js/index.js']; 
-            if (appJsHashedPath) {
-                const fullAppJsPath = path.join(distDir, appJsHashedPath);
-                if (manifest['b/sw.js']) { 
-                  updateFilePaths(fullAppJsPath, { 'b/sw.js': manifest['b/sw.js'] }); 
-                }
+
+            const appJsRelPath = manifest['assets/js/index.js'];
+            if (appJsRelPath && manifest['b/sw.js']) {
+                const appJsPath = path.join(distDir, appJsRelPath);
+                let appContent = await Bun.file(appJsPath).text();
+                
+                const swOriginal = 'b/sw.js';
+                const swHashed = manifest['b/sw.js'];
+                const swEscaped = swOriginal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                
+                appContent = appContent.replace(new RegExp(`(['"\`])\\./${swEscaped}\\1`, 'g'), `$1./${swHashed}$1`);
+                appContent = appContent.replace(new RegExp(`(['"\`])/${swEscaped}\\1`, 'g'), `$1/${swHashed}$1`);
+
+                await Bun.write(appJsPath, appContent);
             }
         }
     }
 ];
 
 async function main() {
-    console.log(bold("Starting Build..."));
+    console.log(`\n${colors.bold}Starting build...${colors.reset}\n`);
+    const startTime = performance.now();
     const totalSteps = steps.length;
     let spinner;
-    let currentStepText = "";
 
     try {
         for (let i = 0; i < totalSteps; i++) {
             const step = steps[i];
             const progress = `[${i + 1}/${totalSteps}]`;
-            currentStepText = `${progress} ${step.name}`;
+            const label = `${progress} ${step.name}`;
 
             let frame = 0;
-            const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', 'S', '⠇', '⠏'];
-
+            const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠇', '⠏'];
             process.stdout.write('\x1B[?25l');
+            
             spinner = setInterval(() => {
-                process.stdout.write(`\r${currentStepText}... ${spinnerFrames[frame]}`);
+                process.stdout.write(`\r${colors.cyan}${spinnerFrames[frame]}${colors.reset} ${label}...`);
                 frame = (frame + 1) % spinnerFrames.length;
             }, 80);
 
@@ -338,15 +321,17 @@ async function main() {
 
             clearInterval(spinner);
             spinner = null;
-            process.stdout.write(`\r${currentStepText}... ${green('OK')}\n`);
+            process.stdout.write('\r'.padEnd(process.stdout.columns) + '\r');
+            console.log(`${colors.green}✔${colors.reset} ${label}`);
         }
 
-        console.log(bold(green("\nBuild completed!")));
+        const duration = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`\n${colors.bold}${colors.green}Build completed in ${duration}s!${colors.reset}\n`);
 
     } catch (err) {
         if (spinner) clearInterval(spinner);
         process.stdout.write('\r'.padEnd(process.stdout.columns) + '\r');
-        console.error(`\n${bold(red('Build failed'))} during step: "${currentStepText}"`);
+        console.error(`\n${colors.bold}${colors.red}✖ Build Failed${colors.reset}`);
         console.error(err);
         process.exit(1);
     } finally {

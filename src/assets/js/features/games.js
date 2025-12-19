@@ -56,8 +56,8 @@ export function initializeGame() {
       </div>
       <div class="game-grid-container">
         <div class="game-grid"></div>
+        <div class="game-grid-sentinel" aria-hidden="true"></div>
         <p class="no-results-message">Fetching games...</p>
-        <button type="button" class="game-load-more-btn">Load more games</button>
       </div>
     `;
 
@@ -68,10 +68,12 @@ export function initializeGame() {
     }
   }
 
+  const gamesTopbar = gamesPage.querySelector('.games-topbar');
   const gameGrid = gamesPage.querySelector('.game-grid');
   const gameSearchInput = gamesPage.querySelector('#gameSearchInput');
   const noResultsEl = gamesPage.querySelector('.no-results-message');
-  const loadMoreBtn = gamesPage.querySelector('.game-load-more-btn');
+  const gameGridContainer = gamesPage.querySelector('.game-grid-container');
+  const gameGridSentinel = gamesPage.querySelector('.game-grid-sentinel');
   const refreshBtn = gamesPage.querySelector('#games-refresh-btn');
   const gamesSearchBar = gamesPage.querySelector('.games-search-bar');
 
@@ -87,6 +89,9 @@ export function initializeGame() {
   let gameFadeTimer = null;
   const SKELETON_COUNT = 12;
   const MAX_VISIBLE_GAMES = 120;
+  const SCROLL_THRESHOLD = 350;
+  let loadingMoreGames = false;
+  let sentinelObserver = null;
 
   const getSourceKey = () => localStorage.getItem('gameSource') || 'GN-Math';
   const getCacheKey = () => `xin_game_cache_${getSourceKey()}`;
@@ -133,9 +138,6 @@ export function initializeGame() {
       gameGrid.style.display = 'none';
       gameGrid.innerHTML = '';
     }
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = 'none';
-    }
   }
 
   function createSkeletonCard() {
@@ -150,9 +152,7 @@ export function initializeGame() {
     info.className = 'game-info';
 
     const title = document.createElement('div');
-    title.className = 'skeleton skeleton-line';
     const meta = document.createElement('div');
-    meta.className = 'skeleton skeleton-line skeleton-line-sm';
     info.appendChild(title);
     info.appendChild(meta);
 
@@ -170,9 +170,6 @@ export function initializeGame() {
     gameGrid.appendChild(fragment);
     gameGrid.style.display = 'grid';
     if (noResultsEl) noResultsEl.style.display = 'none';
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = 'none';
-    }
   }
 
   function createGameCard(game) {
@@ -223,7 +220,6 @@ export function initializeGame() {
     currentFilteredGames = [...allGames];
     currentVisibleCount = MAX_VISIBLE_GAMES;
     renderGameCards(currentFilteredGames.slice(0, currentVisibleCount));
-    updateOverflowState();
     gameRendered = true;
   }
 
@@ -252,29 +248,70 @@ export function initializeGame() {
     currentVisibleCount = MAX_VISIBLE_GAMES;
     const visibleGames = currentFilteredGames.slice(0, currentVisibleCount);
     renderGameCards(visibleGames);
-    updateOverflowState();
-
-
     updateCountLabel(resultsFound);
   }
 
-  function updateOverflowState() {
-    const total = currentFilteredGames.length;
-    const visible = Math.min(currentVisibleCount, total);
-    const hasMore = total > visible;
-
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = hasMore ? 'block' : 'none';
-    }
-  }
-
   function loadMoreGames() {
-    if (currentFilteredGames.length <= currentVisibleCount) return;
+    if (loadingMoreGames || currentFilteredGames.length <= currentVisibleCount) return;
+    loadingMoreGames = true;
     const remaining = currentFilteredGames.length - currentVisibleCount;
     currentVisibleCount += Math.min(MAX_VISIBLE_GAMES, remaining);
     const visibleGames = currentFilteredGames.slice(0, currentVisibleCount);
     renderGameCards(visibleGames);
-    updateOverflowState();
+    requestAnimationFrame(() => {
+      loadingMoreGames = false;
+    });
+  }
+
+  function handleScroll() {
+    if (!document.body.classList.contains('games-view')) return;
+    if (!gameDataLoaded || currentFilteredGames.length <= currentVisibleCount) return;
+
+    const candidates = new Set([
+      document.scrollingElement || document.documentElement,
+      document.body,
+      wrapper,
+      gameGridContainer
+    ]);
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const scrollTop = candidate.scrollTop || 0;
+      const scrollHeight = candidate.scrollHeight || 0;
+      const clientHeight = candidate.clientHeight || window.innerHeight;
+      if (scrollHeight <= clientHeight) continue;
+      if (scrollHeight - (scrollTop + clientHeight) <= SCROLL_THRESHOLD) {
+        loadMoreGames();
+        break;
+      }
+    }
+  }
+
+  function observeGridSentinel() {
+    if (!gameGridSentinel) return;
+    if (sentinelObserver) {
+      sentinelObserver.disconnect();
+    }
+
+    const root = gameGridContainer || null;
+    sentinelObserver = new IntersectionObserver((entries) => {
+      if (!document.body.classList.contains('games-view')) return;
+      if (!gameDataLoaded || currentFilteredGames.length <= currentVisibleCount) return;
+      if (gameGridContainer) {
+        const overflow = gameGridContainer.scrollHeight - gameGridContainer.clientHeight;
+        if (overflow <= 0) return;
+      }
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          loadMoreGames();
+        }
+      });
+    }, {
+      root,
+      rootMargin: `0px 0px ${SCROLL_THRESHOLD}px 0px`,
+      threshold: 0
+    });
+
+    sentinelObserver.observe(gameGridSentinel);
   }
 
   function getGameData() {
@@ -420,9 +457,6 @@ export function initializeGame() {
     } else if (noResultsEl) {
       noResultsEl.style.display = 'none';
     }
-    if (loadMoreBtn) {
-      loadMoreBtn.style.display = 'none';
-    }
     try {
       sessionStorage.removeItem(getCacheKey());
     } catch { }
@@ -439,7 +473,9 @@ export function initializeGame() {
     document.body.classList.add('games-view');
     gamesPage.classList.add('is-visible');
     gamesPage.classList.remove('is-active');
-    requestAnimationFrame(() => gamesPage.classList.add('is-active'));
+    requestAnimationFrame(() => {
+      gamesPage.classList.add('is-active');
+    });
     gamesPage.setAttribute('aria-hidden', 'false');
     setIconAsHome(true);
     localStorage.setItem('wavesUserOpenedGameMenu', 'true');
@@ -518,10 +554,6 @@ export function initializeGame() {
     });
   }
 
-  if (loadMoreBtn) {
-    loadMoreBtn.addEventListener('click', loadMoreGames);
-  }
-
   if (gameGrid) {
     gameGrid.addEventListener('click', (e) => {
       const card = e.target.closest('.game-card');
@@ -539,6 +571,14 @@ export function initializeGame() {
       }
     });
   }
+
+  const scrollTargets = new Set([window, document, wrapper, gameGridContainer]);
+  scrollTargets.forEach(target => {
+    if (!target || typeof target.addEventListener !== 'function') return;
+    target.addEventListener('scroll', handleScroll, { passive: true });
+  });
+  window.addEventListener('resize', handleScroll, { passive: true });
+  observeGridSentinel();
 
   gameIcon.addEventListener('click', e => {
     e.preventDefault();

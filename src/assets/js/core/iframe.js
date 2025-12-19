@@ -89,6 +89,7 @@ export function cleanupIframe(iframe) {
     iframe.removeAttribute('data-reload-attempted');
     iframe.removeAttribute('data-manual-url');
     delete iframe.dataset.reloadCount;
+    iframe.style.boxShadow = '';
 
     try {
         iframe.contentWindow?.stop?.();

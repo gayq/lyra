@@ -41,10 +41,10 @@ body.games-view::before {
     top: 0;
     left: 0;
     width: 100%;
-    height: 140px;
+    height: 130px;
     z-index: 50;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity 0.1s ease;
 
     background: linear-gradient(
         to bottom,
@@ -94,7 +94,7 @@ body.is-resizing .iframe {
     box-sizing: border-box;
     overflow: hidden;
     white-space: nowrap;
-    transition: all 0.1s ease-in-out;
+    transition: all 0.1s ease;
     position: relative;
     z-index: 3;
 }
@@ -111,7 +111,7 @@ body.sidebar-hidden .sidebar {
     width: 0;
     padding: 0;
     opacity: 0;
-    transition: width 0.1s ease-in-out, padding 0.1s ease-in-out, opacity 0.1s ease-in-out, visibility 0s 0.1s;
+    transition: width 0.1s ease, padding 0.1s ease-, opacity 0.1s ease, visibility 0s 0.1s;
     visibility: hidden; 
 }
 
@@ -140,7 +140,7 @@ body.is-picking-split #iframe-container .iframe {
     top: auto; 
     left: auto;
     transition: none;
-    border: 1px solid #ffffff1f; 
+    border: 0 !important; 
     border-radius: 6px; 
     overflow: hidden; 
     display: none; 
@@ -150,8 +150,21 @@ body.is-picking-split #iframe-container .iframe {
     transform: translateZ(0); 
 }
 
+body.split-view #iframe-container .iframe:not(.active-focus),
+body.is-picking-split #iframe-container .iframe:not(.active-focus) {
+    box-shadow: none !important;
+    border: 0 !important;
+}
+
 body.split-view #iframe-container .iframe.active-focus {
-    border-color: #ffffff; 
+    box-shadow: 0 0 0 1px #ffffff80 !important;
+    border: 0 !important;
+    z-index: 1;
+}
+
+body.split-view #iframe-container .iframe:focus,
+body.is-picking-split #iframe-container .iframe:focus {
+    outline: none;
 }
 
 body.split-view #iframe-container .iframe.active,
@@ -177,7 +190,7 @@ body.split-view #iframe-container .iframe.active-split-right {
     width: calc(100% - 10px);
     height: 99%;
     margin: 0 auto 5px auto;
-    transition: all 0.1s ease-in-out;
+    transition: all 0.1s ease;
     border: 1px solid #ffffff1f;
     border-radius: 6px;
     overflow: hidden; 
@@ -202,7 +215,7 @@ body.split-view #iframe-container .iframe.active-split-right {
     box-sizing: border-box;
     border: none; 
     border-radius: 0; 
-    transition: all 0.1s ease-out; 
+    transition: all 0.1s ease; 
 }
 
 #iframe-container .iframe.loaded {

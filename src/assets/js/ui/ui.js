@@ -56,7 +56,6 @@ function initializeEruda(getActiveTab) {
     ew.eruda.init();
     ew.eruda.show();
     erudaLoaded = true;
-    hideErudaLoadingScreen();
   } catch (err) {
     console.error('Error initializing Eruda:', err);
   }
@@ -76,7 +75,6 @@ function toggleEruda(getActiveTab) {
     if (erudaLoaded && iframe.contentWindow.eruda) {
       iframe.contentWindow.eruda.destroy();
       erudaLoaded = false;
-      hideErudaLoadingScreen();
     } else {
       injectEruda(getActiveTab);
     }

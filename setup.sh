@@ -6,7 +6,7 @@ echo "Type 'ok' to continue or 'cancel' to abort."
 
 while true; do
     read -p "> " user_input
-    case $user_input in
+    case "$user_input" in
         ok)
             echo "Starting setup..."
             break
@@ -21,8 +21,11 @@ while true; do
     esac
 done
 
+sudo ip link delete veth0-global 2>/dev/null
+sudo modprobe nf_conntrack
+
 sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils coturn proxychains4 build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -52,60 +55,10 @@ if ! command -v node; then
   sudo apt-get install -y nodejs
 fi
 
-WGCF_URL=$(curl -s https://api.github.com/repos/ViRb3/wgcf/releases/latest | jq -r '.assets[] | select(.name | endswith("_linux_amd64")) | .browser_download_url')
-WIREPROXY_URL=$(curl -s https://api.github.com/repos/whyvl/wireproxy/releases/latest | jq -r '.assets[] | select(.name | endswith("_linux_amd64.tar.gz")) | .browser_download_url')
-
-curl -L -o wgcf "$WGCF_URL"
-chmod +x wgcf
-sudo mv wgcf /usr/local/bin/wgcf
-
-curl -L -o wireproxy.tar.gz "$WIREPROXY_URL"
-tar -xzf wireproxy.tar.gz
-chmod +x wireproxy
-sudo mv wireproxy /usr/local/bin/wireproxy
-rm wireproxy.tar.gz
-sudo setcap cap_net_admin+eip /usr/local/bin/wireproxy
-
-sudo tee /etc/proxychains4.conf <<EOF
-strict_chain
-proxy_dns
-remote_dns_subnet 224
-tcp_read_time_out 15000
-tcp_connect_time_out 8000
-[ProxyList]
-socks5 127.0.0.1 40000
-EOF
-
-if [ ! -f "/etc/wireproxy/wireproxy.conf" ]; then
-    sudo mkdir -p /etc/wireproxy
-    yes | wgcf register --accept-tos
-    wgcf generate
-    
-    ENDPOINT=$(grep "Endpoint" wgcf-profile.conf | cut -d " " -f 3)
-    HOST=$(echo $ENDPOINT | cut -d ":" -f 1)
-    PORT=$(echo $ENDPOINT | cut -d ":" -f 2)
-    
-    IP=$(dig +short "$HOST" | head -n 1)
-    [ -z "$IP" ] && IP=$(getent hosts "$HOST" | awk '{ print $1 }' | head -n 1)
-    [ -z "$IP" ] && IP="162.159.192.1"
-    
-    grep -v -e "^DNS" -e "^MTU" wgcf-profile.conf | sudo tee /etc/wireproxy/wireproxy.conf
-    sudo sed -i "s|$HOST:$PORT|$IP:$PORT|" /etc/wireproxy/wireproxy.conf
-    
-    cat <<WG_APPEND | sudo tee -a /etc/wireproxy/wireproxy.conf
-
-[Socks5]
-BindAddress = 127.0.0.1:40000
-
-[HttpProxy]
-BindAddress = 127.0.0.1:3128
-WG_APPEND
-    
-    rm wgcf-profile.conf
-fi
-
+sudo rm -f /usr/local/bin/wireproxy /etc/wireproxy/wireproxy.conf
+rm -f wireproxy.tar.gz
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
-net.netfilter.nf_conntrack_max = 2000000
+net.netfilter.nf_conntrack_max = 524288
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 10
 net.netfilter.nf_conntrack_tcp_timeout_established = 7200
@@ -141,7 +94,7 @@ if [ ! -d "$HOME/epoxy-tls" ]; then
     git clone https://github.com/MercuryWorkshop/epoxy-tls.git "$HOME/epoxy-tls"
 fi
 cd "$HOME/epoxy-tls"
-git fetch && git checkout prod && git pull
+git fetch && git checkout . && git pull
 if ! grep -q "^\[profile.release\]" Cargo.toml; then
     printf "\n[profile.release]\nlto = \"fat\"\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\nopt-level = 3\n" >> Cargo.toml
 fi
@@ -184,43 +137,68 @@ sudo systemctl daemon-reload
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
+
+    servers {
+        protocols h1 h2 h3
+    }
+
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
 }
+
 :443 {
     tls {
         on_demand
-        issuer acme {
-            email sefiicc@gmail.com
-        }
-        issuer zerossl {
-            email sefiicc@gmail.com
-        }
     }
+
     @websockets {
         path /w/*
         header Connection *Upgrade*
         header Upgrade websocket
     }
-    reverse_proxy @websockets http://localhost:8080 {
+
+    reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
-    }
-    reverse_proxy /!!/* http://localhost:4000 {
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Real-IP {remote_host}
-        flush_interval -1
+
         transport http {
-            response_header_timeout 60s
-            dial_timeout 10s
+            keepalive 256s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 256
+            dial_timeout 5s
         }
     }
-    reverse_proxy * http://localhost:3000 {
+
+    reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Real-IP {remote_host}
+
+        flush_interval -1
+
+        transport http {
+            keepalive 256s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 256
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
     }
+
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+
+        transport http {
+            keepalive 256s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 256
+            dial_timeout 5s
+        }
+    }
+
     encode zstd gzip
+
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Frame-Options "ALLOWALL"
@@ -230,6 +208,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
     }
 }
+
 :80 {
     redir https://{host}{uri} permanent
 }
@@ -245,22 +224,22 @@ file_raw_mode = false
 use_real_ip_headers = false
 non_ws_response = "Hii! You should join discord.gg/dJvdkPRheV"
 max_message_size = 65536
-log_level = "INFO"
+log_level = "OFF"
 runtime = "multithread"
 [wisp]
 allow_wsproxy = true
-buffer_size = 262144
+buffer_size = 524288
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
-password_extension_required = true
-certificate_extension_required = true
+password_extension_required = false
+certificate_extension_required = false
 [stream]
 tcp_nodelay = true
-buffer_size = 262144
+buffer_size = 524288
 allow_udp = true
 allow_wsproxy_udp = false
-dns_servers = ["1.1.1.1", "1.0.0.1", "94.140.14.14", "94.140.15.15"]
+dns_servers = ["94.140.14.14", "94.140.15.15", "176.103.130.130", "176.103.130.131"]
 allow_direct_ip = true
 allow_loopback = true
 allow_multicast = true
@@ -275,6 +254,9 @@ block_hosts = []
 allow_ports = []
 block_ports = []
 EOF
+
+"$HOME/.bun/bin/pm2" stop all
+"$HOME/.bun/bin/pm2" delete all
 
 tee ecosystem.config.cjs <<EOF
 module.exports = {
@@ -303,39 +285,29 @@ module.exports = {
     },
     {
       name: "waves-bridge",
-      script: "./bridge-server.mjs",
-      exec_mode: "fork",
-      instances: "1",
+      script: "./bridge-server.mjs", 
+      exec_mode: "cluster",
+      instances: "max", 
       autorestart: true,
-      max_memory_restart: "6G",
+      max_memory_restart: "6G", 
       exp_backoff_restart_delay: 100,
       node_args: "--max-old-space-size=6144 --turbo-fast-api-calls --no-warnings --max-http-header-size=32768",
       env: {
         NODE_ENV: "production",
-        BRIDGE_PORT: "4000",
-        UV_THREADPOOL_SIZE: "128",
-        HTTP_PROXY: "http://127.0.0.1:3128"
+        BRIDGE_PORT: "4000", 
+        UV_THREADPOOL_SIZE: "128"
       }
     },
     {
-      name: "wireproxy",
-      script: "/usr/local/bin/wireproxy",
-      args: ["-c", "/etc/wireproxy/wireproxy.conf"],
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      max_memory_restart: "1500M"
-    },
-    {
       name: "epoxy-server",
-      script: "proxychains4",
-      args: ["/usr/local/bin/epoxy-server", "/etc/epoxy-server/config.toml"],
+      script: "/usr/local/bin/epoxy-server", 
+      args: ["/etc/epoxy-server/config.toml"], 
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_memory_restart: "4G",
       env: {
-        RUST_LOG: "info"
+        RUST_LOG: "off"
       }
     }
   ]
