@@ -288,6 +288,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const originalTitle = document.title;
     const originalFavicon = document.querySelector("link[rel*='icon']") ? document.querySelector("link[rel*='icon']").href : 'logo.png';
+    let titleObserver = null;
 
     const decoyPresets = {
         'google': {
@@ -327,11 +328,17 @@ document.addEventListener('DOMContentLoaded', function() {
     function applyInitialDecoy(decoyName) {
         const preset = decoyPresets[decoyName];
         let favicon = document.querySelector("link[rel*='icon']");
+        const titleTag = document.querySelector('title');
 
         if (!favicon) {
             favicon = document.createElement('link');
             favicon.rel = 'shortcut icon';
             document.head.appendChild(favicon);
+        }
+
+        if (titleObserver) {
+            titleObserver.disconnect();
+            titleObserver = null;
         }
 
         if (decoyName === 'none' || !preset) {
@@ -340,6 +347,25 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             document.title = preset.title;
             favicon.href = preset.icon;
+
+            if (titleTag) {
+                titleObserver = new MutationObserver(function(mutations) {
+                    if (document.title !== preset.title) {
+                        titleObserver.disconnect();
+                        document.title = preset.title;
+                        titleObserver.observe(titleTag, {
+                            childList: true,
+                            subtree: true,
+                            characterData: true
+                        });
+                    }
+                });
+                titleObserver.observe(titleTag, {
+                    childList: true,
+                    subtree: true,
+                    characterData: true
+                });
+            }
         }
     }
 
