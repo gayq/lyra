@@ -1,5 +1,4 @@
 document.addEventListener('DOMContentLoaded', function() {
-
     function openDB(dbName) {
         return new Promise((resolve, reject) => {
             if (!('indexedDB' in window)) {
@@ -623,7 +622,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
         const allBackendOptions = ['ultraviolet', 'scramjet'];
         const allTransportOptions = ['epoxy', 'libcurl'];
-        const allSearchEngineOptions = ['google','bing','duckduckgo','startpage','brave','mojeek','swisscows'];
+        const allSearchEngineOptions = ['google', 'bing', 'duckduckgo', 'startpage', 'brave', 'mojeek', 'swisscows'];
         const allDecoyOptions = ['none', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
         const allGameSourceOptions = ['selenite', 'gn-math', 'truffled', 'velara'];
@@ -753,16 +752,26 @@ document.addEventListener('DOMContentLoaded', function() {
                                 closeAllSelectors();
 
                                 if (storageKey === 'gameSource') {
-                                    document.dispatchEvent(new CustomEvent('gameSourceUpdated', { detail: storageVal }));
+                                    document.dispatchEvent(new CustomEvent('gameSourceUpdated', {
+                                        detail: storageVal
+                                    }));
                                 } else if (storageKey === 'backend') {
-                                    document.dispatchEvent(new CustomEvent('backendUpdated', { detail: storageVal }));
+                                    document.dispatchEvent(new CustomEvent('backendUpdated', {
+                                        detail: storageVal
+                                    }));
                                     window.location.reload();
                                 } else if (storageKey === 'transport') {
-                                    document.dispatchEvent(new CustomEvent('newTransport', { detail: storageVal }));
+                                    document.dispatchEvent(new CustomEvent('newTransport', {
+                                        detail: storageVal
+                                    }));
+                                } else if (storageKey === 'decoy') {
+                                    applyInitialDecoy(storageVal);
                                 } else if (eventName) {
-                                    document.dispatchEvent(new CustomEvent(eventName, { detail: storageVal }));
+                                    document.dispatchEvent(new CustomEvent(eventName, {
+                                        detail: storageVal
+                                    }));
                                 }
-                                
+
                                 if (storageKey === 'cloakLink') {
                                     runMenuCloak();
                                 }
@@ -780,7 +789,7 @@ document.addEventListener('DOMContentLoaded', function() {
         preventClosingToggle.checked = appSettings.preventClosing;
 
         createSelector('backend', backendSelected, backendOptions, allBackendOptions, appSettings.backend, 'backend');
-        createSelector('transport', transportSelected, transportOptions, allTransportOptions, appSettings.transport, 'transport');        
+        createSelector('transport', transportSelected, transportOptions, allTransportOptions, appSettings.transport, 'transport');
         createSelector('cloak-link', cloakLinkSelected, cloakLinkOptions, allCloakLinkOptions, appSettings.cloakLink, 'cloakLink');
         createSelector('search-engine', searchEngineSelected, searchEngineOptions, allSearchEngineOptions, appSettings.searchEngine, 'searchEngine');
         createSelector('decoy', decoySelected, decoyOptions, allDecoyOptions, appSettings.decoy, 'decoy');
@@ -862,10 +871,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
 
-        fetch('/api/version', { cache: 'no-store' })
+        fetch('/api/version', {
+                cache: 'no-store'
+            })
             .then(res => res.ok ? res.json() : null)
             .then(data => {
-                const buildId = "__BUILD_ID__"; 
+                const buildId = "__BUILD_ID__";
                 const fullStr = data && data.version ? `v${data.version} build ${buildId}` : `build ${buildId}`;
                 applyVersion(fullStr);
             })
