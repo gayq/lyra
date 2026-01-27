@@ -291,35 +291,35 @@ document.addEventListener('DOMContentLoaded', function() {
     const originalFavicon = document.querySelector("link[rel*='icon']") ? document.querySelector("link[rel*='icon']").href : 'logo.png';
 
     const decoyPresets = {
-        'Google': {
+        'google': {
             title: 'Google',
             icon: 'https://www.google.com/favicon.ico'
         },
-        'Google Classroom': {
+        'google classroom': {
             title: 'Home - Classroom',
             icon: 'https://www.gstatic.com/classroom/logo_square_rounded.svg'
         },
-        'Google Docs': {
+        'google docs': {
             title: 'Google Docs',
             icon: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon-2023q4.ico'
         },
-        'Google Drive': {
+        'google drive': {
             title: 'Google Drive',
             icon: 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png'
         },
-        'Youtube': {
+        'youtube': {
             title: 'YouTube',
             icon: 'https://www.youtube.com/s/desktop/014dbbed/img/favicon_32x32.png'
         },
-        'Schoology': {
+        'schoology': {
             title: 'Home | Schoology',
             icon: 'https://asset-cdn.schoology.com/sites/all/themes/schoology_theme/favicon.ico'
         },
-        'Wikipedia': {
+        'wikipedia': {
             title: 'Wikipedia, the free encyclopedia',
             icon: 'https://en.wikipedia.org/static/favicon/wikipedia.ico'
         },
-        'Canva': {
+        'canva': {
             title: 'Home - Canva',
             icon: 'https://static.canva.com/domain-assets/canva/static/images/favicon-1.ico'
         }
@@ -624,7 +624,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const allBackendOptions = ['ultraviolet', 'scramjet'];
         const allTransportOptions = ['epoxy', 'libcurl'];
         const allSearchEngineOptions = ['google','bing','duckduckgo','startpage','brave','mojeek','swisscows'];
-        const allDecoyOptions = ['none', 'google', 'google Docs', 'youtube', 'google Drive', 'schoology', 'wikipedia', 'canva'];
+        const allDecoyOptions = ['none', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
         const allGameSourceOptions = ['selenite', 'gn-math', 'truffled', 'velara'];
 
