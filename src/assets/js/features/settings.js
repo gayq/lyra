@@ -489,7 +489,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button class="tab-button" id="about-tab">
                         <i class="fa-regular fa-heart"></i> credits
                     </button>
-                    <div class="settings-version-label" id="settings-version-label">fetching...</div>
+                    <div class="settings-version-label" id="settings-version-label">≽^•⩊•^≼</div>
                 </div>
                 <div class="settings-content-wrapper">
                     <div id="preferences-content" class="tab-content active">
