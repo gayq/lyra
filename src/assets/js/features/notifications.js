@@ -3,39 +3,6 @@ import { dom } from '../ui/dom.js';
 let notificationsCache = [];
 let notificationsMenuEl = null;
 
-function timeAgo(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    if (isNaN(date.getTime())) {
-        return "unknown time";
-    }
-    
-    const seconds = Math.floor((now - date) / 1000);
-
-    let interval = seconds / 31536000;
-
-    if (interval > 1) {
-        return Math.floor(interval) + " year(s) ago";
-    }
-    interval = seconds / 2592000;
-    if (interval > 1) {
-        return Math.floor(interval) + " month(s) ago";
-    }
-    interval = seconds / 86400;
-    if (interval > 1) {
-        return Math.floor(interval) + " day(s) ago";
-    }
-    interval = seconds / 3600;
-    if (interval > 1) {
-        return Math.floor(interval) + " hour(s) ago";
-    }
-    interval = seconds / 60;
-    if (interval > 1) {
-        return Math.floor(interval) + " minute(s) ago";
-    }
-    return "just now";
-}
-
 function saveNotifications() {
     try {
         localStorage.setItem('notifications', JSON.stringify(notificationsCache));
@@ -62,7 +29,7 @@ function loadNotifications() {
     }
 }
 
-async function fetchNotificationsFromBackend() {
+async function fetchNotifications() {
     try {
         const response = await fetch('/api/notifications', { cache: 'no-store' });
         if (!response.ok) {
@@ -81,7 +48,7 @@ async function fetchNotificationsFromBackend() {
                 changes: backendNotif.changes || [backendNotif.message],
                 endMessage: backendNotif.endMessage || undefined
             };
-        }).sort((a, b) => new Date(b.date) - new Date(a.date));
+        }).sort((a, b) => b.id - a.id);
 
         notificationsCache = mergedNotifications;
         saveNotifications();
@@ -91,7 +58,7 @@ async function fetchNotificationsFromBackend() {
         console.error('Failed to fetch notifications:', e);
         const statusEl = document.getElementById('notifications-status');
         if (statusEl) {
-            statusEl.textContent = 'Error fetching notifications.';
+            statusEl.textContent = 'Error loading notifications.';
             statusEl.style.display = 'block';
         }
     }
@@ -140,8 +107,7 @@ function createNotificationItem(notification) {
         day: 'numeric' 
     });
     
-    const timeSince = timeAgo(notification.date);
-    date.textContent = `${formattedDate} - ${timeSince}`; 
+    date.textContent = `${formattedDate}`; 
     
     item.appendChild(date); 
     
@@ -301,7 +267,7 @@ export function showNotificationsMenu() {
     void contentEl.offsetWidth;
     contentEl.classList.add('open');
 
-    setTimeout(() => fetchNotificationsFromBackend(), 10);
+    setTimeout(() => fetchNotifications(), 10);
 }
 
 export function hideNotificationsMenu(calledByOther) {
@@ -341,12 +307,7 @@ function markAllAsRead(silent = false) {
     if (changed) {
         saveNotifications();
         renderNotifications();
-        updateNotificationIcon();
-        if (!silent && typeof window.showToast === 'function') {
-             window.showToast('success', 'Marked all Notifications as read!', 'check-circle');
-        }
-    } else if (!silent && typeof window.showToast === 'function') {
-         window.showToast('info', 'No unread Notifications!', 'info-circle');
+        updateNotificationIcon()
     }
 }
 
@@ -361,12 +322,12 @@ export function initializeNotifications() {
         notificationsMenuEl.innerHTML = `
             <div class="notifications-menu-content">
                 <div class="notifications-menu-header">
-                    <h2>Notifications</h2>
-                    <button id="mark-all-read-btn">Mark all as read</button>
+                    <h2>notifications</h2>
+                    <button id="mark-all-read-btn">mark all as read</button>
                 </div>
                 <div class="notifications-list-container">
                     <ul class="notifications-list">
-                        <p id="notifications-status" style="color: #b1b1b1; text-align: center; margin-top: 20px;">Fetching notifications...</p>
+                        <p id="notifications-status" style="color: #b1b1b1; text-align: center; margin-top: 20px;">Loading notifications...</p>
                     </ul>
                 </div>
                 <button id="close-notifications-menu">
@@ -383,7 +344,7 @@ export function initializeNotifications() {
     
     loadNotifications();
     updateNotificationIcon();
-    fetchNotificationsFromBackend();
+    fetchNotifications();
 
     dom.notificationsBtn.addEventListener('click', e => {
         e.preventDefault();

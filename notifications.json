@@ -76,7 +76,7 @@
     "title": "v3.4.2 release!!",
     "message": "Loads of more bug fixes, improvements, new features, and now the whole website is also jolly!",
     "date": "2025-12-11T14:23:39.292Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Added a brand new game page!",
@@ -90,5 +90,25 @@
       "Overall just fixed a bunch of minor bugs and improved the website by a little bit."
     ],
     "endMessage": "If you have any issues or suggestions, please do join the Discord server and let me know!"
+  },
+  {
+    "id": 6,
+    "title": "v3.4.5 release!!",
+    "message": "Bunch bug fixes, new stuff, and improvements!",
+    "date": "2026-01-27T01:24:28.287Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Added tabs memory usage to the sidebar of the browser.",
+      "Added the ability to open new tab links directly in the browser itself to prevent leaking the url when cloaking.",
+      "Added a new background effect.",
+      "Improved site overall performance significantly.",
+      "Removed duckmath from game source.",
+      "Removed the grid background.",
+      "Fixed tab title, favicon, and url being inaccurate. They should now always be 100% accurate!",
+      "Fixed games loading very slow and barely working.",
+      "Fixed Eruda being blocked."
+    ],
+    "endMessage": "There's more stuff but I forgot some of them. Join the Discord server for more links!"
   }
 ]

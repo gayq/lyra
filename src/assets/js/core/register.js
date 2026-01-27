@@ -71,13 +71,21 @@
     }
 
     async unregisterAllServiceWorkers() {
-      try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(registrations.map(reg => reg.unregister()));
-      } catch (e) {
-        this.updateStatus(`SW unregistration failed: ${e.message}`, 'error');
-      }
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.map(name => caches.delete(name)));
+
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const registration of registrations) {
+      await registration.unregister();
     }
+    
+    if (navigator.serviceWorker.controller) {
+    }
+  } catch (e) {
+    this.updateStatus(`sw unregistration failed: ${e.message}`, 'error');
+  }
+}
 
     async ensureWispServerConnection(url, timeout = 1500) {
       return new Promise((resolve, reject) => {
@@ -124,7 +132,15 @@
         const scope = { 'ultraviolet': "/b/u/hi/", 'scramjet': "/b/s/" }[this.appConfig.backend];
         if (!scope) throw new Error(`Unknown backend: ${this.appConfig.backend}`);
 
-        await navigator.serviceWorker.register("./b/sw.js", { scope });
+        const registration = await navigator.serviceWorker.register("./b/sw.js", { scope });
+if (registration.installing) {
+    const sw = registration.installing;
+    await new Promise((resolve) => {
+        sw.addEventListener('statechange', (e) => {
+            if (e.target.state === 'activated') resolve();
+        });
+    });
+}
 
         const transportMap = { epoxy: "/epoxy/index.mjs", libcurl: "/libcurl/index.mjs" };
         const transportModule = transportMap[this.appConfig.transport];
@@ -132,13 +148,12 @@
         
         this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
 
-        const transportName = this.appConfig.transport.charAt(0).toUpperCase() + this.appConfig.transport.slice(1);
         this.updateStatus(`Successfully connected!`, 'success');
         this.setState(STATES.CONNECTED);
         this.isInitialLoad = false;
 
         const el = document.querySelector(".transport-selected");
-        if (el) el.textContent = transportName;
+        if (el) el.textContent = this.appConfig.transport;
         
         return true;
 
@@ -186,35 +201,36 @@
     }
     
     setupEventListeners() {
-      const reconnect = async (updateFn) => {
-        if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) {
-          this.updateStatus('Changes will apply after connection is established.', 'info');
-          return;
-        }
+      const applyLiveChanges = async (updateFn) => {
+  if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
 
-        await updateFn();
-        
-        const success = await this.initializeApp();
-        
-        if (success) {
-            location.reload();
-        }
-      };
+  this.updateStatus('switching engine...', 'info');
+  
+  await updateFn();
+  await this.unregisterAllServiceWorkers();
+  await new Promise(res => setTimeout(res, 800));
+  
+  const success = await this.initializeApp();
+  
+  if (success) {
+      this.updateStatus('switched successfully!', 'success');
+  }
+};
       
       window.addEventListener('online', () => {
         if (this.state !== STATES.CONNECTED && this.state !== STATES.CONNECTING && this.state !== STATES.RECONNECTING) {
           this.initializeApp();
         }
       });
-      window.addEventListener('offline', () => this.updateStatus('Network offline.', 'error'));
+      window.addEventListener('offline', () => this.updateStatus('network offline.', 'error'));
 
-      document.addEventListener("wispUrlUpdated", (e) => reconnect(async () => {
+      document.addEventListener("wispUrlUpdated", (e) => applyLiveChanges(async () => {
         this.appConfig.customWispUrl = e.detail;
       }));
-      document.addEventListener("newTransport", (e) => reconnect(async () => {
+      document.addEventListener("newTransport", (e) => applyLiveChanges(async () => {
         this.appConfig.transport = e.detail;
       }));
-      document.addEventListener("backendUpdated", (e) => reconnect(async () => {
+      document.addEventListener("backendUpdated", (e) => applyLiveChanges(async () => {
         this.appConfig.backend = e.detail;
       }));
     }

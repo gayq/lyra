@@ -53,7 +53,7 @@ const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src')
 const publicPath = path.join(__dirname, "public");
 
 const app = express();
-app.set("trust proxy", true);
+app.set("trust proxy", false);
 const server = createServer(app);
 
 const bridgeWss = new WebSocketServer({ 
@@ -143,7 +143,7 @@ app.get("/api/notifications", (_req, res) => {
 });
 
 if (NODE_ENV === 'development') {
-  console.log("Mounting Bridge on /!!/");
+  console.log("mounting bridge on /!!/");
   app.use(/^\/!!\/(.*)/, bridgeHandler);
 }
 
@@ -223,5 +223,5 @@ server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;
 
 server.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`server listening on port ${PORT}`);
 });

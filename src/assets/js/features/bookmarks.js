@@ -276,8 +276,8 @@ export function initializeBookmarks() {
         bookmarksContainer.id = 'bookmarks-container';
         bookmarksContainer.innerHTML = `
             <div class="bookmarks-header">
-                <h3 id="bookmarks-title">Bookmarks</h3>
-                <button id="bookmarks-edit-toggle">Edit</button>
+                <h3 id="bookmarks-title">bookmarks</h3>
+                <button id="bookmarks-edit-toggle">edit</button>
             </div>
             <div class="bookmarks-wrapper">
                 <ul id="bookmarks-list">
@@ -311,13 +311,13 @@ export function initializeBookmarks() {
 
         bookmarkPromptEl.innerHTML = `
             <div class="input-container">
-                <label>Bookmark Name:</label>
-                <input type="text" id="bookmarkName" placeholder="My Cool Website" autocomplete="off">
-                <label style="margin-top:15px;">Bookmark URL:</label>
+                <label>bookmark name</label>
+                <input type="text" id="bookmarkName" placeholder="my cool website" autocomplete="off">
+                <label style="margin-top:15px;">bookmark url</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
-                    <button id="saveBookmarkBtn">Save</button>
-                    <button id="cancelBookmarkBtn" style="background-color:#0f0f0f;color:white;" onmouseover="this.style.backgroundColor='#1f1f1f';" onmouseout="this.style.backgroundColor='#0f0f0f';">Cancel</button>
+                    <button id="saveBookmarkBtn">save</button>
+                    <button id="cancelBookmarkBtn" style="background-color:#1a1a1a;color:white;" onmouseover="this.style.backgroundColor='#2f2f2f';" onmouseout="this.style.backgroundColor='#1a1a1a';">cancel</button>
                 </div>
             </div>
         `;
@@ -345,7 +345,7 @@ export function initializeBookmarks() {
         editToggleButton.addEventListener('click', () => {
             isEditMode = !isEditMode;
             bookmarksContainer.classList.toggle('bookmarks-edit-mode', isEditMode);
-            editToggleButton.textContent = isEditMode ? 'Done' : 'Edit';
+            editToggleButton.textContent = isEditMode ? 'done' : 'edit';
             updateAddButtonVisibility();
         });
     }

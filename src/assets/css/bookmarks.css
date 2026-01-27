@@ -16,6 +16,7 @@
     margin-bottom: 10px;
     margin-top: -5px;
     box-sizing: border-box;
+    user-select: none;
 }
 
 #bookmarks-title {
@@ -35,6 +36,7 @@
     padding: 5.5px 10px;
     border-radius: 9px;
     transition: all 0.1s ease;
+    user-select: none;
 }
 
 #bookmarks-edit-toggle:hover {
@@ -76,7 +78,7 @@
     justify-content: center;
     width: 78px;
     height: 78px;
-    background-color: #0c0c0c;
+    background-color: #0f0f0f;
     border-radius: 15px;
     color: #e0e0e0;
     text-decoration: none;

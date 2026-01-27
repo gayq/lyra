@@ -121,15 +121,8 @@ document.addEventListener('DOMContentLoaded', function() {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            if (typeof showToast === 'function') {
-                showToast('success', 'All data exported!', 'check-circle');
-            }
-
         } catch (err) {
             console.error('Error exporting all data:', err);
-            if (typeof showToast === 'function') {
-                showToast('error', `Export failed: ${err.message}`, 'times-circle');
-            }
         }
     }
 
@@ -150,16 +143,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         importedData = JSON.parse(event.target.result);
                     } catch (err) {
                         console.error('Error parsing data file:', err);
-                        if (typeof showToast === 'function') {
-                            showToast('error', 'Invalid data file.', 'times-circle');
-                        }
                         return;
                     }
 
                     if (!importedData || !importedData.localStorage || !importedData.sessionStorage || !importedData.indexedDB) {
-                        if (typeof showToast === 'function') {
-                            showToast('error', 'File is not a valid data export.', 'times-circle');
-                        }
                         return;
                     }
 
@@ -209,12 +196,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
                                     const transaction = db.transaction(validStoreNames, 'readwrite');
                                     let importCount = 0;
-
-                                    transaction.onerror = (event) => {
-                                        if (typeof showToast === 'function') {
-                                            showToast('error', `Import transaction error: ${event.target.error}`, 'times-circle');
-                                        }
-                                    };
 
                                     await Promise.all(validStoreNames.map(storeName => {
                                         return new Promise((resolve, reject) => {
@@ -278,23 +259,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                                 } catch (err) {
                                     console.error(`Failed to import data for DB: ${dbName}`, err);
-                                    if (typeof showToast === 'function') {
-                                        showToast('error', `Import failed for ${dbName}: ${err.message}`, 'times-circle');
-                                    }
                                 }
                             }));
                         }
 
-                        if (typeof showToast === 'function') {
-                            showToast('success', 'Data imported successfully! Reloading...', 'check-circle');
-                        }
                         setTimeout(() => window.location.reload(), 1500);
 
                     } catch (err) {
-                        console.error('Error importing data:', err);
-                        if (typeof showToast === 'function') {
-                            showToast('error', `Import failed: ${err.message}`, 'times-circle');
-                        }
+                        console.error('error importing data:', err);
                     }
                 };
                 reader.readAsText(file);
@@ -303,9 +275,6 @@ document.addEventListener('DOMContentLoaded', function() {
             input.click();
         } catch (err) {
             console.error('Error importing settings:', err);
-            if (typeof showToast === 'function') {
-                showToast('error', 'Failed to open file picker.', 'times-circle');
-            }
         }
     }
 
@@ -362,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.head.appendChild(favicon);
         }
 
-        if (decoyName === 'None' || !preset) {
+        if (decoyName === 'none' || !preset) {
             document.title = originalTitle;
             favicon.href = originalFavicon;
         } else {
@@ -386,7 +355,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let title;
         let icon;
 
-        if (decoyName !== 'None' && preset) {
+        if (decoyName !== 'none' && preset) {
             title = preset.title;
             icon = preset.icon;
         } else {
@@ -399,9 +368,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (cloakLink === 'about:blank') {
             popup = window.open("", "_blank");
             if (!popup || popup.closed) {
-                if (typeof showToast === 'function') {
-                    showToast('error', 'Please allow popups and refresh the page!', 'times-circle');
-                }
                 return;
             }
             popup.document.head.innerHTML = `<title>${title}</title><link rel="icon" href="${icon}">`;
@@ -416,9 +382,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const blobUrl = URL.createObjectURL(blob);
             popup = window.open(blobUrl, "_blank");
             if (!popup || popup.closed) {
-                if (typeof showToast === 'function') {
-                    showToast('error', 'Please allow popups and refresh the page!', 'times-circle');
-                }
                 return;
             }
         }
@@ -428,12 +391,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
     function runInitialCloak(cloakLinkValue) {
-        const decoyName = localStorage.getItem('decoy') || 'None';
+        const decoyName = localStorage.getItem('decoy') || 'none';
         executeTabCloak(cloakLinkValue, decoyName);
     }
 
-    const initialDecoy = localStorage.getItem('decoy') || 'None';
-    const initialCloakLink = localStorage.getItem('cloakLink') || 'None';
+    const initialDecoy = localStorage.getItem('decoy') || 'none';
+    const initialCloakLink = localStorage.getItem('cloakLink') || 'none';
 
     applyInitialDecoy(initialDecoy);
 
@@ -489,77 +452,77 @@ document.addEventListener('DOMContentLoaded', function() {
             transport: localStorage.getItem('transport') || 'libcurl',
             customWispUrl: localStorage.getItem('customWispUrl'),
             searchSuggestionsEnabled: localStorage.getItem('searchSuggestionsEnabled') !== 'false',
-            cloakLink: localStorage.getItem('cloakLink') || 'None',
-            decoy: localStorage.getItem('decoy') || 'None',
-            searchEngine: localStorage.getItem('searchEngine') || 'DuckDuckGo',
-            gameSource: localStorage.getItem('gameSource') || 'GN-Math',
+            cloakLink: localStorage.getItem('cloakLink') || 'none',
+            decoy: localStorage.getItem('decoy') || 'none',
+            searchEngine: localStorage.getItem('searchEngine') || 'duckduckgo',
+            gameSource: localStorage.getItem('gameSource') || 'selenite',
             preventClosing: localStorage.getItem('preventClosing') === 'true'
         };
 
         let isToggling = false;
 
         if (appSettings.cloakLink.toLowerCase() === 'none') {
-            appSettings.cloakLink = 'None';
-            localStorage.setItem('cloakLink', 'None');
+            appSettings.cloakLink = 'none';
+            localStorage.setItem('cloakLink', 'none');
         }
 
         settingsMenu.innerHTML = `
-            <h2>Settings</h2>
+            <h2>settings</h2>
             <div class="settings-container">
                 <div class="settings-tabs">
                     <button class="tab-button active" id="preferences-tab">
-                        <i class="fa-solid fa-gear"></i> Preferences
+                        <i class="fa-regular fa-sliders"></i> preferences
                     </button>
                     <button class="tab-button" id="cloaking-tab">
-                        <i class="fa-solid fa-ghost"></i> Cloaking
+                        <i class="fa-regular fa-ghost"></i> cloaking
                     </button>
                     <button class="tab-button" id="advanced-tab">
-                        <i class="fa-solid fa-server"></i> Advanced
+                        <i class="fa-regular fa-server"></i> advanced
                     </button>
                     <button class="tab-button" id="data-tab">
-                        <i class="fa-solid fa-user"></i> Data
+                        <i class="fa-regular fa-user"></i> data
                     </button>
                     <button class="tab-button" id="about-tab">
-                        <i class="fa-solid fa-heart"></i> Credits
+                        <i class="fa-regular fa-heart"></i> credits
                     </button>
-                    <div class="settings-version-label" id="settings-version-label">Fetching...</div>
+                    <div class="settings-version-label" id="settings-version-label">fetching...</div>
                 </div>
                 <div class="settings-content-wrapper">
                     <div id="preferences-content" class="tab-content active">
                         <div class="settings-item">
-                            <label>Search Engine</label>
-                            <p>The engine that is used for your search queries.</p>
+                            <label>search engine</label>
+                            <p>the engine that is used for your search queries.</p>
                             <div class="search-engine-selector">
                                 <div class="search-engine-selected"></div>
                                 <div class="search-engine-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
-                            <label>Game Source</label>
-                            <p>Where all the games are fetched from.</p>
+                            <label>game source</label>
+                            <p>where all the games are fetched from.</p>
                             <div class="game-source-selector">
                                 <div class="game-source-selected"></div>
                                 <div class="game-source-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
-                            <label>Prevent Closing</label>
-                            <p>Prevent the tab from being closed.</p>
+                            <label>prevent closing</label>
+                            <p>prevent the tab from being closed.</p>
                             <input type="checkbox" id="prevent-closing-toggle">
                         </div>
                     </div>
                     <div id="cloaking-content" class="tab-content">
                         <div class="settings-item">
-                            <label>Decoy</label>
-                            <p>Cloak the current website title and favicon as a different website.</p>
+                            <label>decoy</label>
+                            <p>cloak the current website title and favicon as a different website.</p>
                             <div class="decoy-selector">
                                 <div class="decoy-selected"></div>
                                 <div class="decoy-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
-                            <label>Cloak Link</label>
-                            <p>Cloak the website link on the URL bar.</p>
+                            <label>cloak link</label>
+                            <p>cloak the website link in the url bar.</p>
                             <div class="cloak-link-selector">
                                 <div class="cloak-link-selected"></div>
                                 <div class="cloak-link-options"></div>
@@ -568,58 +531,57 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
-                            <label>Backend</label>
-                            <p>The engine responsible for loading all your websites.</p>
+                            <label>backend</label>
+                            <p>the engine responsible for loading all your websites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
-                            <label>Transport</label>
-                            <p>How all the information will be sent.</p>
+                            <label>transport</label>
+                            <p>how all the information will be sent.</p>
                             <div class="transport-selector">
                                 <div class="transport-selected"></div>
                                 <div class="transport-options"></div>
                             </div>
                         </div>
                         <div class="settings-item">
-                            <label>Wisp Server</label>
-                            <p>Configure the websocket endpoint.</p>
-                            <input type="text" id="wisp-server" placeholder="Wisp Server URL Here..." autocomplete="off">
-                            <button id="save-wisp-url">Save</button>
+                            <label>wisp server</label>
+                            <p>enable support for websockets.</p>
+                            <input type="text" id="wisp-server" placeholder="wisp server url here" autocomplete="off">
+                            <button id="save-wisp-url">save</button>
                         </div>
                     </div>
                     <div id="data-content" class="tab-content">
                         <div class="settings-item">
-                            <label>Data Management</label>
-                            <p>Export or Import all your data.</p>
+                            <label>data management</label>
+                            <p>export or import all your data.</p>
                             <button id="export-data-btn" class="data-action-btn">
-                                <i class="fa-solid fa-file-export"></i> Export Data
+                                <i class="fa-solid fa-file-export"></i> export data
                             </button>
                             <button id="import-data-btn" class="data-action-btn">
-                                <i class="fa-solid fa-file-import"></i> Import Data
+                                <i class="fa-solid fa-file-import"></i> import data
                             </button>
                         </div>
                     </div>
                     <div id="about-content" class="tab-content">
                         <div class="settings-item">
-                            <label>Credits</label>
-                            <p>GN-Math - Game Source</p>
-                            <p>Selenite - Game Source</p>
-                            <p>Truffled - Game Source</p>
-                            <p>Velara - Game Source</p>
-                            <p>DuckMath - Game Source</p>
-                            <p>Bog - Ports for Hollow Knight, RE:RUN, and Touhou Mother
-                            <p>Titanium Network - Ultraviolet</p>
-                            <p>Mercury Workshop - Scramjet, Epxoy, and Libcurl</p>
+                            <label>credits</label>
+                            <p>selenite - game source</p>
+                            <p>gn-math - game source</p>
+                            <p>truffled - game source</p>
+                            <p>velara - game source</p>
+                            <p>bog - ports for hollow knight, re:run, and touhou mother</p>
+                            <p>titanium network - ultraviolet</p>
+                            <p>mercury workshop - scramjet, epxoy, and libcurl</p>
                         </div>
                         <div class="settings-item">
-                            <label>You have reached the end!</label>
+                            <label>you have reached the end!</label>
                             <p>
-                                Thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">Waves!</a> 
-                                If you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">Discord server</a> 
-                                or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">Github repository</a> <3
+                                thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">waves!</a> 
+                                Iif you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">discord server</a> 
+                                or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">github repository</a> <3
                             </p>
                         </div>
                     </div>
@@ -655,12 +617,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const gameSourceSelected = gameSourceSelector.querySelector('.game-source-selected');
         const gameSourceOptions = gameSourceSelector.querySelector('.game-source-options');
         const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
-        const allBackendOptions = ['Ultraviolet', 'Scramjet'];
-        const allTransportOptions = ['Epoxy', 'Libcurl'];
-        const allSearchEngineOptions = ['Google','Bing','DuckDuckGo','Startpage','Brave','Mojeek','Swisscows'];
-        const allDecoyOptions = ['None', 'Google', 'Google Docs', 'Youtube', 'Google Drive', 'Schoology', 'Wikipedia', 'Canva'];
-        const allCloakLinkOptions = ['None', 'about:blank', 'blob:'];
-        const allGameSourceOptions = ['GN-Math', 'Selenite', 'Truffled', 'Velara', 'DuckMath'];
+        const allBackendOptions = ['ultraviolet', 'scramjet'];
+        const allTransportOptions = ['epoxy', 'libcurl'];
+        const allSearchEngineOptions = ['google','bing','duckduckgo','startpage','brave','mojeek','swisscows'];
+        const allDecoyOptions = ['none', 'google', 'google Docs', 'youtube', 'google Drive', 'schoology', 'wikipedia', 'canva'];
+        const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
+        const allGameSourceOptions = ['selenite', 'gn-math', 'truffled', 'velara'];
 
         let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 
@@ -734,7 +696,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
                     detail: currentWispUrl
                 }));
-                showToast('success', 'Successfully updated Wisp Server! Reloading...', 'check-circle');
             } else {
                 currentWispUrl = defaultWispUrl;
                 appSettings.customWispUrl = defaultWispUrl;
@@ -742,7 +703,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
                     detail: currentWispUrl
                 }));
-                showToast('error', "Invalid URL. Reverting to default...", 'times-circle');
             }
         }
 
@@ -761,7 +721,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById(contentId).classList.add('active');
         }
 
-        function createSelector(selectorType, selectedEl, optionsEl, allOptions, currentVal, storageKey, eventName, successMsg) {
+        function createSelector(selectorType, selectedEl, optionsEl, allOptions, currentVal, storageKey, eventName) {
             selectedEl.textContent = currentVal;
 
             selectedEl.addEventListener('click', e => {
@@ -778,18 +738,27 @@ document.addEventListener('DOMContentLoaded', function() {
                             div.addEventListener('click', function(e) {
                                 e.stopPropagation();
                                 const val = this.textContent;
-                                selectedEl.textContent = val;
+                                const displayVal = (storageKey === 'backend' || storageKey === 'transport') ? val.toLowerCase() : val;
 
-                                const storageVal = (storageKey === 'backend' || storageKey === 'transport') ? val.toLowerCase() : val;
+                                selectedEl.textContent = displayVal;
+
+                                const storageVal = displayVal;
 
                                 appSettings[storageKey] = storageVal;
                                 localStorage.setItem(storageKey, storageVal);
                                 closeAllSelectors();
-                                if (eventName) document.dispatchEvent(new CustomEvent(eventName, {
-                                    detail: storageVal
-                                }));
-                                if (successMsg) showToast('success', successMsg, 'check-circle');
 
+                                if (storageKey === 'gameSource') {
+                                    document.dispatchEvent(new CustomEvent('gameSourceUpdated', { detail: storageVal }));
+                                } else if (storageKey === 'backend') {
+                                    document.dispatchEvent(new CustomEvent('backendUpdated', { detail: storageVal }));
+                                    window.location.reload();
+                                } else if (storageKey === 'transport') {
+                                    document.dispatchEvent(new CustomEvent('newTransport', { detail: storageVal }));
+                                } else if (eventName) {
+                                    document.dispatchEvent(new CustomEvent(eventName, { detail: storageVal }));
+                                }
+                                
                                 if (storageKey === 'cloakLink') {
                                     runMenuCloak();
                                 }
@@ -806,12 +775,12 @@ document.addEventListener('DOMContentLoaded', function() {
         wispInput.value = currentWispUrl;
         preventClosingToggle.checked = appSettings.preventClosing;
 
-        createSelector('backend', backendSelected, backendOptions, allBackendOptions, appSettings.backend.charAt(0).toUpperCase() + appSettings.backend.slice(1), 'backend', 'backendUpdated', 'Successfully updated Backend! Reloading...');
-        createSelector('transport', transportSelected, transportOptions, allTransportOptions, appSettings.transport.charAt(0).toUpperCase() + appSettings.transport.slice(1), 'transport', 'newTransport', 'Successfully updated Transport! Reloading...');
-        createSelector('cloak-link', cloakLinkSelected, cloakLinkOptions, allCloakLinkOptions, appSettings.cloakLink, 'cloakLink', null, 'Successfully updated Cloak Link method!');
-        createSelector('search-engine', searchEngineSelected, searchEngineOptions, allSearchEngineOptions, appSettings.searchEngine, 'searchEngine', null, 'Successfully updated Search Engine!');
-        createSelector('decoy', decoySelected, decoyOptions, allDecoyOptions, appSettings.decoy, 'decoy', 'decoyUpdated', 'Successfully updated Decoy!');
-        createSelector('game-source', gameSourceSelected, gameSourceOptions, allGameSourceOptions, appSettings.gameSource, 'gameSource', 'gameSourceUpdated', 'Successfully updated Game Source!');
+        createSelector('backend', backendSelected, backendOptions, allBackendOptions, appSettings.backend, 'backend');
+        createSelector('transport', transportSelected, transportOptions, allTransportOptions, appSettings.transport, 'transport');        
+        createSelector('cloak-link', cloakLinkSelected, cloakLinkOptions, allCloakLinkOptions, appSettings.cloakLink, 'cloakLink');
+        createSelector('search-engine', searchEngineSelected, searchEngineOptions, allSearchEngineOptions, appSettings.searchEngine, 'searchEngine');
+        createSelector('decoy', decoySelected, decoyOptions, allDecoyOptions, appSettings.decoy, 'decoy');
+        createSelector('game-source', gameSourceSelected, gameSourceOptions, allGameSourceOptions, appSettings.gameSource, 'gameSource');
 
         closeSettingsBtn.addEventListener('click', window.toggleSettingsMenu);
         saveWispBtn.addEventListener('click', () => updateWispServerUrl(wispInput.value.trim()));
@@ -859,7 +828,6 @@ document.addEventListener('DOMContentLoaded', function() {
         preventClosingToggle.addEventListener('change', function() {
             appSettings.preventClosing = this.checked;
             localStorage.setItem('preventClosing', this.checked.toString());
-            showToast(this.checked ? 'success' : 'error', `Prevent Closing ${this.checked ? 'enabled!' : 'disabled!'}`, this.checked ? 'check-circle' : 'times-circle');
         });
 
         document.querySelectorAll('input[type="checkbox"]').forEach(toggle => {
@@ -869,18 +837,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 this.classList.add(this.checked ? 'animate-on' : 'animate-off');
             });
         });
-
-        fetch('/api/version', {
-                cache: 'no-store'
-            })
-            .then(response => response.ok ? response.json() : null)
-            .then(data => {
-                if (data && data.version) {
-                    const versionLabel = document.getElementById('settings-version-label');
-                    if (versionLabel) versionLabel.textContent = `v${data.version}`;
-                }
-            })
-            .catch(() => {});
 
         document.addEventListener('keydown', (e) => {
             const settingsMenu = document.getElementById('settings-menu');
@@ -893,6 +849,24 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     window.initializeSettingsMenu = initializeSettingsMenu;
+
+    (function updateVersionInfo() {
+        const applyVersion = (versionStr) => {
+            const stuffDiv = document.getElementById('stuff');
+            if (stuffDiv) {
+                stuffDiv.textContent = versionStr;
+            }
+        };
+
+        fetch('/api/version', { cache: 'no-store' })
+            .then(res => res.ok ? res.json() : null)
+            .then(data => {
+                const buildId = "__BUILD_ID__"; 
+                const fullStr = data && data.version ? `v${data.version} build ${buildId}` : `build ${buildId}`;
+                applyVersion(fullStr);
+            })
+            .catch(() => applyVersion(`build __BUILD_ID__`));
+    })();
 
     document.addEventListener('click', e => {
         const settingsBtn = e.target.closest('#settings');

@@ -26,7 +26,6 @@
     border-radius: 8px;
     color: #adadad;
     cursor: pointer;
-    transition: all 0.1s ease;
     flex-shrink: 0;
     width: 100%;
     box-sizing: border-box;
@@ -79,8 +78,8 @@
     transition: mask-image 0.1s ease, -webkit-mask-image 0.1s ease;
 }
 
-.tab:hover .tab-title,
-.tab.active .tab-title {
+.tab:not(:only-child):hover .tab-title,
+.tab:not(:only-child).active .tab-title {
     mask-image: linear-gradient(to right, black 45%, transparent 85%);
     -webkit-mask-image: linear-gradient(to right, black 45%, transparent 85%);
 }
@@ -92,13 +91,12 @@
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: #c4c4c4;
+    color: #adadad;
     cursor: pointer;
     font-size: 12px;
     width: 16px;
     height: 16px;
     opacity: 0;
-    transition: opacity 0.1s ease;
 }
 
 .tab:hover .tab-close,
@@ -123,10 +121,9 @@
     cursor: pointer;
     width: 100%;
     text-align: left;
-    padding: 10px 15px;
+    padding: 8px 10px;
     border-radius: 8px;
     margin-bottom: 10px;
-    transition: all 0.1s ease;
     flex-shrink: 0;
 }
 
@@ -137,4 +134,26 @@
 #add-tab-btn:hover {
     background-color: #ffffff14;
     color: #ffffff;
+}
+
+.sidebar-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    border-top: 1px solid #ffffff0d;
+    color: #9e9e9e;
+    font-size: 11px;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.memory-usage-label {
+    margin-top: 5px;
+    font-size: 10px;
+}
+
+.memory-value {
+    margin-top: 5px;
+    font-size: 10px;
 }

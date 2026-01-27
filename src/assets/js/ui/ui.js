@@ -21,22 +21,30 @@ function injectEruda(getActiveTab) {
     initializeEruda(getActiveTab);
     return;
   }
+
   loadingTimeoutId = setTimeout(() => {
     const existingScript = iframe.contentDocument.getElementById('eruda');
     if (existingScript) existingScript.remove();
   }, 15000);
+
   const script = iframe.contentDocument.createElement('script');
   script.id = 'eruda';
-  script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+
+  script.src = '/!!/https://cdn.jsdelivr.net/npm/eruda';
+  
   script.async = true;
   script.onload = () => {
     clearTimeout(loadingTimeoutId);
-    initializeEruda(getActiveTab);
+    setTimeout(() => {
+        initializeEruda(getActiveTab);
+    }, 0);
   };
-  script.onerror = () => {
+  script.onerror = (e) => {
     clearTimeout(loadingTimeoutId);
+    console.error('Eruda failed to load (Check if SW is active)', e);
     script.remove();
   };
+  
   iframe.contentDocument.head.appendChild(script);
 }
 
@@ -83,27 +91,53 @@ function toggleEruda(getActiveTab) {
   }
 }
 
-export function showLoading() {
-  if (isLoading) return;
-  isLoading = true;
-
+function setRefreshButtonState(loading) {
+  isLoading = !!loading;
   if (dom.refreshBtnIcon) {
-    dom.refreshBtnIcon.classList.remove('fa-rotate-right');
+    dom.refreshBtnIcon.classList.remove('fa-rotate-right', 'fa-xmark');
     dom.refreshBtn.classList.remove('spin-animation');
-    dom.refreshBtnIcon.classList.add('fa-xmark');
+    if (loading) {
+      dom.refreshBtnIcon.classList.add('fa-xmark');
+    } else {
+      dom.refreshBtnIcon.classList.add('fa-rotate-right');
+    }
   }
 }
 
-export function hideLoading() {
-  if (!isLoading) return;
+export function syncRefreshButtonWithActiveTab() {
+  const activeTab = window.WavesApp?.getActiveTab?.();
+  setRefreshButtonState(!!activeTab?.isLoading);
+}
+
+export function showLoading(tabId = null) {
+  const tabs = window.WavesApp?.tabs || [];
+  const target = tabId ? tabs.find(t => t.id === tabId) : window.WavesApp?.getActiveTab?.();
+  if (target) target.isLoading = true;
+
+  const activeId = window.WavesApp?.getActiveTab?.()?.id ?? null;
+  if (!activeId || (tabId && activeId !== tabId)) return;
+
+  if (dom.searchInputNav) {
+    dom.searchInputNav.placeholder = "fetching url...";
+  }
+
+  setRefreshButtonState(true);
+}
+
+export function hideLoading(tabId = null) {
+  const tabs = window.WavesApp?.tabs || [];
+  const target = tabId ? tabs.find(t => t.id === tabId) : null;
+  if (target) target.isLoading = false;
+
+  const activeId = window.WavesApp?.getActiveTab?.()?.id ?? null;
+  if (tabId && activeId && tabId !== activeId) return;
+
+  if (dom.searchInputNav) {
+    dom.searchInputNav.placeholder = "search or enter address";
+  }
 
   document.title = originalTitle;
-  isLoading = false;
-  if (dom.erudaLoadingScreen) dom.erudaLoadingScreen.style.display = 'none';
-  if (dom.refreshBtnIcon) {
-    dom.refreshBtnIcon.classList.remove('fa-xmark');
-    dom.refreshBtnIcon.classList.add('fa-rotate-right');
-  }
+  setRefreshButtonState(false);
 }
 
 function setupOnekoAnimation() {
@@ -137,6 +171,35 @@ function setupOnekoAnimation() {
 
 export function showBrowserView() {
   document.body.classList.add('browser-view');
+  
+  const elementsToRemove = [
+    document.querySelector('.main-container'),
+    document.getElementById('bookmarks-container'),
+    document.getElementById('top-left-stuff'),
+    document.getElementById('top-right-stuff'),
+    document.getElementById('stuff'),
+    document.getElementById('fall-container'),
+    document.getElementById('discord'),
+    document.querySelector('.footer')
+  ];
+  
+  elementsToRemove.forEach(element => {
+    if (element) {
+      element.remove();
+    }
+  });
+  
+  const gamesPage = document.getElementById('games-page');
+  if (gamesPage && document.body.classList.contains('games-view')) {
+    const gameGrid = gamesPage.querySelector('.game-grid');
+    if (gameGrid) {
+      gameGrid.innerHTML = '';
+    }
+    const gameSearchInput = gamesPage.querySelector('#gameSearchInput');
+    if (gameSearchInput) {
+      gameSearchInput.value = '';
+    }
+  }
 }
 
 export function showHomeView() {
@@ -167,6 +230,8 @@ export function initializeUI(getActiveTab) {
     const urlToGo = activeTab.historyManager.back();
 
     if (urlToGo) {
+      activeTab._historyNavigating = true;
+      activeTab._historyTarget = urlToGo;
       if (urlToGo.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/")) {
         await window.WavesApp.handleSearch(urlToGo, activeTab);
       } else {
@@ -182,6 +247,8 @@ export function initializeUI(getActiveTab) {
     const urlToGo = activeTab.historyManager.forward();
 
     if (urlToGo) {
+      activeTab._historyNavigating = true;
+      activeTab._historyTarget = urlToGo;
       if (urlToGo.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/")) {
         await window.WavesApp.handleSearch(urlToGo, activeTab);
       } else {
@@ -203,13 +270,12 @@ export function initializeUI(getActiveTab) {
         if (window.WavesApp && typeof window.WavesApp.handleSearch === 'function') {
           await window.WavesApp.handleSearch(manualUrl, activeTab);
         } else {
-          console.warn('Cannot refresh game: handleSearch is not available.');
         }
       } else if (activeTab.iframe.contentWindow && activeTab.iframe.src && activeTab.iframe.src !== 'about-blank') {
-        showLoading();
+        showLoading(activeTab.id);
 
         activeTab.iframe.classList.remove('loaded');
-        activeTab.title = 'Loading...';
+        activeTab.title = 'fetching data...';
         activeTab.favicon = null;
         if (window.WavesApp.renderTabs) {
              window.WavesApp.renderTabs();
@@ -218,7 +284,7 @@ export function initializeUI(getActiveTab) {
         try {
           activeTab.iframe.contentWindow.location.reload();
         } catch (e) {
-          console.warn("Failed to reload iframe, possibly cross-origin:", e.message);
+          console.warn("failed to reload iframe, possibly cross-origin:", e.message);
           navigateIframeTo(activeTab.iframe, activeTab.iframe.src);
         }
       }

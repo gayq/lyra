@@ -3,10 +3,14 @@ export function initializeLayout() {
     sidebar.className = 'sidebar';
     sidebar.innerHTML = `
         <div class="tabs-header">
-            <span>Tabs</span>
+            <span>tabs</span>
         </div>
-        <button id="add-tab-btn"><i class="fa-regular fa-plus"></i> New Tab</button>
+        <button id="add-tab-btn"><i class="fa-regular fa-plus"></i> new tab</button>
         <div id="tabs-container" class="tabs-container"></div>
+        <div class="sidebar-footer">
+            <span class="memory-usage-label">memory usage:</span>
+            <span id="memory-usage-value" class="memory-value">--</span>
+        </div>
     `;
     document.body.insertBefore(sidebar, document.body.firstChild);
 
@@ -20,13 +24,16 @@ export function initializeLayout() {
     overlay.className = 'overlay';
     document.body.appendChild(overlay);
 
-    const topLeftIcons = document.createElement('div');
-    topLeftIcons.id = 'top-left-icons';
-    topLeftIcons.innerHTML = `
+    const topLeftStuff = document.createElement('div');
+    topLeftStuff.id = 'top-left-stuff';
+    topLeftStuff.innerHTML = `
         <div id="branding-container" class="icon-btn">
-            <span id="brand">Waves!</span>
+            <span id="brand">waves!!</span>
             <div id="oneko"></div>
         </div>
+        <a href="#" id="settings" class="icon-btn">
+            <i class="settings fa-solid fa-gear"></i>
+        </a>
         <a href="#" id="notifications" class="icon-btn">
             <i class="fa-solid fa-bell"></i>
         </a>
@@ -34,16 +41,17 @@ export function initializeLayout() {
             <i class="fa-solid fa-gamepad-modern"></i>
         </a>
     `;
-    document.body.appendChild(topLeftIcons);
+    document.body.appendChild(topLeftStuff);
 
-    const topRightIcons = document.createElement('div');
-    topRightIcons.id = 'top-right-icons';
-    topRightIcons.innerHTML = `
-        <a href="#" id="settings" class="icon-btn">
-            <i class="settings fa-solid fa-gear"></i>
-        </a>
+    const topRightStuff = document.createElement('div');
+    topRightStuff.id = 'top-right-stuff';
+    topRightStuff.innerHTML = `
+        <div class="angel-corner">
+            <span class="angel-text">angel devil corner</span>
+            <img src="/assets/images/peaks/angel.webp" class="angel-img">
+        </div>
     `;
-    document.body.appendChild(topRightIcons);
+    document.body.appendChild(topRightStuff);
 
     const mainNav = document.createElement('div');
     mainNav.className = 'main-nav';
@@ -56,8 +64,7 @@ export function initializeLayout() {
         </div>
         <div class="omnibox">
             <i id="lockIcon" class="fa-regular fa-unlock-keyhole"></i>
-            <input type="text" id="searchInputt" placeholder="Search or enter address" autocomplete="off">
-            <div id="suggestions-container-nav" class="suggestions-box"></div>
+            <input type="text" id="searchInputt" placeholder="search or enter address" autocomplete="off">
         </div>
         <div class="window-controls">
             <a href="/"><i class="fa-regular fa-house-chimney-window"></i></a>
@@ -75,7 +82,7 @@ export function initializeLayout() {
             <div class="light-border"></div>
             <div class="light-inset-bg"></div>
             <div class="light"></div>
-            <i style="position: absolute; z-index: 4; top: 50%; margin-left: -8px; transform: translateY(-50%); font-size: 18px; color: #ffffff1f; pointer-events: none;" class="fa-regular fa-magnifying-glass"></i>
+            <i class="fa-regular fa-magnifying-glass search-icon"></i>
             <input type="text" id="searchInput" placeholder="Have anything in mind?" autocomplete="off">
             <div id="suggestions-container" class="suggestions-box"></div>
         </div>
@@ -88,14 +95,16 @@ export function initializeLayout() {
     resizeDivider.id = 'iframe-resize-divider';
     iframeContainer.appendChild(resizeDivider);
 
-    const footerInfo = document.createElement('div');
-    footerInfo.className = 'footer-info';
+    const footer = document.createElement('div');
+    footer.className = 'footer';
 
-    const disclaimer = document.createElement('div');
-    disclaimer.id = 'disclaimer';
-    disclaimer.innerHTML = `
-        <a><strong>Disclaimer</strong>: This website doesn't host any files. Any legal issues should be taken up with the 3rd party provider(s).</a>
+    const stuff = document.createElement('div');
+    stuff.id = 'stuff';
+    stuff.innerHTML = `
+        <a>a</a>
     `;
+
+    footer.appendChild(stuff);
 
     const discord = document.createElement('div');
     discord.id = 'discord';
@@ -103,15 +112,14 @@ export function initializeLayout() {
         <a>discord.gg/dJvdkPRheV</a>
     `;
 
-    footerInfo.appendChild(disclaimer);
-    footerInfo.appendChild(discord);
+    footer.appendChild(discord);
 
     const wrapper = document.querySelector('.wrapper');
     if (wrapper) {
         wrapper.prepend(mainNav); 
         mainNav.after(mainContainer);
         mainContainer.after(iframeContainer);
-        iframeContainer.after(footerInfo);
+        iframeContainer.after(footer);
     }
 
     const newTabModal = document.createElement('div');
@@ -119,12 +127,6 @@ export function initializeLayout() {
     newTabModal.className = 'popup new-tab-popup';
     newTabModal.style.display = 'none';
     document.body.appendChild(newTabModal);
-    
-    const erudaLoadingScreen = document.createElement('div');
-    erudaLoadingScreen.id = 'erudaLoadingScreen';
-    erudaLoadingScreen.style.display = 'none';
-    erudaLoadingScreen.textContent = 'Eruda is loading...';
-    document.body.appendChild(erudaLoadingScreen);
 
     const iconsPreloader = document.createElement('div');
     iconsPreloader.style.position = 'absolute';
@@ -158,4 +160,92 @@ export function initializeLayout() {
         <i class="fa-solid fa-angle-down"></i>
         <i class="fa-regular fa-pencil"></i> `;
     document.body.appendChild(iconsPreloader);
+}
+
+export function initializeFall() {
+    const CONTAINER_ID = 'fall-container';
+    const IMAGE_SOURCES = [
+        '/assets/images/peaks/chii.png',
+        '/assets/images/peaks/pochi.png'
+    ];
+    const SPAWN_RATE = 300; 
+
+    try {
+        if (!document.getElementById('fall-styles')) {
+            const style = document.createElement('style');
+            style.id = 'fall-styles';
+            style.innerHTML = `
+                .falling {
+                    position: fixed;
+                    top: -10%; 
+                    left: 50%; 
+                    width: 50px;
+                    height: auto;
+                    pointer-events: none;
+                    z-index: -1; 
+                    will-change: transform, opacity;
+                    opacity: 0;
+                    animation-name: fallAndFade;
+                    animation-timing-function: linear;
+                    animation-fill-mode: forwards;
+                }
+                @keyframes fallAndFade {
+                    0% {
+                        opacity: 0.8; 
+                        transform: translate(-50%, 0) rotate(0deg);
+                    }
+                    100% {
+                        opacity: 0;
+                        transform: translate(calc(-50% + var(--drift-x)), 110vh) rotate(var(--rot-end));
+                    }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        let container = document.getElementById(CONTAINER_ID);
+        if (!container) {
+            container = document.createElement('div');
+            container.id = CONTAINER_ID;
+            Object.assign(container.style, {
+                position: 'fixed',
+                top: '0',
+                left: '0',
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: '-1'
+            });
+            document.body.appendChild(container);
+        }
+
+        function spawnImage() {
+            const img = document.createElement('img');
+            
+            const randomSrc = IMAGE_SOURCES[Math.floor(Math.random() * IMAGE_SOURCES.length)];
+            img.src = randomSrc;
+            
+            img.className = 'falling';
+            
+            const duration = Math.random() * 5 + 5; 
+            const spreadWidth = 800; 
+            const driftX = (Math.random() - 0.5) * spreadWidth; 
+            const rotationEnd = (Math.random() - 0.5) * 720; 
+            
+            img.style.animationDuration = `${duration}s`;
+            img.style.setProperty('--drift-x', `${driftX}px`);
+            img.style.setProperty('--rot-end', `${rotationEnd}deg`);
+
+            container.appendChild(img);
+
+            setTimeout(() => {
+                img.remove();
+            }, duration * 1000);
+        }
+
+        setInterval(spawnImage, SPAWN_RATE);
+        
+    } catch (e) {
+        console.error("fall error:", e);
+    }
 }

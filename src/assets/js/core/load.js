@@ -189,9 +189,9 @@ export function initializeLoad() {
           document.body.appendChild(this.successEl);
           this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>Successfully Updated!</label>
-            <p>If you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
-            <button class="prompt-close-btn" id="updateSuccessClose">Okay</button>
+            <label>successfully updated!</label>
+            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
+            <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }
       this.closeBtn = document.getElementById("updateSuccessClose");
@@ -288,9 +288,9 @@ export function initializeLoad() {
           document.body.appendChild(this.shareEl);
           this.shareEl.innerHTML = `
             <i class="fa-solid fa-seedling" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>Help The Website Grow!</label>
-            <p>Share this website with all your friends to help keep the traffic up and everything else running smoothly!</p>
-            <button class="prompt-close-btn" id="sharePromptClose">Okay</button>
+            <label>help the website grow!</label>
+            <p>share this website with all your friends to help keep the traffic up and everything else running smoothly!</p>
+            <button class="prompt-close-btn" id="sharePromptClose">okay!!</button>
           `;
       }
       this.closeBtn = document.getElementById("sharePromptClose");
@@ -355,18 +355,18 @@ export function initializeLoad() {
   };
 
   const phrasesElement = document.querySelector(".phrases");
-  const phrases = ["hihihi", "<33", "Uhh....", "Xin chào!"];
+  const phrases = ["hihihi", "<33", "uhh....", "xin chào!"];
   if (phrasesElement) {
     phrasesElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
   }
 
   const searchInput = document.getElementById('searchInput');
   const placeholders = [
-      "Have anything in mind?",
+      "have anything in mind?",
       "(˶˃ ᵕ ˂˶)",
-      "Join the Discord server!",
+      "join the discord server!",
       "1 update per year",
-      "Waves is such a good website!!"
+      "waves is such a good website!!"
   ];
 
   if (searchInput) {

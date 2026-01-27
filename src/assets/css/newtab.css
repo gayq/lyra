@@ -55,7 +55,7 @@
 }
 
 .new-tab-result-item {
-    padding: 14px 9px;
+    padding: 10px;
     cursor: pointer;
     color: #b1b1b1;
     font-size: 14px;
@@ -69,7 +69,7 @@
 .new-tab-result-item i {
     width: 20px;
     text-align: center;
-    color: #b1b1b1;
+    color: #afafaf;
     font-size: 14px;
 }
 

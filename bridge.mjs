@@ -1,5 +1,4 @@
 import { Readable } from "stream";
-import { pipeline } from "stream/promises";
 import { Agent, ProxyAgent, setGlobalDispatcher } from "undici";
 import { HTMLRewriter } from 'html-rewriter-wasm';
 import dns from 'dns';
@@ -9,20 +8,21 @@ const isDevMode = process.env.NODE_ENV === 'development';
 const BRIDGE_PREFIX = "/!!/";
 
 const logBridge = (...args) => {
-    if (isDevMode) console.log("[Bridge:Dev]", ...args);
+    if (isDevMode) console.log("[bridge]", ...args);
 };
 
 const agentOptions = {
     keepAliveTimeout: 120000,
-    connections: 4096,
-    pipelining: 1,
-    allowH2: true,
+    connections: 16384, 
+    pipelining: 16,     
+    allowH2: false,
     connect: { 
         rejectUnauthorized: false, 
-        timeout: 5000,
-        keepAlive: true
+        timeout: 15000,
+        keepAlive: true,
+        noDelay: true   
     },
-    headersTimeout: 30000,
+    headersTimeout: 60000,
     bodyTimeout: 3600000
 };
 
@@ -38,29 +38,41 @@ if (process.env.HTTP_PROXY) {
 setGlobalDispatcher(dispatcher);
 
 const DNS_CACHE = new Map();
+const DNS_CACHE_TTL_MS = 10 * 60 * 1000;
+const DNS_SWEEP_INTERVAL_MS = 60 * 1000;
 const originalLookup = dns.lookup;
+
+const sweepDnsCache = () => {
+    if (!DNS_CACHE.size) return;
+    const cutoff = Date.now() - DNS_CACHE_TTL_MS;
+    for (const [host, entry] of DNS_CACHE) {
+        if (entry.timestamp < cutoff) DNS_CACHE.delete(host);
+    }
+};
 
 dns.lookup = (hostname, options, callback) => {
     if (typeof options === 'function') { callback = options; options = {}; }
     const cached = DNS_CACHE.get(hostname);
-    if (cached && Date.now() - cached.timestamp < 300000) {
-        logBridge("DNS Cache HIT", hostname);
-        return callback(null, cached.address, cached.family);
+    if (cached) {
+        if (Date.now() - cached.timestamp < DNS_CACHE_TTL_MS) {
+            return callback(null, cached.address, cached.family);
+        }
+        DNS_CACHE.delete(hostname);
     }
     originalLookup(hostname, options, (err, address, family) => {
         if (!err) {
-            logBridge("DNS Cache MISS/SET", hostname, address);
             DNS_CACHE.set(hostname, { address, family, timestamp: Date.now() });
         }
         callback(err, address, family);
     });
 };
+setInterval(sweepDnsCache, DNS_SWEEP_INTERVAL_MS).unref();
 
 const ORDER = [
     'host', 'connection', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform',
     'upgrade-insecure-requests', 'user-agent', 'accept', 'sec-fetch-site',
     'sec-fetch-mode', 'sec-fetch-user', 'sec-fetch-dest', 'accept-encoding',
-    'accept-language', 'range', 'cookie', 'if-none-match'
+    'accept-language', 'range', 'cookie', 'if-none-match', 'save-data'
 ];
 
 const sortHeaders = (headers) => {
@@ -78,26 +90,62 @@ const sortHeaders = (headers) => {
     return sorted;
 };
 
-const USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
-];
-
 let NOW = Date.now();
-setInterval(() => { NOW = Date.now(); }, 500).unref();
+setInterval(() => { NOW = Date.now(); }, 500).unref(); 
 
 const CACHE = new Map();
-const MAX_CACHE_SIZE_BYTES = 512 * 1024 * 1024;
-const MAX_FILE_SIZE_TO_CACHE = 32 * 1024 * 1024;
+const MAX_CACHE_SIZE_BYTES = 1024 * 1024 * 1024;
 let currentCacheSize = 0;
-const CACHE_LIFETIME_MS = 15 * 60 * 1000;
+const CACHE_LIFETIME_MS = 15 * 60 * 1000; 
+const CACHE_SWEEP_INTERVAL_MS = 30 * 1000; 
 
 const URL_MEMO = new Map();
 const MAX_MEMO_SIZE = 50000;
 
+const blockedUrlPatterns = [
+    /google-analytics\.com/i,
+    /googletagmanager\.com/i,
+    /googleAnalytics\.js/i,
+    /ima3\.js/i,
+    /doubleclick\.net/i,
+    /pagead2/i,
+    /adsbygoogle/i,
+    /cpmstar\.com/i
+];
+
+const getCacheLimitForType = (ext, contentType) => {
+    if (ext === '.assets' || ext === '.data' || ext === '.wasm' || ext === '.unityweb' || 
+        ext === '.pck' || ext === '.zip' || ext === '.rar' || ext === '.gz' || ext === '.br' || 
+        ext === '.unity3d' || ext === '.bundle' || ext === '.resource' || ext === '.resS' || 
+        ext === '.blob' || ext === '.bin') {
+        return 512 * 1024 * 1024;
+    }
+    if (contentType.startsWith('image/') || contentType.startsWith('video/') || contentType.startsWith('audio/')) {
+        return 5 * 1024 * 1024;
+    }
+    return 16 * 1024 * 1024;
+};
+
+const evictExpiredCacheEntries = () => {
+    if (!CACHE.size) return;
+    const cutoff = NOW - CACHE_LIFETIME_MS;
+    let reclaimed = 0;
+    for (const [key, value] of CACHE) {
+        if (value.timestamp < cutoff) {
+            reclaimed += value.buffer?.byteLength || 0;
+            CACHE.delete(key);
+        }
+    }
+    if (reclaimed) {
+        currentCacheSize -= reclaimed;
+        if (currentCacheSize < 0) currentCacheSize = 0;
+    }
+};
+setInterval(evictExpiredCacheEntries, CACHE_SWEEP_INTERVAL_MS).unref();
+
 const ensureCacheCapacity = (neededBytes = 0) => {
     if (neededBytes > MAX_CACHE_SIZE_BYTES) return false;
+    evictExpiredCacheEntries();
     while (CACHE.size && currentCacheSize + neededBytes > MAX_CACHE_SIZE_BYTES) {
         const oldest = CACHE.entries().next().value;
         if (!oldest) break;
@@ -109,9 +157,179 @@ const ensureCacheCapacity = (neededBytes = 0) => {
     return currentCacheSize + neededBytes <= MAX_CACHE_SIZE_BYTES;
 };
 
-const H_PREFIX = `<script>(function(){window.__BRIDGE_PREFIX__="${BRIDGE_PREFIX}`;
-const H_MID = '";window.__BRIDGE_TARGET__="';
-const H_SUFFIX = '";window.__BRIDGE_BASE__=window.__BRIDGE_BASE__||((window.location.origin||"")+window.__BRIDGE_PREFIX__);const downloadExts=[".zip",".rar",".7z",".tar",".gz",".tgz",".bz2",".xz",".exe",".msi",".apk",".dmg",".deb",".rpm",".pdf",".doc",".docx",".xls",".xlsx",".ppt",".pptx",".iso",".img",".bin",".msix",".pkg",".mp3",".mp4",".wav",".flac",".mkv",".mov"];const resolveAbs=(u)=>{if(!u)return null;try{return new URL(u,window.__BRIDGE_TARGET__).href}catch(e){try{return new URL(u).href}catch(err){return null}}};document.addEventListener("click",function(e){if(e.defaultPrevented)return;const a=e.target.closest("a");if(!a)return;const href=a.getAttribute("data-bridge-orig-href")||a.getAttribute("href");if(!href)return;const lower=href.toLowerCase();const hasDownload=a.hasAttribute("download")||downloadExts.some(ext=>lower.endsWith(ext));if(!hasDownload)return;const real=resolveAbs(href);if(!real||real.startsWith("javascript:"))return;e.preventDefault();const bridged=window.__BRIDGE_BASE__+real;if(a.target==="_blank"||e.ctrlKey||e.metaKey||a.hasAttribute("download")){window.open(bridged,"_blank");}else{window.location.assign(bridged);}});if(navigator.serviceWorker&&navigator.serviceWorker.controller){try{navigator.serviceWorker.controller.postMessage({type:"bridge-base",base:window.__BRIDGE_BASE__});}catch(e){}}const rewrite=(url)=>{if(!url||typeof url!=="string")return url;if(url.startsWith("data:")||url.startsWith("blob:")||url.startsWith(window.__BRIDGE_PREFIX__))return url;if(url.startsWith(window.location.origin+window.__BRIDGE_PREFIX__))return url;if(url.startsWith("http"))return window.__BRIDGE_PREFIX__+url;if(url.startsWith("/"))try{return window.__BRIDGE_PREFIX__+new URL(url,window.__BRIDGE_TARGET__).href}catch(e){return url}return url};const originalFetch=window.fetch;window.fetch=function(input,init){if(typeof input==="string")input=rewrite(input);else if(input instanceof Request)input=new Request(rewrite(input.url),input);return originalFetch(input,init)};const originalOpen=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url,...args){return originalOpen.call(this,method,rewrite(url),...args)};const originalWS=window.WebSocket;window.WebSocket=function(url,protocols){if(!url)return new originalWS(url,protocols);let target=url;if(!target.startsWith("ws")){try{target=new URL(url,window.__BRIDGE_TARGET__).href}catch(e){}target=target.replace("http","ws")}const proxyUrl=(window.location.protocol==="https:"?"wss://":"ws://")+window.location.host+window.__BRIDGE_PREFIX__+"ws/"+encodeURIComponent(target);const ws=new originalWS(proxyUrl,protocols);ws.binaryType="arraybuffer";return ws};const originalWorker=window.Worker;window.Worker=function(scriptURL,options){return new originalWorker(rewrite(scriptURL),options)};window.dataLayer=[];window.gtag=function(){};window.ga=function(){}})()</script>';
+const H_PREFIX = `<script>
+(function() {
+    var hud;
+    function initHud() {
+        if (hud) return;
+        try {
+            hud = document.createElement('div');
+            hud.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:300px;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:11px;overflow-y:scroll;z-index:2147483647;pointer-events:none;padding:5px;word-break:break-all;pointer-events:auto;display:none;';
+            (document.body || document.documentElement).appendChild(hud);
+        } catch(e) {}
+    }
+    window.addEventListener('load', initHud);
+    window.addEventListener('DOMContentLoaded', initHud);
+
+    window.addEventListener('keydown', function(e) {
+        if (e.code === 'Semicolon' && e.ctrlKey) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            if (hud) {
+                hud.style.display = (hud.style.display === 'none') ? 'block' : 'none';
+            } else {
+                initHud();
+                if(hud) hud.style.display = 'block';
+            }
+        }
+    }, true);
+
+    function log(type, args) {
+        if (!hud) initHud();
+        if (hud) {
+            var el = document.createElement('div');
+            el.textContent = '[' + type + '] ' + Array.from(args).map(String).join(' ');
+            el.style.borderBottom = '1px solid #333';
+            if (type === 'ERR') el.style.color = '#ff5555';
+            if (type === 'WARN') el.style.color = '#ffff55';
+            hud.insertBefore(el, hud.firstChild);
+        }
+    }
+    var _log=console.log, _err=console.error, _warn=console.warn;
+    console.log = function() { log('LOG', arguments); _log.apply(console, arguments); };
+    console.error = function() { log('ERR', arguments); _err.apply(console, arguments); };
+    console.warn = function() { log('WARN', arguments); _warn.apply(console, arguments); };
+
+    window.addEventListener('error', function(e) { log('ERR', [e.message, e.filename, e.lineno]); });
+    window.addEventListener('unhandledrejection', function(e) { log('ERR', ['Promise:', e.reason]); });
+
+    try {
+        const _U = window.URL;
+        window.URL = function(u, b) {
+            if ((!u || u === "") && !b) return new _U(window.location.href);
+            return new _U(u, b);
+        };
+        window.URL.prototype = _U.prototype;
+        window.URL.createObjectURL = function(o) { return _U.createObjectURL(o); };
+        window.URL.revokeObjectURL = function(u) { return _U.revokeObjectURL(u); };
+        for (let k in _U) { if (!(k in window.URL)) window.URL[k] = _U[k]; }
+        
+        const _p = history.pushState;
+        const _r = history.replaceState;
+        history.pushState = function(s, t, u) { try { _p.call(this, s, t, u); } catch(e) {} };
+        history.replaceState = function(s, t, u) { try { _r.call(this, s, t, u); } catch(e) {} };
+    } catch(e) {}
+
+    window.__BRIDGE_PREFIX__="${BRIDGE_PREFIX}`;
+
+const H_MID = `";window.__BRIDGE_TARGET__="`;
+
+const H_SUFFIX = `";
+    window.__BRIDGE_BASE__ = window.__BRIDGE_BASE__ || ((window.location.origin || "") + window.__BRIDGE_PREFIX__);
+    
+    try {
+        const baseEl = document.querySelector('base[href]');
+        if (baseEl && baseEl.href) {
+             window.__BRIDGE_TARGET__ = baseEl.href;
+        }
+    } catch(e) {}
+
+    const rewrite = (url) => {
+        if (!url || typeof url !== "string") return url;
+        if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith(window.__BRIDGE_PREFIX__)) return url;
+        if (url.startsWith(window.location.origin + window.__BRIDGE_PREFIX__)) return url;
+        if (url.startsWith("http")) return window.__BRIDGE_PREFIX__ + url;
+        
+        let base = window.__BRIDGE_TARGET__;
+        try {
+            const baseEl = document.querySelector('base[href]');
+            if (baseEl && baseEl.href) base = baseEl.href;
+        } catch(e) {}
+
+        try {
+            const resolved = new URL(url, base).href;
+            return window.__BRIDGE_PREFIX__ + resolved;
+        } catch (e) {
+            return url;
+        }
+    };
+
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+        if (typeof input === "string") input = rewrite(input);
+        else if (input instanceof Request) input = new Request(rewrite(input.url), input);
+        return originalFetch(input, init)
+    };
+    
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, ...args) {
+        return originalOpen.call(this, method, rewrite(url), ...args)
+    };
+    
+    const originalWS = window.WebSocket;
+    window.WebSocket = function(url, protocols) {
+        if (!url) return new originalWS(url, protocols);
+        let target = url;
+        if (!target.startsWith("ws")) {
+            try {
+                target = new URL(url, window.__BRIDGE_TARGET__).href
+            } catch (e) {}
+            target = target.replace("http", "ws")
+        }
+        const proxyUrl = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + window.__BRIDGE_PREFIX__ + "ws/" + encodeURIComponent(target);
+        const ws = new originalWS(proxyUrl, protocols);
+        ws.binaryType = "arraybuffer";
+        return ws
+    };
+    
+    const originalWorker = window.Worker;
+    window.Worker = function(scriptURL, options) {
+        return new originalWorker(rewrite(scriptURL), options)
+    };
+    
+    const downloadExts = [".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".exe", ".msi", ".apk", ".dmg", ".deb", ".rpm", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".iso", ".img", ".bin", ".msix", ".pkg", ".mp3", ".mp4", ".wav", ".flac", ".mkv", ".mov"];
+    document.addEventListener("click", function(e) {
+        if (e.defaultPrevented) return;
+        const a = e.target.closest("a");
+        if (!a) return;
+        const href = a.getAttribute("data-bridge-orig-href") || a.getAttribute("href");
+        if (!href) return;
+        if (href.startsWith("javascript:") || href.startsWith("#")) return;
+        const lower = href.toLowerCase();
+        const hasDownload = a.hasAttribute("download") || downloadExts.some(ext => lower.endsWith(ext));
+        const bridged = rewrite(href);
+        if (!hasDownload) return;
+        e.preventDefault();
+        if (a.target === "_blank" || e.ctrlKey || e.metaKey || a.hasAttribute("download")) {
+            window.open(bridged, "_blank");
+        } else {
+            window.location.assign(bridged);
+        }
+    });
+
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        try {
+            navigator.serviceWorker.controller.postMessage({
+                type: "bridge-base",
+                base: window.__BRIDGE_BASE__
+            });
+        } catch (e) {}
+    }
+
+    window.dataLayer = [];
+    window.gtag = function() {};
+    window.ga = function() {};
+    window.google = window.google || {};
+    window.google.ima = window.google.ima || {
+        AdsLoader: function() { return { addEventListener: function(){}, contentComplete: function(){}, requestAds: function(){} }; },
+        AdDisplayContainer: function() { return { initialize: function(){} }; },
+        AdsManagerLoadedEvent: { Type: { ADS_MANAGER_LOADED: 'adsManagerLoaded' } },
+        AdErrorEvent: { Type: { AD_ERROR: 'adError' } },
+        ViewMode: { NORMAL: 'normal' }
+    };
+})()
+</script>`;
+
 const CSS_URL_REGEX = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 
 const cssRewrite = (cssText, resolutionBase, bridgePrefix) => {
@@ -135,7 +353,13 @@ const GAME_MIME_TYPES = {
     '.pck': 'application/octet-stream',
     '.unityweb': 'application/octet-stream',
     '.js': 'application/javascript',
-    '.json': 'application/json'
+    '.json': 'application/json',
+    '.unity3d': 'application/octet-stream',
+    '.bundle': 'application/octet-stream',
+    '.resource': 'application/octet-stream',
+    '.resS': 'application/octet-stream',
+    '.blob': 'application/octet-stream',
+    '.bin': 'application/octet-stream'
 };
 
 const MIME_TYPES = {
@@ -147,7 +371,7 @@ const MIME_TYPES = {
 const BLACKLIST_REQ_HEADERS = new Set([
     'host', 'connection', 'content-length', 'transfer-encoding', 'accept-encoding', 
     'upgrade', 'sec-websocket-key', 'sec-websocket-version', 'sec-websocket-extensions', 
-    'origin', 'referer', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'cookie',
+    'origin', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'cookie',
     'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'user-agent', 'pragma', 'cache-control'
 ]); 
 
@@ -163,19 +387,10 @@ const ensureResponseCompat = (res) => {
     if (typeof res.send !== 'function') {
         res.send = (body) => {
             if (res.headersSent) return res;
-            
-            if (body === undefined) {
-                res.end();
-                return res;
-            }
-            if (Buffer.isBuffer(body) || body instanceof Uint8Array || typeof body === 'string') {
-                res.end(body);
-                return res;
-            }
+            if (body === undefined) { res.end(); return res; }
+            if (Buffer.isBuffer(body) || body instanceof Uint8Array || typeof body === 'string') { res.end(body); return res; }
             if (body && typeof body === 'object') {
-                if (!res.headersSent) {
-                    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-                }
+                if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
                 res.end(JSON.stringify(body));
                 return res;
             }
@@ -185,19 +400,14 @@ const ensureResponseCompat = (res) => {
     }
     if (typeof res.json !== 'function') {
         res.json = (payload) => {
-            if (!res.headersSent) {
-                res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            }
+            if (!res.headersSent) res.setHeader('Content-Type', 'application/json; charset=utf-8');
             return res.send(payload);
         };
     }
     if (typeof res.appendHeader !== 'function') {
         res.appendHeader = (name, value) => {
             const existing = res.getHeader(name);
-            if (existing === undefined) {
-                res.setHeader(name, value);
-                return res;
-            }
+            if (existing === undefined) { res.setHeader(name, value); return res; }
             const values = Array.isArray(existing) ? [...existing, value] : [existing, value];
             res.setHeader(name, values);
             return res;
@@ -218,22 +428,19 @@ export async function bridgeHandler(req, res) {
     try {
         const prefix = BRIDGE_PREFIX;
         const fullRequestUrl = req.originalUrl || req.url;
-        logBridge("Incoming request", { method: req.method, url: fullRequestUrl, headers: req.headers });
         const prefixIndex = fullRequestUrl.indexOf(prefix);
             
         if (prefixIndex === -1) return res.status(400).json({ error: "No URL prefix found" });
 
         let targetUrl = fullRequestUrl.substring(prefixIndex + prefix.length);
+        while (targetUrl.startsWith(prefix)) targetUrl = targetUrl.substring(prefix.length);
         
-        while (targetUrl.startsWith(prefix)) {
-            targetUrl = targetUrl.substring(prefix.length);
+        if (blockedUrlPatterns.some(pattern => pattern.test(targetUrl))) {
+            res.setHeader("Content-Type", "application/javascript");
+            res.setHeader("Access-Control-Allow-Origin", "*");
+            return res.status(200).send("/* Blocked by Bridge */");
         }
 
-        if (targetUrl.indexOf('%') !== -1) {
-            try { targetUrl = decodeURI(targetUrl); } catch(e) {}
-        }
-        logBridge("Resolved target", targetUrl);
-            
         if (targetUrl.startsWith('ws/')) return res.status(400).send("WebSocket connections must use a WebSocket endpoint");
         if (!targetUrl.startsWith('http')) targetUrl = 'https://' + targetUrl;
 
@@ -243,7 +450,6 @@ export async function bridgeHandler(req, res) {
                 if (NOW - cached.timestamp < CACHE_LIFETIME_MS) { 
                     CACHE.delete(targetUrl);
                     CACHE.set(targetUrl, cached);
-                    logBridge("Cache HIT", targetUrl);
                     res.setHeader("X-Cache", "HIT");
                     res.setHeader("Access-Control-Allow-Origin", "*");
                     res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
@@ -255,10 +461,7 @@ export async function bridgeHandler(req, res) {
                     currentCacheSize -= cached.buffer?.byteLength || 0;
                     if (currentCacheSize < 0) currentCacheSize = 0;
                     CACHE.delete(targetUrl);
-                    logBridge("Cache EXPIRED and deleted", targetUrl);
                 }
-            } else {
-                logBridge("Cache MISS", targetUrl);
             }
         }
 
@@ -278,15 +481,24 @@ export async function bridgeHandler(req, res) {
         requestHeaders['user-agent'] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
         requestHeaders['accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7';
         requestHeaders['upgrade-insecure-requests'] = '1';
+        requestHeaders['save-data'] = 'on';
             
         if (req.headers['range']) requestHeaders['range'] = req.headers['range'];
-
         if (req.method !== 'GET' && req.method !== 'HEAD') requestHeaders['origin'] = targetObj.origin;
-        requestHeaders['referer'] = targetObj.origin + '/';
+        
+        let upstreamReferer = targetObj.origin + '/';
+        const incomingReferer = req.headers['referer'];
+        if (incomingReferer && incomingReferer.includes(prefix)) {
+            const temp = incomingReferer.substring(incomingReferer.indexOf(prefix) + prefix.length);
+            if (temp.startsWith('http')) {
+                upstreamReferer = temp;
+            }
+        }
+        requestHeaders['referer'] = upstreamReferer;
+
         if (req.method === 'POST' && !requestHeaders['content-type']) requestHeaders['content-type'] = 'application/json';
 
         requestHeaders = sortHeaders(requestHeaders);
-        logBridge("Forwarding request", { targetUrl, method: req.method, headers: requestHeaders });
 
         const fetchOptions = {
             method: req.method,
@@ -303,24 +515,17 @@ export async function bridgeHandler(req, res) {
 
         let response;
         let retries = 1;
-        let attempt = 0;
-        let lastError;
-
+        
         while(retries >= 0) {
-            attempt++;
-            logBridge("Fetch attempt", { targetUrl, attempt });
             try {
                 response = await fetch(targetUrl, fetchOptions);
                 if (response.status === 429 && retries > 0) {
-                    logBridge("Retrying fetch 429", { targetUrl, remainingRetries: retries });
                     await new Promise(r => setTimeout(r, 200 + Math.random() * 500));
                     retries--;
                     continue;
                 }
                 break;
             } catch(e) {
-                lastError = e;
-                logBridge("Fetch error", { targetUrl, attempt, error: e.message });
                 if (retries > 0) {
                     await new Promise(r => setTimeout(r, 100));
                     retries--;
@@ -330,13 +535,7 @@ export async function bridgeHandler(req, res) {
             }
         }
 
-        if (!response) {
-            if (lastError) {
-                console.error(`[Bridge 502 Error] Target: ${targetUrl} | Error: ${lastError.message} | Code: ${lastError.code}`);
-                logBridge("Final fetch failure", { targetUrl, error: lastError.message });
-            }
-            return res.status(502).end();
-        }
+        if (!response) return res.status(502).end();
 
         res.statusCode = response.status;
         res.statusMessage = response.statusText;
@@ -347,9 +546,7 @@ export async function bridgeHandler(req, res) {
         res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
 
         const responseHeaders = Object.create(null);
-        const responseSnapshot = {};
         response.headers.forEach((value, key) => {
-            responseSnapshot[key] = value;
             const keyLower = key.toLowerCase();
             if (BLACKLIST_RES_HEADERS.has(keyLower)) return;
             if (keyLower === 'set-cookie') {
@@ -361,19 +558,25 @@ export async function bridgeHandler(req, res) {
                 responseHeaders[key] = value;
             }
         });
-        logBridge("Response headers", { targetUrl, status: response.status, headers: responseSnapshot });
 
         const pathname = targetObj.pathname;
         const lastDot = pathname.lastIndexOf('.');
         const ext = lastDot !== -1 ? pathname.substring(lastDot).toLowerCase() : '';
-        const isBinaryGameFile = ext === '.wasm' || ext === '.pck' || ext === '.data' || ext === '.unityweb' || ext === '.mem' || ext === '.json' || ext === '.js' || ext === '.symbols';
-            
+        const isBinaryGameFile = ext === '.wasm' || ext === '.pck' || ext === '.data' || ext === '.unityweb' || ext === '.mem' || ext === '.json' || ext === '.js' || ext === '.symbols' || ext === '.unity3d' || ext === '.bundle' || ext === '.resource' || ext === '.resS' || ext === '.blob' || ext === '.bin';
+
         if (isBinaryGameFile && response.status === 200) {
-            res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-            responseHeaders['Cache-Control'] = "public, max-age=31536000, immutable";
+            const cacheHeader = "public, max-age=600, stale-while-revalidate=604800";
+            res.setHeader("Cache-Control", cacheHeader);
+            responseHeaders['Cache-Control'] = cacheHeader;
         }
 
-        let contentType = GAME_MIME_TYPES[ext] || MIME_TYPES[ext] || response.headers.get("content-type") || "application/octet-stream";
+        let contentType = response.headers.get("content-type");
+        if (response.status >= 200 && response.status < 300) {
+            contentType = GAME_MIME_TYPES[ext] || MIME_TYPES[ext] || contentType || "application/octet-stream";
+        } else {
+            contentType = contentType || "text/html";
+        }
+
         const clientWantsHtml = req.headers['sec-fetch-dest'] === 'document' || (req.headers['accept'] && req.headers['accept'].indexOf('text/html') !== -1);
         if (clientWantsHtml && (ext === '.html' || ext === '.htm' || ext === '.php' || ext === '')) {
             contentType = 'text/html';
@@ -384,16 +587,14 @@ export async function bridgeHandler(req, res) {
         res.setHeader("Content-Type", contentType);
 
         const shouldRewrite = HTML_REWRITING && contentType === 'text/html' && response.status === 200 && !isBinaryGameFile;
-
-        logBridge("Rewrite decision", { targetUrl, shouldRewrite, contentType });
         
         if (shouldRewrite) {
-            let resolutionBase = response.url;
-            const targetOrigin = new URL(response.url).origin;
-                
+            let resolutionBase = response.url || targetUrl;
+            let detectedGameBase = null;
             let cacheBuffer = [];
             let totalCacheSize = 0;
             let canCache = true;
+            const maxForThis = getCacheLimitForType(ext, contentType);
 
             const rewriter = new HTMLRewriter((chunk) => {
                 if (res.writableEnded) return;
@@ -403,10 +604,9 @@ export async function bridgeHandler(req, res) {
 
                 if (canCache) {
                     totalCacheSize += chunk.length;
-                    if (totalCacheSize > MAX_FILE_SIZE_TO_CACHE) {
+                    if (totalCacheSize > maxForThis) {
                         canCache = false;
                         cacheBuffer = null; 
-                        logBridge("Cache CANCELLED", targetUrl, "File too large");
                     } else {
                         cacheBuffer.push(chunk); 
                     }
@@ -450,11 +650,16 @@ export async function bridgeHandler(req, res) {
                     if (tagName === 'script') {
                         const src = el.getAttribute('src');
                         if (src) {
-                            if (src.includes('Build.loader.js') || src.includes('.loader.js')) {
-                                const basePath = src.replace(/\.loader\.js$/, '');
-                                const preWasm = `<link rel="preload" href="${processUrl(basePath + '.wasm')}" as="fetch" crossorigin>`;
-                                const preData = `<link rel="preload" href="${processUrl(basePath + '.data')}" as="fetch" crossorigin>`;
-                                el.before(preWasm + preData, { html: true });
+                            if (src.includes('loader.js') || src.includes('UnityLoader.js')) {
+                                const fullUrl = processUrl(src);
+                                el.setAttribute('src', fullUrl);
+                                try {
+                                    const urlObj = new URL(src, resolutionBase);
+                                    const pathParts = urlObj.href.split('/');
+                                    pathParts.pop(); 
+                                    detectedGameBase = prefix + pathParts.join('/') + '/';
+                                } catch(e) {}
+                                return;
                             }
                             const n = processUrl(src); 
                             if(n) el.setAttribute('src', n); 
@@ -493,14 +698,55 @@ export async function bridgeHandler(req, res) {
                 }
             };
 
+            const scriptTextHandler = {
+                text(textChunk) {
+                    let text = textChunk.text;
+                    let changed = false;
+
+                    if (!detectedGameBase) {
+                        const loaderMatch = text.match(/["']([^"']+\.(?:loader\.js|UnityLoader\.js|json))["']/);
+                        if (loaderMatch) {
+                            try {
+                                const urlObj = new URL(loaderMatch[1], resolutionBase);
+                                const pathParts = urlObj.href.split('/');
+                                pathParts.pop(); 
+                                detectedGameBase = prefix + pathParts.join('/') + '/';
+                            } catch(e) {}
+                        }
+                    }
+
+                    const unityAssets = /\b(Build\/[\w\-\.]+\.(?:data|wasm|js|json|unityweb|bin|mem))/g;
+                    if (unityAssets.test(text)) {
+                        text = text.replace(unityAssets, (match) => {
+                            if (detectedGameBase) {
+                                return detectedGameBase + match.replace('Build/', '');
+                            }
+                            return match;
+                        });
+                        changed = true;
+                    }
+
+                    if (text.includes('EJS_pathtodata') || text.includes('EJS_gameUrl')) {
+                         text = text.replace(/(EJS_pathtodata|EJS_gameUrl)\s*=\s*(['"])(.*?)\2/g, (match, varName, quote, path) => {
+                            const rewritten = processUrl(path);
+                            return `${varName} = ${quote}${rewritten || path}${quote}`;
+                        });
+                        changed = true;
+                    }
+
+                    if (changed) {
+                        textChunk.replace(text, { html: true });
+                    }
+                }
+            };
+
             let headFound = false;
             rewriter.on('head', {
                 element(el) {
                     headFound = true;
                     el.prepend(H_SUFFIX, { html: true });
-                    el.prepend(targetOrigin, { html: true });
+                    el.prepend(resolutionBase, { html: true });
                     el.prepend(H_MID, { html: true });
-                    el.prepend(prefix, { html: true });
                     el.prepend(H_PREFIX, { html: true });
                 }
             });
@@ -513,7 +759,7 @@ export async function bridgeHandler(req, res) {
                             resolutionBase = new URL(href, response.url).href;
                             URL_MEMO.clear(); 
                             el.setAttribute('href', `${prefix}${resolutionBase}`);
-                        } catch(e) { logBridge("Error processing <base href>", e.message); }
+                        } catch(e) {}
                     }
                 }
             });
@@ -521,6 +767,8 @@ export async function bridgeHandler(req, res) {
             rewriter.on('script[src*="googletagmanager.com"]', { element(el) { el.remove(); } });
             rewriter.on('script[src*="google-analytics.com"]', { element(el) { el.remove(); } });
             rewriter.on('img,script,iframe,link,a,form,*[style]', urlHandler);
+            rewriter.on('script', scriptTextHandler);
+
             rewriter.on('style', {
                 text(text) {
                     if (!text.lastInTextNode) return; 
@@ -530,36 +778,30 @@ export async function bridgeHandler(req, res) {
             });
 
             try {
-                for await (const chunk of Readable.fromWeb(response.body)) {
+                for await (const chunk of Readable.fromWeb(response.body, { highWaterMark: 64 * 1024 })) {
                     rewriter.write(chunk);
                 }
                 rewriter.end();
 
                 if (!headFound) {
                     res.write(H_PREFIX);
-                    res.write(prefix);
                     res.write(H_MID);
-                    res.write(targetOrigin);
+                    res.write(resolutionBase);
                     res.write(H_SUFFIX);
                 }
 
                 res.end();
 
-                if (canCache && cacheBuffer && cacheBuffer.length > 0) {
+                if (canCache && cacheBuffer && cacheBuffer.length > 0 && response.status === 200) {
                     setImmediate(() => {
                         const finalBuffer = Buffer.concat(cacheBuffer);
-
                         const existing = CACHE.get(targetUrl);
                         if (existing) {
                             currentCacheSize -= existing.buffer?.byteLength || 0;
                             if (currentCacheSize < 0) currentCacheSize = 0;
                             CACHE.delete(targetUrl);
                         }
-
-                        if (!ensureCacheCapacity(finalBuffer.byteLength)) {
-                            logBridge("Cache SKIPPED - insufficient room", targetUrl, finalBuffer.byteLength);
-                            return;
-                        }
+                        if (!ensureCacheCapacity(finalBuffer.byteLength)) return;
 
                         responseHeaders['content-type'] = contentType;
                         CACHE.set(targetUrl, {
@@ -568,28 +810,63 @@ export async function bridgeHandler(req, res) {
                             timestamp: NOW
                         });
                         currentCacheSize += finalBuffer.byteLength;
-                        logBridge("Cache SAVED", targetUrl, finalBuffer.byteLength, "current cache bytes", currentCacheSize);
+                        logBridge("cache SAVED", targetUrl, finalBuffer.byteLength, "current cache bytes", currentCacheSize);
                     });
                 }
 
             } catch (e) {
-                logBridge("HTML rewrite error", e.message);
                 if (!res.writableEnded) res.end();
             } finally {
                 rewriter.free();
             }
 
         } else {
-            logBridge("Streaming response body", { targetUrl, binary: !shouldRewrite });
+            let cacheBuffer = [];
+            let totalCacheSize = 0;
+            let canCache = true;
+            const maxForThis = getCacheLimitForType(ext, contentType);
+
             if (response.body) {
-                await pipeline(Readable.fromWeb(response.body), res);
+                const stream = Readable.fromWeb(response.body, { highWaterMark: 64 * 1024 });
+                stream.on('data', (chunk) => {
+                    res.write(chunk);
+                    if (canCache) {
+                        totalCacheSize += chunk.length;
+                        if (totalCacheSize > maxForThis) {
+                            canCache = false;
+                            cacheBuffer = null;
+                        } else {
+                            cacheBuffer.push(chunk);
+                        }
+                    }
+                });
+                stream.on('end', () => {
+                    res.end();
+                    if (canCache && cacheBuffer && cacheBuffer.length > 0 && response.status === 200) {
+                        setImmediate(() => {
+                            const finalBuffer = Buffer.concat(cacheBuffer);
+                            if (!ensureCacheCapacity(finalBuffer.byteLength)) return;
+                            
+                            responseHeaders['content-type'] = contentType;
+                            CACHE.set(targetUrl, {
+                                buffer: finalBuffer,
+                                headers: responseHeaders, 
+                                timestamp: NOW
+                            });
+                            currentCacheSize += finalBuffer.byteLength;
+                            logBridge("cached", targetUrl, finalBuffer.byteLength);
+                        });
+                    }
+                });
+                stream.on('error', (err) => {
+                    if (!res.writableEnded) res.end();
+                });
             } else {
                 res.end();
             }
         }
 
     } catch (err) {
-        logBridge("Bridge handler unexpected error", err.message, err.stack);
         if (!res.headersSent) res.status(502).end(); 
     }
 }

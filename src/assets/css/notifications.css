@@ -50,6 +50,7 @@
   margin-top: -5px;
   margin-bottom: 10px;
   flex-shrink: 0;
+  user-select: none;
 }
 
 .notifications-menu-header h2 {
@@ -60,7 +61,7 @@
 }
 
 #mark-all-read-btn {
-    background: #1f1f1f;
+    background: #1a1a1a;
     border: none;
     color: #adadad;
     font-size: 11px;
@@ -70,11 +71,12 @@
     margin-right: 230px;
     border-radius: 9px;
     transition: all 0.1s ease;
+    user-select: none;
 }
 
 #mark-all-read-btn:hover {
     color: #ffffff;
-    background-color: #333333;
+    background-color: #2f2f2f;
 }
 
 #close-notifications-menu {
@@ -214,6 +216,8 @@
     bottom: 8px; 
     left: 15px;
     z-index: 1;
+    font-family: "Cascadia Code", Consolas;
+    font-weight: 400;
 }
 
 .icon-btn i.has-new-notifications {

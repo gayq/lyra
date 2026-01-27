@@ -1,19 +1,19 @@
 export const DEFAULT_BOOKMARKS = [
-    { name: 'CrazyGames', url: 'https://www.crazygames.com/' },
-    { name: 'Youtube', url: 'https://www.youtube.com/?themeRefresh=1' },
-    { name: 'SoundCloud', url: 'https://soundcloud.com/' },
-    { name: 'TikTok', url: 'https://www.tiktok.com/' },
-    { name: 'Discord', url: 'https://discord.com/login/' },
+    { name: 'crazygames', url: 'https://www.crazygames.com/' },
+    { name: 'youtube', url: 'https://www.youtube.com/?themeRefresh=1' },
+    { name: 'soundcloud', url: 'https://soundcloud.com/' },
+    { name: 'tiktok', url: 'https://www.tiktok.com/' },
+    { name: 'discord', url: 'https://discord.com/login/' },
 ];
 
 export const SEARCH_ENGINES = {
-    'Google': 'https://www.google.com/search?q=',
-    'Bing': 'https://www.bing.com/search?q=',
-    'DuckDuckGo': 'https://duckduckgo.com/?q=',
-    'Startpage': 'https://startpage.com/search?q=',
-    'Brave': 'https://search.brave.com/search?q=',
-    'Mojeek': 'https://www.mojeek.com/search?q=',
-    'Swisscows': 'https://swisscows.com/en/web?query='
+    'google': 'https://www.google.com/search?q=',
+    'bing': 'https://www.bing.com/search?q=',
+    'duckduckgo': 'https://duckduckgo.com/?q=',
+    'startpage': 'https://startpage.com/search?q=',
+    'brave': 'https://search.brave.com/search?q=',
+    'mojeek': 'https://www.mojeek.com/search?q=',
+    'swisscows': 'https://swisscows.com/en/web?query='
 };
 
 export const BANGS = {

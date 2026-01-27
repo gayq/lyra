@@ -1,16 +1,175 @@
 import { dom } from './ui/dom.js';
 import { HistoryManager } from './core/history.js';
-import { initializeUI, hideLoading, showHomeView, showBrowserView } from './ui/ui.js';
-import { initializeIframe, updateHistoryUI, cleanupIframe } from './core/iframe.js';
+import { initializeUI, hideLoading, showHomeView, showBrowserView, syncRefreshButtonWithActiveTab } from './ui/ui.js';
+import { initializeIframe, updateHistoryUI, cleanupIframe, reduceIframeMemory, restoreIframeActivity } from './core/iframe.js';
 import { initializeSearch, handleSearch as performSearch } from './search/search.js';
 import { initializeBookmarks } from './features/bookmarks.js';
 import { initializeNotifications } from './features/notifications.js';
-import { initializeLayout } from './core/layout.js';
+import { initializeLayout, initializeFall } from './core/layout.js';
 import { initializeLoad } from './core/load.js';
 import { initializeGame } from './features/games.js';
+import { getProxyUrl } from './core/utils.js';
+
+const clientTabMap = new Map();
+const tabMemory = new Map();
+const lastOpenTabRequest = { url: null, ts: 0 };
+
+function clearHistoryNavigation(tab, incomingUrl) {
+    if (!tab || !tab._historyNavigating) return;
+    if (!tab._historyTarget || tab._historyTarget === incomingUrl) {
+        tab._historyNavigating = false;
+        tab._historyTarget = null;
+    }
+}
+
+function updateMemoryDisplay() {
+    const valueEl = dom.memoryUsageValue;
+    if (!valueEl) return;
+
+    const tabs = window.WavesApp?.tabs || [];
+    let total = 0;
+    let hasData = false;
+
+    for (const tab of tabs) {
+        const snap = tabMemory.get(tab.id);
+        if (snap && typeof snap.usedJSHeapSize === 'number') {
+            total += snap.usedJSHeapSize;
+            hasData = true;
+        }
+    }
+
+    if (!hasData) {
+        valueEl.textContent = '--';
+        return;
+    }
+
+    const mb = total / 1048576;
+    const precision = mb >= 100 ? 0 : 1;
+    valueEl.textContent = `${mb.toFixed(precision)} MB`;
+}
 
 function handleServiceWorkerMessage(event) {
     const { data } = event;
+    if (data && data.type === 'open-new-tab') {
+        const targetUrl = data.decodedUrl || data.url || null;
+        if (!targetUrl) return;
+
+        const now = Date.now();
+        if (lastOpenTabRequest.url === targetUrl && (now - lastOpenTabRequest.ts) < 750) {
+            return;
+        }
+        lastOpenTabRequest.url = targetUrl;
+        lastOpenTabRequest.ts = now;
+
+        const openFn = window.WavesApp?.openNewTabFromServiceWorker;
+        if (typeof openFn === 'function' && targetUrl) {
+            const openerTabId = data.tabId ? parseInt(data.tabId, 10) : null;
+            openFn(targetUrl, {
+                openerTabId,
+                title: data.title || targetUrl
+            });
+        }
+        return;
+    }
+    if (data && data.type === 'page-meta') {
+        const tabs = window.WavesApp?.tabs || [];
+        const targetTabId = data.tabId ? parseInt(data.tabId, 10) : null;
+        let targetTab = null;
+
+        if (targetTabId) {
+            targetTab = tabs.find(tab => tab.id === targetTabId) || null;
+            if (targetTab && data.clientId) {
+                clientTabMap.set(data.clientId, targetTab.id);
+            }
+        }
+
+        if (!targetTab && data.clientId && clientTabMap.has(data.clientId)) {
+            const mappedId = clientTabMap.get(data.clientId);
+            targetTab = tabs.find(tab => tab.id === mappedId) || null;
+        }
+
+        if (!targetTab && data.isTopFrame && data.decodedUrl) {
+            const match = tabs.find(tab => tab.historyManager?.getCurrentUrl?.() === data.decodedUrl);
+            if (match) {
+                targetTab = match;
+                if (data.clientId) clientTabMap.set(data.clientId, match.id);
+            }
+        }
+
+        if (!targetTab && data.isTopFrame && data.decodedUrl) {
+            try {
+                const incomingHost = new URL(data.decodedUrl).host;
+                const hostMatch = tabs.find(tab => {
+                    const current = tab.historyManager?.getCurrentUrl?.();
+                    if (!current) return false;
+                    try {
+                        return new URL(current).host === incomingHost;
+                    } catch (e) {
+                        return false;
+                    }
+                });
+                if (hostMatch) {
+                    targetTab = hostMatch;
+                    if (data.clientId) clientTabMap.set(data.clientId, hostMatch.id);
+                }
+            } catch (e) {}
+        }
+
+        if (!targetTab && data.isTopFrame && tabs.length === 1) {
+            targetTab = tabs[0];
+            if (data.clientId) clientTabMap.set(data.clientId, targetTab.id);
+        }
+
+        if (!targetTab) return;
+
+        targetTab.isLoading = false;
+        hideLoading(targetTab.id);
+
+        const incomingUrl = data.url || data.href || data.decodedUrl || null;
+        if (incomingUrl && targetTab.historyManager) {
+            const currentUrl = targetTab.historyManager.getCurrentUrl();
+            if (targetTab._historyNavigating) {
+                targetTab.historyManager.replace(incomingUrl);
+                clearHistoryNavigation(targetTab, incomingUrl);
+            } else if (!currentUrl) {
+                targetTab.historyManager.push(incomingUrl);
+            } else if (currentUrl !== incomingUrl) {
+                targetTab.historyManager.push(incomingUrl);
+            } else {
+                targetTab.historyManager.replace(incomingUrl);
+            }
+        }
+
+        if (typeof data.title === 'string') {
+            if (data.title.trim() !== '') {
+                targetTab.title = data.title;
+            }
+        }
+
+        if (data.memory && typeof data.memory.usedJSHeapSize === 'number') {
+            tabMemory.set(targetTab.id, data.memory);
+        }
+
+        const faviconUrl = data.favicon ?? data.rawFavicon ?? null;
+        if (faviconUrl) {
+            const proxiedFavicon = faviconUrl.startsWith('/!!/') ? faviconUrl : getProxyUrl(faviconUrl);
+            targetTab.favicon = proxiedFavicon;
+        }
+
+        if (window.WavesApp.renderTabs) {
+            window.WavesApp.renderTabs();
+        }
+
+        if (targetTab.historyManager) {
+            updateHistoryUI(targetTab, {
+                currentUrl: targetTab.historyManager.getCurrentUrl(),
+                canGoBack: targetTab.historyManager.canGoBack(),
+                canGoForward: targetTab.historyManager.canGoForward(),
+            });
+        }
+        updateMemoryDisplay();
+        return;
+    }
     if (data && data.type === 'url-update' && data.url) {
         const activeTab = window.WavesApp.getActiveTab();
         
@@ -27,12 +186,14 @@ function handleServiceWorkerMessage(event) {
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeLayout();
+    initializeFall();
     initializeLoad();
     initializeGame();
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
     }
+    window.addEventListener('message', handleServiceWorkerMessage);
     window.WavesApp = window.WavesApp || {};
     window.WavesApp.isLoading = false;
 
@@ -55,46 +216,105 @@ document.addEventListener('DOMContentLoaded', () => {
     let newTabInputEl = document.createElement('input');
     newTabInputEl.type = 'text';
     newTabInputEl.id = 'newTabInput';
-    newTabInputEl.placeholder = 'Search or enter address';
+    newTabInputEl.placeholder = 'search or enter address';
     newTabInputEl.autocomplete = 'off';
 
-    const ZONES_URL = "https://cdn.jsdelivr.net/gh/gn-math/assets@latest/zones.json";
-    const HTML_URL = "https://cdn.jsdelivr.net/gh/gn-math/html@main";
+    const SOURCE_CONFIG = {
+        selenite: {
+            games: "https://selenite.cc/resources/games.json",
+            assets: "https://selenite.cc/resources/semag"
+        },
+        gnMath: {
+            zones: "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
+            html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
+        },
+        truffled: {
+            games: "https://truffled.lol/js/json/g.json",
+            assets: "https://truffled.lol"
+        },
+        velara: {
+            games: "https://velara.cc/json/gg.json",
+            assets: "https://velara.cc"
+        }
+    };
 
     function loadNewTabGameData() {
         if (allGames.length > 0) return Promise.resolve(allGames);
         
-        return fetch(ZONES_URL)
-            .then(res => {
-                if (!res.ok) {
-                    throw new Error(`Network response was not ok: ${res.statusText}`);
-                }
-                return res.json();
-            })
-            .then(data => {
-                const loadedGames = data
+        const source = localStorage.getItem('gameSource') || 'selenite';
+        let fetchPromise;
+
+        if (source === 'selenite') {
+            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.selenite.games}`)
+                .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+                .then(data => data.map(game => ({
+                    name: game.name,
+                    gameUrl: `${SOURCE_CONFIG.selenite.assets}/${game.directory}/`,
+                    isExternal: false
+                })));
+        } else if (source === 'truffled') {
+            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.truffled.games}`)
+                .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+                .then(data => (data.games || []).map(game => {
+                    let finalUrl = game.url.startsWith('http') ? game.url : SOURCE_CONFIG.truffled.assets + (game.url.startsWith('/') ? '' : '/') + game.url;
+                    return {
+                        name: game.name,
+                        gameUrl: finalUrl,
+                        isExternal: false
+                    };
+                }));
+        } else if (source === 'velara') {
+            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.velara.games}`)
+                .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+                .then(data => data
+                    .filter(g => g.name !== '!!DMCA' && g.name !== '!!Game Request')
+                    .map(game => {
+                        let finalUrl = game.link;
+                        if (finalUrl && !finalUrl.startsWith('http')) finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
+                        else if (game.grdmca) finalUrl = game.grdmca;
+                        
+                        return {
+                            name: game.name,
+                            gameUrl: finalUrl,
+                            isExternal: !game.link && !!game.grdmca
+                        };
+                    }));
+        } else {
+            fetchPromise = fetch(SOURCE_CONFIG.gnMath.zones)
+                .then(res => {
+                    if (!res.ok) throw new Error(`network response was not ok: ${res.statusText}`);
+                    return res.json();
+                })
+                .then(data => data
                     .map(zone => {
                         const isExternal = zone.url.startsWith('http');
                         return {
                             id: zone.id,
                             name: zone.name,
-                            gameUrl: isExternal ? zone.url : zone.url.replace("{HTML_URL}", HTML_URL),
+                            gameUrl: isExternal ? zone.url : zone.url.replace("{HTML_URL}", SOURCE_CONFIG.gnMath.html),
                             isExternal: isExternal
                         };
                     })
-                    .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'));
-                
+                    .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'))
+                );
+        }
+
+        return fetchPromise
+            .then(loadedGames => {
                 loadedGames.sort((a, b) => a.name.localeCompare(b.name));
-                
                 allGames.splice(0, allGames.length, ...loadedGames); 
                 window.WavesApp.allGames = allGames;
-                
                 return allGames;
             })
             .catch(err => {
                 console.error('Failed to load new tab game data:', err);
+                return [];
             });
     }
+
+    document.addEventListener('gameSourceUpdated', () => {
+        allGames.length = 0;
+    });
 
     const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
     if(toggleSidebarBtn) {
@@ -222,6 +442,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
+    const DEFAULT_FAVICON = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23818181" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1h-2v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>';
+
+    const applyIconSrc = (iconEl, iconContainer, nextSrc) => {
+        const safeSrc = nextSrc || DEFAULT_FAVICON;
+        iconEl.dataset.src = nextSrc || '';
+        iconContainer.classList.add('skeleton');
+
+        if (!iconEl.__wavesIconHandlersAttached) {
+            iconEl.onload = () => iconContainer.classList.remove('skeleton');
+            iconEl.onerror = () => {
+                iconContainer.classList.remove('skeleton');
+                iconEl.src = DEFAULT_FAVICON;
+                iconEl.dataset.src = '';
+            };
+            iconEl.__wavesIconHandlersAttached = true;
+        }
+
+        iconEl.src = safeSrc;
+    };
+
     function createTabElement(tab) {
         const tabEl = document.createElement('div');
         tabEl.className = 'tab';
@@ -231,19 +471,9 @@ document.addEventListener('DOMContentLoaded', () => {
         iconContainer.className = 'tab-icon';
 
         const iconEl = document.createElement('img');
-        const defaultIcon = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23818181" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1h-2v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>';
-        
-        const src = tab.favicon || defaultIcon;
-        iconEl.src = src;
-
-        if (tab.favicon) {
-            iconContainer.classList.add('skeleton');
-            iconEl.onload = () => iconContainer.classList.remove('skeleton');
-            iconEl.onerror = () => {
-                iconContainer.classList.remove('skeleton');
-                iconEl.src = defaultIcon;
-            };
-        }
+        iconEl.loading = 'eager';
+        iconEl.decoding = 'async';
+        applyIconSrc(iconEl, iconContainer, tab.favicon);
 
         iconContainer.appendChild(iconEl);
 
@@ -254,6 +484,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const closeBtn = document.createElement('button');
         closeBtn.className = 'tab-close';
         closeBtn.innerHTML = '<i class="fa-regular fa-times"></i>';
+        
+        if (tabs.length <= 1) {
+            closeBtn.style.display = 'none';
+        }
 
         tabEl.appendChild(iconContainer);
         tabEl.appendChild(titleEl);
@@ -263,13 +497,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderTabs() {
+        const existing = new Map();
+        dom.tabsContainer.childNodes.forEach(node => {
+            if (node.nodeType !== Node.ELEMENT_NODE) return;
+            const id = parseInt(node.dataset.tabId || '0', 10);
+            if (!isNaN(id)) existing.set(id, node);
+        });
+
         const fragment = document.createDocumentFragment();
-        
         const isSplitPairDefined = splitPair.left !== null && splitPair.right !== null;
         const isSplitLayoutActive = document.body.classList.contains('split-view');
 
         tabs.forEach(tab => {
-            const tabEl = createTabElement(tab);
+            let tabEl = existing.get(tab.id);
+            if (!tabEl) {
+                tabEl = createTabElement(tab);
+            } else {
+                const titleEl = tabEl.querySelector('.tab-title');
+                if (titleEl && titleEl.textContent !== tab.title) {
+                    titleEl.textContent = tab.title;
+                }
+
+                const iconEl = tabEl.querySelector('img');
+                if (iconEl) {
+                    const currentSrc = iconEl.dataset.src || '';
+                    const nextSrc = tab.favicon || '';
+                    if (currentSrc !== nextSrc) {
+                        applyIconSrc(iconEl, tabEl.querySelector('.tab-icon'), nextSrc);
+                    }
+                }
+
+                tabEl.className = 'tab';
+                tabEl.classList.remove('split-pair', 'split-pair-left', 'split-pair-right', 'active', 'split-active-left', 'split-active-right');
+            }
 
             if (isSplitPairDefined && (tab.id === splitPair.left || tab.id === splitPair.right)) {
                 tabEl.classList.add('split-pair');
@@ -288,6 +548,15 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (tab.id === activeTabId) {
                 tabEl.classList.add('active');
             }
+            
+            const closeBtn = tabEl.querySelector('.tab-close');
+            if (closeBtn) {
+                if (tabs.length <= 1) {
+                    closeBtn.style.display = 'none';
+                } else {
+                    closeBtn.style.display = '';
+                }
+            }
 
             fragment.appendChild(tabEl);
         });
@@ -298,9 +567,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.WavesApp.renderTabs = renderTabs;
 
-    function addTab(url = null, title = 'New Tab') {
+    window.WavesApp.openNewTabFromServiceWorker = (url, options = {}) => {
+        if (!url) return null;
+        const tab = addTab(url, options.title || 'fetching data...');
+        if (tab && options.openerTabId) {
+            tab.openerTabId = options.openerTabId;
+        }
+        return tab;
+    };
+
+    function addTab(url = null, title = 'new tab') {
         const newTabId = Date.now();
         const iframe = createIframe();
+        iframe.dataset.tabId = newTabId;
         const historyManager = new HistoryManager({
             onUpdate: (history) => {
                 const activeTab = getActiveTab();
@@ -321,8 +600,10 @@ document.addEventListener('DOMContentLoaded', () => {
             iframe: iframe,
             historyManager: historyManager,
             isUrlLoaded: !!url,
+            isLoading: false,
             scrollX: 0,
             scrollY: 0,
+            openerTabId: null,
             _iframeLoadHandler: null,
             _iframeFocusHandler: null
         };
@@ -415,10 +696,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         hideTabSelectionModal(); 
         
+        updateMemoryDisplay();
         return newTab;
     }
 
     function switchTab(tabId) {
+        const previousActiveId = activeTabId;
         if (isPickingSplitTab) {
             if (tabId === splitPair.left) return;
             
@@ -431,18 +714,25 @@ document.addEventListener('DOMContentLoaded', () => {
             activeTabId = tabId;
         }
 
-        const oldActiveTab = tabs.find(t => t.id !== activeTabId);
+        const oldActiveTab = tabs.find(t => t.id === previousActiveId);
         if (oldActiveTab && oldActiveTab.iframe.contentWindow) {
             try {
                 oldActiveTab.scrollX = oldActiveTab.iframe.contentWindow.scrollX;
                 oldActiveTab.scrollY = oldActiveTab.iframe.contentWindow.scrollY;
+                reduceIframeMemory(oldActiveTab.iframe);
             } catch (e) {
             }
         }
 
         const activeTab = getActiveTab();
         if (activeTab) {
-             const isSplitViewActive = splitPair.left !== null && 
+            if (dom.searchInputNav) {
+                dom.searchInputNav.placeholder = activeTab.isLoading 
+                    ? "fetching url..." 
+                    : "search or enter address";
+            }
+
+            const isSplitViewActive = splitPair.left !== null && 
                                      splitPair.right !== null && 
                                      (activeTabId === splitPair.left || activeTabId === splitPair.right);
 
@@ -451,6 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 showHomeView();
             }
+            syncRefreshButtonWithActiveTab();
             
             if (activeTab.iframe.contentWindow) {
                  try {
@@ -468,6 +759,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function closeTab(tabId) {
+        if (tabs.length <= 1) return;
+        
         const tabIndex = tabs.findIndex(tab => tab.id === tabId);
         if (tabIndex === -1) return;
 
@@ -491,6 +784,7 @@ document.addEventListener('DOMContentLoaded', () => {
             closedTab.historyManager.destroy();
             closedTab.historyManager = null;
         }
+        tabMemory.delete(tabId);
 
         const wasInSplitPair = tabId === splitPair.left || tabId === splitPair.right;
         
@@ -508,12 +802,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (tabs.length === 0) {
-            addTab(null, 'New Tab');
+            addTab(null, 'new tab');
         } else if (activeTabId === null) {
             switchTab(tabs[0].id);
         } else {
             updateIframeView();
         }
+        updateMemoryDisplay();
     }
     
     function onWindowBlur() {
@@ -599,11 +894,11 @@ document.addEventListener('DOMContentLoaded', () => {
         newTabInputEl.dataset.mode = mode;
 
         if (mode === 'newTab') {
-            newTabInputEl.placeholder = "Search or enter address";
+            newTabInputEl.placeholder = "search or enter address";
             loadNewTabGameData();
             updateNewTabResults();
         } else if (mode === 'splitSelect') {
-            newTabInputEl.placeholder = "Select a tab to split with...";
+            newTabInputEl.placeholder = "select a tab to split with...";
             updateSplitSelectResults();
         }
 
@@ -650,7 +945,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const currentSearchEngine = localStorage.getItem('searchEngine') || 'DuckDuckGo';
+        const currentSearchEngine = localStorage.getItem('searchEngine') || 'duckduckgo';
 
         newTabUnifiedWrapper.classList.add('has-results');
         newTabResultsContainer.style.display = 'block';
@@ -660,7 +955,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchEl.innerHTML = `<i class="fa-regular fa-magnifying-glass"></i> ${query} - Search with ${currentSearchEngine}`;
         searchEl.dataset.action = 'search';
         searchEl.dataset.url = query;
-        searchEl.dataset.title = 'Loading...';
+        searchEl.dataset.title = 'fetching data...';
         newTabResultsContainer.appendChild(searchEl);
         
         const filteredGames = allGames.filter(g => (g.name || '').toLowerCase().includes(lowerCaseQuery)).slice(0, 4);
@@ -668,7 +963,7 @@ document.addEventListener('DOMContentLoaded', () => {
         filteredGames.forEach(game => {
             const gameEl = document.createElement('div');
             gameEl.className = 'new-tab-result-item';
-            gameEl.innerHTML = `<i class="fa-solid fa-gamepad"></i> <span>${game.name}</span>`;
+            gameEl.innerHTML = `<i class="fa-solid fa-gamepad-modern"></i> <span>${game.name}</span>`;
             gameEl.dataset.action = 'game';
             gameEl.dataset.url = game.gameUrl;
             gameEl.dataset.title = game.name;
@@ -866,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (firstResult) {
                     firstResult.click();
                 } else {
-                    handleNewTabAction(newTabInputEl.value.trim(), 'Loading...');
+                    handleNewTabAction(newTabInputEl.value.trim(), 'fetching data...');
                 }
             } else {
                 updateNewTabResults();
@@ -893,9 +1188,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    addTab(null, 'Loading...');
+    addTab(null, 'fetching data...');
     updateIframeView();
     updateSplitButtonState();
+    updateMemoryDisplay();
 
     window.addEventListener('load', () => {
         const activeTab = getActiveTab();

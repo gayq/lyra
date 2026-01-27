@@ -16,14 +16,14 @@ export function initializeGame() {
   const homeIconClass = 'fa-solid fa-magnifying-glass';
 
   const SOURCE_CONFIG = {
+    selenite: {
+      games: "/!!/https://selenite.cc/resources/games.json",
+      assets: "https://selenite.cc/resources/semag"
+    },
     gnMath: {
       zones: "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
       covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main",
       html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
-    },
-    selenite: {
-      games: "/!!/https://selenite.cc/resources/games.json",
-      assets: "https://selenite.cc/resources/semag"
     },
     truffled: {
       games: "/!!/https://truffled.lol/js/json/g.json",
@@ -32,9 +32,6 @@ export function initializeGame() {
     velara: {
       games: "/!!/https://velara.cc/json/gg.json",
       assets: "https://velara.cc"
-    },
-    duckMath: {
-      games: "/!!/https://cdn.jsdelivr.net/gh/duckmath/duckmath.github.io@main/backup_classes.json"
     }
   };
 
@@ -51,13 +48,12 @@ export function initializeGame() {
           <div class="light-border"></div>
           <div class="light-inset-bg"></div>
           <i class="fa-regular fa-magnifying-glass games-search-icon"></i>
-          <input type="text" id="gameSearchInput" placeholder="Search games..." autocomplete="off">
+          <input type="text" id="gameSearchInput" placeholder="fetching games..." autocomplete="off">
         </div>
       </div>
       <div class="game-grid-container">
         <div class="game-grid"></div>
-        <div class="game-grid-sentinel" aria-hidden="true"></div>
-        <p class="no-results-message">Fetching games...</p>
+        <p class="no-results">--</p>
       </div>
     `;
 
@@ -68,32 +64,39 @@ export function initializeGame() {
     }
   }
 
-  const gamesTopbar = gamesPage.querySelector('.games-topbar');
   const gameGrid = gamesPage.querySelector('.game-grid');
   const gameSearchInput = gamesPage.querySelector('#gameSearchInput');
-  const noResultsEl = gamesPage.querySelector('.no-results-message');
-  const gameGridContainer = gamesPage.querySelector('.game-grid-container');
-  const gameGridSentinel = gamesPage.querySelector('.game-grid-sentinel');
+  const noResultsEl = gamesPage.querySelector('.no-results');
   const refreshBtn = gamesPage.querySelector('#games-refresh-btn');
   const gamesSearchBar = gamesPage.querySelector('.games-search-bar');
 
   attachSearchLight(gamesSearchBar);
 
+  const scrollTarget = wrapper || window;
+  
+  scrollTarget.addEventListener('scroll', () => {
+    const currentScroll = wrapper ? wrapper.scrollTop : window.scrollY;
+    
+    if (currentScroll > 10) {
+      gamesSearchBar.classList.add('is-sticky');
+    } else {
+      gamesSearchBar.classList.remove('is-sticky');
+    }
+  }, { passive: true });
+
   const DURATION = 60;
+  
   let allGames = [];
-  let currentFilteredGames = [];
-  let currentVisibleCount = 0;
   let gameDataLoaded = false;
   let gameDataPromise = null;
   let gameRendered = false;
   let gameFadeTimer = null;
   const SKELETON_COUNT = 12;
-  const MAX_VISIBLE_GAMES = 120;
-  const SCROLL_THRESHOLD = 350;
-  let loadingMoreGames = false;
-  let sentinelObserver = null;
+  
+  let savedScrollPosition = 0;
+  let cardTemplate = null;
 
-  const getSourceKey = () => localStorage.getItem('gameSource') || 'GN-Math';
+  const getSourceKey = () => localStorage.getItem('gameSource') || 'selenite';
   const getCacheKey = () => `xin_game_cache_${getSourceKey()}`;
 
   function setIconAsHome(isHome) {
@@ -124,8 +127,14 @@ export function initializeGame() {
 
   function updateGamePlaceholder() {
     if (!gameSearchInput) return;
+    
+    if (!gameDataLoaded) {
+      gameSearchInput.placeholder = `fetching games...`;
+      return;
+    }
+
     const count = allGames.length || 0;
-    gameSearchInput.placeholder = `Search through ${count} games...`;
+    gameSearchInput.placeholder = `search through ${count} games`;
     updateCountLabel(count);
   }
 
@@ -145,7 +154,7 @@ export function initializeGame() {
     card.className = 'game-card skeleton-card';
 
     const media = document.createElement('div');
-    media.className = 'game-image skeleton';
+    media.className = 'game-cover skeleton';
     card.appendChild(media);
 
     const info = document.createElement('div');
@@ -162,6 +171,8 @@ export function initializeGame() {
 
   function showSkeletonLoading() {
     if (!gameGrid) return;
+    if (gameGrid.children.length > 0 && !gameGrid.querySelector('.skeleton-card')) return;
+    
     const fragment = document.createDocumentFragment();
     gameGrid.innerHTML = '';
     for (let i = 0; i < SKELETON_COUNT; i++) {
@@ -172,9 +183,54 @@ export function initializeGame() {
     if (noResultsEl) noResultsEl.style.display = 'none';
   }
 
-  function createGameCard(game) {
+  function getCardTemplate() {
+    if (cardTemplate) return cardTemplate;
+    
     const card = document.createElement('article');
     card.className = 'game-card';
+    card.style.contentVisibility = 'auto'; 
+    card.style.containIntrinsicSize = '100px 100px'; 
+    card.style.contain = 'layout paint style';
+    
+    const media = document.createElement('div');
+    media.className = 'game-cover skeleton';
+    
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    media.appendChild(img);
+    
+    const info = document.createElement('div');
+    info.className = 'game-info';
+    
+    const title = document.createElement('h1');
+    info.appendChild(title);
+    
+    card.appendChild(media);
+    card.appendChild(info);
+    
+    cardTemplate = card;
+    return cardTemplate;
+  }
+
+  function handleImageLoad(e) {
+    const img = e.target;
+    const media = img.parentElement; 
+    if (media) media.classList.remove('skeleton');
+  }
+
+  function handleImageError(e) {
+    const img = e.target;
+    const media = img.parentElement;
+    if (media) {
+      media.classList.remove('skeleton');
+      media.classList.add('no-cover');
+    }
+  }
+
+  function createGameCard(game) {
+    const card = getCardTemplate().cloneNode(true);
+    
     card.dataset.gameUrl = game.gameUrl;
     card.dataset.isExternal = game.isExternal;
     card.dataset.gameName = game.name.toLowerCase();
@@ -182,44 +238,41 @@ export function initializeGame() {
     card.dataset.gameAuthor = (game.author || '').toLowerCase();
     card.dataset.featured = game.featured ? 'true' : 'false';
 
-    const media = document.createElement('div');
-    media.className = 'game-image skeleton';
+    const media = card.firstChild;
+    const img = media.firstChild;
+    const info = card.lastChild;
+    const title = info.firstChild;
 
-    const img = document.createElement('img');
-    img.alt = `${game.name} artwork`;
-    img.loading = 'lazy';
+    img.alt = game.name;
     img.src = game.coverUrl;
-    img.onload = () => media.classList.remove('skeleton');
-    img.onerror = () => media.classList.remove('skeleton');
-    media.appendChild(img);
+    
+    img.onload = handleImageLoad;
+    img.onerror = handleImageError;
 
-    const info = document.createElement('div');
-    info.className = 'game-info';
-
-    const title = document.createElement('h1');
     title.textContent = game.name;
-    info.appendChild(title);
-
-    card.appendChild(media);
-    card.appendChild(info);
 
     return card;
   }
 
   function renderGameCards(games) {
     if (!gameGrid) return;
-    gameGrid.innerHTML = '';
+    
     const fragment = document.createDocumentFragment();
-    games.forEach(game => fragment.appendChild(createGameCard(game)));
+    const count = games.length;
+    
+    for(let i = 0; i < count; i++) {
+        fragment.appendChild(createGameCard(games[i]));
+    }
+    
+    gameGrid.innerHTML = '';
     gameGrid.appendChild(fragment);
+    
     gameGrid.style.display = games.length ? 'grid' : 'none';
   }
 
   function renderGames() {
     if (gameRendered || !gameDataLoaded || !gameGrid) return;
-    currentFilteredGames = [...allGames];
-    currentVisibleCount = MAX_VISIBLE_GAMES;
-    renderGameCards(currentFilteredGames.slice(0, currentVisibleCount));
+    renderGameCards(allGames);
     gameRendered = true;
   }
 
@@ -227,15 +280,27 @@ export function initializeGame() {
     if (!gameDataLoaded || !gameGrid) return;
 
     const query = (gameSearchInput?.value || '').toLowerCase().trim();
+    
+    if (query) {
+        savedScrollPosition = 0;
+    }
+    
+    if (!query) {
+      if (noResultsEl) noResultsEl.style.display = 'none';
+      renderGameCards(allGames);
+      updateCountLabel(allGames.length);
+      return;
+    }
+
     const filteredGames = allGames.filter(game => {
       const matchesName = game.name.toLowerCase().includes(query);
       const matchesAuthor = (game.author || '').toLowerCase().includes(query);
-      return !query || matchesName || matchesAuthor;
+      return matchesName || matchesAuthor;
     });
 
     const resultsFound = filteredGames.length;
     if (resultsFound === 0) {
-      setStatus('Zero games match were found :(');
+      setStatus('zero games match were found :(');
       updateCountLabel(0);
       return;
     }
@@ -244,80 +309,18 @@ export function initializeGame() {
       noResultsEl.style.display = 'none';
     }
 
-    currentFilteredGames = filteredGames;
-    currentVisibleCount = MAX_VISIBLE_GAMES;
-    const visibleGames = currentFilteredGames.slice(0, currentVisibleCount);
-    renderGameCards(visibleGames);
+    renderGameCards(filteredGames);
     updateCountLabel(resultsFound);
-  }
-
-  function loadMoreGames() {
-    if (loadingMoreGames || currentFilteredGames.length <= currentVisibleCount) return;
-    loadingMoreGames = true;
-    const remaining = currentFilteredGames.length - currentVisibleCount;
-    currentVisibleCount += Math.min(MAX_VISIBLE_GAMES, remaining);
-    const visibleGames = currentFilteredGames.slice(0, currentVisibleCount);
-    renderGameCards(visibleGames);
-    requestAnimationFrame(() => {
-      loadingMoreGames = false;
-    });
-  }
-
-  function handleScroll() {
-    if (!document.body.classList.contains('games-view')) return;
-    if (!gameDataLoaded || currentFilteredGames.length <= currentVisibleCount) return;
-
-    const candidates = new Set([
-      document.scrollingElement || document.documentElement,
-      document.body,
-      wrapper,
-      gameGridContainer
-    ]);
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      const scrollTop = candidate.scrollTop || 0;
-      const scrollHeight = candidate.scrollHeight || 0;
-      const clientHeight = candidate.clientHeight || window.innerHeight;
-      if (scrollHeight <= clientHeight) continue;
-      if (scrollHeight - (scrollTop + clientHeight) <= SCROLL_THRESHOLD) {
-        loadMoreGames();
-        break;
-      }
-    }
-  }
-
-  function observeGridSentinel() {
-    if (!gameGridSentinel) return;
-    if (sentinelObserver) {
-      sentinelObserver.disconnect();
-    }
-
-    const root = gameGridContainer || null;
-    sentinelObserver = new IntersectionObserver((entries) => {
-      if (!document.body.classList.contains('games-view')) return;
-      if (!gameDataLoaded || currentFilteredGames.length <= currentVisibleCount) return;
-      if (gameGridContainer) {
-        const overflow = gameGridContainer.scrollHeight - gameGridContainer.clientHeight;
-        if (overflow <= 0) return;
-      }
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          loadMoreGames();
-        }
-      });
-    }, {
-      root,
-      rootMargin: `0px 0px ${SCROLL_THRESHOLD}px 0px`,
-      threshold: 0
-    });
-
-    sentinelObserver.observe(gameGridSentinel);
+    
+    if (wrapper) wrapper.scrollTop = 0;
   }
 
   function getGameData() {
     if (!gameDataPromise) {
       const source = getSourceKey();
       const cacheKey = getCacheKey();
+
+      updateGamePlaceholder();
 
       try {
         const cachedData = sessionStorage.getItem(cacheKey);
@@ -342,14 +345,13 @@ export function initializeGame() {
         return data;
       };
 
-      if (source === 'Selenite') {
+      if (source === 'selenite') {
         gameDataPromise = fetch(SOURCE_CONFIG.selenite.games)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
             allGames = data.map(game => ({
               id: game.directory,
               name: game.name,
-              author: 'Selenite',
               coverUrl: `/!!/${SOURCE_CONFIG.selenite.assets}/${game.directory}/${game.image}`,
               gameUrl: `${SOURCE_CONFIG.selenite.assets}/${game.directory}/`,
               isExternal: false,
@@ -357,7 +359,7 @@ export function initializeGame() {
             })).sort((a, b) => a.name.localeCompare(b.name));
             return saveToCache(allGames);
           });
-      } else if (source === 'Truffled') {
+      } else if (source === 'truffled') {
         gameDataPromise = fetch(SOURCE_CONFIG.truffled.games)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
@@ -368,7 +370,6 @@ export function initializeGame() {
               return {
                 id: game.name,
                 name: game.name,
-                author: 'Truffled',
                 coverUrl: `/!!/${finalCover}`,
                 gameUrl: finalUrl,
                 isExternal: false,
@@ -377,7 +378,7 @@ export function initializeGame() {
             }).sort((a, b) => a.name.localeCompare(b.name));
             return saveToCache(allGames);
           });
-      } else if (source === 'Velara') {
+      } else if (source === 'velara') {
         gameDataPromise = fetch(SOURCE_CONFIG.velara.games)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
@@ -391,28 +392,12 @@ export function initializeGame() {
                 return {
                   id: game.name,
                   name: game.name,
-                  author: 'Velara',
                   coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/assets/game-imgs/${game.imgpath}`,
                   gameUrl: finalUrl,
                   isExternal: !game.link && !!game.grdmca,
                   featured: false
                 };
               }).sort((a, b) => a.name.localeCompare(b.name));
-            return saveToCache(allGames);
-          });
-      } else if (source === 'DuckMath') {
-        gameDataPromise = fetch(SOURCE_CONFIG.duckMath.games)
-          .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
-          .then(data => {
-            allGames = data.map(game => ({
-              id: game.id,
-              name: game.title.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-              author: game.developer_name || 'DuckMath',
-              coverUrl: `/!!/${game.icon}`,
-              gameUrl: game.link,
-              isExternal: false,
-              featured: game.is_featured || false
-            })).sort((a, b) => a.name.localeCompare(b.name));
             return saveToCache(allGames);
           });
       } else {
@@ -450,6 +435,8 @@ export function initializeGame() {
     gameRendered = false;
     gameDataPromise = null;
     allGames = [];
+    savedScrollPosition = 0;
+    cardTemplate = null; 
     if (gameGrid) gameGrid.innerHTML = '';
     if (showMessage && noResultsEl) {
       noResultsEl.textContent = 'Refreshing games...';
@@ -473,21 +460,25 @@ export function initializeGame() {
     document.body.classList.add('games-view');
     gamesPage.classList.add('is-visible');
     gamesPage.classList.remove('is-active');
+
+    const isAlreadyRendered = gameDataLoaded && gameGrid && gameGrid.children.length > 0;
+
     requestAnimationFrame(() => {
       gamesPage.classList.add('is-active');
+      
+      if (wrapper) {
+          wrapper.scrollTop = savedScrollPosition;
+      } else {
+          window.scrollTo(0, savedScrollPosition);
+      }
     });
+    
     gamesPage.setAttribute('aria-hidden', 'false');
     setIconAsHome(true);
     localStorage.setItem('wavesUserOpenedGameMenu', 'true');
 
-    if (gameDataLoaded && gameRendered) {
-      filterAndDisplayGames();
-      return;
-    }
+    if (isAlreadyRendered) return;
 
-    if (noResultsEl) {
-      noResultsEl.textContent = 'Fetching games...';
-    }
     showSkeletonLoading();
 
     getGameData()
@@ -495,11 +486,18 @@ export function initializeGame() {
         renderGames();
         filterAndDisplayGames();
       })
-      .catch(() => setStatus('Error fetching games.'));
+      .catch(() => setStatus('error fetching games!'));
   }
 
   function hideGamesPage() {
     if (!document.body.classList.contains('games-view')) return;
+    
+    if (wrapper) {
+        savedScrollPosition = wrapper.scrollTop;
+    } else {
+        savedScrollPosition = window.scrollY || document.documentElement.scrollTop;
+    }
+
     if (gameFadeTimer) {
       clearTimeout(gameFadeTimer);
     }
@@ -510,9 +508,6 @@ export function initializeGame() {
       gamesPage.setAttribute('aria-hidden', 'true');
       setIconAsHome(false);
       if (overlay) overlay.classList.remove('show');
-      if (gameSearchInput) {
-        gameSearchInput.value = '';
-      }
       gameFadeTimer = null;
     }, DURATION);
   }
@@ -571,15 +566,7 @@ export function initializeGame() {
       }
     });
   }
-
-  const scrollTargets = new Set([window, document, wrapper, gameGridContainer]);
-  scrollTargets.forEach(target => {
-    if (!target || typeof target.addEventListener !== 'function') return;
-    target.addEventListener('scroll', handleScroll, { passive: true });
-  });
-  window.addEventListener('resize', handleScroll, { passive: true });
-  observeGridSentinel();
-
+  
   gameIcon.addEventListener('click', e => {
     e.preventDefault();
     toggleGamesPage();

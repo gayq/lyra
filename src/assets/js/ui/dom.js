@@ -4,7 +4,6 @@ export const dom = {
     notificationsMenu: document.getElementById('notifications-menu'),
     notificationsList: document.querySelector('.notifications-list'),
     notificationsStatus: document.getElementById('notifications-status'),
-    get erudaLoadingScreen() { return document.getElementById('erudaLoadingScreen'); },
     get iframeContainer() { return document.getElementById('iframe-container'); },
     get iframeResizeDivider() { return document.getElementById('iframe-resize-divider'); },
     get newTabModal() { return document.getElementById('new-tab-modal'); },
@@ -34,5 +33,6 @@ export const dom = {
     get splitViewBtn() { return document.getElementById('splitViewBtn'); },
     get notificationsBtn() { return document.getElementById('notifications'); },
     get notificationsIcon() { return document.querySelector('#notifications > i'); },
+    get memoryUsageValue() { return document.getElementById('memory-usage-value'); },
     get markAllReadBtn() { return document.getElementById('mark-all-read-btn'); }
 };

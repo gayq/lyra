@@ -15,16 +15,16 @@ const startWorker = () => {
         UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE || threadPoolSize
     };
     const worker = cluster.fork(env);
-    worker.on("online", () => console.log(`Bridge worker ${worker.process.pid} online`));
+    worker.on("online", () => console.log(`bridge worker ${worker.process.pid} online`));
     worker.on("exit", (code, signal) => {
-        console.error(`Bridge worker ${worker.process.pid} exited (${signal || code}), restarting...`);
+        console.error(`bridge worker ${worker.process.pid} exited (${signal || code}), restarting...`);
         if (shouldUseCluster) setTimeout(() => startWorker(), 500);
     });
     return worker;
 };
 
 if (shouldUseCluster) {
-    console.log(`Bridge primary starting ${workerCount} workers on port ${PORT} (threadpool ${threadPoolSize})`);
+    console.log(`bridge primary starting ${workerCount} workers on port ${PORT} (threadpool ${threadPoolSize})`);
     for (let i = 0; i < workerCount; i++) startWorker();
 } else {
     process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || threadPoolSize;
@@ -46,9 +46,9 @@ if (shouldUseCluster) {
     server.keepAliveTimeout = 30000;
     server.headersTimeout = 31000;
 
-    server.on("error", err => console.error(`Bridge error (pid ${process.pid}): ${err}`));
+    server.on("error", err => console.error(`bridge error (pid ${process.pid}): ${err}`));
 
     server.listen(PORT, () => {
-        console.log(`Bridge worker ${process.pid} listening on port ${PORT}`);
+        console.log(`bridge worker ${process.pid} listening on port ${PORT}`);
     });
 }
