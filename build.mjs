@@ -18,10 +18,11 @@ const CONFIG = {
         swSrc: "src/b",
         swDest: "dist/b"
     },
-    devFilesToRemove: [
+    filesToRemove: [
         'assets/js/core/register.js', 'assets/js/core/load.js', 'assets/js/features/settings.js',
         'assets/js/features/games.js', 'assets/js/features/shortcuts.js', 'assets/js/features/toast.js',
-        'assets/css/settings.css', 'assets/css/games.css', 'assets/css/toast.css', 'assets/css/notifications.css'
+        'assets/css/settings.css', 'assets/css/games.css', 'assets/css/toast.css', 'assets/css/notifications.css',
+        'assets/css/bookmarks.css', '/assets/css/tabs.css', '/assets/css/newtab.css'
     ],
     cssOrder: ['index.css', 'settings.css', 'games.css', 'bookmarks.css', 'newtab.css', 'tabs.css', 'notifications.css', 'toast.css'],
     obfuscation: {
@@ -187,7 +188,7 @@ async function main() {
                 }
             }
 
-            for (const file of CONFIG.devFilesToRemove) {
+            for (const file of CONFIG.filesToRemove) {
                 const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 content = content.replace(new RegExp(`<script[^>]*src=["']/?${escaped}["'][^>]*>\\s*</script>\\s*\\n?`, 'gi'), '');
                 content = content.replace(new RegExp(`<link[^>]*href=["']/?${escaped}["'][^>]*>\\s*\\n?`, 'gi'), '');

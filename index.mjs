@@ -53,7 +53,7 @@ const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src')
 const publicPath = path.join(__dirname, "public");
 
 const app = express();
-app.set("trust proxy", false);
+app.set("trust proxy", true);
 const server = createServer(app);
 
 const bridgeWss = new WebSocketServer({ 
