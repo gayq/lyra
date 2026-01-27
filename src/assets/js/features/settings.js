@@ -295,17 +295,21 @@ document.addEventListener('DOMContentLoaded', function() {
             title: 'Google',
             icon: 'https://www.google.com/favicon.ico'
         },
+        'Google Classroom': {
+            title: 'Home - Classroom',
+            icon: 'https://www.gstatic.com/classroom/logo_square_rounded.svg'
+        },
         'Google Docs': {
             title: 'Google Docs',
             icon: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon-2023q4.ico'
         },
-        'Youtube': {
-            title: 'YouTube',
-            icon: 'https://www.youtube.com/s/desktop/014dbbed/img/favicon_32x32.png'
-        },
         'Google Drive': {
             title: 'Google Drive',
             icon: 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png'
+        },
+        'Youtube': {
+            title: 'YouTube',
+            icon: 'https://www.youtube.com/s/desktop/014dbbed/img/favicon_32x32.png'
         },
         'Schoology': {
             title: 'Home | Schoology',
