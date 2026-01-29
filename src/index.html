@@ -25,15 +25,9 @@
     <meta data-react-helmet="true" property="og:type" content="website" />
     <meta data-react-helmet="true" name="description" content="Learn new job skills in online courses from industry leaders like Google, IBM, & Meta. Advance your career with top degrees from Michigan, Penn, Imperial & more." />
     <meta data-react-helmet="true" name="image" content="https://s3.amazonaws.com/coursera/media/Grid_Coursera_Partners_updated.png" />
-    <meta data-react-helmet="true" property="og:title" content="Coursera | Degrees, Certificates, & Free Online Courses" />
-    <meta data-react-helmet="true" property="og:description" content="Learn new job skills in online courses from industry leaders like Google, IBM, & Meta. Advance your career with top degrees from Michigan, Penn, Imperial & more." />
-    <meta data-react-helmet="true" property="og:image" content="https://s3.amazonaws.com/coursera/media/Grid_Coursera_Partners_updated.png" />
-    <meta data-react-helmet="true" property="twitter:title" content="Coursera | Degrees, Certificates, & Free Online Courses" />
-    <meta data-react-helmet="true" property="twitter:description" content="Learn new job skills in online courses from industry leaders like Google, IBM, & Meta. Advance your career with top degrees from Michigan, Penn, Imperial & more." />
-    <meta data-react-helmet="true" property="twitter:image:src" content="https://s3.amazonaws.com/coursera/media/Grid_Coursera_Partners_updated.png" />
-    <meta data-react-helmet="true" property="twitter:image" content="https://s3.amazonaws.com/coursera/media/Grid_Coursera_Partners_updated.png" />
-    <meta data-react-helmet="true" property="twitter:card" content="summary" />
-    <title>Coursera | Degrees, Certificates, & Free Online Courses</title>
+    <meta data-react-helmet="true" property="og:title" content="Waves | High Performance Web Proxy" />
+    <meta data-react-helmet="true" property="og:description" content="A fast, efficient, and customizable web proxy for seamless browsing." />
+    <title>Waves</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
     <link rel="icon" href="/assets/images/icons/favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="/assets/css/index.css" />
@@ -58,13 +52,20 @@
               backend = decode(encU);
             }
           } catch (e) {}
-          document.write(unescape('%3Cscript src="/b?id=1"%3E%3C/script%3E'));
+          
+          const scripts = ["/b?id=1"];
           if (backend === decode(encS)) {
-            document.write(unescape('%3Cscript src="/b?id=2"%3E%3C/script%3E'));
+            scripts.push("/b?id=2");
           } else {
-            document.write(unescape('%3Cscript src="/b?id=3"%3E%3C/script%3E'));
-            document.write(unescape('%3Cscript src="/b?id=4"%3E%3C/script%3E'));
+            scripts.push("/b?id=3", "/b?id=4");
           }
+
+          scripts.forEach(src => {
+            const s = document.createElement('script');
+            s.src = src;
+            s.async = false;
+            document.head.appendChild(s);
+          });
         })();
     </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-WGJ2192JZY"></script>

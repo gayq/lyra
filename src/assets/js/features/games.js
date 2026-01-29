@@ -319,26 +319,30 @@ export function initializeGame() {
     if (!gameDataPromise) {
       const source = getSourceKey();
       const cacheKey = getCacheKey();
+      const CACHE_TTL = 24 * 60 * 60 * 1000;
 
       updateGamePlaceholder();
 
       try {
-        const cachedData = sessionStorage.getItem(cacheKey);
-        if (cachedData) {
-          allGames = JSON.parse(cachedData);
-          gameDataLoaded = true;
-          updateGamePlaceholder();
-          return Promise.resolve(allGames);
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { data, ts } = JSON.parse(cached);
+          if (Date.now() - ts < CACHE_TTL) {
+            allGames = data;
+            gameDataLoaded = true;
+            updateGamePlaceholder();
+            return Promise.resolve(allGames);
+          }
         }
       } catch {
-        sessionStorage.removeItem(cacheKey);
+        localStorage.removeItem(cacheKey);
       }
 
       const saveToCache = (data) => {
         gameDataLoaded = true;
         updateGamePlaceholder();
         try {
-          sessionStorage.setItem(cacheKey, JSON.stringify(data));
+          localStorage.setItem(cacheKey, JSON.stringify({ data, ts: Date.now() }));
         } catch (e) {
           console.warn('Unable to cache games', e);
         }
@@ -445,7 +449,7 @@ export function initializeGame() {
       noResultsEl.style.display = 'none';
     }
     try {
-      sessionStorage.removeItem(getCacheKey());
+      localStorage.removeItem(getCacheKey());
     } catch { }
   }
 

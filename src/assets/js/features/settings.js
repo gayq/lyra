@@ -470,6 +470,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     width: 1.2em; 
                     text-align: center;
                 }
+                .ping-status {
+                    font-family: monospace;
+                    background: #181818;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    display: inline-block;
+                    margin-top: 5px;
+                    color: #00ff00;
+                }
             `;
             document.head.appendChild(style);
         }
@@ -580,6 +589,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             <p>enable support for websockets.</p>
                             <input type="text" id="wisp-server" placeholder="wisp server url here" autocomplete="off">
                             <button id="save-wisp-url">save</button>
+                        </div>
+                        <div class="settings-item">
+                            <label>connection status</label>
+                            <p>current ping to the wisp server.</p>
+                            <div class="ping-status" id="ping-status">ping: fetching...</div>
                         </div>
                     </div>
                     <div id="data-content" class="tab-content">
@@ -883,6 +897,50 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.toggleSettingsMenu();
             }
         });
+
+        setInterval(async () => {
+            const settingsMenu = document.getElementById('settings-menu');
+            const pingEl = document.getElementById('ping-status');
+            const advancedTab = document.getElementById('advanced-content');
+            
+            if (!settingsMenu || !settingsMenu.classList.contains('open') || !pingEl || !advancedTab || !advancedTab.classList.contains('active')) {
+                return;
+            }
+
+            const start = performance.now();
+            try {
+                // Using a quick WebSocket handshake to measure ping
+                const socket = new WebSocket(currentWispUrl);
+                
+                const timeout = setTimeout(() => {
+                    socket.close();
+                    pingEl.textContent = 'ping: timeout';
+                    pingEl.style.color = '#ff4444';
+                }, 2500);
+
+                socket.onopen = () => {
+                    clearTimeout(timeout);
+                    const end = performance.now();
+                    const ping = Math.round(end - start);
+                    pingEl.textContent = `ping: ${ping}ms`;
+                    
+                    if (ping < 150) pingEl.style.color = '#00ff00';
+                    else if (ping < 300) pingEl.style.color = '#ffff00';
+                    else pingEl.style.color = '#ff4444';
+                    
+                    socket.close();
+                };
+
+                socket.onerror = () => {
+                    clearTimeout(timeout);
+                    pingEl.textContent = 'ping: error';
+                    pingEl.style.color = '#ff4444';
+                };
+            } catch (e) {
+                pingEl.textContent = 'ping: failed';
+                pingEl.style.color = '#ff4444';
+            }
+        }, 3000);
 
         settingsInitialized = true;
     }
