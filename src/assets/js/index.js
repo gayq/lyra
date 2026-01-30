@@ -14,6 +14,19 @@ const clientTabMap = new Map();
 const tabMemory = new Map();
 const lastOpenTabRequest = { url: null, ts: 0 };
 
+const mDecode = (str) => {
+    if(!str) return null;
+    const key = "wb!";
+    try {
+        const d = atob(str);
+        let x = '';
+        for (let i = 0; i < d.length; i++) {
+            x += String.fromCharCode(d.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+        }
+        return decodeURIComponent(x);
+    } catch(e) { return str; }
+};
+
 function clearHistoryNavigation(tab, incomingUrl) {
     if (!tab || !tab._historyNavigating) return;
     if (!tab._historyTarget || tab._historyTarget === incomingUrl) {
@@ -72,6 +85,14 @@ function handleServiceWorkerMessage(event) {
         return;
     }
     if (data && data.type === 'page-meta') {
+        const isEncoded = !!data.encoded;
+        
+        const incomingUrl = isEncoded ? mDecode(data.url) : (data.url || data.href || data.decodedUrl || null);
+        const incomingDecodedUrl = isEncoded ? mDecode(data.decodedUrl) : (data.decodedUrl || data.url || data.href || null);
+        const incomingTitle = isEncoded ? mDecode(data.title) : (typeof data.title === 'string' ? data.title : '');
+        const incomingFavicon = isEncoded ? mDecode(data.favicon) : (data.favicon || data.rawFavicon || null);
+        const incomingRawFavicon = isEncoded ? mDecode(data.rawFavicon) : (data.rawFavicon || data.favicon || null);
+
         const tabs = window.WavesApp?.tabs || [];
         const targetTabId = data.tabId ? parseInt(data.tabId, 10) : null;
         let targetTab = null;
@@ -88,17 +109,17 @@ function handleServiceWorkerMessage(event) {
             targetTab = tabs.find(tab => tab.id === mappedId) || null;
         }
 
-        if (!targetTab && data.isTopFrame && data.decodedUrl) {
-            const match = tabs.find(tab => tab.historyManager?.getCurrentUrl?.() === data.decodedUrl);
+        if (!targetTab && data.isTopFrame && incomingDecodedUrl) {
+            const match = tabs.find(tab => tab.historyManager?.getCurrentUrl?.() === incomingDecodedUrl);
             if (match) {
                 targetTab = match;
                 if (data.clientId) clientTabMap.set(data.clientId, match.id);
             }
         }
 
-        if (!targetTab && data.isTopFrame && data.decodedUrl) {
+        if (!targetTab && data.isTopFrame && incomingDecodedUrl) {
             try {
-                const incomingHost = new URL(data.decodedUrl).host;
+                const incomingHost = new URL(incomingDecodedUrl).host;
                 const hostMatch = tabs.find(tab => {
                     const current = tab.historyManager?.getCurrentUrl?.();
                     if (!current) return false;
@@ -122,10 +143,6 @@ function handleServiceWorkerMessage(event) {
 
         if (!targetTab) return;
 
-        targetTab.isLoading = false;
-        hideLoading(targetTab.id);
-
-        const incomingUrl = data.url || data.href || data.decodedUrl || null;
         if (incomingUrl && targetTab.historyManager) {
             const currentUrl = targetTab.historyManager.getCurrentUrl();
             if (targetTab._historyNavigating) {
@@ -140,9 +157,9 @@ function handleServiceWorkerMessage(event) {
             }
         }
 
-        if (typeof data.title === 'string') {
-            if (data.title.trim() !== '') {
-                targetTab.title = data.title;
+        if (typeof incomingTitle === 'string') {
+            if (incomingTitle.trim() !== '') {
+                targetTab.title = incomingTitle;
             }
         }
 
@@ -150,7 +167,7 @@ function handleServiceWorkerMessage(event) {
             tabMemory.set(targetTab.id, data.memory);
         }
 
-        const faviconUrl = data.favicon ?? data.rawFavicon ?? null;
+        const faviconUrl = incomingFavicon ?? incomingRawFavicon ?? null;
         if (faviconUrl) {
             const proxiedFavicon = faviconUrl.startsWith('/!!/') ? faviconUrl : getProxyUrl(faviconUrl);
             targetTab.favicon = proxiedFavicon;
@@ -580,6 +597,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const newTabId = Date.now();
         const iframe = createIframe();
         iframe.dataset.tabId = newTabId;
+        iframe.name = newTabId.toString();
+
         const historyManager = new HistoryManager({
             onUpdate: (history) => {
                 const activeTab = getActiveTab();
