@@ -72,7 +72,8 @@ self.addEventListener('message', (event) => {
             isTopFrame: !!data.isTopFrame,
             memory: data.memory || null,
             clientId: event.source && 'id' in event.source ? event.source.id : null,
-            collectedAt: Date.now()
+            collectedAt: Date.now(),
+            encoded: !!data.encoded
         };
 
         const sourceId = event.source && 'id' in event.source ? event.source.id : null;
@@ -146,7 +147,7 @@ const getBridgeBase = () => {
     return originBase || devBase;
 };
 
-const IFRAME_META_SCRIPT = `
+const META_SCRIPT = `
 <script>
 (function(){
   const BRIDGE_PREFIX='${BRIDGE_PREFIX}';
@@ -155,6 +156,20 @@ const IFRAME_META_SCRIPT = `
   const isUltraviolet=${isUltraviolet ? 'true' : 'false'};
 
   const isTopFrame=(function(){try{return window.top===window;}catch(e){return false;}})();
+  
+  const mEncode = (str) => {
+      if(!str) return '';
+      const key = "wb!";
+      try {
+          const e = encodeURIComponent(str);
+          let x = '';
+          for (let i = 0; i < e.length; i++) {
+              x += String.fromCharCode(e.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+          }
+          return btoa(x);
+      } catch(e) { return str; }
+  };
+
   const decodeProxiedUrl=(href)=>{
     if(!href) return href;
     try{
@@ -194,7 +209,15 @@ const IFRAME_META_SCRIPT = `
     }catch(e){ return null; }
   };
 
-  const tabId=(function(){ try{return window.frameElement && window.frameElement.dataset ? window.frameElement.dataset.tabId || null : null;}catch(e){return null;}})();
+  const tabId=(function(){ 
+      try {
+          if (window.name && !isNaN(parseInt(window.name, 10))) {
+              return window.name;
+          }
+          return window.frameElement && window.frameElement.dataset ? window.frameElement.dataset.tabId || null : null;
+      } catch(e) { return null; }
+  })();
+
   let lastUrl=null;
   let lastTitle=null;
   let lastFavicon=null;
@@ -268,21 +291,25 @@ const IFRAME_META_SCRIPT = `
       const decodedFavicon=rawFavicon ? decodeProxiedUrl(rawFavicon) : null;
       const memorySnap=await getMemorySnapshot();
       const memoryUsed=memorySnap && typeof memorySnap.usedJSHeapSize==='number' ? memorySnap.usedJSHeapSize : null;
+      
       if(url===lastUrl && title===lastTitle && rawFavicon===lastFavicon && memoryUsed===lastMemoryUsed) return;
+      
       lastUrl=url;
       lastTitle=title;
       lastFavicon=rawFavicon;
       lastMemoryUsed=memoryUsed;
+      
       controller.postMessage({
         type:'page-meta',
-        url:url,
-        decodedUrl:decodeProxiedUrl(url),
-        title:title,
-        favicon: decodedFavicon || rawFavicon || null,
-        rawFavicon: rawFavicon || null,
+        url: mEncode(url),
+        decodedUrl: mEncode(decodeProxiedUrl(url)),
+        title: mEncode(title),
+        favicon: mEncode(decodedFavicon || rawFavicon || null),
+        rawFavicon: mEncode(rawFavicon || null),
         memory: memorySnap,
         tabId:tabId,
-        isTopFrame:isTopFrame
+        isTopFrame:isTopFrame,
+        encoded: true
       });
     }catch(e){}
   };
@@ -307,9 +334,24 @@ const IFRAME_META_SCRIPT = `
   const watchTitle=()=>{
     try{
       const titleEl=document.querySelector('title');
-      if(!titleEl) return;
-      const observer=new MutationObserver(()=>postMeta());
-      observer.observe(titleEl,{childList:true,subtree:true,characterData:true});
+      if(titleEl) {
+        const observer=new MutationObserver(()=>postMeta());
+        observer.observe(titleEl,{childList:true,subtree:true,characterData:true});
+      }
+      
+      const head=document.head || document.documentElement;
+      if(head) {
+        const headObserver = new MutationObserver((mutations) => {
+            postMeta();
+            const newTitle = document.querySelector('title');
+            if(newTitle && !newTitle._wavesObserved) {
+                newTitle._wavesObserved = true;
+                const titleObs = new MutationObserver(()=>postMeta());
+                titleObs.observe(newTitle,{childList:true,subtree:true,characterData:true});
+            }
+        });
+        headObserver.observe(head, {childList:true, subtree:true, attributes: false});
+      }
     }catch(e){}
   };
 
@@ -341,13 +383,15 @@ const IFRAME_META_SCRIPT = `
   window.addEventListener('hashchange', postMeta);
   window.addEventListener('load', postMeta);
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrapMetaTracking);
-  } else {
-    bootstrapMetaTracking();
-  }
+  bootstrapMetaTracking();
+  
+  let burstCount = 0;
+  const burst = setInterval(() => {
+    postMeta();
+    burstCount++;
+    if(burstCount > 50) clearInterval(burst);
+  }, 100);
 
-  postMeta();
   setInterval(postMeta, 1000);
 
   const isHttpLikeUrl=(candidate)=>{
@@ -399,23 +443,23 @@ const IFRAME_META_SCRIPT = `
     };
 
     try{
-      if(navigator.serviceWorker){
-        if(navigator.serviceWorker.controller){
-          postToController(navigator.serviceWorker.controller);
-        }else if(navigator.serviceWorker.ready){
-          navigator.serviceWorker.ready.then(reg=>{
-            const controller=reg.active||navigator.serviceWorker.controller;
-            postToController(controller);
-          }).catch(()=>{});
-        }
+      if(window.top && window.top!==window && typeof window.top.postMessage==='function'){
+        window.top.postMessage(payload,'*');
+        posted=true;
       }
     }catch(e){}
 
     if(!posted){
       try{
-        if(window.top && window.top!==window && typeof window.top.postMessage==='function'){
-          window.top.postMessage(payload,'*');
-          posted=true;
+        if(navigator.serviceWorker){
+          if(navigator.serviceWorker.controller){
+            postToController(navigator.serviceWorker.controller);
+          }else if(navigator.serviceWorker.ready){
+            navigator.serviceWorker.ready.then(reg=>{
+              const controller=reg.active||navigator.serviceWorker.controller;
+              postToController(controller);
+            }).catch(()=>{});
+          }
         }
       }catch(e){}
     }
@@ -676,26 +720,43 @@ async function maybeHandleDownloadThroughBridge(request, url, proxyResponse) {
 
 async function handleProxyResponse(response) {
     const contentType = response.headers.get('content-type') || '';
-    let isHtml = contentType.includes('text/html');
+    if (!contentType.includes('text/html')) return response;
+    if (!response.body) return response;
+    const scripts = TURN_SCRIPT + META_SCRIPT;
+    const textDecoder = new TextDecoderStream();
+    const textEncoder = new TextEncoderStream();
+    
+    let injected = false;
+    
+    const transformStream = new TransformStream({
+        transform(chunk, controller) {
+            
+            if (injected) {
+                controller.enqueue(chunk);
+                return;
+            }
+            
+            const headRegex = /<head[^>]*>/i;
+            const match = headRegex.exec(chunk);
+            
+            if (match) {
+                const idx = match.index + match[0].length;
+                const newChunk = chunk.slice(0, idx) + scripts + chunk.slice(idx);
+                controller.enqueue(newChunk);
+                injected = true;
+            } else {
+                controller.enqueue(scripts + chunk);
+                injected = true;
+            }
+        }
+    });
 
-    if (!isHtml && !contentType) {
-        try {
-            const preview = await response.clone().text();
-            isHtml = /<html[^>]*>/i.test(preview) || /<!doctype html>/i.test(preview);
-        } catch (e) {}
-    }
+    const newBody = response.body
+        .pipeThrough(textDecoder)
+        .pipeThrough(transformStream)
+        .pipeThrough(textEncoder);
 
-    if (!isHtml) return response;
-
-    let text = await response.text();
-    const headPattern = /<head[^>]*>/i;
-    if (headPattern.test(text)) {
-        text = text.replace(headPattern, (match) => match + TURN_SCRIPT + IFRAME_META_SCRIPT);
-    } else {
-        text = TURN_SCRIPT + IFRAME_META_SCRIPT + text;
-    }
-
-    return new Response(text, {
+    return new Response(newBody, {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers
