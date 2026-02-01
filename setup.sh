@@ -336,4 +336,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "done! your Waves instance is now all setup and ready to be used!!!!"
+echo "done! your waves instance is now all setup and ready to be used!!!!"
