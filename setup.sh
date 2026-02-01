@@ -152,6 +152,11 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
+
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
 }
 
 :443 {
@@ -336,4 +341,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "done! your waves instance is now all setup and ready to be used!!!!"
+echo "done! your Waves instance is now all setup and ready to be used!!!!"
