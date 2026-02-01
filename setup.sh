@@ -55,8 +55,6 @@ if ! command -v node; then
   sudo apt-get install -y nodejs
 fi
 
-sudo rm -f /usr/local/bin/wireproxy /etc/wireproxy/wireproxy.conf
-rm -f wireproxy.tar.gz
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
@@ -83,6 +81,7 @@ vm.swappiness = 10
 vm.vfs_cache_pressure = 50
 EOF
 sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
+
 if ! grep -q "^\* soft nofile" /etc/security/limits.conf; then
   echo "* soft nofile 1048576" | sudo tee -a /etc/security/limits.conf
 fi
@@ -123,7 +122,15 @@ sudo systemctl restart coturn
 cd "$HOME/waves"
 export PATH="$HOME/.bun/bin:$PATH"
 export IP="$PUBLIC_IP"
+
 bun install
+
+if [ -d "mochi" ]; then
+    cd mochi
+    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+    cd ..
+fi
+
 bun run build
 
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
@@ -271,7 +278,7 @@ module.exports = {
       max_memory_restart: "150M"
     },
     {
-      name: "waves-ui",
+      name: "waves",
       script: "./index.mjs",
       exec_mode: "fork",
       instances: 1,
@@ -284,18 +291,16 @@ module.exports = {
       }
     },
     {
-      name: "waves-bridge",
-      script: "./bridge-server.mjs", 
-      exec_mode: "cluster",
-      instances: "max", 
+      name: "mochi",
+      script: "./mochi/target/release/mochi", 
+      interpreter: "none", 
+      exec_mode: "fork",
+      instances: 1, 
       autorestart: true,
-      max_memory_restart: "6G", 
-      exp_backoff_restart_delay: 100,
-      node_args: "--max-old-space-size=6144 --turbo-fast-api-calls --no-warnings --max-http-header-size=32768",
+      max_memory_restart: "1G", 
       env: {
-        NODE_ENV: "production",
-        BRIDGE_PORT: "4000", 
-        UV_THREADPOOL_SIZE: "128"
+        RUST_LOG: "info",
+        MOCHI_PORT: "4000"
       }
     },
     {
@@ -331,4 +336,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "Done! Your Waves instance is now all setup and ready to be used!!!!"
+echo "done! your Waves instance is now all setup and ready to be used!!!!"

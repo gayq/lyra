@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { createServer } from "http";
+import { createServer, request } from "http";
 import express from "express";
 import compression from "compression";
 import helmet from "helmet";
@@ -12,8 +12,6 @@ import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
 import rateLimit from "express-rate-limit";
-import { bridgeHandler } from "./bridge.mjs";
-import { WebSocketServer, WebSocket } from "ws";
 
 process.env.UV_THREADPOOL_SIZE = 128;
 
@@ -56,13 +54,6 @@ const app = express();
 app.set("trust proxy", true);
 const server = createServer(app);
 
-const bridgeWss = new WebSocketServer({ 
-    noServer: true,
-    handleProtocols: (protocols) => {
-        return protocols.size > 0 ? [...protocols][0] : null;
-    }
-});
-
 const pageCache = new LRUCache({ max: 5000, ttl: 1000 * 60 * 15 });
 
 app.use(helmet({
@@ -71,12 +62,37 @@ app.use(helmet({
   frameguard: false
 }));
 
+app.use((req, res, next) => {
+    if (NODE_ENV === 'development' && req.url.startsWith('/!!/')) {
+        const options = {
+            hostname: '127.0.0.1',
+            port: 4000,
+            path: req.url, 
+            method: req.method,
+            headers: req.headers,
+        };
+        
+        const proxyReq = request(options, (proxyRes) => {
+            res.writeHead(proxyRes.statusCode, proxyRes.headers);
+            proxyRes.pipe(res);
+        });
+
+        proxyReq.on('error', (e) => {
+            console.error(`forwarding failed: ${e.message}`);
+            if (!res.headersSent) res.status(502).send("make sure mochi is running!");
+        });
+
+        req.pipe(proxyReq);
+    } else {
+        next();
+    }
+});
+
 app.use('/api/', apiLimiter);
 
 app.use(compression({
   filter: (req, res) => {
     if (req.headers['x-no-compression']) return false;
-    if (req.path.includes('/!!/')) return false; 
     return compression.filter(req, res);
   },
   level: 6,
@@ -84,12 +100,7 @@ app.use(compression({
 }));
 
 app.use((req, res, next) => {
-  if (req.path.endsWith(".wasm")) res.setHeader("Content-Type", "application/wasm");
-  next();
-});
-
-app.use((req, res, next) => {
-  if (req.path.startsWith("/api/") || req.originalUrl.includes("/!!/")) return next();
+  if (req.path.startsWith("/api/") || req.url.startsWith("/!!/")) return next();
   const key = req.originalUrl;
   const val = pageCache.get(key);
   if (val) {
@@ -142,11 +153,6 @@ app.get("/api/notifications", (_req, res) => {
   res.json(cachedNotifications);
 });
 
-if (NODE_ENV === 'development') {
-  console.log("mounting bridge on /!!/");
-  app.use(/^\/!!\/(.*)/, bridgeHandler);
-}
-
 app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
 app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
 
@@ -154,66 +160,29 @@ server.on("upgrade", (req, sock, head) => {
   if (req.url.startsWith("/w/")) {
     sock.setNoDelay(true);
     wisp.routeRequest(req, sock, head);
-  } else if (req.url.includes("/!!/ws/")) {
-    bridgeWss.handleUpgrade(req, sock, head, (ws) => {
-      const targetEncoded = req.url.split("/!!/ws/")[1];
-      if (!targetEncoded) return ws.close();
+  } else if (NODE_ENV === 'development' && req.url.startsWith("/!!/")) {
+      const proxyReq = request({
+          hostname: '127.0.0.1',
+          port: 4000,
+          path: req.url,
+          method: 'GET',
+          headers: req.headers
+      });
       
-      let targetUrl;
-      try {
-        targetUrl = decodeURIComponent(targetEncoded);
-        if (!targetUrl.startsWith('wss://') && !targetUrl.startsWith('ws://')) {
-            targetUrl = 'wss://' + targetUrl;
-        }
-      } catch(e) { return ws.close(); }
-
-      let protocols = req.headers['sec-websocket-protocol'];
-      const targetOrigin = new URL(targetUrl).origin;
-      const targetHost = new URL(targetUrl).host;
-
-      const wsOptions = {
-          headers: { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Origin': targetOrigin,
-            'Host': targetHost
-          },
-          rejectUnauthorized: false
-      };
+      proxyReq.on('upgrade', (proxyRes, proxySock, proxyHead) => {
+          if (head && head.length) proxySock.unshift(head);
+          
+          sock.write(
+              `HTTP/${proxyRes.httpVersion} ${proxyRes.statusCode} ${proxyRes.statusMessage}\r\n` +
+              Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') +
+              '\r\n\r\n'
+          );
+          
+          sock.pipe(proxySock).pipe(sock);
+      });
       
-      if (protocols) {
-          if (Array.isArray(protocols)) {
-              protocols = protocols.filter(p => p && p !== 'null' && p !== 'undefined');
-              if (protocols.length > 0) wsOptions.protocol = protocols.join(',');
-          } else if (typeof protocols === 'string' && protocols !== 'null' && protocols !== 'undefined') {
-              wsOptions.protocol = protocols;
-          }
-      }
-
-      const remote = new WebSocket(targetUrl, wsOptions);
-
-      remote.on('error', (e) => {
-          if (ws.readyState === WebSocket.OPEN) ws.close();
-      });
-      ws.on('error', (e) => {
-          if (remote.readyState === WebSocket.OPEN) remote.close();
-      });
-
-      remote.on('open', () => {
-          ws.on('message', (data, isBinary) => {
-             if (remote.readyState === WebSocket.OPEN) remote.send(data, { binary: isBinary });
-          });
-          remote.on('message', (data, isBinary) => {
-             if (ws.readyState === WebSocket.OPEN) ws.send(data, { binary: isBinary });
-          });
-      });
-
-      remote.on('close', () => {
-          if (ws.readyState === WebSocket.OPEN) ws.close();
-      });
-      ws.on('close', () => {
-          if (remote.readyState === WebSocket.OPEN) remote.close();
-      });
-    });
+      proxyReq.on('error', () => sock.destroy());
+      proxyReq.end();
   } else {
     sock.destroy();
   }
@@ -223,5 +192,5 @@ server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;
 
 server.listen(PORT, () => {
-  console.log(`server listening on port ${PORT}`);
+  console.log(`server listening on ${PORT}!!!!`);
 });

@@ -1,0 +1,23 @@
+[package]
+name = "mochi"
+version = "0.7.0"
+edition = "2021"
+
+[dependencies]
+mimalloc = { version = "0.1", default-features = false }
+axum = { version = "0.7", features = ["http2"] }
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "socks", "http2", "hickory-dns"] }
+lol_html = "1.0"
+moka = { version = "0.12", features = ["future"] }
+aho-corasick = "1.1"
+serde = "1.0"
+serde_json = "1.0"
+url = "2.5"
+regex = "1.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1.5"
+tower-http = { version = "0.5", features = ["cors", "compression-full", "set-header"] }
+futures = "0.3"

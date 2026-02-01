@@ -94,7 +94,7 @@
   {
     "id": 6,
     "title": "v3.4.5 release!!",
-    "message": "Bunch bug fixes, new stuff, and improvements!",
+    "message": "Bunch of bug fixes, new stuff, and improvements!",
     "date": "2026-01-27T01:24:28.287Z",
     "isNew": true,
     "type": "Update",
@@ -110,5 +110,20 @@
       "Fixed Eruda being blocked."
     ],
     "endMessage": "There's more stuff but I forgot some of them. Join the Discord server for more links!"
+  },
+  {
+    "id": 7,
+    "title": "v3.5.0 release!!",
+    "message": "A LOTtttt of improvements and bug fixes!",
+    "date": "2026-02-01T01:54:43.138Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Rewrote Bridge to Rust.",
+      "Improved the whole website in general speed.",
+      "Renamed Bridge to Mochi.",
+      "Fixed some bugs."
+    ],
+    "endMessage": "There was some more stuff but I forgot about them. Also join the Discord server!"
   }
 ]

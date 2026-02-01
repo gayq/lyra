@@ -26,7 +26,7 @@
   z-index: 999999;
   display: flex;
   flex-direction: column;
-  background-color: #080808; 
+  background-color: #050505; 
   border-radius: 20px; 
   opacity: 0;
   transform: translate(-50%, -50%) scale(0.9);
@@ -216,8 +216,6 @@
     bottom: 8px; 
     left: 15px;
     z-index: 1;
-    font-family: "Cascadia Code", Consolas;
-    font-weight: 400;
 }
 
 .icon-btn i.has-new-notifications {

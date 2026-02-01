@@ -20,7 +20,7 @@ const isScramjet = scope.endsWith('/b/s/');
 const isUltraviolet = scope.endsWith('/b/u/hi/');
 const UV_PREFIX = '/b/u/hi/';
 const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
-const BRIDGE_PREFIX = '/!!/';
+const MOCHI_PREFIX = '/!!/';
 const DOWNLOAD_EXTENSIONS = new Set([
     '.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz',
     '.exe', '.msi', '.apk', '.dmg', '.deb', '.rpm',
@@ -32,12 +32,12 @@ let scramjet;
 let uv;
 let scramjetConfigLoaded = false;
 
-self.__BRIDGE_BASE__ = self.__BRIDGE_BASE__ || self.BRIDGE_BASE || null;
+self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;
 
 self.addEventListener('message', (event) => {
     const data = event?.data;
-    if (data && data.type === 'bridge-base' && typeof data.base === 'string' && data.base.startsWith('http')) {
-        self.__BRIDGE_BASE__ = data.base.replace(/\/+$/, '') + '/';
+    if (data && data.type === 'mochi-base' && typeof data.base === 'string' && data.base.startsWith('http')) {
+        self.__MOCHI_BASE__ = data.base.replace(/\/+$/, '') + '/';
     }
     if (data && data.type === 'open-new-tab' && data.url) {
         const sanitizedUrl = typeof data.url === 'string' ? data.url : null;
@@ -138,19 +138,19 @@ const TURN_SCRIPT = `
 </script>
 `;
 
-const getBridgeBase = () => {
-    if (self.__BRIDGE_BASE__ && self.__BRIDGE_BASE__.startsWith('http')) return self.__BRIDGE_BASE__.replace(/\/+$/, '') + '/!!/';
-    if (self.BRIDGE_BASE && self.BRIDGE_BASE.startsWith('http')) return self.BRIDGE_BASE.replace(/\/+$/, '') + '/!!/';
+const getMochiBase = () => {
+    if (self.__MOCHI_BASE__ && self.__MOCHI_BASE__.startsWith('http')) return self.__MOCHI_BASE__.replace(/\/+$/, '') + '/!!/';
+    if (self.MOCHI_BASE && self.MOCHI_BASE.startsWith('http')) return self.MOCHI_BASE.replace(/\/+$/, '') + '/!!/';
     const loc = self.location;
-    const originBase = `${loc.origin}${BRIDGE_PREFIX}`;
-    const devBase = `${loc.protocol}//${loc.hostname}:4000${BRIDGE_PREFIX}`;
+    const originBase = `${loc.origin}${MOCHI_PREFIX}`;
+    const devBase = `${loc.protocol}//${loc.hostname}:4000${MOCHI_PREFIX}`;
     return originBase || devBase;
 };
 
 const META_SCRIPT = `
 <script>
 (function(){
-  const BRIDGE_PREFIX='${BRIDGE_PREFIX}';
+  const MOCHI_PREFIX='$MOCHI_PREFIX}';
   const UV_PREFIX='${UV_PREFIX}';
   const isScramjet=${isScramjet ? 'true' : 'false'};
   const isUltraviolet=${isUltraviolet ? 'true' : 'false'};
@@ -174,8 +174,8 @@ const META_SCRIPT = `
     if(!href) return href;
     try{
       const u=new URL(href, window.location.origin);
-      if(u.pathname.startsWith(BRIDGE_PREFIX)){
-        return u.pathname.slice(BRIDGE_PREFIX.length)+u.search+u.hash;
+      if(u.pathname.startsWith(MOCHI_PREFIX)){
+        return u.pathname.slice(MOCHI_PREFIX.length)+u.search+u.hash;
       }
       if(isScramjet && u.pathname.startsWith('/b/s/')){
         const raw=u.pathname.slice(5)+u.search+u.hash;
@@ -413,7 +413,7 @@ const META_SCRIPT = `
       absoluteUrl=rawUrl;
     }
 
-    if(absoluteUrl.startsWith(self.location.origin) && !absoluteUrl.includes(BRIDGE_PREFIX) && !absoluteUrl.includes('/b/s/') && !absoluteUrl.includes('/b/u/')) {
+    if(absoluteUrl.startsWith(self.location.origin) && !absoluteUrl.includes(MOCHI_PREFIX) && !absoluteUrl.includes('/b/s/') && !absoluteUrl.includes('/b/u/')) {
       try{
         const baseReal = decodeProxiedUrl(window.location.href) || window.location.href;
         const realResolved = new URL(rawUrl, baseReal).href;
@@ -567,7 +567,7 @@ const isFaviconUrl = (candidate) => {
 
 function resolveRealUrl(url) {
     if (!url) return null;
-    if (url.pathname.startsWith(BRIDGE_PREFIX)) return null;
+    if (url.pathname.startsWith(MOCHI_PREFIX)) return null;
 
     if (url.origin !== self.location.origin) {
         try {
@@ -653,7 +653,7 @@ function shouldBypassProxyForDownload(request, response, realUrl) {
     return false;
 }
 
-function shouldBridgeEarly(request, realUrl) {
+function shouldMochiEarly(request, realUrl) {
     if (!realUrl || !realUrl.startsWith('http')) return false;
     if (request.method !== 'GET' && request.method !== 'HEAD') return false;
 
@@ -671,7 +671,7 @@ function shouldBridgeEarly(request, realUrl) {
     return false;
 }
 
-async function fetchThroughBridge(request, realUrl) {
+async function fetchThroughMochi(request, realUrl) {
     const headers = new Headers(request.headers);
     headers.delete('host');
     headers.delete('origin');
@@ -691,13 +691,13 @@ async function fetchThroughBridge(request, realUrl) {
         } catch (e) {}
     }
 
-    const base = getBridgeBase();
+    const base = getMochieBase();
     const normalized = base.endsWith('/') ? base : base + '/';
-    const target = realUrl.startsWith('http') ? `${normalized}${realUrl}` : `${BRIDGE_PREFIX}${realUrl}`;
+    const target = realUrl.startsWith('http') ? `${normalized}${realUrl}` : `${MOCHI_PREFIX}${realUrl}`;
     return fetch(target, init);
 }
 
-async function maybeHandleDownloadThroughBridge(request, url, proxyResponse) {
+async function maybeHandleDownloadThroughMochi(request, url, proxyResponse) {
     const realUrl = resolveRealUrl(url);
     if (!realUrl) return proxyResponse;
     if (!isFaviconUrl(realUrl)) return proxyResponse;
@@ -711,8 +711,8 @@ async function maybeHandleDownloadThroughBridge(request, url, proxyResponse) {
     } catch (e) {}
 
     try {
-        const bridged = await fetchThroughBridge(request, realUrl);
-        if (bridged) return bridged;
+        const mochied = await fetchThroughMochi(request, realUrl);
+        if (mochied) return mochied;
     } catch (e) {
         return proxyResponse;
     }
@@ -775,7 +775,7 @@ self.addEventListener("fetch", (event) => {
     const { request } = event;
     const url = new URL(request.url);
     const realUrl = resolveRealUrl(url);
-    const allowBridge = isFaviconUrl(realUrl || url);
+    const allowMochi = isFaviconUrl(realUrl || url);
     const realOrigin = (() => {
         try {
             return realUrl ? new URL(realUrl).origin : null;
@@ -786,34 +786,34 @@ self.addEventListener("fetch", (event) => {
 
     event.respondWith((async () => {
         try {
-            if (realUrl && realUrl.includes(BRIDGE_PREFIX)) {
+            if (realUrl && realUrl.includes(MOCHI_PREFIX)) {
                 try {
-                    const parts = realUrl.split(BRIDGE_PREFIX);
+                    const parts = realUrl.split(MOCHI_PREFIX);
                     const target = parts[parts.length - 1]; 
                     if (target) {
-                        const bridged = await fetchThroughBridge(request, target);
-                        if (bridged) return bridged;
+                        const mochied = await fetchThroughMochi(request, target);
+                        if (mochied) return mochied;
                     }
                 } catch (e) {}
             }
 
-            if (allowBridge && realUrl && shouldBridgeEarly(request, realUrl)) {
+            if (allowMochi && realUrl && shouldMochiEarly(request, realUrl)) {
                 try {
-                    const bridged = await fetchThroughBridge(request, realUrl);
-                    if (bridged) return bridged;
+                    const mochied = await fetchThroughMochi(request, realUrl);
+                    if (mochied) return mochied;
                 } catch (e) {}
             }
 
             if (isScramjet && realUrl && realOrigin && realOrigin === self.location.origin) {
                 try {
-                    const bridged = await fetchThroughBridge(request, realUrl);
-                    if (bridged) return bridged;
+                    const mochied = await fetchThroughMochi(request, realUrl);
+                    if (mochied) return mochied;
                 } catch (e) {}
             }
 
-            if (allowBridge && request.method === 'GET' && STATIC_ASSET_REGEX.test(url.pathname)) {
+            if (allowMochi && request.method === 'GET' && STATIC_ASSET_REGEX.test(url.pathname)) {
                 if (realUrl && realUrl.startsWith('http')) {
-                    const proxyUrl = `${BRIDGE_PREFIX}${realUrl}`;
+                    const proxyUrl = `${MOCHI_PREFIX}${realUrl}`;
 
                     const cache = await caches.open(CACHE_NAME);
                     const cachedRes = await cache.match(proxyUrl);
@@ -846,13 +846,13 @@ self.addEventListener("fetch", (event) => {
                 if (scramjet.route(event)) {
                     try {
                         const response = await scramjet.fetch(event);
-                        const finalResponse = await maybeHandleDownloadThroughBridge(request, url, response);
+                        const finalResponse = await maybeHandleDownloadThroughMochi(request, url, response);
                         return handleProxyResponse(finalResponse);
                     } catch (e) {
                         if (realUrl) {
                             try {
-                                const bridged = await fetchThroughBridge(request, realUrl);
-                                if (bridged) return bridged;
+                                const mochied = await fetchThroughMochi(request, realUrl);
+                                if (mochied) return mochied;
                             } catch (err) {}
                         }
                         throw e;
@@ -863,7 +863,7 @@ self.addEventListener("fetch", (event) => {
             if (isUltraviolet) {
                 if (uv.route(event)) {
                     const response = await uv.fetch(event);
-                    const finalResponse = await maybeHandleDownloadThroughBridge(request, url, response);
+                    const finalResponse = await maybeHandleDownloadThroughMochi(request, url, response);
                     return handleProxyResponse(finalResponse);
                 }
             }
