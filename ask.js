@@ -31,7 +31,7 @@ Bun.serve({
 
       if (isBlacklisted) {
         console.log(`rejected: ${domain}`);
-        return new Response('no!!', { status: 403 });
+        return new Response('no!!', { status: 410 });
       }
 
       console.log(`allowed: ${domain}`);
