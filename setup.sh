@@ -171,6 +171,13 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         header Upgrade websocket
     }
 
+    @origin_mismatch {
+        path /w/*
+        header Origin *
+        not header_regexp Origin (?i)^https?://{host}(:\d+)?$
+    }
+    abort @origin_mismatch
+
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
