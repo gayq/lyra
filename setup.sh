@@ -152,14 +152,15 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
+}
+
+:443 {
 
     log {
         output file /var/log/caddy/access.log
         format json
     }
-}
-
-:443 {
+    
     tls {
         on_demand
     }
