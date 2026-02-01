@@ -174,7 +174,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @origin_mismatch {
         path /w/*
         header Origin *
-        not header_regexp Origin (?i)^https?://{host}(:\d+)?$
+        expression !{header.Origin}.startsWith("https://" + {host})
     }
     abort @origin_mismatch
 
