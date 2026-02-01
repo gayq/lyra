@@ -1,4 +1,4 @@
-const BLACKLISTED_PATTERNS = ['.nip.io', '.sslip.io'];
+const BLACKLISTED_PATTERNS = ['.nip.io', '.sslip.io', '.securley.cloud'];
 const PORT = 3001;
 
 console.log(`starting on port ${PORT}`);
