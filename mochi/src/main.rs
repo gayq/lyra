@@ -43,7 +43,8 @@ struct CachedResponse {
     body: Bytes,
 }
 
-const MAX_CACHE_SIZE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const TOTAL_CACHE_CAPACITY: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_SINGLE_FILE_CACHE: usize = 100 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -52,7 +53,7 @@ async fn main() {
         .init();
 
     let cache = Cache::builder()
-        .max_capacity(MAX_CACHE_SIZE_BYTES)
+        .max_capacity(TOTAL_CACHE_CAPACITY)
         .weigher(|_k, v: &Arc<CachedResponse>| (v.body.len() as u32) + 1024)
         .time_to_live(Duration::from_secs(20 * 60))
         .build();
@@ -226,14 +227,9 @@ async fn proxy_handler(
         let mut stream = upstream_res.bytes_stream();
         tokio::spawn(async move {
             while let Some(chunk_result) = stream.next().await {
-                match chunk_result {
-                    Ok(chunk) => {
-                        if tx_in.send(chunk).await.is_err() {
-                            break;
-                        }
-                    },
-                    Err(_) => break,
-                }
+                if let Ok(chunk) = chunk_result {
+                    if tx_in.send(chunk).await.is_err() { break; }
+                } else { break; }
             }
         });
 
@@ -287,9 +283,7 @@ async fn proxy_handler(
             });
 
             while let Some(chunk) = rx_in.blocking_recv() {
-                if rewriter.write(&chunk).is_err() {
-                    break;
-                }
+                if rewriter.write(&chunk).is_err() { break; }
             }
             let _ = rewriter.end();
         });
@@ -302,28 +296,57 @@ async fn proxy_handler(
     }
 
     let is_game_file = is_game_asset(&target_url_string);
-    let should_cache =
-        is_game_file && status.is_success() && content_len > 0 && content_len < (100 * 1024 * 1024);
+    let should_attempt_cache = is_game_file && status.is_success() && content_len < MAX_SINGLE_FILE_CACHE;
 
-    if should_cache {
-        let body_bytes = match upstream_res.bytes().await {
-            Ok(b) => b,
-            Err(_) => return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response(),
-        };
+    if should_attempt_cache {
+        let (tx, rx) = mpsc::channel(128);
+        let cache_clone = state.cache.clone();
+        let key = target_url_string.clone();
+        let headers_clone = safe_headers.clone();
+        let status_code = status.as_u16();
 
-        state
-            .cache
-            .insert(
-                target_url_string,
-                Arc::new(CachedResponse {
-                    status: status.as_u16(),
-                    headers: safe_headers.clone(),
-                    body: body_bytes.clone(),
-                }),
-            )
-            .await;
+        tokio::spawn(async move {
+            let mut buffer = Vec::new();
+            let mut stream = upstream_res.bytes_stream();
+            let mut failed = false;
 
-        return (status, safe_headers, body_bytes).into_response();
+            while let Some(chunk_res) = stream.next().await {
+                match chunk_res {
+                    Ok(chunk) => {
+                        if tx.send(Ok(chunk.clone())).await.is_err() {
+                            return;
+                        }
+
+                        if !failed {
+                            if buffer.len() + chunk.len() <= MAX_SINGLE_FILE_CACHE {
+                                buffer.extend_from_slice(&chunk);
+                            } else {
+                                failed = true;
+                                buffer.clear();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(axum::Error::new(e))).await;
+                        return;
+                    }
+                }
+            }
+
+            if !failed && !buffer.is_empty() {
+                 cache_clone.insert(key, Arc::new(CachedResponse {
+                     status: status_code,
+                     headers: headers_clone,
+                     body: Bytes::from(buffer)
+                 })).await;
+            }
+        });
+
+        return (
+            status,
+            safe_headers,
+            Body::from_stream(ReceiverStream::new(rx)),
+        ).into_response();
     }
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
