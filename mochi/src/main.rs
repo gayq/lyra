@@ -16,8 +16,10 @@ use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
 use mimalloc::MiMalloc;
 use moka::future::Cache;
 use reqwest::{redirect::Policy, Client};
+use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -32,7 +34,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 struct AppState {
     client: Client,
     cache: Cache<String, Arc<CachedResponse>>,
-    blocklist_matcher: Arc<AhoCorasick>, 
+    blocklist_matcher: Arc<AhoCorasick>,
 }
 
 #[derive(Clone)]
@@ -42,7 +44,7 @@ struct CachedResponse {
     body: Bytes,
 }
 
-const MAX_CACHE_SIZE_BYTES: usize = 100 * 1024 * 1024;
+const MAX_CACHE_SIZE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -51,7 +53,10 @@ async fn main() {
         .init();
 
     let cache = Cache::builder()
-        .max_capacity(2 * 1024 * 1024 * 1024) 
+        .max_capacity(MAX_CACHE_SIZE_BYTES)
+        .weigher(|_k, v: &Arc<CachedResponse>| {
+            (v.body.len() as u32) + 1024
+        })
         .time_to_live(Duration::from_secs(20 * 60))
         .build();
 
@@ -59,11 +64,11 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(Duration::from_secs(120)) 
-        .pool_max_idle_per_host(64) 
-        .tcp_nodelay(true) 
+        .pool_idle_timeout(None)
+        .pool_max_idle_per_host(128)
+        .tcp_nodelay(true)
         .build()
-        .expect("Failed to build HTTP client");
+        .expect("failed to build http client");
 
     let patterns = vec![
         "google-analytics.com",
@@ -75,7 +80,7 @@ async fn main() {
         "adsbygoogle",
         "cpmstar.com",
     ];
-    
+
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
 
     let state = Arc::new(AppState {
@@ -122,7 +127,11 @@ async fn proxy_handler(
     }
 
     if target_url_str.starts_with("ws/") {
-        return (StatusCode::BAD_REQUEST, "webSocket connections must use the webSocket endpoint").into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            "webSocket connections must use the webSocket endpoint",
+        )
+            .into_response();
     }
 
     let target_url_string = if !target_url_str.starts_with("http") {
@@ -140,11 +149,16 @@ async fn proxy_handler(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid url").into_response(),
     };
 
-    let mut req_builder = state.client.request(method.clone(), target_url.clone());
+    let mut req_builder = state
+        .client
+        .request(method.clone(), target_url.clone());
 
     for (k, v) in headers.iter() {
         let key_str = k.as_str().to_lowercase();
-        if !is_blacklisted_header(&key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
+        if !is_blacklisted_header(&key_str)
+            && !key_str.starts_with("cf-")
+            && !key_str.starts_with("x-")
+        {
             req_builder = req_builder.header(k, v);
         }
     }
@@ -162,12 +176,12 @@ async fn proxy_handler(
         Err(e) => {
             println!("connection failed to {}: {}", target_url_string, e);
             return (StatusCode::BAD_GATEWAY, "upstream error").into_response();
-        },
+        }
     };
 
     let status = upstream_res.status();
     let res_headers_ref = upstream_res.headers();
-    
+
     let mut safe_headers = HeaderMap::new();
     safe_headers.reserve(res_headers_ref.len());
 
@@ -204,88 +218,132 @@ async fn proxy_handler(
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(0);
 
-    let is_html = content_type.contains("text/html") 
-        && !target_url_str.ends_with(".swf") 
+    let is_html = content_type.contains("text/html")
+        && !target_url_str.ends_with(".swf")
         && !target_url_str.ends_with(".wasm");
-    
+
     if is_html && status.is_success() {
         safe_headers.remove("content-length");
+
+        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(128);
         
-        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(4096);
-        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(4096);
-
-        let mut stream = upstream_res.bytes_stream();
-        tokio::spawn(async move {
-            while let Some(chunk_result) = stream.next().await {
-                if let Ok(chunk) = chunk_result {
-                    if tx_in.send(chunk).await.is_err() { break; }
-                } else { break; }
-            }
-        });
-
         let target_url_clone = target_url.clone();
-        
-        tokio::task::spawn_blocking(move || {
+
+        tokio::spawn(async move {
             let base_url = target_url_clone;
             let base_url_str = base_url.to_string();
-            
-            let mut rewriter = HtmlRewriter::new(
-                Settings {
-                    element_content_handlers: vec![
-                        element!("head", |el| {
-                            let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
-                            let _ = el.prepend(&full_script, ContentType::Html);
-                            Ok(())
-                        }),
-                        element!("*[src], *[href], form[action]", |el| {
-                            if let Some(src) = el.get_attribute("src") {
-                                let _ = el.set_attribute("src", &rewrite_url_optimized(&src, MOCHI_PREFIX, &base_url));
-                            }
-                            if let Some(href) = el.get_attribute("href") {
-                                let _ = el.set_attribute("data-mochi-orig-href", &href);
-                                let _ = el.set_attribute("href", &rewrite_url_optimized(&href, MOCHI_PREFIX, &base_url));
-                            }
-                            if let Some(action) = el.get_attribute("action") {
-                                let _ = el.set_attribute("action", &rewrite_url_optimized(&action, MOCHI_PREFIX, &base_url));
-                            }
-                            Ok(())
-                        }),
-                        element!("script[src*='google-analytics.com'], script[src*='googletagmanager.com']", |el| {
+            let out_buffer = Rc::new(RefCell::new(Vec::with_capacity(4096)));
+            let out_buffer_writer = out_buffer.clone();
+            let settings = Settings {
+                element_content_handlers: vec![
+                    element!("head", |el| {
+                        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
+                        let _ = el.prepend(&full_script, ContentType::Html);
+                        Ok(())
+                    }),
+                    element!("*[src], *[href], form[action]", |el| {
+                        if let Some(src) = el.get_attribute("src") {
+                            let _ = el.set_attribute(
+                                "src",
+                                &rewrite_url_optimized(&src, MOCHI_PREFIX, &base_url),
+                            );
+                        }
+                        if let Some(href) = el.get_attribute("href") {
+                            let _ = el.set_attribute("data-mochi-orig-href", &href);
+                            let _ = el.set_attribute(
+                                "href",
+                                &rewrite_url_optimized(&href, MOCHI_PREFIX, &base_url),
+                            );
+                        }
+                        if let Some(action) = el.get_attribute("action") {
+                            let _ = el.set_attribute(
+                                "action",
+                                &rewrite_url_optimized(&action, MOCHI_PREFIX, &base_url),
+                            );
+                        }
+                        Ok(())
+                    }),
+                    element!(
+                        "script[src*='google-analytics.com'], script[src*='googletagmanager.com']",
+                        |el| {
                             el.remove();
                             Ok(())
-                        }),
-                    ],
-                    ..Settings::default()
-                },
-                |c: &[u8]| {
-                    if !c.is_empty() {
-                        let _ = tx_out.blocking_send(Ok(Bytes::copy_from_slice(c)));
-                    }
-                },
-            );
+                        }
+                    ),
+                ],
+                ..Settings::default()
+            };
 
-            while let Some(chunk) = rx_in.blocking_recv() {
-                if rewriter.write(&chunk).is_err() { break; }
+            let mut rewriter = HtmlRewriter::new(settings, |c: &[u8]| {
+                if !c.is_empty() {
+                    out_buffer_writer.borrow_mut().extend_from_slice(c);
+                }
+            });
+
+            let mut stream = upstream_res.bytes_stream();
+
+            while let Some(chunk_result) = stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        if let Err(_) = rewriter.write(&chunk) {
+                            break; 
+                        }
+                        
+                        let mut buffer = out_buffer.borrow_mut();
+                        if !buffer.is_empty() {
+                            let bytes = Bytes::copy_from_slice(&buffer);
+                            buffer.clear();
+                            if tx_out.send(Ok(bytes)).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                         let _ = tx_out.send(Err(axum::Error::new(e))).await;
+                         break;
+                    }
+                }
             }
-            let _ = rewriter.end();
+            
+            if rewriter.end().is_ok() {
+                let mut buffer = out_buffer.borrow_mut();
+                if !buffer.is_empty() {
+                    let bytes = Bytes::copy_from_slice(&buffer);
+                    let _ = tx_out.send(Ok(bytes)).await;
+                }
+            }
         });
 
-        return (status, safe_headers, Body::from_stream(ReceiverStream::new(rx_out))).into_response();
+        return (
+            status,
+            safe_headers,
+            Body::from_stream(ReceiverStream::new(rx_out)),
+        )
+            .into_response();
     }
 
     let is_game_file = is_game_asset(&target_url_string);
+    let should_cache = is_game_file && status.is_success() && content_len > 0 && content_len < (100 * 1024 * 1024);
 
-    if is_game_file && status.is_success() && content_len > 0 && content_len < MAX_CACHE_SIZE_BYTES {
+    if should_cache {
         let body_bytes = match upstream_res.bytes().await {
             Ok(b) => b,
-            Err(_) => return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response(),
+            Err(_) => {
+                return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response()
+            }
         };
-        
-        state.cache.insert(target_url_string, Arc::new(CachedResponse {
-            status: status.as_u16(),
-            headers: safe_headers.clone(),
-            body: body_bytes.clone(),
-        })).await;
+
+        state
+            .cache
+            .insert(
+                target_url_string,
+                Arc::new(CachedResponse {
+                    status: status.as_u16(),
+                    headers: safe_headers.clone(),
+                    body: body_bytes.clone(),
+                }),
+            )
+            .await;
 
         return (status, safe_headers, body_bytes).into_response();
     }
@@ -300,7 +358,7 @@ fn rewrite_url_optimized(url: &str, prefix: &str, base: &Url) -> String {
     }
     match base.join(url) {
         Ok(resolved) => format!("{}{}", prefix, resolved.as_str()),
-        Err(_) => url.to_string()
+        Err(_) => url.to_string(),
     }
 }
 
@@ -309,7 +367,9 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let mime = match ext {
             "wasm" => "application/wasm",
-            "data" | "symbols" | "mem" | "unityweb" | "pck" | "bin" | "fbx" => "application/octet-stream",
+            "data" | "symbols" | "mem" | "unityweb" | "pck" | "bin" | "fbx" => {
+                "application/octet-stream"
+            }
             "glb" => "model/gltf-binary",
             "gltf" => "model/gltf+json",
             "obj" => "text/plain",
@@ -322,7 +382,7 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
             "png" => "image/png",
             "jpg" | "jpeg" => "image/jpeg",
             "svg" => "image/svg+xml",
-            _ => return, 
+            _ => return,
         };
         headers.insert("Content-Type", HeaderValue::from_static(mime));
     }
@@ -331,18 +391,34 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
 fn is_game_asset(url: &str) -> bool {
     let exts = [
         ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
-        ".glb", ".gltf", ".bin", ".fbx", ".obj",
-        ".swf", ".p8", ".c3p",
-        ".atlas", ".fnt", ".png", ".jpg", ".mp3", ".ogg", ".wav"
+        ".glb", ".gltf", ".bin", ".fbx", ".obj", ".swf", ".p8", ".c3p", ".atlas", ".fnt",
+        ".png", ".jpg", ".mp3", ".ogg", ".wav",
     ];
-    
+
     exts.iter().any(|ext| url.ends_with(ext))
 }
 
 fn is_blacklisted_header(name: &str) -> bool {
-    matches!(name, "host" | "connection" | "content-length" | "transfer-encoding" | "accept-encoding" | "upgrade" | "sec-websocket-key")
+    matches!(
+        name,
+        "host"
+            | "connection"
+            | "content-length"
+            | "transfer-encoding"
+            | "accept-encoding"
+            | "upgrade"
+            | "sec-websocket-key"
+    )
 }
 
 fn is_blacklisted_res_header(name: &str) -> bool {
-    matches!(name, "connection" | "content-length" | "content-encoding" | "transfer-encoding" | "content-security-policy" | "strict-transport-security")
+    matches!(
+        name,
+        "connection"
+            | "content-length"
+            | "content-encoding"
+            | "transfer-encoding"
+            | "content-security-policy"
+            | "strict-transport-security"
+    )
 }
