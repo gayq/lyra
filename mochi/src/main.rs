@@ -18,7 +18,8 @@ use moka::future::Cache;
 use reqwest::{redirect::Policy, Client};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -219,19 +220,31 @@ async fn proxy_handler(
     if is_html && status.is_success() {
         safe_headers.remove("content-length");
 
+        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(128);
         let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(128);
         let target_url_clone = target_url.clone();
-
+        let mut stream = upstream_res.bytes_stream();
         tokio::spawn(async move {
+            while let Some(chunk_result) = stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        if tx_in.send(chunk).await.is_err() {
+                            break;
+                        }
+                    },
+                    Err(_) => break,
+                }
+            }
+        });
+
+        thread::spawn(move || {
             let base_url = target_url_clone;
             let base_url_str = base_url.to_string();
-            let out_buffer = Arc::new(Mutex::new(Vec::with_capacity(4096)));
-            let out_buffer_writer = out_buffer.clone();
+            
             let settings = Settings {
                 element_content_handlers: vec![
                     element!("head", |el| {
-                        let full_script =
-                            format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
+                        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
                         let _ = el.prepend(&full_script, ContentType::Html);
                         Ok(())
                     }),
@@ -268,72 +281,24 @@ async fn proxy_handler(
                 ..Settings::default()
             };
 
+            let tx_out_clone = tx_out.clone();
             let mut rewriter = HtmlRewriter::new(settings, move |c: &[u8]| {
-                if let Ok(mut g) = out_buffer_writer.lock() {
-                    g.extend_from_slice(c);
-                }
+                let _ = tx_out_clone.blocking_send(Ok(Bytes::copy_from_slice(c)));
             });
 
-            let mut stream = upstream_res.bytes_stream();
-
-            while let Some(chunk_result) = stream.next().await {
-                match chunk_result {
-                    Ok(chunk) => {
-                        if let Err(_) = rewriter.write(&chunk) {
-                            break;
-                        }
-
-                        let bytes_opt = {
-                            if let Ok(mut g) = out_buffer.lock() {
-                                if !g.is_empty() {
-                                    let b = Bytes::copy_from_slice(&g);
-                                    g.clear();
-                                    Some(b)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        };
-
-                        if let Some(bytes) = bytes_opt {
-                            if tx_out.send(Ok(bytes)).await.is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx_out.send(Err(axum::Error::new(e))).await;
-                        break;
-                    }
+            while let Some(chunk) = rx_in.blocking_recv() {
+                if rewriter.write(&chunk).is_err() {
+                    break;
                 }
             }
-
-            if rewriter.end().is_ok() {
-                let bytes_opt = {
-                    if let Ok(g) = out_buffer.lock() {
-                        if !g.is_empty() {
-                            Some(Bytes::copy_from_slice(&g))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                };
-                if let Some(bytes) = bytes_opt {
-                    let _ = tx_out.send(Ok(bytes)).await;
-                }
-            }
+            let _ = rewriter.end();
         });
 
         return (
             status,
             safe_headers,
             Body::from_stream(ReceiverStream::new(rx_out)),
-        )
-            .into_response();
+        ).into_response();
     }
 
     let is_game_file = is_game_asset(&target_url_string);
