@@ -16,11 +16,9 @@ use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
 use mimalloc::MiMalloc;
 use moka::future::Cache;
 use reqwest::{redirect::Policy, Client};
-use std::cell::RefCell;
 use std::net::SocketAddr;
 use std::path::Path;
-use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -54,9 +52,7 @@ async fn main() {
 
     let cache = Cache::builder()
         .max_capacity(MAX_CACHE_SIZE_BYTES)
-        .weigher(|_k, v: &Arc<CachedResponse>| {
-            (v.body.len() as u32) + 1024
-        })
+        .weigher(|_k, v: &Arc<CachedResponse>| (v.body.len() as u32) + 1024)
         .time_to_live(Duration::from_secs(20 * 60))
         .build();
 
@@ -149,9 +145,7 @@ async fn proxy_handler(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid url").into_response(),
     };
 
-    let mut req_builder = state
-        .client
-        .request(method.clone(), target_url.clone());
+    let mut req_builder = state.client.request(method.clone(), target_url.clone());
 
     for (k, v) in headers.iter() {
         let key_str = k.as_str().to_lowercase();
@@ -226,18 +220,18 @@ async fn proxy_handler(
         safe_headers.remove("content-length");
 
         let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(128);
-        
         let target_url_clone = target_url.clone();
 
         tokio::spawn(async move {
             let base_url = target_url_clone;
             let base_url_str = base_url.to_string();
-            let out_buffer = Rc::new(RefCell::new(Vec::with_capacity(4096)));
+            let out_buffer = Arc::new(Mutex::new(Vec::with_capacity(4096)));
             let out_buffer_writer = out_buffer.clone();
             let settings = Settings {
                 element_content_handlers: vec![
                     element!("head", |el| {
-                        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
+                        let full_script =
+                            format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
                         let _ = el.prepend(&full_script, ContentType::Html);
                         Ok(())
                     }),
@@ -274,9 +268,9 @@ async fn proxy_handler(
                 ..Settings::default()
             };
 
-            let mut rewriter = HtmlRewriter::new(settings, |c: &[u8]| {
-                if !c.is_empty() {
-                    out_buffer_writer.borrow_mut().extend_from_slice(c);
+            let mut rewriter = HtmlRewriter::new(settings, move |c: &[u8]| {
+                if let Ok(mut g) = out_buffer_writer.lock() {
+                    g.extend_from_slice(c);
                 }
             });
 
@@ -286,29 +280,49 @@ async fn proxy_handler(
                 match chunk_result {
                     Ok(chunk) => {
                         if let Err(_) = rewriter.write(&chunk) {
-                            break; 
+                            break;
                         }
-                        
-                        let mut buffer = out_buffer.borrow_mut();
-                        if !buffer.is_empty() {
-                            let bytes = Bytes::copy_from_slice(&buffer);
-                            buffer.clear();
+
+                        let bytes_opt = {
+                            if let Ok(mut g) = out_buffer.lock() {
+                                if !g.is_empty() {
+                                    let b = Bytes::copy_from_slice(&g);
+                                    g.clear();
+                                    Some(b)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        };
+
+                        if let Some(bytes) = bytes_opt {
                             if tx_out.send(Ok(bytes)).await.is_err() {
                                 break;
                             }
                         }
                     }
                     Err(e) => {
-                         let _ = tx_out.send(Err(axum::Error::new(e))).await;
-                         break;
+                        let _ = tx_out.send(Err(axum::Error::new(e))).await;
+                        break;
                     }
                 }
             }
-            
+
             if rewriter.end().is_ok() {
-                let mut buffer = out_buffer.borrow_mut();
-                if !buffer.is_empty() {
-                    let bytes = Bytes::copy_from_slice(&buffer);
+                let bytes_opt = {
+                    if let Ok(g) = out_buffer.lock() {
+                        if !g.is_empty() {
+                            Some(Bytes::copy_from_slice(&g))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+                if let Some(bytes) = bytes_opt {
                     let _ = tx_out.send(Ok(bytes)).await;
                 }
             }
@@ -323,14 +337,13 @@ async fn proxy_handler(
     }
 
     let is_game_file = is_game_asset(&target_url_string);
-    let should_cache = is_game_file && status.is_success() && content_len > 0 && content_len < (100 * 1024 * 1024);
+    let should_cache =
+        is_game_file && status.is_success() && content_len > 0 && content_len < (100 * 1024 * 1024);
 
     if should_cache {
         let body_bytes = match upstream_res.bytes().await {
             Ok(b) => b,
-            Err(_) => {
-                return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response()
-            }
+            Err(_) => return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response(),
         };
 
         state
