@@ -104,22 +104,6 @@ if (isScramjet) {
     uv = new UVServiceWorker();
 }
 
-const AD_STUFF = [
-    'protrafficinspector.com',
-    'sourshaped.com',
-    'realizationnewestfangs.com',
-    'preferencenail.com',
-    'weirdopt.com',
-    'wayfarerorthodox.com',
-    'kettledroopingcontinuation.com'
-];
-
-function resolveAdProxyPath(hostname) {
-    if (hostname.includes('protrafficinspector.com')) return '/stats-api';
-    if (hostname.includes('sourshaped.com')) return '/sb-data';
-    return '/pixel-track';
-}
-
 const CACHE_NAME = 'xin-assets-cache-v1';
 
 const TURN_SCRIPT = `
@@ -716,21 +700,6 @@ self.addEventListener('activate', event => {
 self.addEventListener("fetch", (event) => {
     const { request } = event;
     const url = new URL(request.url);
-
-    if (AD_STUFF.some(domain => url.hostname.includes(domain))) {
-        const proxyPath = resolveAdProxyPath(url.hostname);
-        const proxyUrl = new URL(`${proxyPath}${url.pathname}${url.search}`, self.location.origin);
-        
-        return event.respondWith(
-            fetch(proxyUrl, {
-                method: request.method,
-                headers: request.headers,
-                body: request.method !== 'GET' && request.method !== 'HEAD' ? request.clone().blob() : null,
-                credentials: 'omit'
-            })
-        );
-    }
-
     const realUrl = resolveRealUrl(url);
 
     if (url.pathname.startsWith(MOCHI_PREFIX)) {

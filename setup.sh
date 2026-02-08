@@ -174,33 +174,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    handle_path /stats-api/* {
-        reverse_proxy https://protrafficinspector.com {
-            header_up Host protrafficinspector.com
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
-
-    handle_path /sb-data/* {
-        reverse_proxy https://sourshaped.com {
-            header_up Host sourshaped.com
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
-
-    handle_path /pixel-track/* {
-        reverse_proxy https://kettledroopingcontinuation.com {
-            header_up Host kettledroopingcontinuation.com
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
-
     handle_path /analytics/* {
         reverse_proxy https://www.googletagmanager.com {
             header_up Host www.googletagmanager.com
