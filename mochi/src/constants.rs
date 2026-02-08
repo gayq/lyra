@@ -75,9 +75,15 @@ pub const SCRIPT_PART_2: &str = r##"";
              window.__MOCHI_TARGET__ = baseEl.href;
         }
     } catch(e) {}
-
+a
     const rewrite = (url) => {
         if (!url || typeof url !== "string") return url;
+
+        const path = window.location.pathname;
+        if (path.startsWith("/b/s/") || path.startsWith("/b/u/")) {
+            return url;
+        }
+
         if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith(window.__MOCHI_PREFIX__)) return url;
         if (url.startsWith(window.location.origin + window.__MOCHI_PREFIX__)) return url;
         if (url.startsWith("http")) return window.__MOCHI_PREFIX__ + url;

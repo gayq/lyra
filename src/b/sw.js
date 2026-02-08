@@ -150,7 +150,7 @@ const getMochiBase = () => {
 const META_SCRIPT = `
 <script>
 (function(){
-  const MOCHI_PREFIX='$MOCHI_PREFIX}';
+  const MOCHI_PREFIX='${MOCHI_PREFIX}';
   const UV_PREFIX='${UV_PREFIX}';
   const isScramjet=${isScramjet ? 'true' : 'false'};
   const isUltraviolet=${isUltraviolet ? 'true' : 'false'};
@@ -372,7 +372,9 @@ const META_SCRIPT = `
   };
 
   const bootstrapMetaTracking=()=>{
-    patchHistory();
+    if (!isScramjet && !isUltraviolet) {
+        patchHistory();
+    }
     watchTitle();
     watchMetaTitles();
     watchFavicon();
@@ -602,7 +604,15 @@ function resolveRealUrl(url) {
             try {
                 const decoded = self.__uv$config.decodeUrl(encoded);
                 if (!decoded) return null;
-                return new URL(decoded + url.search, 'http://placeholder').href.replace('http://placeholder','');
+                
+                if (decoded.includes(self.location.host)) {
+                     const decodedObj = new URL(decoded);
+                     if (decodedObj.origin === self.location.origin) {
+                        return null;
+                     }
+                }
+
+                return new URL(decoded + url.search, 'http://somthing').href.replace('http://somthing','');
             } catch (e) {}
         }
     }
@@ -621,54 +631,6 @@ function getUrlExtension(targetUrl) {
         const lastDot = path.lastIndexOf('.');
         return lastDot !== -1 ? path.substring(lastDot).toLowerCase() : '';
     }
-}
-
-function shouldBypassProxyForDownload(request, response, realUrl) {
-    if (!response || !realUrl) return false;
-    if (request.method !== 'GET' && request.method !== 'HEAD') return false;
-
-    const disposition = response.headers.get('content-disposition') || '';
-    if (/attachment/i.test(disposition) || /filename=/i.test(disposition)) {
-        return true;
-    }
-
-    const contentType = (response.headers.get('content-type') || '').toLowerCase();
-    const isHtml = contentType.includes('text/html');
-    const wantsDocument = request.mode === 'navigate' ||
-        request.destination === 'document' ||
-        request.headers.get('sec-fetch-dest') === 'document';
-
-    if (wantsDocument && (!contentType || !isHtml)) {
-        return true;
-    }
-
-    const ext = getUrlExtension(realUrl);
-    if (ext && DOWNLOAD_EXTENSIONS.has(ext)) {
-        const dest = request.destination || '';
-        if (dest === 'document' || dest === '' || dest === 'object' || dest === 'embed' || dest === 'video' || dest === 'audio') {
-            if (!isHtml) return true;
-        }
-    }
-
-    return false;
-}
-
-function shouldMochiEarly(request, realUrl) {
-    if (!realUrl || !realUrl.startsWith('http')) return false;
-    if (request.method !== 'GET' && request.method !== 'HEAD') return false;
-
-    const ext = getUrlExtension(realUrl);
-    if (ext && DOWNLOAD_EXTENSIONS.has(ext)) return true;
-
-    const dest = request.destination || '';
-    const secDest = request.headers.get('sec-fetch-dest') || '';
-    const looksLikeDoc = dest === 'document' || secDest === 'document' || request.mode === 'navigate';
-
-    if (looksLikeDoc && ext && ext !== '.html' && ext !== '.htm') {
-        return true;
-    }
-
-    return false;
 }
 
 async function fetchThroughMochi(request, realUrl) {
@@ -691,76 +653,40 @@ async function fetchThroughMochi(request, realUrl) {
         } catch (e) {}
     }
 
-    const base = getMochieBase();
+    const base = getMochiBase();
     const normalized = base.endsWith('/') ? base : base + '/';
     const target = realUrl.startsWith('http') ? `${normalized}${realUrl}` : `${MOCHI_PREFIX}${realUrl}`;
     return fetch(target, init);
-}
-
-async function maybeHandleDownloadThroughMochi(request, url, proxyResponse) {
-    const realUrl = resolveRealUrl(url);
-    if (!realUrl) return proxyResponse;
-    if (!isFaviconUrl(realUrl)) return proxyResponse;
-
-    if (!shouldBypassProxyForDownload(request, proxyResponse, realUrl)) {
-        return proxyResponse;
-    }
-
-    try {
-        proxyResponse.body?.cancel?.();
-    } catch (e) {}
-
-    try {
-        const mochied = await fetchThroughMochi(request, realUrl);
-        if (mochied) return mochied;
-    } catch (e) {
-        return proxyResponse;
-    }
 }
 
 async function handleProxyResponse(response) {
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/html')) return response;
     if (!response.body) return response;
-    const scripts = TURN_SCRIPT + META_SCRIPT;
-    const textDecoder = new TextDecoderStream();
-    const textEncoder = new TextEncoderStream();
-    
-    let injected = false;
-    
-    const transformStream = new TransformStream({
-        transform(chunk, controller) {
-            
-            if (injected) {
-                controller.enqueue(chunk);
-                return;
-            }
-            
-            const headRegex = /<head[^>]*>/i;
-            const match = headRegex.exec(chunk);
-            
-            if (match) {
-                const idx = match.index + match[0].length;
-                const newChunk = chunk.slice(0, idx) + scripts + chunk.slice(idx);
-                controller.enqueue(newChunk);
-                injected = true;
-            } else {
-                controller.enqueue(scripts + chunk);
-                injected = true;
-            }
+
+    try {
+        const clonedResponse = response.clone();
+        const originalBody = await clonedResponse.text();
+        const scripts = TURN_SCRIPT + META_SCRIPT;
+        
+        let newBodyStr;
+        const headMatch = originalBody.match(/<head[^>]*>/i);
+        
+        if (headMatch) {
+            const idx = headMatch.index + headMatch[0].length;
+            newBodyStr = originalBody.slice(0, idx) + scripts + originalBody.slice(idx);
+        } else {
+            newBodyStr = scripts + originalBody;
         }
-    });
 
-    const newBody = response.body
-        .pipeThrough(textDecoder)
-        .pipeThrough(transformStream)
-        .pipeThrough(textEncoder);
-
-    return new Response(newBody, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers
-    });
+        return new Response(newBodyStr, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+        });
+    } catch (e) {
+        return response;
+    }
 }
 
 self.addEventListener('install', (event) => {
@@ -775,115 +701,92 @@ self.addEventListener("fetch", (event) => {
     const { request } = event;
     const url = new URL(request.url);
     const realUrl = resolveRealUrl(url);
-    const allowMochi = isFaviconUrl(realUrl || url);
-    const realOrigin = (() => {
-        try {
-            return realUrl ? new URL(realUrl).origin : null;
-        } catch (e) {
-            return null;
+
+    if (url.pathname.startsWith(MOCHI_PREFIX)) {
+        return; 
+    }
+
+    if (realUrl && realUrl.includes('/!!/')) {
+        const parts = realUrl.split('/!!/');
+        const target = parts.pop();
+        if (target && target.startsWith('http')) {
+            return event.respondWith(fetchThroughMochi(request, target));
         }
-    })();
+    }
 
     event.respondWith((async () => {
         try {
-            if (realUrl && realUrl.includes(MOCHI_PREFIX)) {
-                try {
-                    const parts = realUrl.split(MOCHI_PREFIX);
-                    const target = parts[parts.length - 1]; 
-                    if (target) {
-                        const mochied = await fetchThroughMochi(request, target);
-                        if (mochied) return mochied;
-                    }
-                } catch (e) {}
-            }
+            if (realUrl && realUrl.startsWith('http')) {
+                const ext = getUrlExtension(realUrl); 
+                const dest = request.destination;
+                const accept = request.headers.get('Accept') || '';
+                
+                const isHeavyAsset = 
+                    dest === 'video' || 
+                    dest === 'audio' || 
+                    dest === 'image' ||
+                    dest === 'font' ||
+                    dest === 'track' ||
+                    accept.startsWith('image/') ||
+                    accept.startsWith('video/') ||
+                    accept.startsWith('audio/') ||
+                    accept.startsWith('font/') ||
+                    STATIC_ASSET_REGEX.test(url.pathname) ||
+                    ['.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
 
-            if (allowMochi && realUrl && shouldMochiEarly(request, realUrl)) {
-                try {
-                    const mochied = await fetchThroughMochi(request, realUrl);
-                    if (mochied) return mochied;
-                } catch (e) {}
-            }
-
-            if (isScramjet && realUrl && realOrigin && realOrigin === self.location.origin) {
-                try {
-                    const mochied = await fetchThroughMochi(request, realUrl);
-                    if (mochied) return mochied;
-                } catch (e) {}
-            }
-
-            if (allowMochi && request.method === 'GET' && STATIC_ASSET_REGEX.test(url.pathname)) {
-                if (realUrl && realUrl.startsWith('http')) {
-                    const proxyUrl = `${MOCHI_PREFIX}${realUrl}`;
-
-                    const cache = await caches.open(CACHE_NAME);
-                    const cachedRes = await cache.match(proxyUrl);
-                    if (cachedRes) return cachedRes;
-
+                if (isHeavyAsset) {
                     try {
-                        const response = await fetch(proxyUrl);
-                        
-                        if (response.ok) {
-                            const resClone = response.clone();
-                            cache.put(proxyUrl, resClone);
-                            return response;
+                        const mochiResponse = await fetchThroughMochi(request, realUrl);
+                        if (mochiResponse && mochiResponse.ok) {
+                            return handleProxyResponse(mochiResponse);
                         }
                     } catch (e) {
                     }
                 }
             }
-
 
             if (isScramjet) {
                 if (!scramjetConfigLoaded) {
                     await scramjet.loadConfig();
                     scramjetConfigLoaded = true;
                 }
-
-                if (url.pathname.startsWith('/b/s/jetty.') && !url.pathname.endsWith('jetty.wasm.wasm')) {
+                
+                if (url.pathname.startsWith('/b/s/jetty.') && !url.pathname.endsWith('.wasm')) {
                     return fetch(request);
                 }
 
                 if (scramjet.route(event)) {
                     try {
                         const response = await scramjet.fetch(event);
-                        const finalResponse = await maybeHandleDownloadThroughMochi(request, url, response);
-                        return handleProxyResponse(finalResponse);
+                        return handleProxyResponse(response);
                     } catch (e) {
-                        if (realUrl) {
-                            try {
-                                const mochied = await fetchThroughMochi(request, realUrl);
-                                if (mochied) return mochied;
-                            } catch (err) {}
-                        }
-                        throw e;
+                        if (realUrl) return await fetchThroughMochi(request, realUrl);
                     }
                 }
             }
 
             if (isUltraviolet) {
                 if (uv.route(event)) {
-                    const response = await uv.fetch(event);
-                    const finalResponse = await maybeHandleDownloadThroughMochi(request, url, response);
-                    return handleProxyResponse(finalResponse);
+                    try {
+                        const response = await uv.fetch(event);
+                        return handleProxyResponse(response);
+                    } catch (e) {
+                         if (realUrl) return await fetchThroughMochi(request, realUrl);
+                    }
                 }
             }
 
             if (url.origin === self.location.origin) {
-                const cache = await caches.open(CACHE_NAME);
-                const cachedResponse = await cache.match(request);
-                if (cachedResponse) {
-                    return cachedResponse;
-                }
                 return await fetch(request);
             }
 
-            return new Response("uh-oh! your request has been blocked. :(", { status: 403 });
+            return new Response("Blocked", { status: 403 });
 
         } catch (err) {
-            if (new URL(request.url).origin === self.location.origin) {
-                return fetch(request);
+            if (realUrl && !realUrl.includes(self.location.host)) {
+                return await fetchThroughMochi(request, realUrl);
             }
-            return new Response("uh-oh! your request has been blocked. :( (fallback)", { status: 403 });
+            return new Response("Error", { status: 500 });
         }
     })());
 });

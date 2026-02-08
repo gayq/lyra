@@ -96,7 +96,7 @@
     "title": "v3.4.5 release!!",
     "message": "Bunch of bug fixes, new stuff, and improvements!",
     "date": "2026-01-27T01:24:28.287Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Added tabs memory usage to the sidebar of the browser.",
@@ -114,9 +114,9 @@
   {
     "id": 7,
     "title": "v3.5.0 release!!",
-    "message": "A LOTtttt of improvements and bug fixes!",
+    "message": "A LOTTTT of improvements and bug fixes!",
     "date": "2026-02-01T01:54:43.138Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Rewrote Bridge to Rust.",
@@ -125,5 +125,32 @@
       "Fixed some bugs."
     ],
     "endMessage": "There was some more stuff but I forgot about them. Also join the Discord server!"
+  },
+  {
+    "id": 8,
+    "title": "Patch v3.5.1!!",
+    "message": "Bug fixes!",
+    "date": "2026-02-08T22:41:21.195Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Fixed where page would take forever to load.",
+      "Fixed Scramjet and Ultraviolet being INSANELY broken."
+    ],
+    "endMessage": "If you get any bugs please join the Discord server and reprot them!"
+  },
+  {
+    "id": 9,
+    "title": "Mochi v0.2.0 release!!",
+    "message": "Improved performance and patched some bugs!",
+    "date": "2026-02-08T22:41:21.195Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Improved performance and caching.",
+      "Fixed a big bottleneck that was making it very slow.",
+      "Fixed some other bugs."
+    ],
+    "endMessage": "Join the Discord server!!!!"
   }
 ]

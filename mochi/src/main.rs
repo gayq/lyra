@@ -3,7 +3,7 @@ mod constants;
 use aho_corasick::AhoCorasick;
 use axum::{
     body::Body,
-    extract::State,
+    extract::{State, ws::{WebSocketUpgrade, WebSocket, Message}},
     http::{HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{IntoResponse, Response},
     routing::any,
@@ -11,7 +11,7 @@ use axum::{
 };
 use bytes::Bytes;
 use constants::{MOCHI_PREFIX, SCRIPT_PART_1, SCRIPT_PART_2};
-use futures::StreamExt;
+use futures::{sink::SinkExt, stream::StreamExt};
 use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
 use mimalloc::MiMalloc;
 use moka::future::Cache;
@@ -19,10 +19,10 @@ use reqwest::{redirect::Policy, Client};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::thread;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TungsteniteMessage};
 use tower_http::cors::{Any, CorsLayer};
 use url::Url;
 
@@ -31,9 +31,10 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Clone)]
 struct AppState {
-    client: Client,
+    html_client: Client,
+    asset_client: Client,
     cache: Cache<String, Arc<CachedResponse>>,
-    blocklist_matcher: Arc<AhoCorasick>,
+    blocklist_matcher: Arc<AhoCorasick>, 
 }
 
 #[derive(Clone)]
@@ -43,8 +44,7 @@ struct CachedResponse {
     body: Bytes,
 }
 
-const TOTAL_CACHE_CAPACITY: u64 = 2 * 1024 * 1024 * 1024;
-const MAX_SINGLE_FILE_CACHE: usize = 100 * 1024 * 1024;
+const MAX_CACHE_SIZE_BYTES: usize = 150 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() {
@@ -53,36 +53,47 @@ async fn main() {
         .init();
 
     let cache = Cache::builder()
-        .max_capacity(TOTAL_CACHE_CAPACITY)
-        .weigher(|_k, v: &Arc<CachedResponse>| (v.body.len() as u32) + 1024)
+        .max_capacity(2 * 1024 * 1024 * 1024) 
         .time_to_live(Duration::from_secs(20 * 60))
         .build();
 
-    let client = Client::builder()
+    let asset_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(None)
-        .pool_max_idle_per_host(128)
+        .pool_idle_timeout(Duration::from_secs(120)) 
+        .pool_max_idle_per_host(2000)
         .tcp_nodelay(true)
+        .tcp_keepalive(Duration::from_secs(60))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
         .build()
-        .expect("failed to build http client");
+        .expect("failed to build asset client");
+
+    let html_client = Client::builder()
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .danger_accept_invalid_certs(true)
+        .redirect(Policy::default())
+        .pool_idle_timeout(Duration::from_secs(120)) 
+        .pool_max_idle_per_host(500)
+        .tcp_nodelay(true)
+        .brotli(true)
+        .build()
+        .expect("failed to build html client");
 
     let patterns = vec![
         "google-analytics.com",
         "googletagmanager.com",
-        "googleAnalytics.js",
-        "ima3.js",
         "doubleclick.net",
-        "pagead2",
         "adsbygoogle",
-        "cpmstar.com",
     ];
-
+    
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
 
     let state = Arc::new(AppState {
-        client,
+        html_client,
+        asset_client,
         cache,
         blocklist_matcher,
     });
@@ -98,7 +109,7 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 4000));
-    println!("mochi listening on http://{}!!!!", addr);
+    println!("mochi listening on {}!!!!", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -109,11 +120,27 @@ async fn proxy_handler(
     method: Method,
     headers: HeaderMap,
     uri: Uri,
+    ws: Option<WebSocketUpgrade>,
     req_body: Bytes,
 ) -> Response {
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
     let prefix_pos = path_and_query.find(MOCHI_PREFIX).unwrap_or(0);
     let target_url_str = &path_and_query[prefix_pos + MOCHI_PREFIX.len()..];
+
+    if let Some(ws) = ws {
+        if target_url_str.starts_with("ws/") || headers.contains_key("upgrade") {
+             let real_target = if target_url_str.starts_with("ws/") {
+                 target_url_str.replace("ws/", "https://").replace("http://", "ws://").replace("https://", "wss://")
+             } else {
+                 if target_url_str.starts_with("http") {
+                     target_url_str.replace("http", "ws")
+                 } else {
+                     format!("wss://{}", target_url_str)
+                 }
+             };
+             return ws.on_upgrade(move |socket| handle_socket(socket, real_target));
+        }
+    }
 
     if method == Method::GET {
         if let Some(cached) = state.cache.get(target_url_str).await {
@@ -124,14 +151,6 @@ async fn proxy_handler(
         }
     }
 
-    if target_url_str.starts_with("ws/") {
-        return (
-            StatusCode::BAD_REQUEST,
-            "webSocket connections must use the webSocket endpoint",
-        )
-            .into_response();
-    }
-
     let target_url_string = if !target_url_str.starts_with("http") {
         format!("https://{}", target_url_str)
     } else {
@@ -139,7 +158,7 @@ async fn proxy_handler(
     };
 
     if state.blocklist_matcher.is_match(&target_url_string) {
-        return (StatusCode::OK, "/* no */").into_response();
+        return (StatusCode::OK, "/* blocked */").into_response();
     }
 
     let target_url = match Url::parse(&target_url_string) {
@@ -147,14 +166,22 @@ async fn proxy_handler(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid url").into_response(),
     };
 
-    let mut req_builder = state.client.request(method.clone(), target_url.clone());
+    let is_likely_asset = is_likely_static_asset(&target_url_string);
+    
+    let client = if is_likely_asset {
+        &state.asset_client
+    } else {
+        &state.html_client
+    };
+
+    let mut req_builder = client.request(method.clone(), target_url.clone());
 
     for (k, v) in headers.iter() {
         let key_str = k.as_str().to_lowercase();
-        if !is_blacklisted_header(&key_str)
-            && !key_str.starts_with("cf-")
-            && !key_str.starts_with("x-")
-        {
+        if !is_blacklisted_header(&key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
+            if !is_likely_asset && key_str == "accept-encoding" {
+                continue; 
+            }
             req_builder = req_builder.header(k, v);
         }
     }
@@ -170,14 +197,13 @@ async fn proxy_handler(
     let upstream_res = match req_builder.send().await {
         Ok(res) => res,
         Err(e) => {
-            println!("connection failed to {}: {}", target_url_string, e);
-            return (StatusCode::BAD_GATEWAY, "upstream error").into_response();
-        }
+            return (StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response();
+        },
     };
 
     let status = upstream_res.status();
     let res_headers_ref = upstream_res.headers();
-
+    
     let mut safe_headers = HeaderMap::new();
     safe_headers.reserve(res_headers_ref.len());
 
@@ -196,9 +222,14 @@ async fn proxy_handler(
             }
         }
     }
+    
+    if is_likely_asset {
+        if let Some(enc) = res_headers_ref.get("content-encoding") {
+            safe_headers.insert("content-encoding", enc.clone());
+        }
+    }
 
     fix_game_content_type(&target_url_string, &mut safe_headers);
-
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
@@ -208,22 +239,17 @@ async fn proxy_handler(
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    let content_len = safe_headers
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(0);
-
-    let is_html = content_type.contains("text/html")
-        && !target_url_str.ends_with(".swf")
+    let is_html = content_type.contains("text/html") 
+        && !target_url_str.ends_with(".swf") 
         && !target_url_str.ends_with(".wasm");
-
-    if is_html && status.is_success() {
+    
+    if is_html && status.is_success() && !is_likely_asset {
         safe_headers.remove("content-length");
+        safe_headers.remove("content-encoding"); 
+        
+        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(4096);
+        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(4096);
 
-        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(128);
-        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(128);
-        let target_url_clone = target_url.clone();
         let mut stream = upstream_res.bytes_stream();
         tokio::spawn(async move {
             while let Some(chunk_result) = stream.next().await {
@@ -233,54 +259,29 @@ async fn proxy_handler(
             }
         });
 
-        thread::spawn(move || {
+        let target_url_clone = target_url.clone();
+        
+        tokio::task::spawn_blocking(move || {
             let base_url = target_url_clone;
             let base_url_str = base_url.to_string();
             
-            let settings = Settings {
-                element_content_handlers: vec![
-                    element!("head", |el| {
-                        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
-                        let _ = el.prepend(&full_script, ContentType::Html);
-                        Ok(())
-                    }),
-                    element!("*[src], *[href], form[action]", |el| {
-                        if let Some(src) = el.get_attribute("src") {
-                            let _ = el.set_attribute(
-                                "src",
-                                &rewrite_url_optimized(&src, MOCHI_PREFIX, &base_url),
-                            );
-                        }
-                        if let Some(href) = el.get_attribute("href") {
-                            let _ = el.set_attribute("data-mochi-orig-href", &href);
-                            let _ = el.set_attribute(
-                                "href",
-                                &rewrite_url_optimized(&href, MOCHI_PREFIX, &base_url),
-                            );
-                        }
-                        if let Some(action) = el.get_attribute("action") {
-                            let _ = el.set_attribute(
-                                "action",
-                                &rewrite_url_optimized(&action, MOCHI_PREFIX, &base_url),
-                            );
-                        }
-                        Ok(())
-                    }),
-                    element!(
-                        "script[src*='google-analytics.com'], script[src*='googletagmanager.com']",
-                        |el| {
-                            el.remove();
+            let mut rewriter = HtmlRewriter::new(
+                Settings {
+                    element_content_handlers: vec![
+                        element!("head", |el| {
+                            let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
+                            let _ = el.prepend(&full_script, ContentType::Html);
                             Ok(())
-                        }
-                    ),
-                ],
-                ..Settings::default()
-            };
-
-            let tx_out_clone = tx_out.clone();
-            let mut rewriter = HtmlRewriter::new(settings, move |c: &[u8]| {
-                let _ = tx_out_clone.blocking_send(Ok(Bytes::copy_from_slice(c)));
-            });
+                        }),
+                    ],
+                    ..Settings::default()
+                },
+                |c: &[u8]| {
+                    if !c.is_empty() {
+                        let _ = tx_out.blocking_send(Ok(Bytes::copy_from_slice(c)));
+                    }
+                },
+            );
 
             while let Some(chunk) = rx_in.blocking_recv() {
                 if rewriter.write(&chunk).is_err() { break; }
@@ -288,79 +289,96 @@ async fn proxy_handler(
             let _ = rewriter.end();
         });
 
-        return (
-            status,
-            safe_headers,
-            Body::from_stream(ReceiverStream::new(rx_out)),
-        ).into_response();
+        return (status, safe_headers, Body::from_stream(ReceiverStream::new(rx_out))).into_response();
     }
 
-    let is_game_file = is_game_asset(&target_url_string);
-    let should_attempt_cache = is_game_file && status.is_success() && content_len < MAX_SINGLE_FILE_CACHE;
+    let is_image = content_type.starts_with("image/");
+    let is_json = content_type.contains("json");
+    let is_favicon_heuristic = target_url_str.contains("favicons?");
+    
+    let should_cache = (is_likely_asset || is_image || is_json || is_favicon_heuristic) 
+        && status.is_success();
 
-    if should_attempt_cache {
-        let (tx, rx) = mpsc::channel(128);
-        let cache_clone = state.cache.clone();
-        let key = target_url_string.clone();
-        let headers_clone = safe_headers.clone();
-        let status_code = status.as_u16();
-
-        tokio::spawn(async move {
-            let mut buffer = Vec::new();
-            let mut stream = upstream_res.bytes_stream();
-            let mut failed = false;
-
-            while let Some(chunk_res) = stream.next().await {
-                match chunk_res {
-                    Ok(chunk) => {
-                        if tx.send(Ok(chunk.clone())).await.is_err() {
-                            return;
-                        }
-
-                        if !failed {
-                            if buffer.len() + chunk.len() <= MAX_SINGLE_FILE_CACHE {
-                                buffer.extend_from_slice(&chunk);
-                            } else {
-                                failed = true;
-                                buffer.clear();
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(axum::Error::new(e))).await;
-                        return;
-                    }
+    if should_cache {
+        match upstream_res.bytes().await {
+            Ok(body_bytes) => {
+                if body_bytes.len() < MAX_CACHE_SIZE_BYTES {
+                    state.cache.insert(target_url_str.to_string(), Arc::new(CachedResponse {
+                        status: status.as_u16(),
+                        headers: safe_headers.clone(),
+                        body: body_bytes.clone(),
+                    })).await;
+                    
+                    return (status, safe_headers, body_bytes).into_response();
+                } else {
+                    return (status, safe_headers, body_bytes).into_response();
                 }
+            },
+            Err(_) => {
+                return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response();
             }
-
-            if !failed && !buffer.is_empty() {
-                 cache_clone.insert(key, Arc::new(CachedResponse {
-                     status: status_code,
-                     headers: headers_clone,
-                     body: Bytes::from(buffer)
-                 })).await;
-            }
-        });
-
-        return (
-            status,
-            safe_headers,
-            Body::from_stream(ReceiverStream::new(rx)),
-        ).into_response();
+        };
     }
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
     return (status, safe_headers, stream).into_response();
 }
 
-fn rewrite_url_optimized(url: &str, prefix: &str, base: &Url) -> String {
-    if url.starts_with("data:") || url.starts_with("blob:") || url.starts_with("#") {
-        return url.to_string();
-    }
-    match base.join(url) {
-        Ok(resolved) => format!("{}{}", prefix, resolved.as_str()),
-        Err(_) => url.to_string(),
-    }
+async fn handle_socket(client_socket: WebSocket, target_url: String) {
+    let (mut client_sender, mut client_receiver) = client_socket.split();
+
+    let (ws_stream, _) = match connect_async(&target_url).await {
+        Ok(s) => s,
+        Err(e) => {
+            println!("ws connect error to {}: {}", target_url, e);
+            return;
+        }
+    };
+    
+    let (mut upstream_sender, mut upstream_receiver) = ws_stream.split();
+
+    let client_to_upstream = tokio::spawn(async move {
+        while let Some(msg) = client_receiver.next().await {
+            if let Ok(msg) = msg {
+                let tungstenite_msg = match msg {
+                    Message::Text(t) => TungsteniteMessage::Text(t),
+                    Message::Binary(b) => TungsteniteMessage::Binary(b.into()),
+                    Message::Ping(b) => TungsteniteMessage::Ping(b.into()),
+                    Message::Pong(b) => TungsteniteMessage::Pong(b.into()),
+                    Message::Close(_) => TungsteniteMessage::Close(None), 
+                };
+                
+                if upstream_sender.send(tungstenite_msg).await.is_err() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
+
+    let upstream_to_client = tokio::spawn(async move {
+        while let Some(msg) = upstream_receiver.next().await {
+            if let Ok(msg) = msg {
+                 let axum_msg = match msg {
+                    TungsteniteMessage::Text(t) => Message::Text(t),
+                    TungsteniteMessage::Binary(b) => Message::Binary(b.into()),
+                    TungsteniteMessage::Ping(b) => Message::Ping(b.into()),
+                    TungsteniteMessage::Pong(b) => Message::Pong(b.into()),
+                    TungsteniteMessage::Close(_) => Message::Close(None),
+                    TungsteniteMessage::Frame(_) => continue,
+                };
+
+                if client_sender.send(axum_msg).await.is_err() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
+
+    let _ = tokio::join!(client_to_upstream, upstream_to_client);
 }
 
 fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
@@ -368,9 +386,7 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let mime = match ext {
             "wasm" => "application/wasm",
-            "data" | "symbols" | "mem" | "unityweb" | "pck" | "bin" | "fbx" => {
-                "application/octet-stream"
-            }
+            "data" | "symbols" | "mem" | "unityweb" | "pck" | "bin" | "fbx" => "application/octet-stream",
             "glb" => "model/gltf-binary",
             "gltf" => "model/gltf+json",
             "obj" => "text/plain",
@@ -383,43 +399,31 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
             "png" => "image/png",
             "jpg" | "jpeg" => "image/jpeg",
             "svg" => "image/svg+xml",
-            _ => return,
+            _ => return, 
         };
         headers.insert("Content-Type", HeaderValue::from_static(mime));
     }
 }
 
-fn is_game_asset(url: &str) -> bool {
+fn is_likely_static_asset(url: &str) -> bool {
     let exts = [
         ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
-        ".glb", ".gltf", ".bin", ".fbx", ".obj", ".swf", ".p8", ".c3p", ".atlas", ".fnt",
-        ".png", ".jpg", ".mp3", ".ogg", ".wav",
+        ".glb", ".gltf", ".bin", ".fbx", ".obj",
+        ".swf", ".p8", ".c3p",
+        ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg"
     ];
+    
+    if url.contains("favicons?") {
+        return true;
+    }
 
     exts.iter().any(|ext| url.ends_with(ext))
 }
 
 fn is_blacklisted_header(name: &str) -> bool {
-    matches!(
-        name,
-        "host"
-            | "connection"
-            | "content-length"
-            | "transfer-encoding"
-            | "accept-encoding"
-            | "upgrade"
-            | "sec-websocket-key"
-    )
+    matches!(name, "host" | "connection" | "content-length" | "transfer-encoding" | "upgrade" | "sec-websocket-key" | "sec-websocket-version" | "sec-websocket-extensions")
 }
 
 fn is_blacklisted_res_header(name: &str) -> bool {
-    matches!(
-        name,
-        "connection"
-            | "content-length"
-            | "content-encoding"
-            | "transfer-encoding"
-            | "content-security-policy"
-            | "strict-transport-security"
-    )
+    matches!(name, "connection" | "content-length" | "transfer-encoding" | "content-security-policy" | "strict-transport-security" | "access-control-allow-origin")
 }

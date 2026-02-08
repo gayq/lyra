@@ -68,17 +68,20 @@ const renderBookmarks = () => {
         const icon = document.createElement('img');
         icon.className = 'bookmark-icon-img';
         icon.loading = 'lazy';
+        icon.decoding = 'async';
         
         icon.onload = () => {
             iconWrapper.classList.remove('skeleton');
         };
 
-        try {
-            const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
-            icon.src = getProxyUrl(originalFavicon);
-        } catch {
-            icon.src = '';
-        }
+        setTimeout(() => {
+            try {
+                const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
+                icon.src = getProxyUrl(originalFavicon);
+            } catch {
+                icon.src = '';
+            }
+        }, 0);
         
         icon.onerror = () => {
             iconWrapper.classList.remove('skeleton');

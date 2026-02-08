@@ -278,7 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     window.addEventListener('beforeunload', function(e) {
-        const preventClosingEnabled = localStorage.getItem('preventClosing') === 'true';
+        const preventClosingEnabled = localStorage.getItem('preventClosing') !== 'false';
         if (preventClosingEnabled) {
             e.preventDefault();
             e.returnValue = '';
@@ -476,16 +476,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const settingsMenu = document.getElementById('settings-menu');
         const overlay = document.getElementById('overlay');
+        
+        if (localStorage.getItem('preventClosing') === null) {
+            localStorage.setItem('preventClosing', 'true');
+        }
+        
         const appSettings = {
             backend: localStorage.getItem('backend') || 'scramjet',
             transport: localStorage.getItem('transport') || 'libcurl',
             customWispUrl: localStorage.getItem('customWispUrl'),
-            searchSuggestionsEnabled: localStorage.getItem('searchSuggestionsEnabled') !== 'false',
             cloakLink: localStorage.getItem('cloakLink') || 'none',
             decoy: localStorage.getItem('decoy') || 'none',
             searchEngine: localStorage.getItem('searchEngine') || 'duckduckgo',
             gameSource: localStorage.getItem('gameSource') || 'selenite',
-            preventClosing: localStorage.getItem('preventClosing') === 'true'
+            preventClosing: localStorage.getItem('preventClosing') !== 'false'
         };
 
         let isToggling = false;

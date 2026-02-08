@@ -165,6 +165,23 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         on_demand
     }
 
+    handle_path /yay/* {
+        reverse_proxy https://openairtowhardworking.com {
+            header_up Host openairtowhardworking.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    handle_path /analytics/* {
+        reverse_proxy https://www.googletagmanager.com {
+            header_up Host www.googletagmanager.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+        }
+    }
+
     @websockets {
         path /w/*
         header Connection *Upgrade*
@@ -242,13 +259,13 @@ resolve_ipv6 = false
 tcp_nodelay = true
 file_raw_mode = false
 use_real_ip_headers = false
-non_ws_response = "Hii! You should join discord.gg/dJvdkPRheV"
+non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
 max_message_size = 65536
 log_level = "OFF"
 runtime = "multithread"
 [wisp]
 allow_wsproxy = true
-buffer_size = 524288
+buffer_size = 1048576
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
@@ -256,7 +273,7 @@ password_extension_required = false
 certificate_extension_required = false
 [stream]
 tcp_nodelay = true
-buffer_size = 524288
+buffer_size = 1048576
 allow_udp = true
 allow_wsproxy_udp = false
 dns_servers = ["94.140.14.14", "94.140.15.15", "176.103.130.130", "176.103.130.131"]
@@ -349,4 +366,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "done! your Waves instance is now all setup and ready to be used!!!!"
+echo "done! your waves instance is now all setup and ready to be used!!!!"

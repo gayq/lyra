@@ -191,7 +191,7 @@ export function initializeFall() {
                 }
                 @keyframes fallAndFade {
                     0% {
-                        opacity: 0.8; 
+                        opacity: 1; 
                         transform: translate(-50%, 0) rotate(0deg);
                     }
                     100% {
