@@ -243,7 +243,13 @@ export function initializeFall() {
             }, duration * 1000);
         }
 
-        setInterval(spawnImage, SPAWN_RATE);
+        const startAnimation = () => setInterval(spawnImage, SPAWN_RATE);
+        
+        if (document.readyState === 'complete') {
+            startAnimation();
+        } else {
+            window.addEventListener('load', startAnimation);
+        }
         
     } catch (e) {
         console.error("fall error:", e);

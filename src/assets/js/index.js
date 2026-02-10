@@ -1211,8 +1211,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateIframeView();
     updateSplitButtonState();
     updateMemoryDisplay();
-
-    window.addEventListener('load', () => {
+    requestAnimationFrame(() => {
         const activeTab = getActiveTab();
         if (activeTab && !activeTab.isUrlLoaded) {
             hideLoading();
