@@ -125,25 +125,26 @@ app.use("/libcurl/", express.static(libcurlPath, staticOpts));
 app.use("/u/", express.static(uvPath, staticOpts));
 app.use("/s/", express.static(path.join(__dirname, "scramjet")));
 
-if (NODE_ENV !== 'production') {
+if (NODE_ENV === 'development') {
     app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
     app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
+    
+    app.use("/b", express.static(path.join(publicPath, "b")));
+    
+    const bMap = {
+      "1": path.join(baremuxPath, "index.js"),
+      "2": path.join(publicPath, "b/s/jetty.all.js"),
+      "3": path.join(publicPath, "b/u/bunbun.js"),
+      "4": path.join(publicPath, "b/u/concon.js")
+    };
+
+    app.get("/b", (req, res) => {
+      const id = req.query.id;
+      bMap[id] ? res.sendFile(bMap[id]) : res.status(404).send("File not found");
+    });
 }
 
-app.use("/b", express.static(path.join(publicPath, "b")));
 app.use(express.static(srcPath, staticOpts));
-
-const bMap = {
-  "1": path.join(baremuxPath, "index.js"),
-  "2": path.join(publicPath, "b/s/jetty.all.js"),
-  "3": path.join(publicPath, "b/u/bunbun.js"),
-  "4": path.join(publicPath, "b/u/concon.js")
-};
-
-app.get("/b", (req, res) => {
-  const id = req.query.id;
-  bMap[id] ? res.sendFile(bMap[id]) : res.status(404).send("File not found");
-});
 
 app.get("/api/version", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {

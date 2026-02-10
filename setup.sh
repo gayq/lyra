@@ -146,6 +146,11 @@ EOF
 sudo systemctl daemon-reload
 
 DIR="$HOME/waves"
+BAREMUX=$(find "$DIR/node_modules" -path "*/@mercuryworkshop/bare-mux/dist" -type d | head -n 1)
+
+if [ -z "$BAREMUX" ]; then
+    BAREMUX="$DIR/node_modules/bare-mux/dist"
+fi
 
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
@@ -175,6 +180,44 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         try_files /dist{path} /public{path}
         file_server
         header Cache-Control "public, max-age=604800, immutable"
+    }
+
+    handle /b {
+        @id1 query id=1
+        handle @id1 {
+            root * $BAREMUX
+            try_files /index.js =404
+            file_server
+            header Cache-Control "public, max-age=604800, immutable"
+            header Content-Type "application/javascript"
+        }
+
+        @id2 query id=2
+        handle @id2 {
+            root * $DIR/public/b/s
+            try_files /jetty.all.js =404
+            file_server
+            header Cache-Control "public, max-age=604800, immutable"
+            header Content-Type "application/javascript"
+        }
+
+        @id3 query id=3
+        handle @id3 {
+            root * $DIR/public/b/u
+            try_files /bunbun.js =404
+            file_server
+            header Cache-Control "public, max-age=604800, immutable"
+            header Content-Type "application/javascript"
+        }
+
+        @id4 query id=4
+        handle @id4 {
+            root * $DIR/public/b/u
+            try_files /concon.js =404
+            file_server
+            header Cache-Control "public, max-age=604800, immutable"
+            header Content-Type "application/javascript"
+        }
     }
 
     @websockets {
