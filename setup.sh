@@ -132,6 +132,11 @@ fi
 
 bun run build
 
+sudo sed -i 's/^User=.*/User=root/' /lib/systemd/system/caddy.service
+sudo sed -i 's/^Group=.*/Group=root/' /lib/systemd/system/caddy.service
+sudo sed -i 's/^AmbientCapabilities=/#AmbientCapabilities=/' /lib/systemd/system/caddy.service
+sudo systemctl daemon-reload
+
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
 
 sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
@@ -235,10 +240,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 EOF
 
-chmod o+x "$HOME"
-chmod o+x "$HOME/waves"
-chmod -R o+rX "$HOME/waves/public"
-
 sudo tee /etc/epoxy-server/config.toml <<EOF
 [server]
 bind = ["tcp", "0.0.0.0:8080"]
@@ -339,6 +340,7 @@ EOF
 
 sudo caddy fmt --overwrite /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl daemon-reload
 sudo systemctl restart caddy
 
 if command -v ufw && ufw status | grep -q "Status: active"; then
