@@ -171,6 +171,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     handle /assets/* {
+        root * $DIR
+        try_files /dist{path} /public{path}
         file_server
         header Cache-Control "public, max-age=604800, immutable"
     }
