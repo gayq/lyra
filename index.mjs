@@ -128,9 +128,9 @@ app.use("/s/", express.static(path.join(__dirname, "scramjet")));
 if (NODE_ENV !== 'production') {
     app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
     app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
-    app.use("/b", express.static(path.join(publicPath, "b")));
 }
 
+app.use("/b", express.static(path.join(publicPath, "b")));
 app.use(express.static(srcPath, staticOpts));
 
 const bMap = {
