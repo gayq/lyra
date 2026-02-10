@@ -23,7 +23,6 @@ done
 
 sudo ip link delete veth0-global 2>/dev/null
 sudo modprobe nf_conntrack
-
 sudo apt-get update -y
 sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn
 
@@ -141,20 +140,21 @@ Environment="NO_PROXY=127.0.0.1"
 EOF
 sudo systemctl daemon-reload
 
+DIR="$HOME/waves"
+
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
-
     servers {
         protocols h1 h2 h3
     }
-
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
 }
 
 :443 {
+    root * $DIR/public
 
     log {
         output file /var/log/caddy/access.log
@@ -163,6 +163,16 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+    }
+
+    handle /assets/* {
+        file_server
+        header Cache-Control "public, max-age=604800, immutable"
+    }
+
+    handle /b/* {
+        file_server
+        header Cache-Control "public, max-age=604800, immutable"
     }
 
     handle_path /yay/* {
@@ -198,7 +208,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
-
         transport http {
             keepalive 256s
             keepalive_idle_conns 512
@@ -210,9 +219,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Real-IP {remote_host}
-
         flush_interval -1
-
         transport http {
             keepalive 256s
             keepalive_idle_conns 512
@@ -225,7 +232,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Real-IP {remote_host}
-
         transport http {
             keepalive 256s
             keepalive_idle_conns 512
@@ -250,6 +256,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     redir https://{host}{uri} permanent
 }
 EOF
+
+chmod o+x "$HOME"
+chmod o+x "$HOME/waves"
+chmod -R o+rX "$HOME/waves/public"
 
 sudo tee /etc/epoxy-server/config.toml <<EOF
 [server]

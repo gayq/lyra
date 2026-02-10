@@ -124,9 +124,13 @@ app.use("/epoxy/", express.static(epoxyPath, staticOpts));
 app.use("/libcurl/", express.static(libcurlPath, staticOpts));
 app.use("/u/", express.static(uvPath, staticOpts));
 app.use("/s/", express.static(path.join(__dirname, "scramjet")));
-app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
-app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
-app.use("/b", express.static(path.join(publicPath, "b")));
+
+if (NODE_ENV !== 'production') {
+    app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
+    app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
+    app.use("/b", express.static(path.join(publicPath, "b")));
+}
+
 app.use(express.static(srcPath, staticOpts));
 
 const bMap = {
