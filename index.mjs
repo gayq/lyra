@@ -10,23 +10,23 @@ import dotenv from "dotenv";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
-import { uvPath } from "@titaniumnetwork-dev/ultraviolet";
 import rateLimit from "express-rate-limit";
 
-process.env.UV_THREADPOOL_SIZE = 128;
+process.env.UV_THREADPOOL_SIZE = 32;
 
 dotenv.config();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const packageJsonPath = path.resolve("package.json");
-const notificationsPath = path.resolve("notifications.json"); 
+const notificationsPath = path.resolve("notifications.json");
 
 const apiLimiter = rateLimit({
-    windowMs: 5 * 60 * 1000,
-    max: 500,
-    standardHeaders: true, 
-    legacyHeaders: false,
-    message: { error: "Too many requests, please try again later." }
+  windowMs: 5 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+  validate: { trustProxy: false }
 });
 
 let cachedNotifications = [];
@@ -39,12 +39,7 @@ try {
   notificationError = { error: "Unable to load notification :(" };
 }
 
-if (global.gc) {
-    setInterval(() => {
-        const used = process.memoryUsage().heapUsed / 1024 / 1024;
-        if (used > 800) global.gc();
-    }, 60000);
-}
+
 
 const __dirname = process.cwd();
 const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src');
@@ -54,38 +49,38 @@ const app = express();
 app.set("trust proxy", true);
 const server = createServer(app);
 
-const pageCache = new LRUCache({ max: 5000, ttl: 1000 * 60 * 15 });
+const pageCache = new LRUCache({ max: 1000, ttl: 1000 * 60 * 5 });
 
 app.use(helmet({
-  contentSecurityPolicy: false, 
+  contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
   frameguard: false
 }));
 
 app.use((req, res, next) => {
-    if (NODE_ENV === 'development' && req.url.startsWith('/!!/')) {
-        const options = {
-            hostname: '127.0.0.1',
-            port: 4000,
-            path: req.url, 
-            method: req.method,
-            headers: req.headers,
-        };
-        
-        const proxyReq = request(options, (proxyRes) => {
-            res.writeHead(proxyRes.statusCode, proxyRes.headers);
-            proxyRes.pipe(res);
-        });
+  if (NODE_ENV === 'development' && req.url.startsWith('/!!/')) {
+    const options = {
+      hostname: '127.0.0.1',
+      port: 4000,
+      path: req.url,
+      method: req.method,
+      headers: req.headers,
+    };
 
-        proxyReq.on('error', (e) => {
-            console.error(`forwarding failed: ${e.message}`);
-            if (!res.headersSent) res.status(502).send("make sure mochi is running!");
-        });
+    const proxyReq = request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
 
-        req.pipe(proxyReq);
-    } else {
-        next();
-    }
+    proxyReq.on('error', (e) => {
+      console.error(`forwarding failed: ${e.message}`);
+      if (!res.headersSent) res.status(502).send("make sure mochi is running!");
+    });
+
+    req.pipe(proxyReq);
+  } else {
+    next();
+  }
 });
 
 app.use('/api/', apiLimiter);
@@ -96,11 +91,11 @@ app.use(compression({
     return compression.filter(req, res);
   },
   level: 6,
-  threshold: '5kb'
+  threshold: '1kb'
 }));
 
 app.use((req, res, next) => {
-  if (req.path.startsWith("/api/") || req.url.startsWith("/!!/")) return next();
+  if (req.path.startsWith("/api/") || req.url.startsWith("/!!/") || req.path.startsWith("/b")) return next();
   const key = req.originalUrl;
   const val = pageCache.get(key);
   if (val) {
@@ -118,20 +113,63 @@ app.use((req, res, next) => {
   next();
 });
 
-const staticOpts = { maxAge: "7d", immutable: true, etag: false };
-app.use("/bmux/", express.static(baremuxPath, staticOpts));
-app.use("/epoxy/", express.static(epoxyPath, staticOpts));
-app.use("/libcurl/", express.static(libcurlPath, staticOpts));
-app.use("/u/", express.static(uvPath, staticOpts));
-app.use("/s/", express.static(path.join(__dirname, "scramjet")));
+const staticOpts = { maxAge: "365d", immutable: true, etag: false };
+const hashedOpts = { maxAge: "365d", immutable: true, etag: false };
 
-if (NODE_ENV !== 'production') {
-    app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
-    app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
+if (NODE_ENV === 'production') {
+  const COMPRESSIBLE = /\.(js|css|html|mjs|json|svg|xml)$/i;
+  const ENCODING_MAP = [
+    { ext: '.br', encoding: 'br' },
+    { ext: '.gz', encoding: 'gzip' }
+  ];
+  const CONTENT_TYPES = {
+    '.js': 'application/javascript; charset=utf-8',
+    '.mjs': 'application/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.html': 'text/html; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.xml': 'application/xml'
+  };
+
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (!COMPRESSIBLE.test(req.path)) return next();
+    if (req.path.startsWith('/api/') || req.url.startsWith('/!!/')) return next();
+
+    const accept = req.headers['accept-encoding'] || '';
+    for (const { ext, encoding } of ENCODING_MAP) {
+      if (!accept.includes(encoding)) continue;
+      const candidates = [
+        path.join(srcPath, req.path + ext),
+        path.join(publicPath, req.path + ext)
+      ];
+      for (const filePath of candidates) {
+        if (fs.existsSync(filePath)) {
+          const fileExt = path.extname(req.path);
+          res.setHeader('Content-Encoding', encoding);
+          res.setHeader('Content-Type', CONTENT_TYPES[fileExt] || 'application/octet-stream');
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          res.setHeader('Vary', 'Accept-Encoding');
+          return res.sendFile(filePath);
+        }
+      }
+    }
+    next();
+  });
 }
 
-app.use("/b", express.static(path.join(publicPath, "b")));
-app.use(express.static(srcPath, staticOpts));
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+  const accept = req.headers['accept'] || '';
+  if (accept.includes('text/html') || req.path === '/' || req.path.endsWith('.html')) {
+    res.setHeader('Link', [
+      '</assets/css/index.css>; rel=preload; as=style',
+      '</assets/fonts/Lexend-Regular.woff2>; rel=preload; as=font; crossorigin',
+    ].join(', '));
+  }
+  next();
+});
 
 const bMap = {
   "1": path.join(baremuxPath, "index.js"),
@@ -140,10 +178,27 @@ const bMap = {
   "4": path.join(publicPath, "b/u/concon.js")
 };
 
+const bCache = {};
+for (const [id, filePath] of Object.entries(bMap)) {
+  try { bCache[id] = fs.readFileSync(filePath); } catch { }
+}
+
 app.get("/b", (req, res) => {
-  const id = req.query.id;
-  bMap[id] ? res.sendFile(bMap[id]) : res.status(404).send("File not found");
+  const buf = bCache[req.query.id];
+  if (!buf) return res.status(404).send("file not found");
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.send(buf);
 });
+
+app.use("/bmux/", express.static(baremuxPath, staticOpts));
+app.use("/epoxy/", express.static(epoxyPath, hashedOpts));
+app.use("/libcurl/", express.static(libcurlPath, hashedOpts));
+app.use("/s/", express.static(path.join(__dirname, "scramjet"), staticOpts));
+app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
+app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
+app.use("/b", express.static(path.join(publicPath, "b"), staticOpts));
+app.use(express.static(srcPath, staticOpts));
 
 app.get("/api/version", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
@@ -157,7 +212,7 @@ app.get("/api/notifications", (_req, res) => {
   res.json(cachedNotifications);
 });
 
-app.get("/", (_req, res) => {res.sendFile(path.join(srcPath, "index.html"));});
+app.get("/", (_req, res) => { res.sendFile(path.join(srcPath, "index.html")); });
 app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
 
 server.on("upgrade", (req, sock, head) => {
@@ -165,28 +220,28 @@ server.on("upgrade", (req, sock, head) => {
     sock.setNoDelay(true);
     wisp.routeRequest(req, sock, head);
   } else if (NODE_ENV === 'development' && req.url.startsWith("/!!/")) {
-      const proxyReq = request({
-          hostname: '127.0.0.1',
-          port: 4000,
-          path: req.url,
-          method: 'GET',
-          headers: req.headers
-      });
-      
-      proxyReq.on('upgrade', (proxyRes, proxySock, proxyHead) => {
-          if (head && head.length) proxySock.unshift(head);
-          
-          sock.write(
-              `HTTP/${proxyRes.httpVersion} ${proxyRes.statusCode} ${proxyRes.statusMessage}\r\n` +
-              Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') +
-              '\r\n\r\n'
-          );
-          
-          sock.pipe(proxySock).pipe(sock);
-      });
-      
-      proxyReq.on('error', () => sock.destroy());
-      proxyReq.end();
+    const proxyReq = request({
+      hostname: '127.0.0.1',
+      port: 4000,
+      path: req.url,
+      method: 'GET',
+      headers: req.headers
+    });
+
+    proxyReq.on('upgrade', (proxyRes, proxySock, proxyHead) => {
+      if (head && head.length) proxySock.unshift(head);
+
+      sock.write(
+        `HTTP/${proxyRes.httpVersion} ${proxyRes.statusCode} ${proxyRes.statusMessage}\r\n` +
+        Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') +
+        '\r\n\r\n'
+      );
+
+      sock.pipe(proxySock).pipe(sock);
+    });
+
+    proxyReq.on('error', () => sock.destroy());
+    proxyReq.end();
   } else {
     sock.destroy();
   }

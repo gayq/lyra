@@ -73,10 +73,10 @@ export function initializeGame() {
   attachSearchLight(gamesSearchBar);
 
   const scrollTarget = wrapper || window;
-  
+
   scrollTarget.addEventListener('scroll', () => {
     const currentScroll = wrapper ? wrapper.scrollTop : window.scrollY;
-    
+
     if (currentScroll > 10) {
       gamesSearchBar.classList.add('is-sticky');
     } else {
@@ -85,19 +85,20 @@ export function initializeGame() {
   }, { passive: true });
 
   const DURATION = 60;
-  
+
   let allGames = [];
   let gameDataLoaded = false;
   let gameDataPromise = null;
   let gameRendered = false;
   let gameFadeTimer = null;
   const SKELETON_COUNT = 12;
-  
+  let _filterTimer = 0;
+
   let savedScrollPosition = 0;
   let cardTemplate = null;
 
   const getSourceKey = () => localStorage.getItem('gameSource') || 'selenite';
-  const getCacheKey = () => `xin_game_cache_${getSourceKey()}`;
+  const getCacheKey = () => `waves-game-cache${getSourceKey()}`;
 
   function setIconAsHome(isHome) {
     if (!iconEl) return;
@@ -108,8 +109,8 @@ export function initializeGame() {
     if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
       window.toggleSettingsMenu();
     }
-    if (window.xinUpdater && typeof window.xinUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
-      window.xinUpdater.hideSuccess(true);
+    if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
+      window.wavesUpdater.hideSuccess(true);
     }
     if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
       window.SharePromoter.hideSharePrompt(true);
@@ -127,7 +128,7 @@ export function initializeGame() {
 
   function updateGamePlaceholder() {
     if (!gameSearchInput) return;
-    
+
     if (!gameDataLoaded) {
       gameSearchInput.placeholder = `fetching games...`;
       return;
@@ -172,7 +173,7 @@ export function initializeGame() {
   function showSkeletonLoading() {
     if (!gameGrid) return;
     if (gameGrid.children.length > 0 && !gameGrid.querySelector('.skeleton-card')) return;
-    
+
     const fragment = document.createDocumentFragment();
     gameGrid.innerHTML = '';
     for (let i = 0; i < SKELETON_COUNT; i++) {
@@ -185,37 +186,37 @@ export function initializeGame() {
 
   function getCardTemplate() {
     if (cardTemplate) return cardTemplate;
-    
+
     const card = document.createElement('article');
     card.className = 'game-card';
-    card.style.contentVisibility = 'auto'; 
-    card.style.containIntrinsicSize = '100px 100px'; 
+    card.style.contentVisibility = 'auto';
+    card.style.containIntrinsicSize = '100px 100px';
     card.style.contain = 'layout paint style';
-    
+
     const media = document.createElement('div');
     media.className = 'game-cover skeleton';
-    
+
     const img = document.createElement('img');
     img.loading = 'lazy';
     img.decoding = 'async';
     media.appendChild(img);
-    
+
     const info = document.createElement('div');
     info.className = 'game-info';
-    
+
     const title = document.createElement('h1');
     info.appendChild(title);
-    
+
     card.appendChild(media);
     card.appendChild(info);
-    
+
     cardTemplate = card;
     return cardTemplate;
   }
 
   function handleImageLoad(e) {
     const img = e.target;
-    const media = img.parentElement; 
+    const media = img.parentElement;
     if (media) media.classList.remove('skeleton');
   }
 
@@ -230,7 +231,7 @@ export function initializeGame() {
 
   function createGameCard(game) {
     const card = getCardTemplate().cloneNode(true);
-    
+
     card.dataset.gameUrl = game.gameUrl;
     card.dataset.isExternal = game.isExternal;
     card.dataset.gameName = game.name.toLowerCase();
@@ -245,7 +246,7 @@ export function initializeGame() {
 
     img.alt = game.name;
     img.src = game.coverUrl;
-    
+
     img.onload = handleImageLoad;
     img.onerror = handleImageError;
 
@@ -256,17 +257,17 @@ export function initializeGame() {
 
   function renderGameCards(games) {
     if (!gameGrid) return;
-    
+
     const fragment = document.createDocumentFragment();
     const count = games.length;
-    
-    for(let i = 0; i < count; i++) {
-        fragment.appendChild(createGameCard(games[i]));
+
+    for (let i = 0; i < count; i++) {
+      fragment.appendChild(createGameCard(games[i]));
     }
-    
+
     gameGrid.innerHTML = '';
     gameGrid.appendChild(fragment);
-    
+
     gameGrid.style.display = games.length ? 'grid' : 'none';
   }
 
@@ -280,11 +281,11 @@ export function initializeGame() {
     if (!gameDataLoaded || !gameGrid) return;
 
     const query = (gameSearchInput?.value || '').toLowerCase().trim();
-    
+
     if (query) {
-        savedScrollPosition = 0;
+      savedScrollPosition = 0;
     }
-    
+
     if (!query) {
       if (noResultsEl) noResultsEl.style.display = 'none';
       renderGameCards(allGames);
@@ -293,8 +294,8 @@ export function initializeGame() {
     }
 
     const filteredGames = allGames.filter(game => {
-      const matchesName = game.name.toLowerCase().includes(query);
-      const matchesAuthor = (game.author || '').toLowerCase().includes(query);
+      const matchesName = (game._nameLc || game.name.toLowerCase()).includes(query);
+      const matchesAuthor = (game._authorLc || '').includes(query);
       return matchesName || matchesAuthor;
     });
 
@@ -311,7 +312,7 @@ export function initializeGame() {
 
     renderGameCards(filteredGames);
     updateCountLabel(resultsFound);
-    
+
     if (wrapper) wrapper.scrollTop = 0;
   }
 
@@ -340,7 +341,7 @@ export function initializeGame() {
         try {
           sessionStorage.setItem(cacheKey, JSON.stringify(data));
         } catch (e) {
-          console.warn('Unable to cache games', e);
+          console.warn('unable to cache games', e);
         }
         return data;
       };
@@ -357,6 +358,7 @@ export function initializeGame() {
               isExternal: false,
               featured: game.tags && game.tags.includes('top')
             })).sort((a, b) => a.name.localeCompare(b.name));
+            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
             return saveToCache(allGames);
           });
       } else if (source === 'truffled') {
@@ -376,6 +378,7 @@ export function initializeGame() {
                 featured: false
               };
             }).sort((a, b) => a.name.localeCompare(b.name));
+            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
             return saveToCache(allGames);
           });
       } else if (source === 'velara') {
@@ -398,6 +401,7 @@ export function initializeGame() {
                   featured: false
                 };
               }).sort((a, b) => a.name.localeCompare(b.name));
+            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
             return saveToCache(allGames);
           });
       } else {
@@ -418,12 +422,13 @@ export function initializeGame() {
             })
               .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'))
               .sort((a, b) => (a.featured === b.featured) ? a.name.localeCompare(b.name) : (a.featured ? -1 : 1));
+            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
             return saveToCache(allGames);
           });
       }
 
       gameDataPromise.catch(err => {
-        console.error('Game fetch failed:', err);
+        console.error('game fetch failed:', err);
         gameDataPromise = null;
       });
     }
@@ -436,7 +441,7 @@ export function initializeGame() {
     gameDataPromise = null;
     allGames = [];
     savedScrollPosition = 0;
-    cardTemplate = null; 
+    cardTemplate = null;
     if (gameGrid) gameGrid.innerHTML = '';
     if (showMessage && noResultsEl) {
       noResultsEl.textContent = 'Refreshing games...';
@@ -465,14 +470,14 @@ export function initializeGame() {
 
     requestAnimationFrame(() => {
       gamesPage.classList.add('is-active');
-      
+
       if (wrapper) {
-          wrapper.scrollTop = savedScrollPosition;
+        wrapper.scrollTop = savedScrollPosition;
       } else {
-          window.scrollTo(0, savedScrollPosition);
+        window.scrollTo(0, savedScrollPosition);
       }
     });
-    
+
     gamesPage.setAttribute('aria-hidden', 'false');
     setIconAsHome(true);
     localStorage.setItem('wavesUserOpenedGameMenu', 'true');
@@ -491,11 +496,11 @@ export function initializeGame() {
 
   function hideGamesPage() {
     if (!document.body.classList.contains('games-view')) return;
-    
+
     if (wrapper) {
-        savedScrollPosition = wrapper.scrollTop;
+      savedScrollPosition = wrapper.scrollTop;
     } else {
-        savedScrollPosition = window.scrollY || document.documentElement.scrollTop;
+      savedScrollPosition = window.scrollY || document.documentElement.scrollTop;
     }
 
     if (gameFadeTimer) {
@@ -532,7 +537,10 @@ export function initializeGame() {
   });
 
   if (gameSearchInput) {
-    gameSearchInput.addEventListener('input', filterAndDisplayGames);
+    gameSearchInput.addEventListener('input', () => {
+      clearTimeout(_filterTimer);
+      _filterTimer = setTimeout(filterAndDisplayGames, 120);
+    });
   }
 
 
@@ -566,7 +574,7 @@ export function initializeGame() {
       }
     });
   }
-  
+
   gameIcon.addEventListener('click', e => {
     e.preventDefault();
     toggleGamesPage();

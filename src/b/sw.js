@@ -1,18 +1,12 @@
-self.addEventListener('install', () => {
-  self.skipWaiting();
-});
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
-});
 
 // dumb hack to allow firefox to work (please dont do this in prod)
 // do this in prod
 if (typeof crossOriginIsolated === 'undefined' && navigator.userAgent.includes('Firefox')) {
-    Object.defineProperty(self, "crossOriginIsolated", {
-        value: true,
-        writable: false,
-    });
+  Object.defineProperty(self, "crossOriginIsolated", {
+    value: true,
+    writable: false,
+  });
 }
 
 const scope = self.registration.scope;
@@ -21,11 +15,21 @@ const isUltraviolet = scope.endsWith('/b/u/hi/');
 const UV_PREFIX = '/b/u/hi/';
 const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
 const MOCHI_PREFIX = '/!!/';
+
+const CACHE_VERSION = '__BUILD_ID__';
+const SHELL_CACHE = 'waves-shell-' + CACHE_VERSION;
+const RUNTIME_CACHE = 'waves-runtime-' + CACHE_VERSION;
+const PRECACHE_URLS = [
+  '/',
+  '/assets/images/icons/favicon.ico'
+];
+
+const CACHEABLE_STATIC_EXT = /\.(css|js|mjs|woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|svg|wasm)$/i;
 const DOWNLOAD_EXTENSIONS = new Set([
-    '.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz',
-    '.exe', '.msi', '.apk', '.dmg', '.deb', '.rpm',
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-    '.iso', '.img', '.bin', '.msix', '.pkg', '.mp3', '.mp4', '.wav', '.flac', '.mkv', '.mov'
+  '.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz',
+  '.exe', '.msi', '.apk', '.dmg', '.deb', '.rpm',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+  '.iso', '.img', '.bin', '.msix', '.pkg', '.mp3', '.mp4', '.wav', '.flac', '.mkv', '.mov'
 ]);
 
 let scramjet;
@@ -35,76 +39,76 @@ let scramjetConfigLoaded = false;
 self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;
 
 self.addEventListener('message', (event) => {
-    const data = event?.data;
-    if (data && data.type === 'mochi-base' && typeof data.base === 'string' && data.base.startsWith('http')) {
-        self.__MOCHI_BASE__ = data.base.replace(/\/+$/, '') + '/';
+  const data = event?.data;
+  if (data && data.type === 'mochi-base' && typeof data.base === 'string' && data.base.startsWith('http')) {
+    self.__MOCHI_BASE__ = data.base.replace(/\/+$/, '') + '/';
+  }
+  if (data && data.type === 'open-new-tab' && data.url) {
+    const sanitizedUrl = typeof data.url === 'string' ? data.url : null;
+    if (!sanitizedUrl) return;
+
+    const payload = {
+      type: 'open-new-tab',
+      url: sanitizedUrl,
+      decodedUrl: typeof data.decodedUrl === 'string' ? data.decodedUrl : sanitizedUrl,
+      openerUrl: typeof data.openerUrl === 'string' ? data.openerUrl : null,
+      tabId: data.tabId || null,
+      isTopFrame: !!data.isTopFrame,
+      cause: data.cause || null
+    };
+
+    event.waitUntil((async () => {
+      const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+      for (const client of clients) {
+        client.postMessage(payload);
+      }
+    })());
+  }
+  if (data && data.type === 'page-meta') {
+    const payload = {
+      type: 'page-meta',
+      url: data.url || data.href || null,
+      decodedUrl: data.decodedUrl || data.url || data.href || null,
+      title: typeof data.title === 'string' ? data.title : '',
+      favicon: data.favicon || data.rawFavicon || null,
+      rawFavicon: data.rawFavicon || data.favicon || null,
+      tabId: data.tabId || null,
+      isTopFrame: !!data.isTopFrame,
+      memory: data.memory || null,
+      clientId: event.source && 'id' in event.source ? event.source.id : null,
+      collectedAt: Date.now(),
+      encoded: !!data.encoded
+    };
+
+    const sourceId = event.source && 'id' in event.source ? event.source.id : null;
+    if (event.source && typeof event.source.postMessage === 'function') {
+      event.source.postMessage(payload);
     }
-    if (data && data.type === 'open-new-tab' && data.url) {
-        const sanitizedUrl = typeof data.url === 'string' ? data.url : null;
-        if (!sanitizedUrl) return;
 
-        const payload = {
-            type: 'open-new-tab',
-            url: sanitizedUrl,
-            decodedUrl: typeof data.decodedUrl === 'string' ? data.decodedUrl : sanitizedUrl,
-            openerUrl: typeof data.openerUrl === 'string' ? data.openerUrl : null,
-            tabId: data.tabId || null,
-            isTopFrame: !!data.isTopFrame,
-            cause: data.cause || null
-        };
-
-        event.waitUntil((async () => {
-            const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-            for (const client of clients) {
-                client.postMessage(payload);
-            }
-        })());
-    }
-    if (data && data.type === 'page-meta') {
-        const payload = {
-            type: 'page-meta',
-            url: data.url || data.href || null,
-            decodedUrl: data.decodedUrl || data.url || data.href || null,
-            title: typeof data.title === 'string' ? data.title : '',
-            favicon: data.favicon || data.rawFavicon || null,
-            rawFavicon: data.rawFavicon || data.favicon || null,
-            tabId: data.tabId || null,
-            isTopFrame: !!data.isTopFrame,
-            memory: data.memory || null,
-            clientId: event.source && 'id' in event.source ? event.source.id : null,
-            collectedAt: Date.now(),
-            encoded: !!data.encoded
-        };
-
-        const sourceId = event.source && 'id' in event.source ? event.source.id : null;
-        if (event.source && typeof event.source.postMessage === 'function') {
-            event.source.postMessage(payload);
-        }
-
-        event.waitUntil((async () => {
-            const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-            for (const client of clients) {
-                if (sourceId && client.id === sourceId) continue;
-                client.postMessage(payload);
-            }
-        })());
-    }
+    event.waitUntil((async () => {
+      const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+      for (const client of clients) {
+        if (sourceId && client.id === sourceId) continue;
+        client.postMessage(payload);
+      }
+    })());
+  }
 });
 
 if (isScramjet) {
-    importScripts('/b/s/jetty.all.js');
-    const { ScramjetServiceWorker } = $scramjetLoadWorker();
-    scramjet = new ScramjetServiceWorker();
+  importScripts('/b/s/jetty.all.js');
+  const { ScramjetServiceWorker } = $scramjetLoadWorker();
+  scramjet = new ScramjetServiceWorker();
 } else if (isUltraviolet) {
-    importScripts(
-        '/b/u/bunbun.js',
-        '/b/u/concon.js',
-        '/b/u/serser.js'
-    );
-    uv = new UVServiceWorker();
+  importScripts(
+    '/b/u/bunbun.js',
+    '/b/u/concon.js',
+    '/b/u/serser.js'
+  );
+  uv = new UVServiceWorker();
 }
 
-const CACHE_NAME = 'xin-assets-cache-v1';
+
 
 const TURN_SCRIPT = `
 <script>
@@ -139,12 +143,12 @@ const TURN_SCRIPT = `
 `;
 
 const getMochiBase = () => {
-    if (self.__MOCHI_BASE__ && self.__MOCHI_BASE__.startsWith('http')) return self.__MOCHI_BASE__.replace(/\/+$/, '') + '/!!/';
-    if (self.MOCHI_BASE && self.MOCHI_BASE.startsWith('http')) return self.MOCHI_BASE.replace(/\/+$/, '') + '/!!/';
-    const loc = self.location;
-    const originBase = `${loc.origin}${MOCHI_PREFIX}`;
-    const devBase = `${loc.protocol}//${loc.hostname}:4000${MOCHI_PREFIX}`;
-    return originBase || devBase;
+  if (self.__MOCHI_BASE__ && self.__MOCHI_BASE__.startsWith('http')) return self.__MOCHI_BASE__.replace(/\/+$/, '') + '/!!/';
+  if (self.MOCHI_BASE && self.MOCHI_BASE.startsWith('http')) return self.MOCHI_BASE.replace(/\/+$/, '') + '/!!/';
+  const loc = self.location;
+  const originBase = `${loc.origin}${MOCHI_PREFIX}`;
+  const devBase = `${loc.protocol}//${loc.hostname}:4000${MOCHI_PREFIX}`;
+  return originBase || devBase;
 };
 
 const META_SCRIPT = `
@@ -391,8 +395,8 @@ const META_SCRIPT = `
   const burst = setInterval(() => {
     postMeta();
     burstCount++;
-    if(burstCount > 50) clearInterval(burst);
-  }, 100);
+    if(burstCount > 10) clearInterval(burst);
+  }, 200);
 
   setInterval(postMeta, 1000);
 
@@ -557,236 +561,276 @@ const META_SCRIPT = `
 `;
 
 const isFaviconUrl = (candidate) => {
-    if (!candidate) return false;
-    try {
-        const parsed = typeof candidate === 'string' ? new URL(candidate, self.location.origin) : candidate;
-        const path = parsed.pathname || '';
-        return /favicon(\.(ico|png|svg))?$/i.test(path);
-    } catch (e) {
-        return false;
-    }
+  if (!candidate) return false;
+  try {
+    const parsed = typeof candidate === 'string' ? new URL(candidate, self.location.origin) : candidate;
+    const path = parsed.pathname || '';
+    return /favicon(\.(ico|png|svg))?$/i.test(path);
+  } catch (e) {
+    return false;
+  }
 };
 
 function resolveRealUrl(url) {
-    if (!url) return null;
-    if (url.pathname.startsWith(MOCHI_PREFIX)) return null;
+  if (!url) return null;
+  if (url.pathname.startsWith(MOCHI_PREFIX)) return null;
 
-    if (url.origin !== self.location.origin) {
+  if (url.origin !== self.location.origin) {
+    try {
+      return new URL(url.href).href;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  if (isScramjet && url.pathname.startsWith('/b/s/')) {
+    const raw = url.pathname.slice(5) + url.search;
+    const httpIndex = raw.indexOf('http');
+    if (httpIndex !== -1) {
+      const candidate = raw.substring(httpIndex);
+      try {
+        const decoded = decodeURIComponent(candidate);
+        return new URL(decoded).href;
+      } catch (e) {
         try {
-            return new URL(url.href).href;
-        } catch (e) {
+          return new URL(candidate).href;
+        } catch (err) {
+          return null;
+        }
+      }
+    }
+  }
+
+  if (isUltraviolet && self.__uv$config && typeof self.__uv$config.decodeUrl === 'function') {
+    const prefix = self.__uv$config.prefix || '/b/u/hi/';
+    if (url.pathname.startsWith(prefix)) {
+      const encoded = url.pathname.slice(prefix.length);
+      try {
+        const decoded = self.__uv$config.decodeUrl(encoded);
+        if (!decoded) return null;
+
+        if (decoded.includes(self.location.host)) {
+          const decodedObj = new URL(decoded);
+          if (decodedObj.origin === self.location.origin) {
             return null;
+          }
         }
+
+        return new URL(decoded + url.search, 'http://somthing').href.replace('http://somthing', '');
+      } catch (e) { }
     }
+  }
 
-    if (isScramjet && url.pathname.startsWith('/b/s/')) {
-        const raw = url.pathname.slice(5) + url.search;
-        const httpIndex = raw.indexOf('http');
-        if (httpIndex !== -1) {
-            const candidate = raw.substring(httpIndex);
-            try {
-                const decoded = decodeURIComponent(candidate);
-                return new URL(decoded).href;
-            } catch (e) {
-                try {
-                    return new URL(candidate).href;
-                } catch (err) {
-                    return null;
-                }
-            }
-        }
-    }
-
-    if (isUltraviolet && self.__uv$config && typeof self.__uv$config.decodeUrl === 'function') {
-        const prefix = self.__uv$config.prefix || '/b/u/hi/';
-        if (url.pathname.startsWith(prefix)) {
-            const encoded = url.pathname.slice(prefix.length);
-            try {
-                const decoded = self.__uv$config.decodeUrl(encoded);
-                if (!decoded) return null;
-                
-                if (decoded.includes(self.location.host)) {
-                     const decodedObj = new URL(decoded);
-                     if (decodedObj.origin === self.location.origin) {
-                        return null;
-                     }
-                }
-
-                return new URL(decoded + url.search, 'http://somthing').href.replace('http://somthing','');
-            } catch (e) {}
-        }
-    }
-
-    return null;
+  return null;
 }
 
 function getUrlExtension(targetUrl) {
-    try {
-        const parsed = new URL(targetUrl);
-        const lastDot = parsed.pathname.lastIndexOf('.');
-        if (lastDot === -1) return '';
-        return parsed.pathname.substring(lastDot).toLowerCase();
-    } catch (e) {
-        const path = targetUrl.split('?')[0];
-        const lastDot = path.lastIndexOf('.');
-        return lastDot !== -1 ? path.substring(lastDot).toLowerCase() : '';
-    }
+  try {
+    const parsed = new URL(targetUrl);
+    const lastDot = parsed.pathname.lastIndexOf('.');
+    if (lastDot === -1) return '';
+    return parsed.pathname.substring(lastDot).toLowerCase();
+  } catch (e) {
+    const path = targetUrl.split('?')[0];
+    const lastDot = path.lastIndexOf('.');
+    return lastDot !== -1 ? path.substring(lastDot).toLowerCase() : '';
+  }
 }
 
 async function fetchThroughMochi(request, realUrl) {
-    const headers = new Headers(request.headers);
-    headers.delete('host');
-    headers.delete('origin');
-    headers.delete('referer');
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('origin');
+  headers.delete('referer');
 
-    const init = {
-        method: request.method,
-        headers,
-        redirect: 'follow',
-        cache: 'no-store',
-        credentials: 'include'
-    };
+  const init = {
+    method: request.method,
+    headers,
+    redirect: 'follow',
+    cache: 'no-store',
+    credentials: 'include'
+  };
 
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-        try {
-            init.body = request.clone().body;
-        } catch (e) {}
-    }
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    try {
+      init.body = request.clone().body;
+    } catch (e) { }
+  }
 
-    const base = getMochiBase();
-    const normalized = base.endsWith('/') ? base : base + '/';
-    const target = realUrl.startsWith('http') ? `${normalized}${realUrl}` : `${MOCHI_PREFIX}${realUrl}`;
-    return fetch(target, init);
+  const base = getMochiBase();
+  const normalized = base.endsWith('/') ? base : base + '/';
+  const target = realUrl.startsWith('http') ? `${normalized}${realUrl}` : `${MOCHI_PREFIX}${realUrl}`;
+  return fetch(target, init);
 }
 
 async function handleProxyResponse(response) {
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('text/html')) return response;
-    if (!response.body) return response;
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('text/html')) return response;
+  if (!response.body) return response;
 
-    try {
-        const clonedResponse = response.clone();
-        const originalBody = await clonedResponse.text();
-        const scripts = TURN_SCRIPT + META_SCRIPT;
-        
-        let newBodyStr;
-        const headMatch = originalBody.match(/<head[^>]*>/i);
-        
-        if (headMatch) {
-            const idx = headMatch.index + headMatch[0].length;
-            newBodyStr = originalBody.slice(0, idx) + scripts + originalBody.slice(idx);
-        } else {
-            newBodyStr = scripts + originalBody;
-        }
+  try {
+    const clonedResponse = response.clone();
+    const originalBody = await clonedResponse.text();
+    const scripts = TURN_SCRIPT + META_SCRIPT;
 
-        return new Response(newBodyStr, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: response.headers
-        });
-    } catch (e) {
-        return response;
+    let newBodyStr;
+    const headMatch = originalBody.match(/<head[^>]*>/i);
+
+    if (headMatch) {
+      const idx = headMatch.index + headMatch[0].length;
+      newBodyStr = originalBody.slice(0, idx) + scripts + originalBody.slice(idx);
+    } else {
+      newBodyStr = scripts + originalBody;
     }
+
+    return new Response(newBodyStr, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  } catch (e) {
+    return response;
+  }
 }
 
 self.addEventListener('install', (event) => {
-    self.skipWaiting();
+  event.waitUntil(
+    caches.open(SHELL_CACHE).then(cache => {
+      return cache.addAll(PRECACHE_URLS).catch(() => { });
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then(keys => {
+      return Promise.all(
+        keys.filter(k => k.startsWith('waves-') && k !== SHELL_CACHE && k !== RUNTIME_CACHE)
+          .map(k => caches.delete(k))
+      );
+    }).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener("fetch", (event) => {
-    const { request } = event;
-    const url = new URL(request.url);
-    const realUrl = resolveRealUrl(url);
+  const { request } = event;
+  const url = new URL(request.url);
+  const realUrl = resolveRealUrl(url);
 
-    if (url.pathname.startsWith(MOCHI_PREFIX)) {
-        return; 
+  if (url.pathname.startsWith(MOCHI_PREFIX)) {
+    return;
+  }
+
+  if (realUrl && realUrl.includes('/!!/')) {
+    const parts = realUrl.split('/!!/');
+    const target = parts.pop();
+    if (target && target.startsWith('http')) {
+      return event.respondWith(fetchThroughMochi(request, target));
     }
+  }
 
-    if (realUrl && realUrl.includes('/!!/')) {
-        const parts = realUrl.split('/!!/');
-        const target = parts.pop();
-        if (target && target.startsWith('http')) {
-            return event.respondWith(fetchThroughMochi(request, target));
+  event.respondWith((async () => {
+    try {
+      if (realUrl && realUrl.startsWith('http')) {
+        const ext = getUrlExtension(realUrl);
+        const dest = request.destination;
+        const accept = request.headers.get('Accept') || '';
+
+        const isHeavyAsset =
+          dest === 'video' ||
+          dest === 'audio' ||
+          dest === 'image' ||
+          dest === 'font' ||
+          dest === 'track' ||
+          accept.startsWith('image/') ||
+          accept.startsWith('video/') ||
+          accept.startsWith('audio/') ||
+          accept.startsWith('font/') ||
+          STATIC_ASSET_REGEX.test(url.pathname) ||
+          ['.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
+
+        if (isHeavyAsset) {
+          try {
+            const mochiResponse = await fetchThroughMochi(request, realUrl);
+            if (mochiResponse && mochiResponse.ok) {
+              return handleProxyResponse(mochiResponse);
+            }
+          } catch (e) {
+          }
         }
+      }
+
+      if (isScramjet) {
+        if (!scramjetConfigLoaded) {
+          await scramjet.loadConfig();
+          scramjetConfigLoaded = true;
+        }
+
+        if (url.pathname.startsWith('/b/s/jetty.') && !url.pathname.endsWith('.wasm')) {
+          return fetch(request);
+        }
+
+        if (scramjet.route(event)) {
+          try {
+            const response = await scramjet.fetch(event);
+            return handleProxyResponse(response);
+          } catch (e) {
+            if (realUrl) return await fetchThroughMochi(request, realUrl);
+          }
+        }
+      }
+
+      if (isUltraviolet) {
+        if (uv.route(event)) {
+          try {
+            const response = await uv.fetch(event);
+            return handleProxyResponse(response);
+          } catch (e) {
+            if (realUrl) return await fetchThroughMochi(request, realUrl);
+          }
+        }
+      }
+
+      if (url.origin === self.location.origin && request.method === 'GET') {
+        const path = url.pathname;
+
+        if (request.destination === 'document' || path === '/' || path.endsWith('.html')) {
+          const cached = await caches.match(request);
+          const networkPromise = fetch(request).then(res => {
+            if (res && res.ok) {
+              const clone = res.clone();
+              caches.open(SHELL_CACHE).then(c => c.put(request, clone));
+            }
+            return res;
+          }).catch(() => null);
+
+          return cached || await networkPromise || new Response('offline', { status: 503 });
+        }
+
+        if (CACHEABLE_STATIC_EXT.test(path) || path.startsWith('/assets/') || path.startsWith('/bmux/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path.startsWith('/s/')) {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+
+          const res = await fetch(request);
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(RUNTIME_CACHE).then(c => c.put(request, clone));
+          }
+          return res;
+        }
+
+        return await fetch(request);
+      }
+
+      return new Response("Blocked", { status: 403 });
+
+    } catch (err) {
+      if (realUrl && !realUrl.includes(self.location.host)) {
+        return await fetchThroughMochi(request, realUrl);
+      }
+      const fallback = await caches.match(request);
+      if (fallback) return fallback;
+      return new Response("Error", { status: 500 });
     }
-
-    event.respondWith((async () => {
-        try {
-            if (realUrl && realUrl.startsWith('http')) {
-                const ext = getUrlExtension(realUrl); 
-                const dest = request.destination;
-                const accept = request.headers.get('Accept') || '';
-                
-                const isHeavyAsset = 
-                    dest === 'video' || 
-                    dest === 'audio' || 
-                    dest === 'image' ||
-                    dest === 'font' ||
-                    dest === 'track' ||
-                    accept.startsWith('image/') ||
-                    accept.startsWith('video/') ||
-                    accept.startsWith('audio/') ||
-                    accept.startsWith('font/') ||
-                    STATIC_ASSET_REGEX.test(url.pathname) ||
-                    ['.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
-
-                if (isHeavyAsset) {
-                    try {
-                        const mochiResponse = await fetchThroughMochi(request, realUrl);
-                        if (mochiResponse && mochiResponse.ok) {
-                            return handleProxyResponse(mochiResponse);
-                        }
-                    } catch (e) {
-                    }
-                }
-            }
-
-            if (isScramjet) {
-                if (!scramjetConfigLoaded) {
-                    await scramjet.loadConfig();
-                    scramjetConfigLoaded = true;
-                }
-                
-                if (url.pathname.startsWith('/b/s/jetty.') && !url.pathname.endsWith('.wasm')) {
-                    return fetch(request);
-                }
-
-                if (scramjet.route(event)) {
-                    try {
-                        const response = await scramjet.fetch(event);
-                        return handleProxyResponse(response);
-                    } catch (e) {
-                        if (realUrl) return await fetchThroughMochi(request, realUrl);
-                    }
-                }
-            }
-
-            if (isUltraviolet) {
-                if (uv.route(event)) {
-                    try {
-                        const response = await uv.fetch(event);
-                        return handleProxyResponse(response);
-                    } catch (e) {
-                         if (realUrl) return await fetchThroughMochi(request, realUrl);
-                    }
-                }
-            }
-
-            if (url.origin === self.location.origin) {
-                return await fetch(request);
-            }
-
-            return new Response("Blocked", { status: 403 });
-
-        } catch (err) {
-            if (realUrl && !realUrl.includes(self.location.host)) {
-                return await fetchThroughMochi(request, realUrl);
-            }
-            return new Response("Error", { status: 500 });
-        }
-    })());
+  })());
 });

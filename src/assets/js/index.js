@@ -15,7 +15,7 @@ const tabMemory = new Map();
 const lastOpenTabRequest = { url: null, ts: 0 };
 
 const mDecode = (str) => {
-    if(!str) return null;
+    if (!str) return null;
     const key = "wb!";
     try {
         const d = atob(str);
@@ -24,7 +24,7 @@ const mDecode = (str) => {
             x += String.fromCharCode(d.charCodeAt(i) ^ key.charCodeAt(i % key.length));
         }
         return decodeURIComponent(x);
-    } catch(e) { return str; }
+    } catch (e) { return str; }
 };
 
 function clearHistoryNavigation(tab, incomingUrl) {
@@ -86,7 +86,7 @@ function handleServiceWorkerMessage(event) {
     }
     if (data && data.type === 'page-meta') {
         const isEncoded = !!data.encoded;
-        
+
         const incomingUrl = isEncoded ? mDecode(data.url) : (data.url || data.href || data.decodedUrl || null);
         const incomingDecodedUrl = isEncoded ? mDecode(data.decodedUrl) : (data.decodedUrl || data.url || data.href || null);
         const incomingTitle = isEncoded ? mDecode(data.title) : (typeof data.title === 'string' ? data.title : '');
@@ -133,7 +133,7 @@ function handleServiceWorkerMessage(event) {
                     targetTab = hostMatch;
                     if (data.clientId) clientTabMap.set(data.clientId, hostMatch.id);
                 }
-            } catch (e) {}
+            } catch (e) { }
         }
 
         if (!targetTab && data.isTopFrame && tabs.length === 1) {
@@ -189,13 +189,13 @@ function handleServiceWorkerMessage(event) {
     }
     if (data && data.type === 'url-update' && data.url) {
         const activeTab = window.WavesApp.getActiveTab();
-        
+
         if (activeTab && activeTab.historyManager) {
             activeTab.historyManager.push(data.url);
-            
+
             if (!activeTab.isUrlLoaded) {
-                 activeTab.isUrlLoaded = true;
-                 showBrowserView();
+                activeTab.isUrlLoaded = true;
+                showBrowserView();
             }
         }
     }
@@ -203,6 +203,7 @@ function handleServiceWorkerMessage(event) {
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeLayout();
+    dom.init();
     initializeFall();
     initializeLoad();
     initializeGame();
@@ -220,14 +221,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let tabs = [];
     window.WavesApp.tabs = tabs;
-    
+
     let activeTabId = null;
     let splitPair = { left: null, right: null };
     let isPickingSplitTab = false;
 
     let allGames = window.WavesApp.allGames || [];
     window.WavesApp.allGames = allGames;
-    
+
     let newTabUnifiedWrapper = null;
     let newTabResultsContainer = null;
     let newTabInputEl = document.createElement('input');
@@ -257,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function loadNewTabGameData() {
         if (allGames.length > 0) return Promise.resolve(allGames);
-        
+
         const source = localStorage.getItem('gameSource') || 'selenite';
         let fetchPromise;
 
@@ -289,7 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         let finalUrl = game.link;
                         if (finalUrl && !finalUrl.startsWith('http')) finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
                         else if (game.grdmca) finalUrl = game.grdmca;
-                        
+
                         return {
                             name: game.name,
                             gameUrl: finalUrl,
@@ -319,12 +320,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return fetchPromise
             .then(loadedGames => {
                 loadedGames.sort((a, b) => a.name.localeCompare(b.name));
-                allGames.splice(0, allGames.length, ...loadedGames); 
+                allGames.splice(0, allGames.length, ...loadedGames);
                 window.WavesApp.allGames = allGames;
                 return allGames;
             })
             .catch(err => {
-                console.error('Failed to load new tab game data:', err);
+                console.error('failed to load new tab game data:', err);
                 return [];
             });
     }
@@ -334,17 +335,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
-    if(toggleSidebarBtn) {
+    if (toggleSidebarBtn) {
         toggleSidebarBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            document.body.classList.toggle('sidebar-hidden'); 
+            document.body.classList.toggle('sidebar-hidden');
         });
     }
 
     function getActiveTab() {
         return tabs.find(tab => tab.id === activeTabId);
     }
-    
+
     window.WavesApp.getActiveTab = getActiveTab;
 
     function createIframe() {
@@ -364,18 +365,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const isPicking = isPickingSplitTab;
 
             dom.splitViewBtn.classList.toggle('active', isSplitPairDefined || isPicking);
-            
+
             dom.splitViewBtn.disabled = tabs.length <= 1 && !isSplitPairDefined && !isPicking;
-            
+
             dom.splitViewBtn.classList.toggle('disabled', dom.splitViewBtn.disabled);
         }
     }
 
     function updateIframeView() {
-        const isSplitPairDefined = splitPair.left !== null && 
-                                   splitPair.right !== null &&
-                                   tabs.some(t => t.id === splitPair.left) &&
-                                   tabs.some(t => t.id === splitPair.right);
+        const isSplitPairDefined = splitPair.left !== null &&
+            splitPair.right !== null &&
+            tabs.some(t => t.id === splitPair.left) &&
+            tabs.some(t => t.id === splitPair.right);
 
         if (!isSplitPairDefined && !isPickingSplitTab) {
             splitPair.left = null;
@@ -383,13 +384,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const isSplitViewActive = isSplitPairDefined && (activeTabId === splitPair.left || activeTabId === splitPair.right);
-        
+
         const isPicking = isPickingSplitTab;
 
         if (isSplitViewActive) {
             isPickingSplitTab = false;
         }
-        
+
         document.body.classList.toggle('split-view', isSplitViewActive);
         document.body.classList.toggle('is-picking-split', isPicking);
 
@@ -406,7 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
             tab.iframe.classList.toggle('active-split-left', isSplitLeft);
             tab.iframe.classList.toggle('active-split-right', isSplitRight);
             tab.iframe.classList.toggle('active', isSingleActive);
-            
+
             const isActiveFocus = (isSplitViewActive || isPicking) && tab.id === activeTabId;
             if (isActiveFocus) tab.iframe.classList.add('active-focus');
 
@@ -425,21 +426,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 tab.iframe.style.flexGrow = null;
             }
         });
-        
+
         if ((isSplitViewActive || isPicking) && leftIframe) {
-            
-            const containerStyle = window.getComputedStyle(dom.iframeContainer);
-            const gap = parseFloat(containerStyle.gap) || 0;
+            const gap = 0;
 
             let leftBasis = leftIframe.style.flexBasis;
             if (!leftBasis || leftBasis === 'auto' || leftBasis === '0px') {
                 leftBasis = `calc(50% - ${gap / 2}px)`;
             }
-            
+
             leftIframe.style.flexGrow = '0';
             leftIframe.style.flexBasis = leftBasis;
-            
-            if(rightIframe) {
+
+            if (rightIframe) {
                 rightIframe.style.flexGrow = '1';
                 rightIframe.style.flexBasis = '0';
             }
@@ -501,7 +500,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const closeBtn = document.createElement('button');
         closeBtn.className = 'tab-close';
         closeBtn.innerHTML = '<i class="fa-regular fa-times"></i>';
-        
+
         if (tabs.length <= 1) {
             closeBtn.style.display = 'none';
         }
@@ -513,28 +512,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return tabEl;
     }
 
+    let _renderRaf = 0;
     function renderTabs() {
+        if (_renderRaf) return;
+        _renderRaf = requestAnimationFrame(_renderTabsNow);
+    }
+    function _renderTabsNow() {
+        _renderRaf = 0;
+        const container = dom.tabsContainer;
         const existing = new Map();
-        dom.tabsContainer.childNodes.forEach(node => {
-            if (node.nodeType !== Node.ELEMENT_NODE) return;
-            const id = parseInt(node.dataset.tabId || '0', 10);
-            if (!isNaN(id)) existing.set(id, node);
-        });
+        for (let n = container.firstElementChild; n; n = n.nextElementSibling) {
+            const id = parseInt(n.dataset.tabId || '0', 10);
+            if (!isNaN(id)) existing.set(id, n);
+        }
 
-        const fragment = document.createDocumentFragment();
         const isSplitPairDefined = splitPair.left !== null && splitPair.right !== null;
         const isSplitLayoutActive = document.body.classList.contains('split-view');
+        const showClose = tabs.length > 1;
+        let prev = null;
 
-        tabs.forEach(tab => {
+        for (let i = 0; i < tabs.length; i++) {
+            const tab = tabs[i];
             let tabEl = existing.get(tab.id);
             if (!tabEl) {
                 tabEl = createTabElement(tab);
             } else {
+                existing.delete(tab.id);
                 const titleEl = tabEl.querySelector('.tab-title');
                 if (titleEl && titleEl.textContent !== tab.title) {
                     titleEl.textContent = tab.title;
                 }
-
                 const iconEl = tabEl.querySelector('img');
                 if (iconEl) {
                     const currentSrc = iconEl.dataset.src || '';
@@ -543,9 +550,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         applyIconSrc(iconEl, tabEl.querySelector('.tab-icon'), nextSrc);
                     }
                 }
-
                 tabEl.className = 'tab';
-                tabEl.classList.remove('split-pair', 'split-pair-left', 'split-pair-right', 'active', 'split-active-left', 'split-active-right');
             }
 
             if (isSplitPairDefined && (tab.id === splitPair.left || tab.id === splitPair.right)) {
@@ -556,30 +561,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isSplitLayoutActive) {
                 if (tab.id === splitPair.left) {
-                    tabEl.classList.add('active');
-                    tabEl.classList.add('split-active-left');
+                    tabEl.classList.add('active', 'split-active-left');
                 } else if (tab.id === splitPair.right) {
-                    tabEl.classList.add('active');
-                    tabEl.classList.add('split-active-right');
+                    tabEl.classList.add('active', 'split-active-right');
                 }
             } else if (tab.id === activeTabId) {
                 tabEl.classList.add('active');
             }
-            
+
             const closeBtn = tabEl.querySelector('.tab-close');
-            if (closeBtn) {
-                if (tabs.length <= 1) {
-                    closeBtn.style.display = 'none';
-                } else {
-                    closeBtn.style.display = '';
-                }
+            if (closeBtn) closeBtn.style.display = showClose ? '' : 'none';
+
+            const expected = prev ? prev.nextElementSibling : container.firstElementChild;
+            if (tabEl !== expected) {
+                container.insertBefore(tabEl, expected);
             }
+            prev = tabEl;
+        }
 
-            fragment.appendChild(tabEl);
-        });
-
-        dom.tabsContainer.innerHTML = '';
-        dom.tabsContainer.appendChild(fragment);
+        for (const [, node] of existing) node.remove();
     }
 
     window.WavesApp.renderTabs = renderTabs;
@@ -602,12 +602,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const historyManager = new HistoryManager({
             onUpdate: (history) => {
                 const activeTab = getActiveTab();
-                if (activeTab?.id === newTabId && 
+                if (activeTab?.id === newTabId &&
                     !document.body.classList.contains('split-view')) {
-                     updateHistoryUI(activeTab, history);
-                } else if (activeTab?.id === splitPair.left && 
-                           document.body.classList.contains('split-view')) {
-                     updateHistoryUI(activeTab, history);
+                    updateHistoryUI(activeTab, history);
+                } else if (activeTab?.id === splitPair.left &&
+                    document.body.classList.contains('split-view')) {
+                    updateHistoryUI(activeTab, history);
                 }
             }
         });
@@ -637,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         newTab.title = newTab.iframe.contentWindow.location.hostname || 'Untitled';
                     }
-                    
+
                     const faviconLink = doc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
                     newTab.favicon = faviconLink ? faviconLink.href : null;
 
@@ -650,13 +650,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             } catch (e) {
-                console.warn('Could not access iframe content to update tab title', e);
+                console.warn('could not access iframe content to update tab title', e);
             }
         };
 
         const iframeFocusHandler = (e) => {
             const clickedTabId = e.detail.tabId;
-            
+
             if (document.body.classList.contains('split-view')) {
                 const isSplitTab = (clickedTabId === splitPair.left || clickedTabId === splitPair.right);
                 const isNotActive = (clickedTabId !== activeTabId);
@@ -678,7 +678,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (evt?.type === 'pointerdown') {
                 try {
                     iframe.focus({ preventScroll: true });
-                } catch (e) {}
+                } catch (e) { }
             }
 
             if (isSplitView && isSplitTab && activeTabId !== newTabId) {
@@ -686,9 +686,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const focusEvent = new CustomEvent('iframe-focus', { 
-                detail: { tabId: newTabId }, 
-                bubbles: false 
+            const focusEvent = new CustomEvent('iframe-focus', {
+                detail: { tabId: newTabId },
+                bubbles: false
             });
             iframe.dispatchEvent(focusEvent);
         };
@@ -704,17 +704,17 @@ document.addEventListener('DOMContentLoaded', () => {
         iframe.addEventListener('mouseenter', iframeElementFocusHandler);
 
         tabs.push(newTab);
-        
+
         initializeIframe(iframe, historyManager, newTab.id);
-        
+
         if (url) {
             performSearch(url, newTab);
         }
-        
+
         switchTab(newTabId);
-        
-        hideTabSelectionModal(); 
-        
+
+        hideTabSelectionModal();
+
         updateMemoryDisplay();
         return newTab;
     }
@@ -723,12 +723,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const previousActiveId = activeTabId;
         if (isPickingSplitTab) {
             if (tabId === splitPair.left) return;
-            
+
             splitPair.right = tabId;
             isPickingSplitTab = false;
             activeTabId = splitPair.left;
             hideTabSelectionModal();
-        
+
         } else {
             activeTabId = tabId;
         }
@@ -746,14 +746,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeTab = getActiveTab();
         if (activeTab) {
             if (dom.searchInputNav) {
-                dom.searchInputNav.placeholder = activeTab.isLoading 
-                    ? "fetching url..." 
+                dom.searchInputNav.placeholder = activeTab.isLoading
+                    ? "fetching url..."
                     : "search or enter address";
             }
 
-            const isSplitViewActive = splitPair.left !== null && 
-                                     splitPair.right !== null && 
-                                     (activeTabId === splitPair.left || activeTabId === splitPair.right);
+            const isSplitViewActive = splitPair.left !== null &&
+                splitPair.right !== null &&
+                (activeTabId === splitPair.left || activeTabId === splitPair.right);
 
             if (activeTab.isUrlLoaded || isSplitViewActive) {
                 showBrowserView();
@@ -761,17 +761,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 showHomeView();
             }
             syncRefreshButtonWithActiveTab();
-            
+
             if (activeTab.iframe.contentWindow) {
-                 try {
+                try {
                     setTimeout(() => {
-                       activeTab.iframe.contentWindow.scrollTo(activeTab.scrollX, activeTab.scrollY);
-                    }, 0); 
-                 } catch (e) {
-                 }
+                        activeTab.iframe.contentWindow.scrollTo(activeTab.scrollX, activeTab.scrollY);
+                    }, 0);
+                } catch (e) {
+                }
             }
         } else {
-            showHomeView(); 
+            showHomeView();
         }
 
         updateIframeView();
@@ -779,7 +779,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function closeTab(tabId) {
         if (tabs.length <= 1) return;
-        
+
         const tabIndex = tabs.findIndex(tab => tab.id === tabId);
         if (tabIndex === -1) return;
 
@@ -806,15 +806,15 @@ document.addEventListener('DOMContentLoaded', () => {
         tabMemory.delete(tabId);
 
         const wasInSplitPair = tabId === splitPair.left || tabId === splitPair.right;
-        
+
         if (wasInSplitPair) {
             splitPair.left = null;
             splitPair.right = null;
-            isPickingSplitTab = false; 
+            isPickingSplitTab = false;
         }
-        
+
         if (activeTabId === tabId) {
-            activeTabId = null; 
+            activeTabId = null;
             if (tabs.length > 0) {
                 activeTabId = tabs[Math.max(0, tabIndex - 1)].id;
             }
@@ -829,59 +829,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         updateMemoryDisplay();
     }
-    
+
     function onWindowBlur() {
         if (document.activeElement && document.activeElement.tagName === 'IFRAME') {
             hideTabSelectionModal();
             if (isPickingSplitTab) {
-                isPickingSplitTab = false; 
-                updateIframeView(); 
+                isPickingSplitTab = false;
+                updateIframeView();
             }
         }
     }
 
     function outsideClickListener(event) {
-        if (!dom.newTabModal.contains(event.target) && 
+        if (!dom.newTabModal.contains(event.target) &&
             !dom.addTabBtn.contains(event.target) &&
             !(dom.splitViewBtn && dom.splitViewBtn.contains(event.target))
         ) {
             hideTabSelectionModal();
             if (isPickingSplitTab) {
-                isPickingSplitTab = false; 
-                updateIframeView(); 
+                isPickingSplitTab = false;
+                updateIframeView();
             }
         }
     }
-    
+
     function initializeNewTabModal() {
         if (!newTabUnifiedWrapper && dom.newTabModal) {
             newTabUnifiedWrapper = document.createElement('div');
             newTabUnifiedWrapper.className = 'new-tab-unified-wrapper';
-    
+
             const newTabSearchContainer = document.createElement('div');
             newTabSearchContainer.className = 'new-tab-search-container';
-    
+
             const icon = document.createElement('i');
             icon.className = 'fa-regular fa-magnifying-glass';
             newTabSearchContainer.appendChild(icon);
-    
+
             newTabSearchContainer.appendChild(newTabInputEl);
-            
+
             newTabResultsContainer = document.createElement('div');
             newTabResultsContainer.className = 'new-tab-results-container';
-    
+
             newTabUnifiedWrapper.appendChild(newTabSearchContainer);
             newTabUnifiedWrapper.appendChild(newTabResultsContainer);
-    
+
             dom.newTabModal.appendChild(newTabUnifiedWrapper);
 
             newTabResultsContainer.addEventListener('click', (e) => {
                 const item = e.target.closest('.new-tab-result-item');
                 if (!item) return;
-    
+
                 const mode = newTabInputEl.dataset.mode;
                 const { action, url, title, tabId } = item.dataset;
-                
+
                 if (mode === 'newTab') {
                     if (action === 'search' || action === 'game') {
                         handleNewTabAction(url, title);
@@ -889,7 +889,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (mode === 'splitSelect') {
                     if (action === 'select-tab' && tabId) {
                         hideTabSelectionModal();
-                        switchTab(parseInt(tabId, 10)); 
+                        switchTab(parseInt(tabId, 10));
                     }
                 }
             });
@@ -900,12 +900,12 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeNewTabModal();
         dom.newTabModal.classList.add('is-visible');
         newTabInputEl.focus();
-        
+
         if (newTabResultsContainer) {
             newTabResultsContainer.innerHTML = '';
-            newTabResultsContainer.style.display = 'none'; 
+            newTabResultsContainer.style.display = 'none';
         }
-        
+
         if (newTabUnifiedWrapper) {
             newTabUnifiedWrapper.classList.remove('has-results');
         }
@@ -932,15 +932,15 @@ document.addEventListener('DOMContentLoaded', () => {
         window.removeEventListener('blur', onWindowBlur);
 
         dom.newTabModal.classList.remove('is-visible');
-        
+
         newTabInputEl.value = '';
         newTabInputEl.dataset.mode = '';
-        
+
         if (newTabResultsContainer) {
             newTabResultsContainer.innerHTML = '';
             newTabResultsContainer.style.display = 'none';
         }
-        
+
         if (newTabUnifiedWrapper) {
             newTabUnifiedWrapper.classList.remove('has-results');
         }
@@ -976,7 +976,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchEl.dataset.url = query;
         searchEl.dataset.title = 'fetching data...';
         newTabResultsContainer.appendChild(searchEl);
-        
+
         const filteredGames = allGames.filter(g => (g.name || '').toLowerCase().includes(lowerCaseQuery)).slice(0, 4);
 
         filteredGames.forEach(game => {
@@ -995,8 +995,8 @@ document.addEventListener('DOMContentLoaded', () => {
         newTabResultsContainer.innerHTML = '';
 
         const tabsToSearch = tabs.filter(t => t.id !== splitPair.left);
-        
-        const filteredTabs = tabsToSearch.filter(t => 
+
+        const filteredTabs = tabsToSearch.filter(t =>
             (t.title || '').toLowerCase().includes(query)
         );
 
@@ -1027,14 +1027,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!containerRect) return;
 
             let newLeftWidth = e.clientX - containerRect.left;
-            
+
             const containerStyle = window.getComputedStyle(dom.iframeContainer);
             const gap = parseFloat(containerStyle.gap) || 0;
 
             const totalWidthWithoutGap = containerRect.width - gap;
             let percent = (newLeftWidth / totalWidthWithoutGap) * 100;
 
-            percent = Math.max(20, Math.min(80, percent)); 
+            percent = Math.max(20, Math.min(80, percent));
 
             const leftIframe = document.querySelector('.iframe.active-split-left');
             if (leftIframe) {
@@ -1051,8 +1051,8 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.iframeContainer.addEventListener('mousemove', (e) => {
             if (document.body.classList.contains('is-resizing')) return;
             if (!document.body.classList.contains('split-view')) {
-                 dom.iframeContainer.style.cursor = 'default';
-                 return;
+                dom.iframeContainer.style.cursor = 'default';
+                return;
             }
 
             const leftIframe = document.querySelector('.iframe.active-split-left');
@@ -1060,30 +1060,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 dom.iframeContainer.style.cursor = 'default';
                 return;
             }
-            
+
             const leftIframeRect = leftIframe.getBoundingClientRect();
             const handleGripLeft = leftIframeRect.right - (handleWidth / 2);
             const handleGripRight = leftIframeRect.right + (handleWidth / 2);
-            
+
             if (e.clientX >= handleGripLeft && e.clientX <= handleGripRight) {
-                 dom.iframeContainer.style.cursor = 'col-resize';
+                dom.iframeContainer.style.cursor = 'col-resize';
             } else {
-                 dom.iframeContainer.style.cursor = 'default';
+                dom.iframeContainer.style.cursor = 'default';
             }
         });
 
         dom.iframeContainer.addEventListener('mousedown', (e) => {
             if (!document.body.classList.contains('split-view')) return;
-            
+
             const leftIframe = document.querySelector('.iframe.active-split-left');
             if (!leftIframe) return;
 
             const leftIframeRect = leftIframe.getBoundingClientRect();
             const handleGripLeft = leftIframeRect.right - (handleWidth / 2);
             const handleGripRight = leftIframeRect.right + (handleWidth / 2);
-            
+
             let canDrag = false;
-            
+
             if (e.clientX >= handleGripLeft && e.clientX <= handleGripRight) {
                 canDrag = true;
             }
@@ -1109,10 +1109,10 @@ document.addEventListener('DOMContentLoaded', () => {
             splitPair.right = null;
         } else {
             isPickingSplitTab = true;
-            splitPair.left = activeTabId; 
+            splitPair.left = activeTabId;
             showTabSelectionModal('splitSelect');
         }
-        
+
         updateIframeView();
     }
 
@@ -1122,7 +1122,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await performSearch(query, activeTab, gameName);
         }
     };
-    
+
     initializeUI(getActiveTab);
     initializeSearch(getActiveTab);
     initializeBookmarks();
@@ -1135,14 +1135,14 @@ document.addEventListener('DOMContentLoaded', () => {
             toggleSplitView();
         });
     }
-    
+
     dom.tabsContainer.addEventListener('click', (e) => {
         const tabEl = e.target.closest('.tab');
         if (!tabEl) return;
-        
+
         const tabIdStr = tabEl.dataset.tabId;
         if (!tabIdStr) return;
-        
+
         const tabId = parseInt(tabIdStr, 10);
         if (isNaN(tabId)) return;
 
@@ -1153,7 +1153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isPickingSplitTab) {
                 isPickingSplitTab = false;
                 hideTabSelectionModal();
-                switchTab(tabId); 
+                switchTab(tabId);
             } else {
                 switchTab(tabId);
             }
@@ -1161,7 +1161,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     dom.addTabBtn.addEventListener('click', () => showTabSelectionModal('newTab'));
-    
+
     newTabInputEl.addEventListener('keyup', (e) => {
         const mode = newTabInputEl.dataset.mode;
 
@@ -1186,7 +1186,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateNewTabResults();
             }
         } else if (mode === 'splitSelect') {
-             if (e.key === 'Enter') {
+            if (e.key === 'Enter') {
                 const firstResult = newTabResultsContainer.querySelector('.new-tab-result-item');
                 if (firstResult) {
                     firstResult.click();

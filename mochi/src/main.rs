@@ -11,6 +11,7 @@ use axum::{
 };
 use bytes::Bytes;
 use constants::{MOCHI_PREFIX, SCRIPT_PART_1, SCRIPT_PART_2};
+use dashmap::DashMap;
 use futures::{sink::SinkExt, stream::StreamExt};
 use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
 use mimalloc::MiMalloc;
@@ -20,7 +21,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TungsteniteMessage};
 use tower_http::cors::{Any, CorsLayer};
@@ -30,18 +31,18 @@ use url::Url;
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[derive(Clone)]
-struct AppState {
-    html_client: Client,
-    asset_client: Client,
-    cache: Cache<String, Arc<CachedResponse>>,
-    blocklist_matcher: Arc<AhoCorasick>, 
-}
-
-#[derive(Clone)]
 struct CachedResponse {
     status: u16,
     headers: HeaderMap,
     body: Bytes,
+}
+
+struct AppState {
+    html_client: Client,
+    asset_client: Client,
+    cache: Cache<String, Arc<CachedResponse>>,
+    blocklist_matcher: Arc<AhoCorasick>,
+    inflight: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
 }
 
 const MAX_CACHE_SIZE_BYTES: usize = 150 * 1024 * 1024;
@@ -53,7 +54,10 @@ async fn main() {
         .init();
 
     let cache = Cache::builder()
-        .max_capacity(2 * 1024 * 1024 * 1024) 
+        .max_capacity(512 * 1024 * 1024)
+        .weigher(|_key: &String, val: &Arc<CachedResponse>| -> u32 {
+            (val.body.len() as u32).saturating_add(200)
+        })
         .time_to_live(Duration::from_secs(20 * 60))
         .build();
 
@@ -61,10 +65,12 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(Duration::from_secs(120)) 
-        .pool_max_idle_per_host(2000)
+        .pool_idle_timeout(Duration::from_secs(120))
+        .pool_max_idle_per_host(4096)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
+        .timeout(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(10))
         .no_gzip()
         .no_brotli()
         .no_deflate()
@@ -75,10 +81,14 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(Duration::from_secs(120)) 
-        .pool_max_idle_per_host(500)
+        .pool_idle_timeout(Duration::from_secs(120))
+        .pool_max_idle_per_host(1024)
         .tcp_nodelay(true)
         .brotli(true)
+        .gzip(true)
+        .deflate(true)
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
         .build()
         .expect("failed to build html client");
 
@@ -96,6 +106,7 @@ async fn main() {
         asset_client,
         cache,
         blocklist_matcher,
+        inflight: DashMap::new(),
     });
 
     let app = Router::new()
@@ -112,7 +123,10 @@ async fn main() {
     println!("mochi listening on {}!!!!", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .tcp_nodelay(true)
+        .await
+        .unwrap();
 }
 
 async fn proxy_handler(
@@ -167,6 +181,44 @@ async fn proxy_handler(
     };
 
     let is_likely_asset = is_likely_static_asset(&target_url_string);
+
+    if method == Method::GET && is_likely_asset {
+        let cache_key = target_url_str.to_string();
+        
+        if let Some(entry) = state.inflight.get(&cache_key) {
+            let mut rx = entry.value().subscribe();
+            drop(entry);
+            
+            if let Ok(result) = rx.recv().await {
+                let mut res_headers = result.headers.clone();
+                res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
+                let status = StatusCode::from_u16(result.status).unwrap_or(StatusCode::OK);
+                return (status, res_headers, result.body.clone()).into_response();
+            }
+        }
+        
+        let (tx, _) = broadcast::channel::<Arc<CachedResponse>>(1);
+        state.inflight.insert(cache_key.clone(), tx.clone());
+        
+        let result = fetch_and_cache(
+            &state, &target_url, &target_url_string, target_url_str,
+            &method, &headers, &req_body, is_likely_asset,
+        ).await;
+        
+        state.inflight.remove(&cache_key);
+        
+        match result {
+            Ok(cached_response) => {
+                let _ = tx.send(cached_response.clone());
+                
+                let mut res_headers = cached_response.headers.clone();
+                res_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
+                let status = StatusCode::from_u16(cached_response.status).unwrap_or(StatusCode::OK);
+                return (status, res_headers, cached_response.body.clone()).into_response();
+            }
+            Err(response) => return response,
+        }
+    }
     
     let client = if is_likely_asset {
         &state.asset_client
@@ -177,8 +229,8 @@ async fn proxy_handler(
     let mut req_builder = client.request(method.clone(), target_url.clone());
 
     for (k, v) in headers.iter() {
-        let key_str = k.as_str().to_lowercase();
-        if !is_blacklisted_header(&key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
+        let key_str = k.as_str();
+        if !is_blacklisted_header(key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
             if !is_likely_asset && key_str == "accept-encoding" {
                 continue; 
             }
@@ -208,8 +260,8 @@ async fn proxy_handler(
     safe_headers.reserve(res_headers_ref.len());
 
     for (k, v) in res_headers_ref.iter() {
-        let key_str = k.as_str().to_lowercase();
-        if !is_blacklisted_res_header(&key_str) {
+        let key_str = k.as_str();
+        if !is_blacklisted_res_header(key_str) {
             if key_str == "set-cookie" {
                 let cookie_str = v.to_str().unwrap_or("");
                 let safe_cookie = cookie_str
@@ -247,8 +299,8 @@ async fn proxy_handler(
         safe_headers.remove("content-length");
         safe_headers.remove("content-encoding"); 
         
-        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(4096);
-        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(4096);
+        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(256);
+        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(256);
 
         let mut stream = upstream_res.bytes_stream();
         tokio::spawn(async move {
@@ -295,19 +347,30 @@ async fn proxy_handler(
     let is_image = content_type.starts_with("image/");
     let is_json = content_type.contains("json");
     let is_favicon_heuristic = target_url_str.contains("favicons?");
+    let is_css = content_type.contains("text/css");
+    let is_js = content_type.contains("javascript");
+    let is_font = content_type.starts_with("font/") || content_type.contains("font");
+    let is_wasm = content_type.contains("wasm");
     
-    let should_cache = (is_likely_asset || is_image || is_json || is_favicon_heuristic) 
+    let should_cache = (is_likely_asset || is_image || is_json || is_favicon_heuristic || is_css || is_js || is_font || is_wasm) 
         && status.is_success();
 
     if should_cache {
         match upstream_res.bytes().await {
             Ok(body_bytes) => {
                 if body_bytes.len() < MAX_CACHE_SIZE_BYTES {
-                    state.cache.insert(target_url_str.to_string(), Arc::new(CachedResponse {
+                    safe_headers.insert(
+                        "Cache-Control",
+                        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
+                    );
+                    
+                    let cached = Arc::new(CachedResponse {
                         status: status.as_u16(),
                         headers: safe_headers.clone(),
                         body: body_bytes.clone(),
-                    })).await;
+                    });
+                    
+                    state.cache.insert(target_url_str.to_string(), cached).await;
                     
                     return (status, safe_headers, body_bytes).into_response();
                 } else {
@@ -322,6 +385,105 @@ async fn proxy_handler(
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
     return (status, safe_headers, stream).into_response();
+}
+
+async fn fetch_and_cache(
+    state: &Arc<AppState>,
+    target_url: &Url,
+    target_url_string: &str,
+    target_url_str: &str,
+    method: &Method,
+    headers: &HeaderMap,
+    req_body: &Bytes,
+    is_likely_asset: bool,
+) -> Result<Arc<CachedResponse>, Response> {
+    let client = if is_likely_asset {
+        &state.asset_client
+    } else {
+        &state.html_client
+    };
+
+    let mut req_builder = client.request(method.clone(), target_url.clone());
+
+    for (k, v) in headers.iter() {
+        let key_str = k.as_str();
+        if !is_blacklisted_header(key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
+            if !is_likely_asset && key_str == "accept-encoding" {
+                continue;
+            }
+            req_builder = req_builder.header(k, v);
+        }
+    }
+
+    let origin = target_url.origin().ascii_serialization();
+    req_builder = req_builder.header("Referer", format!("{}/", origin));
+    req_builder = req_builder.header("Origin", &origin);
+
+    if !req_body.is_empty() {
+        req_builder = req_builder.body(req_body.clone());
+    }
+
+    let upstream_res = match req_builder.send().await {
+        Ok(res) => res,
+        Err(e) => {
+            return Err((StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response());
+        }
+    };
+
+    let status = upstream_res.status();
+    let res_headers_ref = upstream_res.headers();
+
+    let mut safe_headers = HeaderMap::new();
+    safe_headers.reserve(res_headers_ref.len());
+
+    for (k, v) in res_headers_ref.iter() {
+        let key_str = k.as_str();
+        if !is_blacklisted_res_header(key_str) {
+            if key_str == "set-cookie" {
+                let cookie_str = v.to_str().unwrap_or("");
+                let safe_cookie = cookie_str
+                    .replace("Domain=", "NoDomain=")
+                    .replace("Secure", "")
+                    .replace("SameSite=Strict", "SameSite=Lax");
+                safe_headers.append(k, HeaderValue::from_str(&safe_cookie).unwrap_or(v.clone()));
+            } else {
+                safe_headers.insert(k, v.clone());
+            }
+        }
+    }
+
+    if is_likely_asset {
+        if let Some(enc) = res_headers_ref.get("content-encoding") {
+            safe_headers.insert("content-encoding", enc.clone());
+        }
+    }
+
+    fix_game_content_type(target_url_string, &mut safe_headers);
+    safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    
+    safe_headers.insert(
+        "Cache-Control",
+        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
+    );
+
+    match upstream_res.bytes().await {
+        Ok(body_bytes) => {
+            let cached = Arc::new(CachedResponse {
+                status: status.as_u16(),
+                headers: safe_headers,
+                body: body_bytes,
+            });
+
+            if cached.body.len() < MAX_CACHE_SIZE_BYTES {
+                state.cache.insert(target_url_str.to_string(), cached.clone()).await;
+            }
+
+            Ok(cached)
+        }
+        Err(_) => {
+            Err((StatusCode::BAD_GATEWAY, "asset stream failed").into_response())
+        }
+    }
 }
 
 async fn handle_socket(client_socket: WebSocket, target_url: String) {
@@ -399,6 +561,17 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
             "png" => "image/png",
             "jpg" | "jpeg" => "image/jpeg",
             "svg" => "image/svg+xml",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "mp4" => "video/mp4",
+            "webm" => "video/webm",
+            "mp3" => "audio/mpeg",
+            "ogg" => "audio/ogg",
+            "wav" => "audio/wav",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "ttf" => "font/ttf",
+            "otf" => "font/otf",
             _ => return, 
         };
         headers.insert("Content-Type", HeaderValue::from_static(mime));
@@ -410,7 +583,9 @@ fn is_likely_static_asset(url: &str) -> bool {
         ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
         ".glb", ".gltf", ".bin", ".fbx", ".obj",
         ".swf", ".p8", ".c3p",
-        ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg"
+        ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg",
+        ".gif", ".webp", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".ico", ".aac", ".flac", ".m3u8",
     ];
     
     if url.contains("favicons?") {

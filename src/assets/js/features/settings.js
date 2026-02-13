@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     function openDB(dbName) {
         return new Promise((resolve, reject) => {
             if (!('indexedDB' in window)) {
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 const valuesRequest = store.getAll();
                 valuesRequest.onerror = (event) => {
-                    console.error(`Error reading values from store ${storeName}:`, event.target.error);
+                    console.error(`error reading values from store ${storeName}:`, event.target.error);
                     reject(event.target.error);
                 };
                 valuesRequest.onsuccess = (event) => {
@@ -37,7 +37,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (usesOutOfLineKeys) {
                         const keysRequest = store.getAllKeys();
                         keysRequest.onerror = (event) => {
-                            console.error(`Error reading keys from store ${storeName}:`, event.target.error);
+                            console.error(`error reading keys from store ${storeName}:`, event.target.error);
                             reject(event.target.error);
                         };
                         keysRequest.onsuccess = (keyEvent) => {
@@ -71,9 +71,11 @@ document.addEventListener('DOMContentLoaded', function() {
     async function exportAllData(fileName) {
         try {
             const masterExport = {
-                localStorage: { ...localStorage
+                localStorage: {
+                    ...localStorage
                 },
-                sessionStorage: { ...sessionStorage
+                sessionStorage: {
+                    ...sessionStorage
                 },
                 indexedDB: {}
             };
@@ -90,7 +92,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 masterExport.indexedDB[dbName] = dbData;
                             }
                         } catch (err) {
-                            console.error(`Failed to export DB: ${dbName}`, err);
+                            console.error(`failed to export db: ${dbName}`, err);
                         }
                     }));
                 }
@@ -102,7 +104,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         masterExport.indexedDB['__op'] = dbData;
                     }
                 } catch (err) {
-                    console.error('Failed to export default DB: __op', err);
+                    console.error('failed to export default db: __op', err);
                 }
             }
 
@@ -121,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
             URL.revokeObjectURL(url);
 
         } catch (err) {
-            console.error('Error exporting all data:', err);
+            console.error('error exporting all data:', err);
         }
     }
 
@@ -141,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     try {
                         importedData = JSON.parse(event.target.result);
                     } catch (err) {
-                        console.error('Error parsing data file:', err);
+                        console.error('error parsing data file:', err);
                         return;
                     }
 
@@ -155,7 +157,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             try {
                                 localStorage.setItem(key, value);
                             } catch (e) {
-                                console.warn(`Failed to import localStorage key: ${key}`, e);
+                                console.warn(`failed to import localStorage key: ${key}`, e);
                             }
                         }
 
@@ -164,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             try {
                                 sessionStorage.setItem(key, value);
                             } catch (e) {
-                                console.warn(`Failed to import sessionStorage key: ${key}`, e);
+                                console.warn(`failed to import sessionStorage key: ${key}`, e);
                             }
                         }
 
@@ -182,7 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                                     const validStoreNames = storeNames.filter(name => {
                                         if (!dbStoreNames.includes(name)) {
-                                            console.warn(`Skipping unknown store: ${name} in DB: ${dbName}`);
+                                            console.warn(`skipping unknown store: ${name} in db: ${dbName}`);
                                             return false;
                                         }
                                         return true;
@@ -227,7 +229,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                             if (record && typeof record === 'object' && record.hasOwnProperty('key') && record.hasOwnProperty('value')) {
                                                                 addRequest = store.put(record.value, record.key);
                                                             } else {
-                                                                console.warn(`Skipping malformed out-of-line record in ${storeName}`);
+                                                                console.warn(`skipping malformed out-of-line record in ${storeName}`);
                                                                 resolveAdd();
                                                                 return;
                                                             }
@@ -241,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                         };
                                                         addRequest.onerror = (event) => {
                                                             const keyInfo = usesOutOfLineKeys ? (record ? record.key : 'unknown') : 'N/A';
-                                                            console.warn(`Failed to add record to ${storeName} (key: ${keyInfo}):`, event.target.error);
+                                                            console.warn(`failed to add record to ${storeName} (key: ${keyInfo}):`, event.target.error);
                                                             resolveAdd();
                                                         };
                                                     });
@@ -251,13 +253,13 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }));
 
                                     transaction.oncomplete = () => {
-                                        console.log(`Imported ${importCount} records into ${dbName}.`);
+                                        console.log(`imported ${importCount} records into ${dbName}.`);
                                     };
 
                                     db.close();
 
                                 } catch (err) {
-                                    console.error(`Failed to import data for DB: ${dbName}`, err);
+                                    console.error(`failed to import data for db: ${dbName}`, err);
                                 }
                             }));
                         }
@@ -273,11 +275,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
             input.click();
         } catch (err) {
-            console.error('Error importing settings:', err);
+            console.error('error importing settings:', err);
         }
     }
 
-    window.addEventListener('beforeunload', function(e) {
+    window.addEventListener('beforeunload', function (e) {
         const preventClosingEnabled = localStorage.getItem('preventClosing') !== 'false';
         if (preventClosingEnabled) {
             e.preventDefault();
@@ -349,7 +351,7 @@ document.addEventListener('DOMContentLoaded', function() {
             favicon.href = preset.icon;
 
             if (titleTag) {
-                titleObserver = new MutationObserver(function(mutations) {
+                titleObserver = new MutationObserver(function (mutations) {
                     if (document.title !== preset.title) {
                         titleObserver.disconnect();
                         document.title = preset.title;
@@ -476,11 +478,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const settingsMenu = document.getElementById('settings-menu');
         const overlay = document.getElementById('overlay');
-        
+
         if (localStorage.getItem('preventClosing') === null) {
             localStorage.setItem('preventClosing', 'true');
         }
-        
+
         const appSettings = {
             backend: localStorage.getItem('backend') || 'scramjet',
             transport: localStorage.getItem('transport') || 'libcurl',
@@ -547,7 +549,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="cloaking-content" class="tab-content">
                         <div class="settings-item">
                             <label>decoy</label>
-                            <p>cloak the current website title and favicon as a different website.</p>
+                            <p>cloak the current site title and favicon as a different site.</p>
                             <div class="decoy-selector">
                                 <div class="decoy-selected"></div>
                                 <div class="decoy-options"></div>
@@ -555,7 +557,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="settings-item">
                             <label>cloak link</label>
-                            <p>cloak the website link in the url bar.</p>
+                            <p>cloak the site link in the url bar.</p>
                             <div class="cloak-link-selector">
                                 <div class="cloak-link-selected"></div>
                                 <div class="cloak-link-options"></div>
@@ -565,7 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
                             <label>backend</label>
-                            <p>the engine responsible for loading all your websites.</p>
+                            <p>the engine responsible for loading all your sites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>
@@ -659,7 +661,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 
-        window.toggleSettingsMenu = function() {
+        window.toggleSettingsMenu = function () {
             if (isToggling) return;
             isToggling = true;
             const icon = document.querySelector('#settings i.settings');
@@ -672,8 +674,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     overlay.classList.remove('show');
                 }
             } else {
-                if (window.xinUpdate && typeof window.xinUpdate.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
-                    window.xinUpdate.hideSuccess(true);
+                if (window.wavesUpdate && typeof window.wavesUpdate.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
+                    window.wavesUpdate.hideSuccess(true);
                 }
                 if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
                     window.SharePromoter.hideSharePrompt(true);
@@ -768,7 +770,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         if (optionText !== selectedEl.textContent) {
                             const div = document.createElement('div');
                             div.textContent = optionText;
-                            div.addEventListener('click', function(e) {
+                            div.addEventListener('click', function (e) {
                                 e.stopPropagation();
                                 const val = this.textContent;
                                 const displayVal = (storageKey === 'backend' || storageKey === 'transport') ? val.toLowerCase() : val;
@@ -868,13 +870,13 @@ document.addEventListener('DOMContentLoaded', function() {
             button.addEventListener('click', () => changeTab(button.id));
         });
 
-        preventClosingToggle.addEventListener('change', function() {
+        preventClosingToggle.addEventListener('change', function () {
             appSettings.preventClosing = this.checked;
             localStorage.setItem('preventClosing', this.checked.toString());
         });
 
         document.querySelectorAll('input[type="checkbox"]').forEach(toggle => {
-            toggle.addEventListener('change', function() {
+            toggle.addEventListener('change', function () {
                 this.classList.remove('animate-on', 'animate-off');
                 void this.offsetWidth;
                 this.classList.add(this.checked ? 'animate-on' : 'animate-off');
@@ -902,8 +904,8 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         fetch('/api/version', {
-                cache: 'no-store'
-            })
+            cache: 'no-store'
+        })
             .then(res => res.ok ? res.json() : null)
             .then(data => {
                 const buildId = "__BUILD_ID__";

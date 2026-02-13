@@ -7,6 +7,11 @@ import { obfuscate } from 'javascript-obfuscator';
 import postcss from "postcss";
 import autoprefixer from "autoprefixer";
 import cssnano from "cssnano";
+import zlib from "node:zlib";
+import { promisify } from "node:util";
+
+const brotliCompress = promisify(zlib.brotliCompress);
+const gzip = promisify(zlib.gzip);
 
 const CONFIG = {
     dirs: {
@@ -28,51 +33,47 @@ const CONFIG = {
     obfuscation: {
         compact: true,
         controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 1, 
-        deadCodeInjection: true,
-        deadCodeInjectionThreshold: 1, 
-        disableConsoleOutput: true, 
-        identifierNamesGenerator: 'hexadecimal', 
+        controlFlowFlatteningThreshold: 0.15,
+        deadCodeInjection: false,
+        disableConsoleOutput: true,
+        identifierNamesGenerator: 'hexadecimal',
         log: false,
-        debugProtection: true,
-        debugProtectionInterval: 10,
-        renameGlobals: true, 
-        selfDefending: true, 
-        stringArray: true, 
-        stringArrayEncoding: ['rc4'], 
-        stringArrayRotate: true, 
-        stringArrayShuffle: true, 
-        stringArrayThreshold: 1, 
-        stringArrayWrappersCount: 5,
+        debugProtection: false,
+        renameGlobals: true,
+        selfDefending: true,
+        stringArray: true,
+        stringArrayEncoding: ['base64'],
+        stringArrayRotate: true,
+        stringArrayShuffle: true,
+        stringArrayThreshold: 1,
+        stringArrayWrappersCount: 1,
         stringArrayWrappersChained: true,
         stringArrayWrappersType: 'function',
+        stringArrayCallsTransform: true,
+        stringArrayCallsTransformThreshold: 0.5,
         splitStrings: true,
-        splitStringsChunkLength: 1,
+        splitStringsChunkLength: 8,
+        transformObjectKeys: true,
+        numbersToExpressions: false,
         unicodeEscapeSequence: true
-    },
-    htmlMinifierArgs: ["--use-short-doctype", "--collapse-boolean-attributes", "--remove-comments", "--collapse-whitespace", "--minify-css", "--minify-js"]
+    }
 };
 
-const colors = { reset: "\x1b[0m", bold: "\x1b[1m", red: "\x1b[31m", green: "\x1b[32m", cyan: "\x1b[36m" };
 const normalizePath = (p) => p.split(path.sep).join('/');
 
-async function runSilently(command, args = []) {
-    const process = Bun.spawn({ cmd: [command, ...args], stdout: "pipe", stderr: "pipe" });
-    const exitCode = await process.exited;
-    if (exitCode !== 0) throw new Error(`Command failed: ${command}`);
-}
-
 async function getFileHash(filePath) {
-    const fileBuffer = await fs.readFile(filePath);
-    return crypto.createHash('md5').update(fileBuffer).digest('hex').slice(0, 10);
+    const buf = await Bun.file(filePath).arrayBuffer();
+    return new Bun.CryptoHasher("md5").update(buf).digest("hex").slice(0, 10);
 }
 
 const tasks = {
     async processHTML() {
         const files = ["index.html", "404.html"];
-        await Promise.all(files.map(file => 
-            runSilently("html-minifier", ["--output", path.join(CONFIG.dirs.dist, file), path.join(CONFIG.dirs.src, file), ...CONFIG.htmlMinifierArgs])
-        ));
+        await Promise.all(files.map(async file => {
+            const src = path.join(CONFIG.dirs.src, file);
+            const dest = path.join(CONFIG.dirs.dist, file);
+            if (existsSync(src)) await fs.copyFile(src, dest);
+        }));
     },
 
     async processCSS() {
@@ -85,12 +86,9 @@ const tasks = {
 
         if (cssFiles.length > 0) {
             cssFiles.sort((a, b) => {
-                const getIdx = (p) => {
-                    const name = path.basename(p);
-                    const idx = CONFIG.cssOrder.indexOf(name);
-                    return idx === -1 ? 999 : idx;
-                };
-                return getIdx(a) - getIdx(b);
+                const aIdx = CONFIG.cssOrder.indexOf(path.basename(a));
+                const bIdx = CONFIG.cssOrder.indexOf(path.basename(b));
+                return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
             });
 
             const contents = await Promise.all(cssFiles.map(f => Bun.file(f).text()));
@@ -98,25 +96,29 @@ const tasks = {
             await Bun.write(path.join(CONFIG.dirs.cssDest, "style.css"), result.css);
         }
 
-        const copyAssets = async (src, dest) => {
+        const copyNonCss = async (src, dest) => {
             if (!existsSync(src)) return;
             const entries = await fs.readdir(src, { withFileTypes: true });
             await Promise.all(entries.map(async (entry) => {
-                const srcPath = path.join(src, entry.name);
-                const destPath = path.join(dest, entry.name);
+                const s = path.join(src, entry.name);
+                const d = path.join(dest, entry.name);
                 if (entry.isDirectory()) {
-                    await fs.mkdir(destPath, { recursive: true });
-                    await copyAssets(srcPath, destPath);
+                    await fs.mkdir(d, { recursive: true });
+                    await copyNonCss(s, d);
                 } else if (!entry.name.endsWith('.css')) {
-                    await fs.copyFile(srcPath, destPath);
+                    await fs.copyFile(s, d);
                 }
             }));
         };
-        await copyAssets(CONFIG.dirs.cssSrc, CONFIG.dirs.cssDest);
+        await copyNonCss(CONFIG.dirs.cssSrc, CONFIG.dirs.cssDest);
     },
 
     async processJS() {
-        await Promise.all([fs.mkdir(CONFIG.dirs.jsDest, { recursive: true }), fs.mkdir(CONFIG.dirs.swDest, { recursive: true })]);
+        await Promise.all([
+            fs.mkdir(CONFIG.dirs.jsDest, { recursive: true }),
+            fs.mkdir(CONFIG.dirs.swDest, { recursive: true })
+        ]);
+
         const buildId = crypto.randomBytes(4).toString('hex');
 
         const bunBuild = await Bun.build({
@@ -126,7 +128,9 @@ const tasks = {
         if (!bunBuild.success) throw new Error("Bun build failed");
 
         const appCode = (await bunBuild.outputs[0].text()).replace("__BUILD_ID__", buildId);
-        const swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text()).replace("__SERVER_IP__", process.env.IP || "127.0.0.1");
+        let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
+            .replace("__SERVER_IP__", process.env.IP || "127.0.0.1")
+            .replace("__BUILD_ID__", buildId);
 
         const [appObf, swObf] = await Promise.all([
             Promise.resolve(obfuscate(appCode, { ...CONFIG.obfuscation, reservedStrings: ['./b/sw.js'] }).getObfuscatedCode()),
@@ -141,21 +145,19 @@ const tasks = {
 };
 
 async function main() {
-    console.log(`\n${colors.bold}Starting build...${colors.reset}\n`);
+    console.log("\nstarting build...\n");
     const startTime = performance.now();
 
     try {
         await fs.rm(CONFIG.dirs.dist, { recursive: true, force: true });
         await fs.mkdir(CONFIG.dirs.dist, { recursive: true });
 
-        console.log(`${colors.cyan}Processing assets...${colors.reset}`);
         await Promise.all([
             tasks.processHTML(),
             tasks.processCSS(),
             tasks.processJS()
         ]);
 
-        console.log(`${colors.cyan}Finishing and hashing...${colors.reset}`);
         const manifest = {};
         const filesToHash = {
             'assets/js/index.js': 'assets/js/app.js',
@@ -169,9 +171,8 @@ async function main() {
 
             const hash = await getFileHash(fullPath);
             const ext = path.extname(fullPath);
-            const newName = `${hash}${ext}`;
-            const newFullPath = path.join(path.dirname(fullPath), newName);
-            
+            const newFullPath = path.join(path.dirname(fullPath), `${hash}${ext}`);
+
             await fs.rename(fullPath, newFullPath);
             manifest[htmlRef] = normalizePath(path.relative(CONFIG.dirs.dist, newFullPath));
         }
@@ -182,10 +183,10 @@ async function main() {
             if (!content.startsWith("\n")) content = "\n" + content;
 
             for (const [original, hashed] of Object.entries(manifest)) {
-                if (original !== 'b/sw.js') {
-                    const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    content = content.replace(new RegExp(`(src|href)=["']/?${escaped}["']`, 'g'), `$1="/${hashed}" defer`);
-                }
+                if (original === 'b/sw.js') continue;
+                const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                content = content.replace(new RegExp(`(src)=["']/?${escaped}["']`, 'g'), `$1="/${hashed}" defer`);
+                content = content.replace(new RegExp(`(href)=["']/?${escaped}["']`, 'g'), `$1="/${hashed}"`);
             }
 
             for (const file of CONFIG.filesToRemove) {
@@ -201,15 +202,29 @@ async function main() {
             let appContent = await Bun.file(appJsPath).text();
             const swHashed = manifest['b/sw.js'];
             appContent = appContent.replace(/(['"`])\.\/b\/sw\.js\1/g, `$1./${swHashed}$1`)
-                                   .replace(/(['"`])\/b\/sw\.js\1/g, `$1/${swHashed}$1`);
+                .replace(/(['"`])\/b\/sw\.js\1/g, `$1/${swHashed}$1`);
             await Bun.write(appJsPath, appContent);
         }
 
+        const compressGlob = new Glob('**/*.{css,js,html,mjs}');
+        const compressJobs = [];
+        for await (const file of compressGlob.scan({ cwd: CONFIG.dirs.dist, absolute: true })) {
+            const content = await Bun.file(file).arrayBuffer();
+            const buf = Buffer.from(content);
+            compressJobs.push(
+                brotliCompress(buf, {
+                    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 11 }
+                }).then(br => Bun.write(file + '.br', br)),
+                gzip(buf, { level: 9 }).then(gz => Bun.write(file + '.gz', gz))
+            );
+        }
+        await Promise.all(compressJobs);
+
         const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-        console.log(`\n${colors.bold}${colors.green}Build completed in ${duration}s!${colors.reset}\n`);
+        console.log(`\nbuild completed in ${duration}s!\n`);
 
     } catch (err) {
-        console.error(`\n${colors.red}Build Failed${colors.reset}`);
+        console.error("\nbuild failed");
         console.error(err);
         process.exit(1);
     }

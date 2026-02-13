@@ -16,10 +16,10 @@ let cancelBookmarkBtnEl = null;
 const getBookmarks = () => {
     if (bookmarksCache) return bookmarksCache;
     try {
-        const raw = localStorage.getItem('xin-bookmarks');
+        const raw = localStorage.getItem('waves-bookmarks');
         if (!raw) {
             bookmarksCache = DEFAULT_BOOKMARKS.slice();
-            localStorage.setItem('xin-bookmarks', JSON.stringify(bookmarksCache));
+            localStorage.setItem('waves-bookmarks', JSON.stringify(bookmarksCache));
         } else {
             bookmarksCache = JSON.parse(raw);
         }
@@ -31,7 +31,7 @@ const getBookmarks = () => {
 
 const saveBookmarks = bookmarks => {
     bookmarksCache = bookmarks;
-    localStorage.setItem('xin-bookmarks', JSON.stringify(bookmarks));
+    localStorage.setItem('waves-bookmarks', JSON.stringify(bookmarks));
 };
 
 function updateAddButtonVisibility() {
@@ -236,8 +236,8 @@ const showBookmarkPrompt = () => {
     if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
         window.toggleSettingsMenu();
     }
-    if (window.xinUpdater && typeof window.xinUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
-        window.xinUpdater.hideSuccess(true);
+    if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
+        window.wavesUpdater.hideSuccess(true);
     }
     if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
         window.SharePromoter.hideSharePrompt(true);
@@ -315,7 +315,7 @@ export function initializeBookmarks() {
         bookmarkPromptEl.innerHTML = `
             <div class="input-container">
                 <label>bookmark name</label>
-                <input type="text" id="bookmarkName" placeholder="my cool website" autocomplete="off">
+                <input type="text" id="bookmarkName" placeholder="my cool site" autocomplete="off">
                 <label style="margin-top:15px;">bookmark url</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">

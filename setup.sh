@@ -1,28 +1,29 @@
 #!/bin/bash
 
-echo "The setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support."
+echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
 echo ""
-echo "Type 'ok' to continue or 'cancel' to abort."
+echo "type 'ok' to continue or 'cancel' to abort."
 
 while true; do
     read -p "> " user_input
     case "$user_input" in
         ok)
-            echo "Starting setup..."
+            echo "starting setup..."
             break
             ;;
         cancel)
-            echo "Setup aborted."
+            echo "setup aborted."
             exit 0
             ;;
         *)
-            echo "Please type 'ok' or 'cancel'."
+            echo "please type 'ok' or 'cancel'."
             ;;
     esac
 done
 
 sudo ip link delete veth0-global 2>/dev/null
 sudo modprobe nf_conntrack
+
 sudo apt-get update -y
 sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn
 
@@ -78,6 +79,17 @@ fs.file-max = 2097152
 fs.nr_open = 2097152
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 6
+net.ipv4.tcp_fin_timeout = 15
 EOF
 sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
 
@@ -132,11 +144,6 @@ fi
 
 bun run build
 
-sudo sed -i 's/^User=.*/User=root/' /lib/systemd/system/caddy.service
-sudo sed -i 's/^Group=.*/Group=root/' /lib/systemd/system/caddy.service
-sudo sed -i 's/^AmbientCapabilities=/#AmbientCapabilities=/' /lib/systemd/system/caddy.service
-sudo systemctl daemon-reload
-
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
 
 sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
@@ -145,21 +152,22 @@ Environment="NO_PROXY=127.0.0.1"
 EOF
 sudo systemctl daemon-reload
 
-DIR="$HOME/waves"
-
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
+
     servers {
         protocols h1 h2 h3
     }
+
     on_demand_tls {
         ask http://127.0.0.1:3001/
+        interval 5m
+        burst 3
     }
 }
 
 :443 {
-    root * $DIR/public
 
     log {
         output file /var/log/caddy/access.log
@@ -170,11 +178,21 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         on_demand
     }
 
-    handle /assets/* {
-        root * $DIR
-        try_files /dist{path} /public{path}
-        file_server
-        header Cache-Control "public, max-age=604800, immutable"
+    handle_path /yay/* {
+        reverse_proxy h ttps://openairtowhardworking.com {
+            header_up Host openairtowhardworking.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    handle_path /analytics/* {
+        reverse_proxy https://www.googletagmanager.com {
+            header_up Host www.googletagmanager.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     @websockets {
@@ -193,8 +211,11 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
+
+        flush_interval -1
+
         transport http {
-            keepalive 256s
+            keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 256
             dial_timeout 5s
@@ -204,11 +225,13 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Real-IP {remote_host}
+
         flush_interval -1
+
         transport http {
-            keepalive 256s
+            keepalive 120s
             keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 256
+            keepalive_idle_conns_per_host 64
             dial_timeout 5s
             response_header_timeout 60s
         }
@@ -217,18 +240,20 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Forwarded-For {remote_host}
         header_up X-Real-IP {remote_host}
+
         transport http {
-            keepalive 256s
+            keepalive 120s
             keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 256
+            keepalive_idle_conns_per_host 64
             dial_timeout 5s
         }
     }
 
-    encode zstd gzip
+    encode br zstd gzip
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
         X-Frame-Options "ALLOWALL"
         X-Content-Type-Options "nosniff"
         X-XSS-Protection "1; mode=block"
@@ -251,12 +276,12 @@ tcp_nodelay = true
 file_raw_mode = false
 use_real_ip_headers = false
 non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
-max_message_size = 65536
+max_message_size = 262144
 log_level = "OFF"
 runtime = "multithread"
 [wisp]
 allow_wsproxy = true
-buffer_size = 1048576
+buffer_size = 512
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
@@ -264,10 +289,10 @@ password_extension_required = false
 certificate_extension_required = false
 [stream]
 tcp_nodelay = true
-buffer_size = 1048576
+buffer_size = 262144
 allow_udp = true
 allow_wsproxy_udp = false
-dns_servers = ["94.140.14.14", "94.140.15.15", "176.103.130.130", "176.103.130.131"]
+dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
 allow_direct_ip = true
 allow_loopback = true
 allow_multicast = true
@@ -342,7 +367,6 @@ EOF
 
 sudo caddy fmt --overwrite /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl daemon-reload
 sudo systemctl restart caddy
 
 if command -v ufw && ufw status | grep -q "Status: active"; then
@@ -358,4 +382,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "done! your waves instance is now all setup and ready to be used!!!!"
+echo "all done! your waves instance is now all setup and ready to be used!!!!"

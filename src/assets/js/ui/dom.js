@@ -1,38 +1,56 @@
+const _cache = {};
+
+function _get(id) {
+    return _cache[id] || (_cache[id] = document.getElementById(id));
+}
+function _q(sel) {
+    return document.querySelector(sel);
+}
+
 export const dom = {
-    splitSelectionOverlay: document.getElementById('split-selection-overlay'),
-    pageInitializingOverlay: document.getElementById('page-initializing-overlay'),
-    notificationsMenu: document.getElementById('notifications-menu'),
-    notificationsList: document.querySelector('.notifications-list'),
-    notificationsStatus: document.getElementById('notifications-status'),
-    get iframeContainer() { return document.getElementById('iframe-container'); },
-    get iframeResizeDivider() { return document.getElementById('iframe-resize-divider'); },
-    get newTabModal() { return document.getElementById('new-tab-modal'); },
-    get newTabInput() { return document.getElementById('newTabInput'); },
-    get searchInputMain() { return document.getElementById('searchInput'); },
-    get topBar() { return document.querySelector('.topbar'); },
-    get refreshBtn() { return document.getElementById('refreshIcon'); },
-    get refreshBtnIcon() { return document.querySelector('#refreshIcon > i'); },
-    get fullscreenBtn() { return document.getElementById('fullscreenBtn'); },
-    get backBtn() { return document.getElementById('backIcon'); },
-    get forwardBtn() { return document.getElementById('forwardIcon'); },
-    get searchInputNav() { return document.getElementById('searchInputt'); },
-    get lockIcon() { return document.getElementById('lockIcon'); },
-    get navbarToggle() { return document.getElementById('toggle-sidebar-btn'); },
-    get navBar() { return document.querySelector('.main-nav'); }, 
-    get bookmarksList() { return document.getElementById('bookmarks-list'); },
-    get addBookmarkBtn() { return document.getElementById('add-bookmark-btn'); },
-    get bookmarkPrompt() { return document.getElementById('bookmark-prompt'); },
-    get bookmarkPromptOverlay() { return document.getElementById('overlay'); },
-    get saveBookmarkBtn() { return document.getElementById('saveBookmarkBtn'); },
-    get cancelBookmarkBtn() { return document.getElementById('cancelBookmarkBtn'); },
-    get bookmarkNameInput() { return document.getElementById('bookmarkName'); },
-    get bookmarkUrlInput() { return document.getElementById('bookmarkUrl'); },
-    get addBookmarkLi() { return document.querySelector('.bookmark-item-add'); },
-    get tabsContainer() { return document.getElementById('tabs-container'); },
-    get addTabBtn() { return document.getElementById('add-tab-btn'); },
-    get splitViewBtn() { return document.getElementById('splitViewBtn'); },
-    get notificationsBtn() { return document.getElementById('notifications'); },
-    get notificationsIcon() { return document.querySelector('#notifications > i'); },
-    get memoryUsageValue() { return document.getElementById('memory-usage-value'); },
-    get markAllReadBtn() { return document.getElementById('mark-all-read-btn'); }
+    splitSelectionOverlay: null,
+    pageInitializingOverlay: null,
+    notificationsMenu: null,
+    notificationsList: null,
+    notificationsStatus: null,
+
+    get iframeContainer() { return _get('iframe-container'); },
+    get iframeResizeDivider() { return _get('iframe-resize-divider'); },
+    get newTabModal() { return _get('new-tab-modal'); },
+    get newTabInput() { return _get('newTabInput'); },
+    get searchInputMain() { return _get('searchInput'); },
+    get topBar() { return _q('.topbar'); },
+    get refreshBtn() { return _get('refreshIcon'); },
+    get refreshBtnIcon() { return _q('#refreshIcon > i'); },
+    get fullscreenBtn() { return _get('fullscreenBtn'); },
+    get backBtn() { return _get('backIcon'); },
+    get forwardBtn() { return _get('forwardIcon'); },
+    get searchInputNav() { return _get('searchInputt'); },
+    get lockIcon() { return _get('lockIcon'); },
+    get navbarToggle() { return _get('toggle-sidebar-btn'); },
+    get navBar() { return _q('.main-nav'); },
+    get bookmarksList() { return _get('bookmarks-list'); },
+    get addBookmarkBtn() { return _get('add-bookmark-btn'); },
+    get bookmarkPrompt() { return _get('bookmark-prompt'); },
+    get bookmarkPromptOverlay() { return _get('overlay'); },
+    get saveBookmarkBtn() { return _get('saveBookmarkBtn'); },
+    get cancelBookmarkBtn() { return _get('cancelBookmarkBtn'); },
+    get bookmarkNameInput() { return _get('bookmarkName'); },
+    get bookmarkUrlInput() { return _get('bookmarkUrl'); },
+    get addBookmarkLi() { return _q('.bookmark-item-add'); },
+    get tabsContainer() { return _get('tabs-container'); },
+    get addTabBtn() { return _get('add-tab-btn'); },
+    get splitViewBtn() { return _get('splitViewBtn'); },
+    get notificationsBtn() { return _get('notifications'); },
+    get notificationsIcon() { return _q('#notifications > i'); },
+    get memoryUsageValue() { return _get('memory-usage-value'); },
+    get markAllReadBtn() { return _get('mark-all-read-btn'); },
+
+    init() {
+        this.splitSelectionOverlay = _get('split-selection-overlay');
+        this.pageInitializingOverlay = _get('page-initializing-overlay');
+        this.notificationsMenu = _get('notifications-menu');
+        this.notificationsList = _q('.notifications-list');
+        this.notificationsStatus = _get('notifications-status');
+    }
 };

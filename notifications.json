@@ -13,7 +13,7 @@
       "Added 2 new decoy options: Wikipedia and Canva.",
       "Added a game source selector in the settings menu: GN-Math, Selenite, and Truffled. More sources will be added very soon! Different sources offer different games. So if you can't find a game you want, try switching sources!",
       "Added the ability to close any modals, menus, and prompts by pressing ESC.",
-      "Improved the website loading speed.",
+      "Improved the site loading speed.",
       "Improved the Wisp server overall performance and stability.",
       "Improved Scramjet and Ultraviolet speed.",
       "Improved the UI and its animations.",
@@ -74,20 +74,20 @@
   {
     "id": 5,
     "title": "v3.4.2 release!!",
-    "message": "Loads of more bug fixes, improvements, new features, and now the whole website is also jolly!",
+    "message": "Loads of more bug fixes, improvements, new features, and now the whole site is also jolly!",
     "date": "2025-12-11T14:23:39.292Z",
     "isNew": false,
     "type": "Update",
     "changes":[
       "Added a brand new game page!",
       "Added a bunch of jolly things!",
-      "Improved the website performance and stability.",
+      "Improved the site performance and stability.",
       "Improved games loading speed.",
       "Fixed memory leaks.",
       "Fixed some games not loading.",
       "Fixed the proxy barely working.",
       "Fixed Bridge crashing on heavy load.",
-      "Overall just fixed a bunch of minor bugs and improved the website by a little bit."
+      "Overall just fixed a bunch of minor bugs and improved the site by a little bit."
     ],
     "endMessage": "If you have any issues or suggestions, please do join the Discord server and let me know!"
   },
@@ -120,7 +120,7 @@
     "type": "Update",
     "changes":[
       "Rewrote Bridge to Rust.",
-      "Improved the whole website in general speed.",
+      "Improved the whole site in general speed.",
       "Renamed Bridge to Mochi.",
       "Fixed some bugs."
     ],
@@ -152,5 +152,33 @@
       "Fixed some other bugs."
     ],
     "endMessage": "Join the Discord server!!!!"
+  },
+  {
+    "id": 10,
+    "title": "Patch v3.5.2!!",
+    "message": "Bug fixes, optimizations, and improvements.",
+    "date": "2026-02-08T22:41:21.195Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Changed from Coursea to Collegeboard for the page.",
+      "Fixed site loading very slow.",
+      "Optimized overall performance.",
+      "And some other stuff that i forgot about."
+    ],
+    "endMessage": "The site should be a lot faster. Join the Discord server for more links!!"
+  },
+  {
+    "id": 11,
+    "title": "Mochi patch v0.2.1 release!!",
+    "message": "Fixed more bugs and some optimizations.",
+    "date": "2026-02-08T22:41:21.195Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Bunch of optimizations.",
+      "Fixed some more bottleneck issues."
+    ],
+    "endMessage": "Join the Discord server now!!!!"
   }
 ]

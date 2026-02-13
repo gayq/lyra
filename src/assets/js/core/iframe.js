@@ -29,32 +29,32 @@ function detachContentWindowListeners(iframe) {
             iframeWindow.__wavesFocusHandler = null;
         }
     } catch (e) {
-        console.warn('Unable to detach iframe window listeners:', e);
+        console.warn('unable to detach iframe window listeners:', e);
     }
 }
 
 export function stopIframeLoading(iframe) {
     if (!iframe) return;
     const tabId = getTabIdFromIframe(iframe);
-    
+
     if (loadingTimeout) clearTimeout(loadingTimeout);
     if (iframe.__usableTimeout) {
         clearTimeout(iframe.__usableTimeout);
         iframe.__usableTimeout = null;
     }
-    
+
     try {
         if (iframe.contentWindow) iframe.contentWindow.stop();
     } catch (e) {
-        console.warn('Could not stop iframe loading:', e);
+        console.warn('could not stop iframe loading:', e);
     }
-    
+
     updateTabDetails(iframe);
 
     hideLoading(tabId);
     window.WavesApp.isLoading = false;
     iframe.classList.add('loaded');
-    
+
     const tab = window.WavesApp?.tabs?.find(tab => tab.iframe === iframe);
     let currentUrl = iframe.dataset.manualUrl;
     if (!currentUrl) {
@@ -65,7 +65,7 @@ export function stopIframeLoading(iframe) {
         }
     }
     if (!currentUrl) currentUrl = iframe.src;
-    
+
     if (tab && currentUrl && currentUrl !== 'about:blank') {
         if (tab.historyManager) {
             const hasExistingEntry = !!tab.historyManager.getCurrentUrl();
@@ -90,17 +90,17 @@ export function navigateIframeTo(iframe, url) {
     window.WavesApp.isLoading = true;
     delete iframe.dataset.reloadAttempted;
     iframe.classList.remove('loaded');
-    
+
     if (tab) {
         tab.title = 'fetching data...';
         tab.favicon = null;
         if (window.WavesApp.renderTabs) window.WavesApp.renderTabs();
     }
-    
+
     iframe.dataset.navigationStarted = 'true';
-    iframe.removeAttribute('srcdoc'); 
+    iframe.removeAttribute('srcdoc');
     delete iframe.dataset.manualUrl;
-    
+
     if (iframe.__usableTimeout) {
         clearTimeout(iframe.__usableTimeout);
         iframe.__usableTimeout = null;
@@ -126,10 +126,10 @@ export function cleanupIframe(iframe) {
     iframe.style.boxShadow = '';
     try {
         iframe.contentWindow?.stop?.();
-    } catch (e) {}
+    } catch (e) { }
     try {
         iframe.src = 'about:blank';
-    } catch (e) {}
+    } catch (e) { }
     iframe.classList.remove('loaded', 'active', 'active-split-left', 'active-split-right', 'active-focus');
 }
 
@@ -140,7 +140,7 @@ export function reduceIframeMemory(iframe) {
         if (win && win.performance?.clearResourceTimings) {
             win.performance.clearResourceTimings();
         }
-    } catch (e) {}
+    } catch (e) { }
 }
 
 export function restoreIframeActivity(iframe) { return; }
@@ -150,13 +150,13 @@ function updateTabDetails(iframe) {
     if (!tabToUpdate) return;
     const prevTitle = tabToUpdate.title;
     const prevFavicon = tabToUpdate.favicon;
-    let isReloading = false; 
+    let isReloading = false;
     try {
         const iframeWindow = iframe.contentWindow;
         const doc = iframeWindow.document;
         const currentProxiedUrl = iframe.dataset.manualUrl || iframeWindow.location.href;
         const realUrl = decodeUrl(currentProxiedUrl);
-        
+
         const newTitle = (doc.title || '').trim();
         if (newTitle) {
             tabToUpdate.title = newTitle;
@@ -210,14 +210,14 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         const hasManualUrl = !!iframe.dataset.manualUrl;
         const isBlank = iframeWindow?.location?.href === 'about:blank';
         if (!iframeWindow || iframeWindow === window || (isBlank && !hasManualUrl)) return;
-        
+
         const handleNav = (isReplace = false) => {
             const newUrlInIframe = iframeWindow.location.href;
-            const baseManualUrl = iframe.dataset.manualUrl; 
+            const baseManualUrl = iframe.dataset.manualUrl;
             let finalUrlToPush = newUrlInIframe;
             if (baseManualUrl && newUrlInIframe.startsWith('about:blank')) {
                 try {
-                    const newUrlObj = new URL(newUrlInIframe, window.location.origin); 
+                    const newUrlObj = new URL(newUrlInIframe, window.location.origin);
                     const baseManualUrlObj = new URL(baseManualUrl);
                     baseManualUrlObj.hash = newUrlObj.hash;
                     baseManualUrlObj.search = newUrlObj.search;
@@ -238,7 +238,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
 
         if (!iframeWindow.history.pushState.__isPatched) {
             const originalPushState = iframeWindow.history.pushState;
-            iframeWindow.history.pushState = function(...args) {
+            iframeWindow.history.pushState = function (...args) {
                 originalPushState.apply(this, args);
                 handleNav();
             };
@@ -246,7 +246,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
         }
         if (!iframeWindow.history.replaceState.__isPatched) {
             const originalReplaceState = iframeWindow.history.replaceState;
-            iframeWindow.history.replaceState = function(...args) {
+            iframeWindow.history.replaceState = function (...args) {
                 originalReplaceState.apply(this, args);
                 handleNav(true);
             };
@@ -267,12 +267,12 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
 
         iframeWindow.addEventListener('DOMContentLoaded', () => {
             if (loadingTimeout) clearTimeout(loadingTimeout);
-            
+
             try {
                 const currentUrl = iframeWindow.location.href;
                 if (currentUrl && currentUrl !== 'about:blank') historyManager.replace(currentUrl);
-            } catch (e) {}
-            
+            } catch (e) { }
+
             updateTabDetails(iframe);
         });
 
@@ -280,7 +280,7 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
             const focusEvent = new CustomEvent('iframe-focus', { detail: { tabId }, bubbles: false });
             iframe.dispatchEvent(focusEvent);
         }, true);
-    } catch (e) { console.warn("Could not attach listeners to iframe content."); }
+    } catch (e) { console.warn("could not attach listeners to iframe content."); }
 }
 
 export function updateHistoryUI(activeTab, { currentUrl, canGoBack, canGoForward }) {
@@ -293,7 +293,7 @@ export function updateHistoryUI(activeTab, { currentUrl, canGoBack, canGoForward
         if (dom.lockIcon) dom.lockIcon.className = 'fa-regular fa-magnifying-glass';
         return;
     }
-    
+
     const { iframe } = activeTab;
 
     if (dom.backBtn && dom.forwardBtn) {
@@ -304,7 +304,7 @@ export function updateHistoryUI(activeTab, { currentUrl, canGoBack, canGoForward
     if (dom.searchInputNav) {
         const displayUrl = iframe.dataset.manualUrl || currentUrl || iframe.src;
         const decoded = decodeUrl(displayUrl);
-        
+
         if (document.activeElement !== dom.searchInputNav) {
             dom.searchInputNav.value = (decoded === 'about:blank' || !decoded) ? '' : decoded;
         }
@@ -341,16 +341,16 @@ export function initializeIframe(iframe, historyManager, tabId) {
             clearTimeout(iframe.__usableTimeout);
             iframe.__usableTimeout = null;
         }
-        
+
         let newUrl;
         try {
             newUrl = iframe.dataset.manualUrl ?? iframe.contentWindow?.location.href ?? iframe.src;
         } catch (e) { newUrl = iframe.dataset.manualUrl ?? iframe.src; }
-        
+
         if (newUrl && newUrl !== 'about:blank') historyManager.push(newUrl);
-        
-        updateTabDetails(iframe); 
-        
+
+        updateTabDetails(iframe);
+
         hideLoading(tabId);
         window.WavesApp.isLoading = false;
         iframe.classList.add('loaded');

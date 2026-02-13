@@ -31,20 +31,20 @@ function injectEruda(getActiveTab) {
   script.id = 'eruda';
 
   script.src = '/!!/https://cdn.jsdelivr.net/npm/eruda';
-  
+
   script.async = true;
   script.onload = () => {
     clearTimeout(loadingTimeoutId);
     setTimeout(() => {
-        initializeEruda(getActiveTab);
+      initializeEruda(getActiveTab);
     }, 0);
   };
   script.onerror = (e) => {
     clearTimeout(loadingTimeoutId);
-    console.error('Eruda failed to load (Check if SW is active)', e);
+    console.error('eruda failed to load', e);
     script.remove();
   };
-  
+
   iframe.contentDocument.head.appendChild(script);
 }
 
@@ -58,14 +58,14 @@ function initializeEruda(getActiveTab) {
   try {
     const ew = iframe.contentWindow;
     if (!ew.eruda) {
-      console.error('Eruda object undefined.');
+      console.error('eruda object undefined.');
       return;
     }
     ew.eruda.init();
     ew.eruda.show();
     erudaLoaded = true;
   } catch (err) {
-    console.error('Error initializing Eruda:', err);
+    console.error('error initializing eruda:', err);
   }
 }
 
@@ -87,7 +87,7 @@ function toggleEruda(getActiveTab) {
       injectEruda(getActiveTab);
     }
   } catch (err) {
-    console.error('Error toggling Eruda:', err);
+    console.error('error toggling eruda:', err);
   }
 }
 
@@ -155,12 +155,12 @@ function setupOnekoAnimation() {
       if (!onekoEl.isConnected) return;
 
       if (onekoEl.offsetParent !== null) {
-          if (timestamp - lastUpdate >= interval) {
-            const sprite = sleepingSpriteFrames[currentFrameIndex % sleepingSpriteFrames.length];
-            onekoEl.style.backgroundPosition = `${sprite[0] * 32}px ${sprite[1] * 32}px`;
-            currentFrameIndex++;
-            lastUpdate = timestamp;
-          }
+        if (timestamp - lastUpdate >= interval) {
+          const sprite = sleepingSpriteFrames[currentFrameIndex % sleepingSpriteFrames.length];
+          onekoEl.style.backgroundPosition = `${sprite[0] * 32}px ${sprite[1] * 32}px`;
+          currentFrameIndex++;
+          lastUpdate = timestamp;
+        }
       }
       requestAnimationFrame(animate);
     };
@@ -171,7 +171,7 @@ function setupOnekoAnimation() {
 
 export function showBrowserView() {
   document.body.classList.add('browser-view');
-  
+
   const elementsToRemove = [
     document.querySelector('.main-container'),
     document.getElementById('bookmarks-container'),
@@ -182,13 +182,13 @@ export function showBrowserView() {
     document.getElementById('discord'),
     document.querySelector('.footer')
   ];
-  
+
   elementsToRemove.forEach(element => {
     if (element) {
       element.remove();
     }
   });
-  
+
   const gamesPage = document.getElementById('games-page');
   if (gamesPage && document.body.classList.contains('games-view')) {
     const gameGrid = gamesPage.querySelector('.game-grid');
@@ -278,7 +278,7 @@ export function initializeUI(getActiveTab) {
         activeTab.title = 'fetching data...';
         activeTab.favicon = null;
         if (window.WavesApp.renderTabs) {
-             window.WavesApp.renderTabs();
+          window.WavesApp.renderTabs();
         }
 
         try {

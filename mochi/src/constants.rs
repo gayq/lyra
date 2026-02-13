@@ -2,50 +2,6 @@ pub const MOCHI_PREFIX: &str = "/!!/";
 
 pub const SCRIPT_PART_1: &str = r##"<script>
 (function() {
-    var hud;
-    function initHud() {
-        if (hud) return;
-        try {
-            hud = document.createElement('div');
-            hud.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:300px;background:#000000d9;color:#0f0;font-family:monospace;font-size:11px;overflow-y:scroll;z-index:2147483647;pointer-events:none;padding:5px;word-break:break-all;pointer-events:auto;display:none;';
-            (document.body || document.documentElement).appendChild(hud);
-        } catch(e) {}
-    }
-    window.addEventListener('load', initHud);
-    window.addEventListener('DOMContentLoaded', initHud);
-
-    window.addEventListener('keydown', function(e) {
-        if (e.code === 'Semicolon' && e.ctrlKey) {
-            e.preventDefault();
-            e.stopImmediatePropagation();
-            if (hud) {
-                hud.style.display = (hud.style.display === 'none') ? 'block' : 'none';
-            } else {
-                initHud();
-                if(hud) hud.style.display = 'block';
-            }
-        }
-    }, true);
-
-    function log(type, args) {
-        if (!hud) initHud();
-        if (hud) {
-            var el = document.createElement('div');
-            el.textContent = '[' + type + '] ' + Array.from(args).map(String).join(' ');
-            el.style.borderBottom = '1px solid #333';
-            if (type === 'ERR') el.style.color = '#ff5555';
-            if (type === 'WARN') el.style.color = '#ffff55';
-            hud.insertBefore(el, hud.firstChild);
-        }
-    }
-    var _log=console.log, _err=console.error, _warn=console.warn;
-    console.log = function() { log('LOG', arguments); _log.apply(console, arguments); };
-    console.error = function() { log('ERR', arguments); _err.apply(console, arguments); };
-    console.warn = function() { log('WARN', arguments); _warn.apply(console, arguments); };
-
-    window.addEventListener('error', function(e) { log('ERR', [e.message, e.filename, e.lineno]); });
-    window.addEventListener('unhandledrejection', function(e) { log('ERR', ['Promise:', e.reason]); });
-
     try {
         const _U = window.URL;
         window.URL = function(u, b) {
@@ -75,7 +31,7 @@ pub const SCRIPT_PART_2: &str = r##"";
              window.__MOCHI_TARGET__ = baseEl.href;
         }
     } catch(e) {}
-a
+
     const rewrite = (url) => {
         if (!url || typeof url !== "string") return url;
 

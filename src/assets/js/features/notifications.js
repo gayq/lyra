@@ -7,7 +7,7 @@ function saveNotifications() {
     try {
         localStorage.setItem('notifications', JSON.stringify(notificationsCache));
     } catch (e) {
-        console.error('Failed to save notifications to localStorage:', e);
+        console.error('failed to save notifications to localStorage:', e);
     }
 }
 
@@ -18,13 +18,13 @@ function loadNotifications() {
             notificationsCache = JSON.parse(raw);
             notificationsCache = notificationsCache.map(n => ({
                 ...n,
-                type: n.type || 'Announcement', 
+                type: n.type || 'Announcement',
                 changes: n.changes || [n.message],
                 endMessage: n.endMessage || undefined
             }));
         }
     } catch (e) {
-        console.error('Failed to load notifications from localStorage:', e);
+        console.error('failed to load notifications from localStorage:', e);
         notificationsCache = [];
     }
 }
@@ -40,11 +40,11 @@ async function fetchNotifications() {
         const mergedNotifications = backendNotifications.map(backendNotif => {
             const existingNotif = notificationsCache.find(n => n.id === backendNotif.id);
             const isNewStatus = existingNotif ? existingNotif.isNew : (backendNotif.isNew ?? true);
-            
-            return { 
-                ...backendNotif, 
+
+            return {
+                ...backendNotif,
                 isNew: isNewStatus,
-                type: backendNotif.type || 'Announcement', 
+                type: backendNotif.type || 'Announcement',
                 changes: backendNotif.changes || [backendNotif.message],
                 endMessage: backendNotif.endMessage || undefined
             };
@@ -55,7 +55,7 @@ async function fetchNotifications() {
         renderNotifications();
         updateNotificationIcon();
     } catch (e) {
-        console.error('Failed to fetch notifications:', e);
+        console.error('failed to fetch notifications:', e);
         const statusEl = document.getElementById('notifications-status');
         if (statusEl) {
             statusEl.textContent = 'Error loading notifications.';
@@ -74,7 +74,7 @@ function createNotificationItem(notification) {
 
     const content = document.createElement('div');
     content.className = 'notification-content';
-    
+
     const title = document.createElement('h3');
     title.className = 'notification-title';
     title.textContent = notification.title;
@@ -87,7 +87,7 @@ function createNotificationItem(notification) {
 
     const chevron = document.createElement('i');
     chevron.className = 'fa-regular fa-chevron-down notification-chevron';
-    
+
     header.appendChild(content);
     header.appendChild(type);
     header.appendChild(chevron);
@@ -100,24 +100,24 @@ function createNotificationItem(notification) {
 
     const date = document.createElement('span');
     date.className = 'notification-date';
-    
-    const formattedDate = new Date(notification.date).toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+
+    const formattedDate = new Date(notification.date).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
     });
-    
-    date.textContent = `${formattedDate}`; 
-    
-    item.appendChild(date); 
-    
+
+    date.textContent = `${formattedDate}`;
+
+    item.appendChild(date);
+
     const details = document.createElement('div');
     details.className = 'notification-details';
-    
+
     if (notification.changes && notification.changes.length > 0) {
         const changesList = document.createElement('ul');
         changesList.className = 'notification-changes-list';
-        
+
         notification.changes.forEach(change => {
             const li = document.createElement('li');
             li.textContent = change;
@@ -130,10 +130,10 @@ function createNotificationItem(notification) {
         const endMsg = document.createElement('p');
         endMsg.className = 'notification-item-message-summary';
         endMsg.textContent = notification.endMessage;
-        
+
         endMsg.style.marginTop = '15px';
         endMsg.style.marginBottom = '5px';
-        
+
         details.appendChild(endMsg);
     }
 
@@ -146,13 +146,13 @@ function handleNotificationClick(e) {
     const item = e.currentTarget;
     const notifId = parseInt(item.dataset.id, 10);
     const notif = notificationsCache.find(n => n.id === notifId);
-    
+
     if (!notif) return;
 
     const isExpanded = item.classList.toggle('expanded');
     const chevron = item.querySelector('.notification-chevron');
     const details = item.querySelector('.notification-details');
-    
+
     if (details) {
         if (isExpanded) {
             chevron.classList.add('expanded');
@@ -163,13 +163,13 @@ function handleNotificationClick(e) {
             details.style.overflow = 'hidden';
 
             requestAnimationFrame(() => {
-                 details.style.maxHeight = `${height + 20}px`;
+                details.style.maxHeight = `${height + 20}px`;
             });
 
         } else {
             chevron.classList.remove('expanded');
             details.style.maxHeight = `${details.scrollHeight + 20}px`;
-            
+
             requestAnimationFrame(() => {
                 details.style.maxHeight = '0';
             });
@@ -201,7 +201,7 @@ function renderNotifications() {
     }
 
     if (status) status.style.display = 'none';
-    
+
     const fragment = document.createDocumentFragment();
     notificationsCache.forEach(notif => {
         const item = createNotificationItem(notif);
@@ -213,12 +213,12 @@ function renderNotifications() {
 
 function updateNotificationIcon() {
     if (!dom.notificationsIcon) return;
-    
+
     const unreadCount = notificationsCache.filter(n => n.isNew).length;
     const hasUnread = unreadCount > 0;
-    
+
     dom.notificationsIcon.classList.toggle('has-new-notifications', hasUnread);
-    
+
     if (hasUnread) {
         const displayCount = unreadCount > 99 ? '99+' : unreadCount;
         dom.notificationsIcon.setAttribute('data-count', displayCount);
@@ -230,7 +230,7 @@ function updateNotificationIcon() {
 function onHideAnimationEnd(e) {
     if (e.animationName === 'fadeOut') {
         const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
-        notificationsMenuEl.classList.remove('open'); 
+        notificationsMenuEl.classList.remove('open');
         contentEl.classList.remove('close');
         notificationsMenuEl.style.display = 'none';
         notificationsMenuEl.style.pointerEvents = '';
@@ -241,8 +241,8 @@ export function showNotificationsMenu() {
     if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
         window.toggleSettingsMenu();
     }
-    if (window.xinUpdater && typeof window.xinUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
-        window.xinUpdater.hideSuccess(true);
+    if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
+        window.wavesUpdater.hideSuccess(true);
     }
     if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
         window.SharePromoter.hideSharePrompt(true);
@@ -254,15 +254,15 @@ export function showNotificationsMenu() {
     if (dom.bookmarkPromptOverlay) {
         dom.bookmarkPromptOverlay.classList.add('show');
     }
-    
+
     const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
-    
+
     contentEl.removeEventListener('animationend', onHideAnimationEnd);
 
     notificationsMenuEl.style.display = 'flex';
     notificationsMenuEl.style.pointerEvents = 'auto';
     notificationsMenuEl.classList.add('open');
-    
+
     contentEl.classList.remove('close');
     void contentEl.offsetWidth;
     contentEl.classList.add('open');
@@ -282,7 +282,7 @@ export function hideNotificationsMenu(calledByOther) {
     const contentEl = notificationsMenuEl.querySelector('.notifications-menu-content');
     contentEl.classList.remove('open');
     contentEl.classList.add('close');
-    
+
     contentEl.addEventListener('animationend', onHideAnimationEnd, { once: true });
 }
 
@@ -303,7 +303,7 @@ function markAllAsRead(silent = false) {
             changed = true;
         }
     });
-    
+
     if (changed) {
         saveNotifications();
         renderNotifications();
@@ -341,7 +341,7 @@ export function initializeNotifications() {
     const closeBtn = document.getElementById('close-notifications-menu');
 
     if (!dom.notificationsBtn) return;
-    
+
     loadNotifications();
     updateNotificationIcon();
     fetchNotifications();
@@ -352,7 +352,7 @@ export function initializeNotifications() {
     });
 
     if (closeBtn) closeBtn.addEventListener('click', () => hideNotificationsMenu(false));
-    
+
     notificationsMenuEl.addEventListener('click', e => {
         if (e.target === notificationsMenuEl && notificationsMenuEl.classList.contains('open')) hideNotificationsMenu(false);
     });
@@ -364,7 +364,7 @@ export function initializeNotifications() {
             hideNotificationsMenu(false);
         }
     });
-    
+
     window.hideNotificationsMenu = hideNotificationsMenu;
     window.showNotificationsMenu = showNotificationsMenu;
     window.toggleNotificationsMenu = toggleNotificationsMenu;

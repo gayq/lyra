@@ -1,4 +1,4 @@
-;(function () {
+; (function () {
   const STATES = Object.freeze({
     IDLE: 'IDLE',
     CONNECTING: 'CONNECTING',
@@ -35,15 +35,15 @@
       if (!Object.values(STATES).includes(newState)) return;
       this.state = newState;
     }
-    
+
     preFlightChecks() {
       if (!navigator.serviceWorker) {
-        this.updateStatus("Fatal: Service Workers are not supported.", 'error');
+        this.updateStatus("fatal: service workers are not supported.", 'error');
         this.setState(STATES.FAILED);
         return false;
       }
       if (typeof BareMux !== 'object' || !BareMux.BareMuxConnection) {
-        this.updateStatus("Fatal: BareMux library not found.", 'error');
+        this.updateStatus("fatal: baremux library not found.", 'error');
         this.setState(STATES.FAILED);
         return false;
       }
@@ -71,21 +71,21 @@
     }
 
     async unregisterAllServiceWorkers() {
-  try {
-    const cacheNames = await caches.keys();
-    await Promise.all(cacheNames.map(name => caches.delete(name)));
+      try {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map(name => caches.delete(name)));
 
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    for (const registration of registrations) {
-      await registration.unregister();
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+
+        if (navigator.serviceWorker.controller) {
+        }
+      } catch (e) {
+        this.updateStatus(`sw unregistration failed: ${e.message}`, 'error');
+      }
     }
-    
-    if (navigator.serviceWorker.controller) {
-    }
-  } catch (e) {
-    this.updateStatus(`sw unregistration failed: ${e.message}`, 'error');
-  }
-}
 
     async ensureWispServerConnection(url, timeout = 1500) {
       return new Promise((resolve, reject) => {
@@ -93,12 +93,12 @@
         try {
           ws = new WebSocket(url);
         } catch (e) {
-          return reject(new Error("Invalid WebSocket URL."));
+          return reject(new Error("invalid websocket url."));
         }
 
         const connectionTimeout = setTimeout(() => {
           if (ws) ws.close();
-          reject(new Error("Wisp connection timed out."));
+          reject(new Error("wisp connection timed out."));
         }, timeout);
 
         ws.onopen = () => {
@@ -108,7 +108,7 @@
         };
         ws.onerror = () => {
           clearTimeout(connectionTimeout);
-          reject(new Error("Wisp connection failed."));
+          reject(new Error("wisp connection failed."));
         };
       });
     }
@@ -116,8 +116,8 @@
     async initializeApp(isRetry = false) {
       if (this.state === STATES.CONNECTING && !isRetry) return;
       this.setState(isRetry ? STATES.RECONNECTING : STATES.CONNECTING);
-      
-      if(!isRetry) this.updateStatus('Connecting...', 'info');
+
+      if (!isRetry) this.updateStatus('connecting...', 'info');
 
       try {
         if (!this.bareMuxConnection) {
@@ -130,50 +130,50 @@
         this.currentWispUrl = this.appConfig.customWispUrl || defaultWispUrl;
 
         const scope = { 'ultraviolet': "/b/u/hi/", 'scramjet': "/b/s/" }[this.appConfig.backend];
-        if (!scope) throw new Error(`Unknown backend: ${this.appConfig.backend}`);
+        if (!scope) throw new Error(`unknown backend: ${this.appConfig.backend}`);
 
         const registration = await navigator.serviceWorker.register("./b/sw.js", { scope });
-if (registration.installing) {
-    const sw = registration.installing;
-    await new Promise((resolve) => {
-        sw.addEventListener('statechange', (e) => {
-            if (e.target.state === 'activated') resolve();
-        });
-    });
-}
+        if (registration.installing) {
+          const sw = registration.installing;
+          await new Promise((resolve) => {
+            sw.addEventListener('statechange', (e) => {
+              if (e.target.state === 'activated') resolve();
+            });
+          });
+        }
 
         const transportMap = { epoxy: "/epoxy/index.mjs", libcurl: "/libcurl/index.mjs" };
         const transportModule = transportMap[this.appConfig.transport];
-        if (!transportModule) throw new Error(`Unknown transport: ${this.appConfig.transport}`);
-        
+        if (!transportModule) throw new Error(`unknown transport: ${this.appConfig.transport}`);
+
         this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
 
-        this.updateStatus(`Successfully connected!`, 'success');
+        this.updateStatus(`successfully connected!`, 'success');
         this.setState(STATES.CONNECTED);
         this.isInitialLoad = false;
 
         const el = document.querySelector(".transport-selected");
         if (el) el.textContent = this.appConfig.transport;
-        
+
         return true;
 
       } catch (error) {
-        this.updateStatus(`Connection failed: ${error.message}`, 'error');
-        console.error("Full error object:", error);
+        this.updateStatus(`connection failed: ${error.message}`, 'error');
+        console.error("full error object:", error);
         await this.handleConnectionFailure();
         return false;
       }
     }
-    
+
     async handleConnectionFailure(retryCount = 0) {
       this.setState(STATES.RECONNECTING);
-      if (retryCount < 5) {
-        const delay = Math.pow(2, retryCount) * 250;
-        this.updateStatus(`Retrying in ${delay}ms...`, 'info');
+      if (retryCount < 8) {
+        const delay = Math.min(Math.pow(2, retryCount) * 500, 30000);
+        this.updateStatus(`retrying in ${delay}ms...`, 'info');
         await new Promise(res => setTimeout(res, delay));
         await this.initializeApp(true);
       } else {
-        this.updateStatus('Connection failed after multiple retries.', 'error');
+        this.updateStatus('connection failed after multiple retries.', 'error');
         this.setState(STATES.FAILED);
       }
     }
@@ -182,41 +182,42 @@ if (registration.installing) {
       if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
       let isChecking = false;
       this.healthCheckInterval = setInterval(async () => {
+        if (document.hidden) return;
         if (isChecking || this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
-        
-        if (window.WavesApp && window.WavesApp.isLoading) return; 
+
+        if (window.WavesApp && window.WavesApp.isLoading) return;
 
         if (this.state !== STATES.CONNECTED) return;
-        
+
         isChecking = true;
         try {
-            await this.ensureWispServerConnection(this.currentWispUrl, 2000);
+          await this.ensureWispServerConnection(this.currentWispUrl, 3000);
         } catch (err) {
-          this.updateStatus('Health check failed. Reconnecting...', 'error');
+          this.updateStatus('health check failed. reconnecting...', 'error');
           await this.initializeApp();
         } finally {
           isChecking = false;
         }
-      }, 15000);
+      }, 30000);
     }
-    
+
     setupEventListeners() {
       const applyLiveChanges = async (updateFn) => {
-  if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
+        if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
 
-  this.updateStatus('switching engine...', 'info');
-  
-  await updateFn();
-  await this.unregisterAllServiceWorkers();
-  await new Promise(res => setTimeout(res, 800));
-  
-  const success = await this.initializeApp();
-  
-  if (success) {
-      this.updateStatus('switched successfully!', 'success');
-  }
-};
-      
+        this.updateStatus('switching engine...', 'info');
+
+        await updateFn();
+        await this.unregisterAllServiceWorkers();
+        await new Promise(res => setTimeout(res, 800));
+
+        const success = await this.initializeApp();
+
+        if (success) {
+          this.updateStatus('switched successfully!', 'success');
+        }
+      };
+
       window.addEventListener('online', () => {
         if (this.state !== STATES.CONNECTED && this.state !== STATES.CONNECTING && this.state !== STATES.RECONNECTING) {
           this.initializeApp();

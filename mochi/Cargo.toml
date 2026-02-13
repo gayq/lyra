@@ -1,24 +1,22 @@
 [package]
 name = "mochi"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 [dependencies]
 mimalloc = { version = "0.1", default-features = false }
 axum = { version = "0.7", features = ["http2", "ws"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "net", "macros", "sync"] }
 tokio-stream = "0.1"
-tokio-tungstenite = { version = "0.21", features = ["native-tls"] } # Added for upstream WS
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "socks", "http2", "hickory-dns"] }
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2", "hickory-dns"] }
 lol_html = "1.0"
 moka = { version = "0.12", features = ["future"] }
 aho-corasick = "1.1"
-serde = "1.0"
-serde_json = "1.0"
 url = "2.5"
-regex = "1.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytes = "1.5"
-tower-http = { version = "0.5", features = ["cors", "compression-full", "set-header", "trace"] }
+tower-http = { version = "0.5", features = ["cors"] }
 futures = "0.3"
+dashmap = "6"

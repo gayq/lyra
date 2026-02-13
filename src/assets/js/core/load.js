@@ -17,8 +17,8 @@ try {
   } else {
     window.scramjetReady = Promise.resolve();
   }
-} catch(e) {
-    window.scramjetReady = Promise.resolve();
+} catch (e) {
+  window.scramjetReady = Promise.resolve();
 }
 
 export function attachSearchLight(searchBar) {
@@ -40,7 +40,7 @@ export function attachSearchLight(searchBar) {
   let rectRaf = null;
 
   const updateRect = () => {
-      rect = searchBar.getBoundingClientRect();
+    rect = searchBar.getBoundingClientRect();
   };
 
   const scheduleRectUpdate = () => {
@@ -68,16 +68,16 @@ export function attachSearchLight(searchBar) {
     const elasticX = Math.min(Math.max(velocityX * 0.5, -20), 20);
     const elasticY = Math.min(Math.max(velocityY * 0.5, -20), 20);
 
-    if (Math.abs(deltaX) < 0.1 && Math.abs(deltaY) < 0.1 && 
-        Math.abs(elasticX) < 0.1 && Math.abs(elasticY) < 0.1) {
-        isSettled = true;
-        raf = null;
+    if (Math.abs(deltaX) < 0.1 && Math.abs(deltaY) < 0.1 &&
+      Math.abs(elasticX) < 0.1 && Math.abs(elasticY) < 0.1) {
+      isSettled = true;
+      raf = null;
 
-        const finalBgX = `${targetX}px`;
-        const finalBgY = `${targetY}px`;
+      const finalBgX = `${targetX}px`;
+      const finalBgY = `${targetY}px`;
 
-        setBgPosition(finalBgX, finalBgY);
-        return;
+      setBgPosition(finalBgX, finalBgY);
+      return;
     }
 
     const bgX = `${currentX + elasticX}px`;
@@ -129,7 +129,7 @@ export function attachSearchLight(searchBar) {
   searchBar.addEventListener('mousemove', (e) => {
     targetX = (e.clientX - rect.left) - (lightSize / 2);
     targetY = (e.clientY - rect.top) - (lightSize / 2);
-    
+
     velocityX = targetX - lastX;
     velocityY = targetY - lastY;
     lastX = targetX;
@@ -139,8 +139,8 @@ export function attachSearchLight(searchBar) {
     lightBg.style.transform = `scale(${glowStrength})`;
 
     if (isSettled && !raf) {
-        isSettled = false;
-        raf = requestAnimationFrame(animate);
+      isSettled = false;
+      raf = requestAnimationFrame(animate);
     }
   });
 
@@ -177,20 +177,20 @@ export function initializeLoad() {
   document.querySelectorAll('.search-bar').forEach(attachSearchLight);
   setupScrollShadow();
 
-  window.xinUpdater = {
+  window.wavesUpdater = {
     successEl: null,
     overlay: document.getElementById("overlay"),
     closeBtn: null,
     init() {
       this.successEl = document.getElementById("updateSuccess");
       if (!this.successEl) {
-          this.successEl = document.createElement('div');
-          this.successEl.id = 'updateSuccess';
-          document.body.appendChild(this.successEl);
-          this.successEl.innerHTML = `
+        this.successEl = document.createElement('div');
+        this.successEl.id = 'updateSuccess';
+        document.body.appendChild(this.successEl);
+        this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
             <label>successfully updated!</label>
-            <p>if you don’t see any changes or the website breaks, do Ctrl + Shift + R a few times</p>
+            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }
@@ -217,13 +217,13 @@ export function initializeLoad() {
     showSuccess() {
       if (this.successEl && this.overlay) {
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
-            window.toggleSettingsMenu();
+          window.toggleSettingsMenu();
         }
         if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-            window.SharePromoter.hideSharePrompt(true); 
+          window.SharePromoter.hideSharePrompt(true);
         }
         if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
-            window.hideBookmarkPrompt(true);
+          window.hideBookmarkPrompt(true);
         }
 
         this.overlay.classList.add("show");
@@ -232,17 +232,17 @@ export function initializeLoad() {
       }
     },
     hideSuccess(calledByOther) {
-        if (!this.successEl || this.successEl.style.display === 'none') return;
+      if (!this.successEl || this.successEl.style.display === 'none') return;
 
-        this.successEl.classList.add("fade-out");
-        this.successEl.addEventListener("animationend", () => {
-            this.successEl.style.display = "none";
-            this.successEl.classList.remove("fade-out");
-            
-            if (calledByOther) return;
-            
-            this.overlay.classList.remove("show");
-        }, { once: true });
+      this.successEl.classList.add("fade-out");
+      this.successEl.addEventListener("animationend", () => {
+        this.successEl.style.display = "none";
+        this.successEl.classList.remove("fade-out");
+
+        if (calledByOther) return;
+
+        this.overlay.classList.remove("show");
+      }, { once: true });
     },
     async performUpdate() {
       localStorage.setItem("justUpdated", "true");
@@ -254,7 +254,7 @@ export function initializeLoad() {
           await Promise.all((await caches.keys()).map(e => caches.delete(e)));
         }
       } catch (e) {
-        console.error("Automatic update failed:", e);
+        console.error("automatic update failed:", e);
         localStorage.removeItem("justUpdated");
       }
       location.reload();
@@ -269,11 +269,11 @@ export function initializeLoad() {
         localStorage.setItem("wVersion", version);
         if (prev && version !== prev) await this.performUpdate();
       } catch (e) {
-        console.warn("Version check failed:", e);
+        console.warn("version check failed:", e);
       }
     }
   };
-  window.xinUpdater.init();
+  window.wavesUpdater.init();
 
   window.SharePromoter = {
     shareEl: null,
@@ -282,14 +282,14 @@ export function initializeLoad() {
     init() {
       this.shareEl = document.getElementById("sharePrompt");
       if (!this.shareEl) {
-          this.shareEl = document.createElement('div');
-          this.shareEl.id = 'sharePrompt';
-          this.shareEl.style.display = 'none';
-          document.body.appendChild(this.shareEl);
-          this.shareEl.innerHTML = `
+        this.shareEl = document.createElement('div');
+        this.shareEl.id = 'sharePrompt';
+        this.shareEl.style.display = 'none';
+        document.body.appendChild(this.shareEl);
+        this.shareEl.innerHTML = `
             <i class="fa-solid fa-seedling" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>help the website grow!</label>
-            <p>share this website with all your friends to help keep the traffic up and everything else running smoothly!</p>
+            <label>help the site grow!</label>
+            <p>share this site with all your friends to help keep the traffic up and everything else running smoothly!</p>
             <button class="prompt-close-btn" id="sharePromptClose">okay!!</button>
           `;
       }
@@ -301,14 +301,14 @@ export function initializeLoad() {
           this.hideSharePrompt(false);
         }
       });
-      
+
       const trigger = () => {
-        const visited = localStorage.getItem("xinVisited");
+        const visited = localStorage.getItem("wavesVisited");
         if (!visited) {
-          localStorage.setItem("xinVisited", "true");
+          localStorage.setItem("wavesVisited", "true");
           this.showSharePrompt();
         } else {
-          if (Math.random() < 0.10) { 
+          if (Math.random() < 0.10) {
             this.showSharePrompt();
           }
         }
@@ -325,13 +325,13 @@ export function initializeLoad() {
     showSharePrompt() {
       if (this.shareEl && this.overlay) {
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
-            window.toggleSettingsMenu();
+          window.toggleSettingsMenu();
         }
-        if (window.xinUpdater && typeof window.xinUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
-            window.xinUpdater.hideSuccess(true);
+        if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
+          window.wavesUpdater.hideSuccess(true);
         }
         if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
-            window.hideBookmarkPrompt(true);
+          window.hideBookmarkPrompt(true);
         }
 
         this.overlay.classList.add("show");
@@ -340,17 +340,17 @@ export function initializeLoad() {
       }
     },
     hideSharePrompt(calledByOther) {
-        if (!this.shareEl || this.shareEl.style.display === 'none') return;
+      if (!this.shareEl || this.shareEl.style.display === 'none') return;
 
-        this.shareEl.classList.add("fade-out");
-        this.shareEl.addEventListener("animationend", () => {
-            this.shareEl.style.display = "none";
-            this.shareEl.classList.remove("fade-out");
-            
-            if (calledByOther) return;
-            
-            this.overlay.classList.remove("show");
-        }, { once: true });
+      this.shareEl.classList.add("fade-out");
+      this.shareEl.addEventListener("animationend", () => {
+        this.shareEl.style.display = "none";
+        this.shareEl.classList.remove("fade-out");
+
+        if (calledByOther) return;
+
+        this.overlay.classList.remove("show");
+      }, { once: true });
     }
   };
 
@@ -362,15 +362,15 @@ export function initializeLoad() {
 
   const searchInput = document.getElementById('searchInput');
   const placeholders = [
-      "have anything in mind?",
-      "(˶˃ ᵕ ˂˶)",
-      "join the discord server!",
-      "1 update per year",
-      "waves is such a good website!!"
+    "have anything in mind?",
+    "(˶˃ ᵕ ˂˶)",
+    "join the discord server!",
+    "1 update per year",
+    "waves is such a good site!!"
   ];
 
   if (searchInput) {
-      searchInput.placeholder = placeholders[Math.floor(Math.random() * placeholders.length)];
+    searchInput.placeholder = placeholders[Math.floor(Math.random() * placeholders.length)];
   }
 
   window.SharePromoter.init();
