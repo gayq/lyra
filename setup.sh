@@ -249,7 +249,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    encode br zstd gzip
+    encode zstd gzip
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"

@@ -157,7 +157,7 @@
     "id": 10,
     "title": "Patch v3.5.2!!",
     "message": "Bug fixes, optimizations, and improvements.",
-    "date": "2026-02-08T22:41:21.195Z",
+    "date": "2026-02-13T23:47:14.953Z",
     "isNew": true,
     "type": "Update",
     "changes":[
@@ -170,9 +170,9 @@
   },
   {
     "id": 11,
-    "title": "Mochi patch v0.2.1 release!!",
+    "title": "Mochi patch v0.2.1!!",
     "message": "Fixed more bugs and some optimizations.",
-    "date": "2026-02-08T22:41:21.195Z",
+    "date": "2026-02-13T23:47:14.953Z",
     "isNew": true,
     "type": "Update",
     "changes":[
