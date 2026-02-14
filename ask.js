@@ -283,7 +283,7 @@ setInterval(() => {
 
 setInterval(cleanOldLogs, 24 * 60 * 60_000);
 
-console.log(`TLS validation server starting on port ${PORT}`);
+console.log(`tls server listening on ${PORT}!!!!`);
 
 Bun.serve({
   port: PORT,
