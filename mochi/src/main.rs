@@ -238,6 +238,16 @@ async fn proxy_handler(
         }
     }
 
+    req_builder = req_builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    req_builder = req_builder.header("Sec-Ch-Ua", "\"Not-A.Brand\";v=\"99\", \"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\"");
+    req_builder = req_builder.header("Sec-Ch-Ua-Mobile", "?0");
+    req_builder = req_builder.header("Sec-Ch-Ua-Platform", "\"Windows\"");
+    req_builder = req_builder.header("Accept-Language", "en-US,en;q=0.9");
+    req_builder = req_builder.header("Sec-Fetch-Site", "same-origin");
+    req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
+    req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
+    req_builder = req_builder.header("Priority", "u=1, i");
+
     let origin = target_url.origin().ascii_serialization();
     req_builder = req_builder.header("Referer", format!("{}/", origin));
     req_builder = req_builder.header("Origin", origin);
@@ -414,6 +424,16 @@ async fn fetch_and_cache(
             req_builder = req_builder.header(k, v);
         }
     }
+
+    req_builder = req_builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    req_builder = req_builder.header("Sec-Ch-Ua", "\"Not-A.Brand\";v=\"99\", \"Chromium\";v=\"124\", \"Google Chrome\";v=\"124\"");
+    req_builder = req_builder.header("Sec-Ch-Ua-Mobile", "?0");
+    req_builder = req_builder.header("Sec-Ch-Ua-Platform", "\"Windows\"");
+    req_builder = req_builder.header("Accept-Language", "en-US,en;q=0.9");
+    req_builder = req_builder.header("Sec-Fetch-Site", "same-origin");
+    req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
+    req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
+    req_builder = req_builder.header("Priority", "u=1, i");
 
     let origin = target_url.origin().ascii_serialization();
     req_builder = req_builder.header("Referer", format!("{}/", origin));

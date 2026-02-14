@@ -2,15 +2,13 @@ import { appendFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const PORT = 3001;
-
-const BLOCKED_SUFFIXES = [
+const NO = [
   '.nip.io', '.sslip.io', '.securly.cloud', '.traefik.me',
   '.myaddr.io', '.backname.io', '.tiktokv.us', '.localtest.me',
   '.lvh.me', '.xip.io', '.nip.io.br', '.vcap.me',
 ];
 
-const INTERNAL_IPS = new Set(['127.0.0.1', 'localhost', '::1', 'unknown']);
-
+const IPS = new Set(['127.0.0.1', 'localhost', '::1', 'unknown']);
 const approvedDomains = new Map();
 const APPROVED_TTL = 24 * 60 * 60 * 1000;
 
@@ -159,7 +157,6 @@ Bun.serve({
     try {
       const url = new URL(req.url, 'http://localhost');
       const ip = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-
       const domainFromQuery = url.searchParams.get('domain') || url.searchParams.get('server_name');
       const domainFromHeader = req.headers.get('Host') || '';
       const domain = (domainFromQuery || domainFromHeader.split(':')[0]).toLowerCase();
@@ -172,11 +169,11 @@ Bun.serve({
         return new Response('yes!!', { status: 200 });
       }
 
-      if (INTERNAL_IPS.has(ip)) {
+      if (IPS.has(ip)) {
         if (!isValidDomain(domain)) {
           return new Response('invalid domain', { status: 400 });
         }
-        if (BLOCKED_SUFFIXES.some(s => domain.endsWith(s))) {
+        if (NO.some(s => domain.endsWith(s))) {
           return new Response('no!!', { status: 410 });
         }
         
@@ -201,7 +198,7 @@ Bun.serve({
         return new Response('invalid domain', { status: 400 });
       }
 
-      if (BLOCKED_SUFFIXES.some(s => domain.endsWith(s))) {
+      if (NO.some(s => domain.endsWith(s))) {
         return new Response('no!!', { status: 410 });
       }
 
