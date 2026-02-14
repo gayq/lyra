@@ -178,23 +178,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         on_demand
     }
 
-    handle_path /yay/* {
-        reverse_proxy h ttps://openairtowhardworking.com {
-            header_up Host openairtowhardworking.com
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-        }
-    }
-
-    handle_path /analytics/* {
-        reverse_proxy https://www.googletagmanager.com {
-            header_up Host www.googletagmanager.com
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-        }
-    }
-
     @websockets {
         path /w/*
         header Connection *Upgrade*
