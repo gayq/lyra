@@ -299,8 +299,8 @@ module.exports = {
   apps: [
     {
       name: "ask",
-      script: "bun",
-      args: "run ask.js",
+      script: "ask.js",
+      interpreter: "/root/.bun/bin/bun",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
