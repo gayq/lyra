@@ -178,13 +178,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    timeouts {
-        read_body 90s
-        read_header 90s
-        write 90s
-        idle 180s
-    }
-
     @websockets {
         path /w/*
         header Connection *Upgrade*
