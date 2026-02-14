@@ -162,13 +162,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     on_demand_tls {
         ask http://127.0.0.1:3001/
-        interval 5m
-        burst 3
     }
 }
 
 :443 {
-
     log {
         output file /var/log/caddy/access.log
         format json
@@ -176,6 +173,16 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+        issuer acme {
+            preferred_chains smallest
+        }
+    }
+
+    timeouts {
+        read_body 90s
+        read_header 90s
+        write 90s
+        idle 180s
     }
 
     @websockets {
@@ -189,6 +196,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         header Origin *
         expression !{header.Origin}.startsWith("https://" + {host})
     }
+
     abort @origin_mismatch
 
     reverse_proxy @websockets 127.0.0.1:8080 {
@@ -201,7 +209,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 256
-            dial_timeout 5s
+            dial_timeout 10s
+            read_timeout 90s
+            write_timeout 90s
         }
     }
 
@@ -215,8 +225,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 64
-            dial_timeout 5s
-            response_header_timeout 60s
+            dial_timeout 10s
+            response_header_timeout 90s
         }
     }
 
@@ -228,7 +238,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 64
-            dial_timeout 5s
+            dial_timeout 10s
         }
     }
 
