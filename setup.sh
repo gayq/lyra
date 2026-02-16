@@ -23,7 +23,6 @@ done
 
 sudo ip link delete veth0-global 2>/dev/null
 sudo modprobe nf_conntrack
-
 sudo apt-get update -y
 sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io
 
@@ -148,15 +147,18 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
-if ! sudo docker ps | grep -q "anubis"; then
-    echo "starting anubis..."
-    sudo docker pull ghcr.io/techarohq/anubis:latest
-    sudo docker run -d --name anubis \
-        --network="host" \
-        --restart unless-stopped \
-        -e TARGET="http://127.0.0.1:3000" \
-        ghcr.io/techarohq/anubis:latest
+sudo docker pull ghcr.io/techarohq/anubis:latest
+
+if sudo docker ps -a | grep -q "anubis"; then
+    sudo docker stop anubis 2>/dev/null || true
+    sudo docker rm anubis 2>/dev/null || true
 fi
+
+sudo docker run -d --name anubis \
+    --network="host" \
+    --restart unless-stopped \
+    -e TARGET="http://127.0.0.1:3000" \
+    ghcr.io/techarohq/anubis:latest
 
 bun run build
 
@@ -403,7 +405,6 @@ fi
 
 
 if [ ! -f .env ]; then
-    echo "generating secrets..."
     JWT_SECRET=$(openssl rand -hex 64)
     SYNC_SECRET=$(openssl rand -hex 32)
     echo "JWT_SECRET=$JWT_SECRET" > .env
@@ -411,7 +412,6 @@ if [ ! -f .env ]; then
     chmod 600 .env
 else
     if ! grep -q "JWT_SECRET" .env; then
-        echo "appending JWT_SECRET to existing .env..."
         JWT_SECRET=$(openssl rand -hex 64)
         echo "" >> .env
         echo "JWT_SECRET=$JWT_SECRET" >> .env
@@ -420,7 +420,6 @@ else
     fi
 
     if ! grep -q "SYNC_SECRET" .env; then
-        echo "appending SYNC_SECRET to existing .env..."
         SYNC_SECRET=$(openssl rand -hex 32)
         echo "SYNC_SECRET=$SYNC_SECRET" >> .env
     else
@@ -429,7 +428,6 @@ else
 fi
 
 if [ -d "cloudsync" ]; then
-    echo "copying secrets to cloudsync/.env..."
     echo "JWT_SECRET=$JWT_SECRET" > cloudsync/.env
     echo "SYNC_SECRET=$SYNC_SECRET" >> cloudsync/.env
     chmod 600 cloudsync/.env
