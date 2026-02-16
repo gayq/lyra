@@ -76,7 +76,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(100%)';
 

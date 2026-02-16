@@ -2,8 +2,6 @@ use axum::{
     extract::{State, Json},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
-    Router,
 };
 use tower_cookies::Cookies;
 use rusqlite::params;
@@ -22,6 +20,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 
 use crate::auth::{get_current_user, AppState};
+
+const IV_LENGTH: usize = 12;
 
 #[derive(Serialize)]
 struct SyncResponse {

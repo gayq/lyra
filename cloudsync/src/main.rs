@@ -49,7 +49,16 @@ async fn main() {
             .unwrap(),
     );
 
-    let loose_conf = Box::new(
+    let loose_conf_auth = Box::new(
+        GovernorConfigBuilder::default()
+            .per_second(20)
+            .burst_size(100)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .unwrap(),
+    );
+
+    let loose_conf_sync = Box::new(
         GovernorConfigBuilder::default()
             .per_second(30)
             .burst_size(100)
@@ -67,13 +76,13 @@ async fn main() {
     let auth_routes_loose = Router::new()
         .route("/logout", axum::routing::post(auth::logout))
         .route("/me", axum::routing::get(auth::me))
-        .layer(GovernorLayer { config: loose_conf.clone().into() });
+        .layer(GovernorLayer { config: loose_conf_auth.into() });
 
     let sync_routes = Router::new()
         .route("/upload", axum::routing::post(sync::upload))
         .route("/download", axum::routing::get(sync::download))
         .route("/meta", axum::routing::get(sync::meta))
-        .layer(GovernorLayer { config: loose_conf.into() });
+        .layer(GovernorLayer { config: loose_conf_sync.into() });
 
     let api_routes = Router::new()
         .nest("/auth", auth_routes_strict.merge(auth_routes_loose))
