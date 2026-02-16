@@ -6,7 +6,7 @@ use axum::{Router, routing::get};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tower_governor::{governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer};
+use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer};
 use tower_http::{cors::CorsLayer, set_header::SetResponseHeaderLayer};
 use axum::http::{HeaderValue, header::{X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION, REFERRER_POLICY}};
 use mimalloc::MiMalloc;
@@ -38,14 +38,16 @@ async fn main() {
         sync_secret,
         pool,
     });
+
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_second(5)
             .burst_size(30)
-            .key_extractor(PeerIpKeyExtractor)
+            .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
     );
+
     let app = Router::new()
         .nest("/api/auth", auth::routes(state.clone()))
         .nest("/api/sync", sync::routes(state.clone()))

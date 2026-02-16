@@ -19,13 +19,13 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const packageJsonPath = path.resolve("package.json");
 const notificationsPath = path.resolve("notifications.json");
+
 const apiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  max: 500,
+  max: 2000,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "too many requests, please try again later!" },
-  validate: { trustProxy: false }
+  message: { error: "too many requests, please try again later!" }
 });
 
 let cachedNotifications = [];
