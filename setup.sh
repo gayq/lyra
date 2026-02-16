@@ -25,7 +25,7 @@ sudo ip link delete veth0-global 2>/dev/null
 sudo modprobe nf_conntrack
 
 sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -148,6 +148,15 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
+if ! sudo docker ps | grep -q "anubis"; then
+    echo "starting anubis..."
+    sudo docker pull ghcr.io/techarohq/anubis:latest
+    sudo docker run -d --name anubis \
+        --network="host" \
+        --restart unless-stopped \
+        -e TARGET="http://127.0.0.1:3000" \
+        ghcr.io/techarohq/anubis:latest
+fi
 
 bun run build
 
@@ -198,7 +207,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
 
         flush_interval -1
 
@@ -211,7 +219,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
-        header_up X-Forwarded-For {remote_host}
+
         header_up X-Real-IP {remote_host}
 
         flush_interval -1
@@ -225,8 +233,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    reverse_proxy 127.0.0.1:3000 {
-        header_up X-Forwarded-For {remote_host}
+    reverse_proxy 127.0.0.1:8923 {
+
         header_up X-Real-IP {remote_host}
 
         transport http {
@@ -240,14 +248,14 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
              header_up X-Real-IP {remote_host}
-             header_up X-Forwarded-For {remote_host}
+
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
              header_up X-Real-IP {remote_host}
-             header_up X-Forwarded-For {remote_host}
+
         }
     }
 
