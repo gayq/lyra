@@ -40,18 +40,52 @@ async fn main() {
         pool,
     });
 
-    let governor_conf = Box::new(
+    let strict_conf = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(5)
-            .burst_size(30)
+            .per_second(1)
+            .burst_size(5)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
     );
 
+    let loose_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_second(30)
+            .burst_size(100)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .unwrap(),
+    );
+
+    let auth_routes_strict = Router::new()
+        .route("/register", axum::routing::post(auth::register))
+        .route("/login", axum::routing::post(auth::login))
+        .route("/me", axum::routing::delete(auth::delete_account))
+        .layer(GovernorLayer { config: strict_conf.into() });
+
+    let auth_routes_loose = Router::new()
+        .route("/logout", axum::routing::post(auth::logout))
+        .route("/me", axum::routing::get(auth::me))
+        .layer(GovernorLayer { config: loose_conf.clone().into() });
+
+    let sync_routes = Router::new()
+        .route("/upload", axum::routing::post(sync::upload))
+        .route("/download", axum::routing::get(sync::download))
+        .route("/meta", axum::routing::get(sync::meta))
+        .layer(GovernorLayer { config: loose_conf.into() });
+
+    let api_routes = Router::new()
+        .nest("/auth", auth_routes_strict.merge(auth_routes_loose))
+        .nest("/sync", sync_routes)
+        .with_state(state)
+         .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate, proxy-revalidate"),
+        ));
+
     let app = Router::new()
-        .nest("/api/auth", auth::routes(state.clone()))
-        .nest("/api/sync", sync::routes(state.clone()))
+        .nest("/api", api_routes)
         .route("/", get(|| async { "CloudSync Service Active" }))
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer(
@@ -81,7 +115,6 @@ async fn main() {
         .layer(SetResponseHeaderLayer::overriding(X_FRAME_OPTIONS, HeaderValue::from_static("DENY")))
         .layer(SetResponseHeaderLayer::overriding(X_XSS_PROTECTION, HeaderValue::from_static("1; mode=block")))
         .layer(SetResponseHeaderLayer::overriding(REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin")))
-        .layer(GovernorLayer { config: governor_conf.into() })
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 5000));

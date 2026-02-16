@@ -24,10 +24,34 @@ export class CloudSync {
         this.showLoadingScreen();
 
         try {
-            await this.checkAuthStatus();
+            const [authRes, metaRes] = await Promise.all([
+                fetch('/api/auth/me', { cache: 'no-store' }),
+                fetch('/api/sync/meta', { cache: 'no-store' })
+            ]);
 
-            if (this.isAuthenticated) {
-                await this.sync();
+            if (authRes.ok) {
+                const data = await authRes.json();
+                this.user = data.user;
+                this.isAuthenticated = true;
+                localStorage.setItem('auth_user', JSON.stringify(this.user));
+            } else {
+                this.isAuthenticated = false;
+                this.user = {};
+                localStorage.removeItem('auth_user');
+            }
+            this.updateModalState();
+
+            if (this.isAuthenticated && metaRes.ok) {
+                const metaData = await metaRes.json();
+                const serverUpdatedAt = metaData.updated_at;
+
+                if (this.syncMeta.dirty) {
+                    await this.syncData(true);
+                } else if (serverUpdatedAt && serverUpdatedAt !== this.syncMeta.last_synced) {
+                    await this.restoreData(true);
+                } else {
+                    this.updateStatus('synced', 'success');
+                }
             }
         } catch (e) {
             console.warn("[cloudsync] startup check failed", e);
@@ -46,6 +70,7 @@ export class CloudSync {
 
     async sync() {
         try {
+            if (!this.isAuthenticated) return;
             const metaRes = await fetch('/api/sync/meta', { cache: 'no-store' });
             if (!metaRes.ok) return;
 
@@ -75,15 +100,13 @@ export class CloudSync {
     hideLoadingScreen() {
         const screen = document.getElementById('loading-screen');
         if (screen) {
-            setTimeout(() => screen.remove(), 200);
+            screen.remove();
         }
     }
 
     async checkAuthStatus() {
         try {
-            const res = await fetch('/api/auth/me', {
-                cache: 'no-store'
-            });
+            const res = await fetch('/api/auth/me', { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 this.user = data.user;
@@ -139,7 +162,7 @@ export class CloudSync {
     }
 
     markDirty() {
-        if (!this.isAuthenticated) return;
+        if (!this.isAuthenticated || this.isRestoring) return;
         if (this.syncMeta.dirty) {
             this.notifyChange();
             return;
@@ -424,7 +447,8 @@ export class CloudSync {
         const username = document.getElementById('login-username').value;
         const password = document.getElementById('login-password').value;
 
-        if (window.showToast) window.showToast('info', 'logging in...', 'right-to-bracket');
+        let toastController = null;
+        if (window.showToast) toastController = window.showToast('info', 'logging in...', 'right-to-bracket', 0);
 
         try {
             const res = await fetch('/api/auth/login', {
@@ -435,14 +459,17 @@ export class CloudSync {
             const data = await res.json();
 
             if (res.ok) {
+                if (toastController) toastController.hide();
                 this.setSession(data);
                 this.toggleModal();
                 await this.restoreData();
             } else {
+                if (toastController) toastController.hide();
                 if (window.showToast) window.showToast('error', data.error || 'login failed', 'warning');
                 else this.showError(data.error);
             }
         } catch (err) {
+            if (toastController) toastController.hide();
             if (window.showToast) window.showToast('error', 'connection error', 'warning');
             else this.showError('login failed');
             console.error(err);
@@ -460,7 +487,8 @@ export class CloudSync {
             return;
         }
 
-        if (window.showToast) window.showToast('info', 'creating account...', 'user-plus');
+        let toastController = null;
+        if (window.showToast) toastController = window.showToast('info', 'creating account...', 'user-plus', 0);
 
         try {
             const res = await fetch('/api/auth/register', {
@@ -471,16 +499,19 @@ export class CloudSync {
             const data = await res.json();
 
             if (res.ok) {
+                if (toastController) toastController.hide();
                 this.setSession(data);
                 this.toggleModal();
                 this.syncMeta.dirty = true;
                 this.saveMeta();
                 await this.syncData();
             } else {
+                if (toastController) toastController.hide();
                 if (window.showToast) window.showToast('error', data.error || 'registration failed', 'warning');
                 else this.showError(data.error);
             }
         } catch (err) {
+            if (toastController) toastController.hide();
             if (window.showToast) window.showToast('error', 'connection error', 'warning');
             else this.showError('registration failed');
         }
@@ -559,12 +590,16 @@ export class CloudSync {
     }
 
     async performDelete() {
+        let toastController = null;
+        if (window.showToast) toastController = window.showToast('info', 'deleting account...', 'trash-alt', 0);
+
         try {
             const res = await fetch('/api/auth/me', {
                 method: 'DELETE'
             });
 
             if (res.ok) {
+                if (toastController) toastController.hide();
                 this.isAuthenticated = false;
                 this.user = {};
                 localStorage.removeItem('auth_user');
@@ -575,11 +610,13 @@ export class CloudSync {
                 window.bypassPreventClosing = true;
                 window.location.reload();
             } else {
+                if (toastController) toastController.hide();
                 const data = await res.json();
                 if (window.showToast) window.showToast('error', data.error || 'delete failed', 'warning');
                 else alert("failed to delete account: " + (data.error || "unknown error"));
             }
         } catch (err) {
+            if (toastController) toastController.hide();
             if (window.showToast) window.showToast('error', 'delete failed', 'warning');
             else alert("failed to delete account");
         }
@@ -681,6 +718,7 @@ export class CloudSync {
     async restoreData(silent = false) {
         if (!this.isAuthenticated) return;
         if (!silent) this.updateStatus('restoring...', 'loading');
+        this.isRestoring = true;
 
         try {
             const res = await fetch('/api/sync/download');
@@ -720,6 +758,8 @@ export class CloudSync {
         } catch (err) {
             console.error("restore error", err);
             if (!silent) this.updateStatus('restore failed', 'error');
+        } finally {
+            this.isRestoring = false;
         }
     }
 }

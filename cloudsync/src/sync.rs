@@ -20,6 +20,7 @@ use async_compression::tokio::write::BrotliEncoder;
 use async_compression::tokio::bufread::BrotliDecoder;
 use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
+
 use crate::auth::{get_current_user, AppState};
 
 #[derive(Serialize)]
@@ -30,17 +31,7 @@ struct SyncResponse {
     error: Option<String>,
 }
 
-pub fn routes(state: Arc<AppState>) -> Router {
-    Router::new()
-        .route("/upload", post(upload))
-        .route("/download", get(download))
-        .route("/meta", get(meta))
-        .with_state(state)
-}
-
-const IV_LENGTH: usize = 12;
-
-async fn meta(
+pub async fn meta(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {
@@ -68,7 +59,7 @@ async fn meta(
     }
 }
 
-async fn upload(
+pub async fn upload(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     Json(payload): Json<serde_json::Value>,
@@ -136,7 +127,7 @@ async fn upload(
     }
 }
 
-async fn download(
+pub async fn download(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {

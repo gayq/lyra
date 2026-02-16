@@ -55,9 +55,18 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
-    window.showToast = function (type, message, iconName, actions = []) {
-        const maxToasts = 3;
+    window.showToast = function (type, message, iconName, arg4, arg5) {
+        let duration = 3000;
+        let actions = [];
 
+        if (Array.isArray(arg4)) {
+            actions = arg4;
+        } else if (typeof arg4 === 'number') {
+            duration = arg4;
+            if (Array.isArray(arg5)) actions = arg5;
+        }
+
+        const maxToasts = 3;
         const currentToasts = toastContainer.querySelectorAll('.toast:not(.is-hiding)');
 
         if (currentToasts.length >= maxToasts) {
@@ -105,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const controller = {
             id: null,
-            remaining: 3000,
+            remaining: duration,
             startTime: null,
             pause: function () {
                 if (this.id) {
@@ -115,12 +124,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             },
             start: function () {
+                if (this.remaining === 0) return;
                 if (this.id || this.remaining <= 0) return;
                 this.startTime = Date.now();
                 this.id = setTimeout(() => hideToast(toast), this.remaining);
             },
             clear: function () {
                 clearTimeout(this.id);
+            },
+            hide: function () {
+                hideToast(toast);
+            },
+            update: function (newType, newMessage, newIcon) {
+                if (newType) {
+                    toast.className = `toast ${newType}`;
+                }
+                if (newMessage || newIcon) {
+                    const i = toast.querySelector('i');
+                    const span = toast.querySelector('span');
+                    if (newIcon && i) i.className = `fa-solid fa-${newIcon}`;
+                    if (newMessage && span) span.textContent = newMessage;
+                }
             }
         };
 
@@ -135,6 +159,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }, 10);
 
         controller.start();
+        return controller;
     };
 
     function hideToast(toast) {

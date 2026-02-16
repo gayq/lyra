@@ -58,22 +58,7 @@ struct AuthResponse {
     error: Option<String>,
 }
 
-pub fn routes(state: Arc<AppState>) -> Router {
-    Router::new()
-        .route("/register", post(register))
-        .route("/login", post(login))
-        .route("/logout", post(logout))
-        .route("/me", get(me).delete(delete_account))
-        .with_state(state)
-        .layer(SetResponseHeaderLayer::overriding(
-            CACHE_CONTROL,
-            HeaderValue::from_static("no-store, no-cache, must-revalidate, proxy-revalidate"),
-        ))
-}
-
-const COOKIE_NAME: &str = "token";
-
-async fn register(
+pub async fn register(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     Json(payload): Json<RegisterRequest>,
@@ -143,7 +128,7 @@ async fn register(
     }
 }
 
-async fn login(
+pub async fn login(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     Json(payload): Json<LoginRequest>,
@@ -198,7 +183,7 @@ async fn login(
     }
 }
 
-async fn logout(
+pub async fn logout(
     State(_state): State<Arc<AppState>>,
     cookies: Cookies
 ) -> impl IntoResponse {
@@ -214,7 +199,7 @@ async fn logout(
     (StatusCode::OK, Json(AuthResponse { success: true, user: None, error: None }))
 }
 
-async fn me(
+pub async fn me(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {
@@ -226,7 +211,7 @@ async fn me(
     (StatusCode::OK, Json(AuthResponse { success: true, user: Some(UserResponse { id: user_id, username }), error: None }))
 }
 
-async fn delete_account(
+pub async fn delete_account(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {
