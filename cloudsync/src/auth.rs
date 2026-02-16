@@ -1,192 +1,265 @@
 use axum::{
-    extract::{State, Json},
-    http::StatusCode,
-    response::IntoResponse,
+    extract::State,
+    http::{StatusCode, header::{SET_COOKIE, COOKIE}},
+    response::{IntoResponse, Json},
+    Json as AxumJson,
 };
-use tower_cookies::Cookies;
+use tower_cookies::{Cookies, Cookie};
+use tower_cookies::cookie::SameSite;
+use bcrypt::{hash, verify};
+use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
 use rusqlite::params;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::io::AsyncReadExt;
-use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
-};
-use rand::rngs::OsRng;
-use rand::RngCore;
-use async_compression::tokio::write::BrotliEncoder;
-use async_compression::tokio::bufread::BrotliDecoder;
-use tokio::io::AsyncWriteExt;
-use tokio::io::BufReader;
+use time::Duration;
 
-use crate::auth::{get_current_user, AppState};
+const COOKIE_NAME: &str = "auth_token";
 
-const IV_LENGTH: usize = 12;
+#[derive(Clone)]
+pub struct AppState {
+    pub jwt_secret: String,
+    pub sync_secret: String,
+    pub pool: crate::db::DbPool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    id: i64,
+    username: String,
+    v: i64,
+    exp: usize,
+}
+
+#[derive(Deserialize)]
+pub struct RegisterRequest {
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}
 
 #[derive(Serialize)]
-struct SyncResponse {
+pub struct UserResponse {
+    pub id: i64,
+    pub username: String,
+}
+
+#[derive(Serialize)]
+struct AuthResponse {
     success: bool,
-    data: Option<serde_json::Value>,
-    updated_at: Option<String>,
+    user: Option<UserResponse>,
     error: Option<String>,
 }
 
-pub async fn meta(
+pub async fn register(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
+    Json(payload): Json<RegisterRequest>,
 ) -> impl IntoResponse {
-    let (user_id, _) = match get_current_user(&state, &cookies).await {
-        Ok(u) => u,
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("unauthorized".into()) })),
-    };
+    if payload.username.len() < 3 || payload.username.len() > 20 {
+         return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("username must be 3-20 chars".into()) }));
+    }
+    if !payload.username.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("username must be alphanumeric".into()) }));
+    }
+    if payload.password.len() < 8 {
+        return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("password too short".into()) }));
+    }
 
     let pool = state.pool.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<String, &'static str> {
+    let username = payload.username.clone();
+    let password = payload.password.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
         let conn = pool.get().map_err(|_| "db pool error")?;
-        let updated_at: String = conn.query_row(
-            "SELECT updated_at FROM sync_data WHERE user_id = ?",
-            params![user_id],
-            |row| row.get(0),
-        ).unwrap_or("".to_string());
-        
-        Ok(updated_at)
-    }).await.map_err(|_| "task error");
 
-    match result {
-        Ok(Ok(updated_at)) => (StatusCode::OK, Json(SyncResponse { success: true, data: None, updated_at: Some(updated_at), error: None })),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) })),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
-    }
-}
-
-pub async fn upload(
-    State(state): State<Arc<AppState>>,
-    cookies: Cookies,
-    Json(payload): Json<serde_json::Value>,
-) -> impl IntoResponse {
-    let (user_id, _) = match get_current_user(&state, &cookies).await {
-        Ok(u) => u,
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("unauthorized".into()) })),
-    };
-    if let Some(obj) = payload.as_object() {
-         if obj.len() > 20 {
-             return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("too many root keys".into()) }));
-         }
-    } else {
-        return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("invalid json".into()) }));
-    }
-    let json_bytes = serde_json::to_vec(&payload).unwrap();
-    let mut compressor = BrotliEncoder::new(Vec::new());
-    if let Err(_) = compressor.write_all(&json_bytes).await {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("compression failed".into()) }));
-    }
-    if let Err(_) = compressor.shutdown().await {
-         return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("compression failed".into()) }));
-    }
-    let compressed_data = compressor.into_inner();
-    let sync_secret = state.sync_secret.clone();
-    let pool = state.pool.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<(), &'static str> {
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(sync_secret.as_bytes());
-        let key_bytes = hasher.finalize();
-        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
-        let mut iv = [0u8; IV_LENGTH];
-        OsRng.fill_bytes(&mut iv);
-        let nonce = Nonce::from_slice(&iv);
-        let encrypted_data = cipher.encrypt(nonce, compressed_data.as_ref())
-            .map_err(|_| "encryption failed")?;
-        let mut final_blob = Vec::with_capacity(IV_LENGTH + encrypted_data.len());
-        final_blob.extend_from_slice(&iv);
-        final_blob.extend_from_slice(&encrypted_data);
-
-        if final_blob.len() > 50 * 1024 * 1024 {
-            return Err("blob too large");
+        let exists: bool = conn.query_row("SELECT 1 FROM users WHERE username = ?", params![username], |_row: &rusqlite::Row| Ok(true)).unwrap_or(false);
+        if exists {
+            return Err("username taken!");
         }
-        let conn = pool.get().map_err(|_| "db pool error")?;
+
+        let hashed = hash(&password, 12).map_err(|_| "hash error")?;
+
         conn.execute(
-            "INSERT OR REPLACE INTO sync_data (user_id, data_blob, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-            params![user_id, final_blob],
-        ).map_err(|e| {
-            tracing::error!("db error: {}", e); 
-            "db error"
-        })?;
+            "INSERT INTO users (username, password_hash, token_version) VALUES (?, ?, 1)",
+            params![username, hashed],
+        ).map_err(|_| "db insert error")?;
         
-        Ok(())
+        Ok(conn.last_insert_rowid())
     }).await.map_err(|_| "task error");
 
     match result {
-        Ok(Ok(_)) => (StatusCode::OK, Json(SyncResponse { success: true, data: None, updated_at: None, error: None })),
-        Ok(Err(e)) => {
-            let status = if e == "blob too large" { StatusCode::PAYLOAD_TOO_LARGE } else { StatusCode::INTERNAL_SERVER_ERROR };
-            (status, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) }))
+        Ok(Ok(user_id)) => {
+             let claims = Claims {
+                id: user_id,
+                username: payload.username.clone(),
+                v: 1,
+                exp: (time::OffsetDateTime::now_utc() + Duration::days(7)).unix_timestamp() as usize,
+            };
+        
+            let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(state.jwt_secret.as_bytes())) {
+                Ok(t) => t,
+                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("jwt error".into()) })),
+            };
+        
+            let cookie = Cookie::build((COOKIE_NAME, token))
+                .path("/")
+                .http_only(true)
+                .secure(true)
+                .same_site(SameSite::Strict)
+                .max_age(Duration::days(7));
+            
+            cookies.add(cookie.into());
+        
+            (StatusCode::CREATED, Json(AuthResponse { success: true, user: Some(UserResponse { id: user_id, username: payload.username }), error: None }))
         },
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
+        Ok(Err(e)) => {
+            let status = if e == "username taken" { StatusCode::CONFLICT } else { StatusCode::INTERNAL_SERVER_ERROR };
+            (status, Json(AuthResponse { success: false, user: None, error: Some(e.into()) }))
+        },
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("mt error".into()) })),
     }
 }
 
-pub async fn download(
+pub async fn login(
+    State(state): State<Arc<AppState>>,
+    cookies: Cookies,
+    Json(payload): Json<LoginRequest>,
+) -> impl IntoResponse {
+    let pool = state.pool.clone();
+    let username = payload.username.clone();
+    let password = payload.password.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = pool.get().map_err(|_| "db pool error")?;
+
+        let (id, password_hash, token_version): (i64, String, i64) = conn.query_row(
+            "SELECT id, password_hash, token_version FROM users WHERE username = ?",
+            params![username],
+            |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).map_err(|_| "invalid credentials!")?;
+
+        if !verify(&password, &password_hash).unwrap_or(false) {
+            return Err("invalid credentials!");
+        }
+        
+        Ok((id, token_version))
+    }).await.map_err(|_| "task error");
+
+    match result {
+        Ok(Ok((id, token_version))) => {
+            let claims = Claims {
+                id,
+                username: payload.username.clone(),
+                v: token_version,
+                exp: (time::OffsetDateTime::now_utc() + Duration::days(7)).unix_timestamp() as usize,
+            };
+        
+            let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(state.jwt_secret.as_bytes())) {
+                Ok(t) => t,
+                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("jwt error".into()) })),
+            };
+        
+            let cookie = Cookie::build((COOKIE_NAME, token))
+                .path("/")
+                .http_only(true)
+                .secure(true)
+                .same_site(SameSite::Strict)
+                .max_age(Duration::days(7));
+        
+            cookies.add(cookie.into());
+        
+            (StatusCode::OK, Json(AuthResponse { success: true, user: Some(UserResponse { id, username: payload.username }), error: None }))
+        },
+        Ok(Err(e)) => (StatusCode::UNAUTHORIZED, Json(AuthResponse { success: false, user: None, error: Some(e.into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("mt error".into()) })),
+    }
+}
+
+pub async fn logout(
+    State(_state): State<Arc<AppState>>,
+    cookies: Cookies
+) -> impl IntoResponse {
+    let cookie = Cookie::build((COOKIE_NAME, ""))
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Strict)
+        .max_age(Duration::seconds(0));
+    
+    cookies.add(cookie.into());
+
+    (StatusCode::OK, Json(AuthResponse { success: true, user: None, error: None }))
+}
+
+pub async fn me(
+    State(state): State<Arc<AppState>>,
+    cookies: Cookies,
+) -> impl IntoResponse {
+    let (user_id, username) = match get_current_user(&state, &cookies).await {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::UNAUTHORIZED, Json(AuthResponse { success: false, user: None, error: Some("unauthorized".into()) })),
+    };
+
+    (StatusCode::OK, Json(AuthResponse { success: true, user: Some(UserResponse { id: user_id, username }), error: None }))
+}
+
+pub async fn delete_account(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {
     let (user_id, _) = match get_current_user(&state, &cookies).await {
         Ok(u) => u,
-        Err(_) => return (StatusCode::UNAUTHORIZED, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("unauthorized".into()) })),
+        Err(_) => return (StatusCode::UNAUTHORIZED, Json(AuthResponse { success: false, user: None, error: Some("unauthorized".into()) })),
     };
+    
+    let pool = state.pool.clone();
+    tokio::task::spawn_blocking(move || {
+        if let Ok(conn) = pool.get() {
+             let _ = conn.execute("DELETE FROM users WHERE id = ?", params![user_id]);
+        }
+    }).await.unwrap();
+
+    let cookie = Cookie::build((COOKIE_NAME, ""))
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Strict)
+        .max_age(Duration::seconds(0));
+
+    cookies.add(cookie.into());
+
+    (StatusCode::OK, Json(AuthResponse { success: true, user: None, error: Some("account deleted!".into()) }))
+}
+
+
+pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i64, String), ()> {
+    let token = cookies.get(COOKIE_NAME).map(|c| c.value().to_string()).ok_or(())?;
+    
+    let token_data = decode::<Claims>(
+        &token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &Validation::default(),
+    ).map_err(|_| ())?;
 
     let pool = state.pool.clone();
-    let sync_secret = state.sync_secret.clone();
+    let db_v = tokio::task::spawn_blocking(move || {
+        let conn = pool.get().map_err(|_| ())?;
+        let (db_version,): (i64,) = conn.query_row(
+            "SELECT token_version FROM users WHERE id = ?",
+            params![token_data.claims.id],
+            |row: &rusqlite::Row| Ok((row.get(0)?,)),
+        ).map_err(|_| ())?;
+        Ok(db_version)
+    }).await.map_err(|_| ())??;
 
-    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, String), &'static str> {
-        let conn = pool.get().map_err(|_| "db pool error")?;
-        let row_result: Result<(Vec<u8>, String), _> = conn.query_row(
-            "SELECT data_blob, updated_at FROM sync_data WHERE user_id = ?",
-            params![user_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        );
-
-        match row_result {
-            Ok((blob, updated_at)) => {
-                if blob.len() < IV_LENGTH {
-                     return Err("corrupted data");
-                }
-
-                let iv = &blob[..IV_LENGTH];
-                let ciphertext = &blob[IV_LENGTH..];
-                use sha2::{Sha256, Digest};
-                let mut hasher = Sha256::new();
-                hasher.update(sync_secret.as_bytes());
-                let key_bytes = hasher.finalize();
-                let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
-                let cipher = Aes256Gcm::new(key);
-                let nonce = Nonce::from_slice(iv);
-                let compressed_data = cipher.decrypt(nonce, ciphertext)
-                    .map_err(|_| "decryption failed")?;
-                
-                Ok((compressed_data, updated_at))
-            },
-            Err(rusqlite::Error::QueryReturnedNoRows) => Err("no data found"),
-            Err(_) => Err("db error"),
-        }
-    }).await.map_err(|_| "task error");
-
-    match result {
-        Ok(Ok((compressed_data, updated_at))) => {
-            let mut decoder = BrotliDecoder::new(BufReader::new(&compressed_data[..]));
-            let mut json_bytes = Vec::new();
-            if let Err(_) = decoder.read_to_end(&mut json_bytes).await {
-                return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("decompression failed".into()) }));
-            }
-            let json_data: serde_json::Value = match serde_json::from_slice(&json_bytes) {
-                Ok(j) => j,
-                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("invalid json".into()) })),
-            };
-            (StatusCode::OK, Json(SyncResponse { success: true, data: Some(json_data), updated_at: Some(updated_at), error: None }))
-        },
-        Ok(Err("no data found")) => (StatusCode::NOT_FOUND, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("no data found".into()) })),
-        Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) })),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
+    if db_v != token_data.claims.v {
+        return Err(());
     }
+
+    Ok((token_data.claims.id, token_data.claims.username))
 }

@@ -46,7 +46,7 @@ pub async fn meta(
         let updated_at: String = conn.query_row(
             "SELECT updated_at FROM sync_data WHERE user_id = ?",
             params![user_id],
-            |row| row.get(0),
+            |row: &rusqlite::Row| row.get(0),
         ).unwrap_or("".to_string());
         
         Ok(updated_at)
@@ -144,7 +144,7 @@ pub async fn download(
         let row_result: Result<(Vec<u8>, String), _> = conn.query_row(
             "SELECT data_blob, updated_at FROM sync_data WHERE user_id = ?",
             params![user_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?)),
         );
 
         match row_result {
