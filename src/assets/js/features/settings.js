@@ -557,6 +557,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
+        window.bypassPreventClosing = true;
         window.location.replace("https://classroom.google.com/");
     }
 
