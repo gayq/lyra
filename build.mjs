@@ -27,7 +27,7 @@ const CONFIG = {
         'assets/js/core/register.js', 'assets/js/core/load.js', 'assets/js/features/settings.js',
         'assets/js/features/games.js', 'assets/js/features/shortcuts.js', 'assets/js/features/toast.js',
         'assets/css/settings.css', 'assets/css/games.css', 'assets/css/toast.css', 'assets/css/notifications.css',
-        'assets/css/bookmarks.css', '/assets/css/tabs.css', '/assets/css/newtab.css'
+        'assets/css/bookmarks.css', '/assets/css/tabs.css', '/assets/css/newtab.css', '/assets/css/cloudsync.css'
     ],
     cssOrder: ['index.css', 'settings.css', 'games.css', 'bookmarks.css', 'newtab.css', 'tabs.css', 'notifications.css', 'toast.css'],
     obfuscation: {
@@ -125,7 +125,7 @@ const tasks = {
             entrypoints: [path.join(CONFIG.dirs.src, 'assets/js/entry.js')],
             minify: true,
         });
-        if (!bunBuild.success) throw new Error("Bun build failed");
+        if (!bunBuild.success) throw new Error("bun build failed");
 
         const appCode = (await bunBuild.outputs[0].text()).replace("__BUILD_ID__", buildId);
         let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
@@ -221,7 +221,7 @@ async function main() {
         await Promise.all(compressJobs);
 
         const duration = ((performance.now() - startTime) / 1000).toFixed(2);
-        console.log(`\nbuild completed in ${duration}s!\n`);
+        console.log(`\nbuild completed in ${duration}s!!\n`);
 
     } catch (err) {
         console.error("\nbuild failed");

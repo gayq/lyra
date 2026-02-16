@@ -1,159 +1,169 @@
 .tabs-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 40px;
-    padding: 10px 10px;
-    color: #818181;
-    font-size: 12px;
-    flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 40px;
+  padding: 10px 10px;
+  color: #818181;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .tabs-container {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    overflow-y: auto;
-    flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow-y: auto;
+  flex-grow: 1;
 }
 
 .tab {
-    display: flex;
-    position: relative;
-    align-items: center;
-    padding: 8px 10px;
-    background-color: transparent;
-    border-radius: 8px;
-    color: #adadad;
-    cursor: pointer;
-    flex-shrink: 0;
-    width: 100%;
-    box-sizing: border-box;
+  display: flex;
+  position: relative;
+  align-items: center;
+  padding: 8px 10px;
+  background-color: transparent;
+  border-radius: 8px;
+  color: #adadad;
+  cursor: pointer;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .tab:hover {
-    background-color: #ffffff14;
+  background-color: #ffffff14;
 }
 
 .tab.active {
-    background-color: #ffffff1f;
-    color: #ffffff;
+  background-color: #ffffff1f;
+  color: #ffffff;
 }
 
 .tab-icon {
-    width: 16px;
-    height: 16px;
-    margin-right: 8px;
-    flex-shrink: 0;
-    border-radius: 4px;
-    overflow: hidden;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .tab-icon.skeleton {
-    background: linear-gradient(90deg, #0c0c0c 0%, #2a2a2a 50%, #0c0c0c 100%);
-    background-size: 200% 100%;
-    animation: skeleton 1s infinite linear;
+  background: linear-gradient(90deg, #0c0c0c 0%, #2a2a2a 50%, #0c0c0c 100%);
+  background-size: 200% 100%;
+  animation: skeleton 1s infinite linear;
 }
 
 .tab-icon img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    opacity: 0;
-    transition: opacity 0.1s ease;
-    display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  display: block;
 }
 
 .tab-icon:not(.skeleton) img {
-    opacity: 1;
+  opacity: 1;
 }
 
 .tab-title {
-    white-space: nowrap;
-    overflow: hidden;
-    font-size: 13px;
-    flex-grow: 1;
-    mask-image: linear-gradient(to right, black calc(100% - 16px), transparent 100%);
-    -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent 100%);
-    transition: mask-image 0.1s ease, -webkit-mask-image 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 13px;
+  flex-grow: 1;
+  mask-image: linear-gradient(
+    to right,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    black calc(100% - 16px),
+    transparent 100%
+  );
+  transition:
+    mask-image 0.1s ease,
+    -webkit-mask-image 0.1s ease;
 }
 
 .tab:not(:only-child):hover .tab-title,
 .tab:not(:only-child).active .tab-title {
-    mask-image: linear-gradient(to right, black 45%, transparent 85%);
-    -webkit-mask-image: linear-gradient(to right, black 45%, transparent 85%);
+  mask-image: linear-gradient(to right, black 45%, transparent 85%);
+  -webkit-mask-image: linear-gradient(to right, black 45%, transparent 85%);
 }
 
 .tab-close {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: #adadad;
-    cursor: pointer;
-    font-size: 12px;
-    width: 16px;
-    height: 16px;
-    opacity: 0;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #adadad;
+  cursor: pointer;
+  font-size: 12px;
+  width: 16px;
+  height: 16px;
+  opacity: 0;
 }
 
 .tab:hover .tab-close,
 .tab.active .tab-close,
 .tab.split-active-left .tab-close,
 .tab.split-active-right .tab-close {
-    opacity: 0.7;
-    max-width: 16px;
-    margin-left: 8px;
+  opacity: 0.7;
+  max-width: 16px;
+  margin-left: 8px;
 }
 
 .tab-close:hover {
-    opacity: 1;
-    color: #ffffff;
+  opacity: 1;
+  color: #ffffff;
 }
 
 #add-tab-btn {
-    background: transparent;
-    border: none;
-    color: #a1a1a1;
-    font-size: 13px;
-    cursor: pointer;
-    width: 100%;
-    text-align: left;
-    padding: 8px 10px;
-    border-radius: 8px;
-    margin-bottom: 10px;
-    flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: #a1a1a1;
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
 }
 
 #add-tab-btn i {
-    margin-right: 8px;
+  margin-right: 8px;
 }
 
 #add-tab-btn:hover {
-    background-color: #ffffff14;
-    color: #ffffff;
+  background-color: #ffffff14;
+  color: #ffffff;
 }
 
 .sidebar-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px;
-    border-top: 1px solid #ffffff0d;
-    color: #9e9e9e;
-    font-size: 11px;
-    gap: 8px;
-    margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border-top: 1px solid #ffffff0d;
+  color: #9e9e9e;
+  font-size: 11px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .memory-usage-label {
-    margin-top: 5px;
-    font-size: 10px;
+  margin-top: 5px;
+  font-size: 10px;
 }
 
 .memory-value {
-    margin-top: 5px;
-    font-size: 10px;
+  margin-top: 5px;
+  font-size: 10px;
 }

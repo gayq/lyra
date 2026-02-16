@@ -7,7 +7,7 @@
 }
 
 .toast {
-  position: absolute; 
+  position: absolute;
   bottom: 0;
   right: 0;
   width: calc(100% - 10px);
@@ -18,7 +18,9 @@
   color: white;
   font-weight: 300;
   border: 1.5px solid #ffffff1e;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition:
+    transform 0.3s ease,
+    opacity 0.3s ease;
   display: flex;
   align-items: center;
   overflow: hidden;
@@ -47,4 +49,35 @@
 .toast i {
   font-size: 15px;
   margin-right: 8px;
+}
+
+.toast-actions {
+  display: flex;
+  gap: 5px;
+  margin-left: 10px;
+}
+
+.toast-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.toast-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toast-btn.danger-btn {
+  background: rgba(255, 85, 85, 0.2);
+  border-color: rgba(255, 85, 85, 0.4);
+  color: #ff5555;
+}
+
+.toast-btn.danger-btn:hover {
+  background: rgba(255, 85, 85, 0.3);
 }

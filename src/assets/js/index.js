@@ -8,6 +8,7 @@ import { initializeNotifications } from './features/notifications.js';
 import { initializeLayout, initializeFall } from './core/layout.js';
 import { initializeLoad } from './core/load.js';
 import { initializeGame } from './features/games.js';
+import './features/cloudsync.js';
 import { getProxyUrl } from './core/utils.js';
 
 const clientTabMap = new Map();
@@ -157,7 +158,7 @@ function handleServiceWorkerMessage(event) {
             }
         }
 
-        if (typeof incomingTitle === 'string') {
+        if (typeof incomingTitle === 'string' && !targetTab.fixedTitle) {
             if (incomingTitle.trim() !== '') {
                 targetTab.title = incomingTitle;
             }
@@ -168,7 +169,7 @@ function handleServiceWorkerMessage(event) {
         }
 
         const faviconUrl = incomingFavicon ?? incomingRawFavicon ?? null;
-        if (faviconUrl) {
+        if (faviconUrl && !targetTab.fixedFavicon) {
             const proxiedFavicon = faviconUrl.startsWith('/!!/') ? faviconUrl : getProxyUrl(faviconUrl);
             targetTab.favicon = proxiedFavicon;
         }
@@ -238,10 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     newTabInputEl.autocomplete = 'off';
 
     const SOURCE_CONFIG = {
-        selenite: {
-            games: "https://selenite.cc/resources/games.json",
-            assets: "https://selenite.cc/resources/semag"
-        },
+
         gnMath: {
             zones: "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
             html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
@@ -259,18 +257,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function loadNewTabGameData() {
         if (allGames.length > 0) return Promise.resolve(allGames);
 
-        const source = localStorage.getItem('gameSource') || 'selenite';
+        const source = localStorage.getItem('gameSource') || 'gn-math';
         let fetchPromise;
 
-        if (source === 'selenite') {
-            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.selenite.games}`)
-                .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
-                .then(data => data.map(game => ({
-                    name: game.name,
-                    gameUrl: `${SOURCE_CONFIG.selenite.assets}/${game.directory}/`,
-                    isExternal: false
-                })));
-        } else if (source === 'truffled') {
+        if (source === 'truffled') {
             fetchPromise = fetch(`/!!/${SOURCE_CONFIG.truffled.games}`)
                 .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
                 .then(data => (data.games || []).map(game => {
@@ -339,7 +329,13 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleSidebarBtn.addEventListener('click', (e) => {
             e.preventDefault();
             document.body.classList.toggle('sidebar-hidden');
+            const isHidden = document.body.classList.contains('sidebar-hidden');
+            localStorage.setItem('sidebarHidden', isHidden);
         });
+    }
+
+    if (localStorage.getItem('sidebarHidden') === 'true') {
+        document.body.classList.add('sidebar-hidden');
     }
 
     function getActiveTab() {
@@ -631,15 +627,19 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const doc = newTab.iframe.contentDocument;
                 if (doc) {
-                    const newTitle = doc.title;
-                    if (newTitle && newTitle.trim() !== '') {
-                        newTab.title = newTitle;
-                    } else {
-                        newTab.title = newTab.iframe.contentWindow.location.hostname || 'Untitled';
+                    if (!newTab.fixedTitle) {
+                        const newTitle = doc.title;
+                        if (newTitle && newTitle.trim() !== '') {
+                            newTab.title = newTitle;
+                        } else {
+                            newTab.title = newTab.iframe.contentWindow.location.hostname || 'Untitled';
+                        }
                     }
 
-                    const faviconLink = doc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
-                    newTab.favicon = faviconLink ? faviconLink.href : null;
+                    if (!newTab.fixedFavicon) {
+                        const faviconLink = doc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
+                        newTab.favicon = faviconLink ? faviconLink.href : null;
+                    }
 
                     renderTabs();
 
@@ -1116,9 +1116,56 @@ document.addEventListener('DOMContentLoaded', () => {
         updateIframeView();
     }
 
-    window.WavesApp.handleSearch = async (query, gameName) => {
+    window.WavesApp.resetSession = () => {
+        const tabsCopy = [...tabs];
+        for (const tab of tabsCopy) {
+            if (tab.iframe) {
+                tab.iframe.removeEventListener('load', tab._iframeLoadHandler);
+                tab.iframe.removeEventListener('iframe-focus', tab._iframeFocusHandler);
+                tab.iframe.removeEventListener('focus', tab._iframeElementFocusHandler);
+                tab.iframe.removeEventListener('pointerdown', tab._iframeElementFocusHandler);
+                tab.iframe.removeEventListener('mouseenter', tab._iframeElementFocusHandler);
+                cleanupIframe(tab.iframe);
+                tab.iframe.remove();
+            }
+            if (tab.historyManager?.destroy) {
+                tab.historyManager.destroy();
+            }
+        }
+
+        tabs.length = 0;
+        tabMemory.clear();
+        activeTabId = null;
+        splitPair = { left: null, right: null };
+        isPickingSplitTab = false;
+
+        dom.iframeContainer.innerHTML = '';
+        document.body.classList.remove('split-view', 'is-picking-split', 'is-resizing');
+
+        addTab(null, 'new tab');
+        renderTabs();
+        updateSplitButtonState();
+        updateMemoryDisplay();
+        showHomeView();
+    };
+
+    window.WavesApp.handleSearch = async (query, gameName, gameIcon) => {
         const activeTab = getActiveTab();
         if (activeTab) {
+            if (gameName) {
+                activeTab.fixedTitle = true;
+                activeTab.title = gameName;
+                if (gameIcon) {
+                    activeTab.fixedFavicon = true;
+                    activeTab.favicon = gameIcon;
+                } else {
+                    activeTab.fixedFavicon = false;
+                }
+                renderTabs();
+            } else {
+                activeTab.fixedTitle = false;
+                activeTab.fixedFavicon = false;
+            }
             await performSearch(query, activeTab, gameName);
         }
     };

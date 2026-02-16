@@ -172,23 +172,6 @@ function setupOnekoAnimation() {
 export function showBrowserView() {
   document.body.classList.add('browser-view');
 
-  const elementsToRemove = [
-    document.querySelector('.main-container'),
-    document.getElementById('bookmarks-container'),
-    document.getElementById('top-left-stuff'),
-    document.getElementById('top-right-stuff'),
-    document.getElementById('stuff'),
-    document.getElementById('fall-container'),
-    document.getElementById('discord'),
-    document.querySelector('.footer')
-  ];
-
-  elementsToRemove.forEach(element => {
-    if (element) {
-      element.remove();
-    }
-  });
-
   const gamesPage = document.getElementById('games-page');
   if (gamesPage && document.body.classList.contains('games-view')) {
     const gameGrid = gamesPage.querySelector('.game-grid');
@@ -299,4 +282,15 @@ export function initializeUI(getActiveTab) {
     else if (activeTab.iframe.webkitRequestFullscreen) activeTab.iframe.webkitRequestFullscreen();
     else if (activeTab.iframe.msRequestFullscreen) activeTab.iframe.msRequestFullscreen();
   });
+
+  if (dom.homeBtn) {
+    dom.homeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (window.WavesApp && typeof window.WavesApp.resetSession === 'function') {
+        window.WavesApp.resetSession();
+      } else {
+        showHomeView();
+      }
+    });
+  }
 }

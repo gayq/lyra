@@ -56,20 +56,20 @@ const renderBookmarks = () => {
         listItem.className = 'bookmark-item';
         listItem.dataset.index = index;
         listItem.draggable = true;
-        
+
         const link = document.createElement('a');
         link.href = '#';
         link.className = 'bookmark-link';
         link.onclick = e => { e.preventDefault(); window.WavesApp.handleSearch(bookmark.url); };
-        
+
         const iconWrapper = document.createElement('div');
         iconWrapper.className = 'bookmark-icon skeleton';
-        
+
         const icon = document.createElement('img');
         icon.className = 'bookmark-icon-img';
         icon.loading = 'lazy';
         icon.decoding = 'async';
-        
+
         icon.onload = () => {
             iconWrapper.classList.remove('skeleton');
         };
@@ -82,22 +82,22 @@ const renderBookmarks = () => {
                 icon.src = '';
             }
         }, 0);
-        
+
         icon.onerror = () => {
             iconWrapper.classList.remove('skeleton');
             icon.remove();
             iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:#fff';
             iconWrapper.textContent = bookmark.name.charAt(0).toUpperCase();
         };
-        
+
         iconWrapper.appendChild(icon);
         link.appendChild(iconWrapper);
-        
+
         const name = document.createElement('span');
         name.className = 'bookmark-name';
         name.textContent = bookmark.name;
         link.appendChild(name);
-        
+
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'bookmark-delete-trigger';
         deleteBtn.innerHTML = '<i class="fa-regular fa-times"></i>';
@@ -121,13 +121,13 @@ const renderBookmarks = () => {
         listItem.appendChild(editBtn);
         fragment.appendChild(listItem);
     });
-    
+
     if (addBookmarkLiEl) {
         bookmarksListEl.insertBefore(fragment, addBookmarkLiEl);
     } else {
         bookmarksListEl.appendChild(fragment);
     }
-    
+
     setupDragAndDrop();
     updateAddButtonVisibility();
 };
@@ -136,9 +136,9 @@ let draggedItem = null, draggedIndex = null;
 const setupDragAndDrop = () => {
     const bookmarksContainer = document.getElementById('bookmarks-container');
     if (!bookmarksContainer || !bookmarksListEl) return;
-    
+
     const bookmarkItems = bookmarksListEl.querySelectorAll('.bookmark-item');
-    
+
     bookmarkItems.forEach((item) => {
         item.addEventListener('dragstart', (e) => {
             if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
@@ -151,27 +151,27 @@ const setupDragAndDrop = () => {
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', draggedIndex);
         });
-        
+
         item.addEventListener('dragend', () => {
             item.classList.remove('dragging', 'drop-before', 'drop-after');
             draggedItem = null; draggedIndex = null;
         });
-        
+
         item.addEventListener('dragover', (e) => {
             if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
                 e.preventDefault();
                 return;
             }
-            e.preventDefault(); 
-            e.dataTransfer.dropEffect = 'move'; 
-            item.classList.remove('drop-before'); 
-            item.classList.add('drop-after'); 
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            item.classList.remove('drop-before');
+            item.classList.add('drop-after');
         });
-        
+
         item.addEventListener('dragleave', () => {
-            item.classList.remove('drop-before', 'drop-after'); 
+            item.classList.remove('drop-before', 'drop-after');
         });
-        
+
         item.addEventListener('drop', (e) => {
             if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
                 e.preventDefault();
@@ -208,11 +208,11 @@ const setupAndShowBookmarkPrompt = (index) => {
     const isEditing = typeof index === 'number';
     if (isEditing) {
         const bookmark = getBookmarks()[index];
-        if(bookmarkNameInputEl) bookmarkNameInputEl.value = bookmark.name;
-        if(bookmarkUrlInputEl) bookmarkUrlInputEl.value = bookmark.url;
+        if (bookmarkNameInputEl) bookmarkNameInputEl.value = bookmark.name;
+        if (bookmarkUrlInputEl) bookmarkUrlInputEl.value = bookmark.url;
     }
     showBookmarkPrompt();
-    if(saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = () => {
+    if (saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = () => {
         const name = bookmarkNameInputEl ? bookmarkNameInputEl.value.trim() : '';
         let rawUrl = bookmarkUrlInputEl ? bookmarkUrlInputEl.value.trim() : '';
         if (!name || !rawUrl) { showToast('error', 'Name and URL cannot be empty!', 'warning'); return; }
@@ -245,23 +245,23 @@ const showBookmarkPrompt = () => {
 
     dom.bookmarkPromptOverlay?.classList.add('show');
 
-    if(bookmarkPromptEl) {
-        bookmarkPromptEl.style.display = 'block';
+    if (bookmarkPromptEl) {
+        bookmarkPromptEl.style.display = 'flex';
         bookmarkPromptEl.classList.remove('fade-out-prompt');
         bookmarkPromptEl.classList.add('fade-in-prompt');
     }
 };
 
 const hideBookmarkPrompt = (calledByOther) => {
-    if(bookmarkNameInputEl) bookmarkNameInputEl.value = '';
-    if(bookmarkUrlInputEl) bookmarkUrlInputEl.value = '';
+    if (bookmarkNameInputEl) bookmarkNameInputEl.value = '';
+    if (bookmarkUrlInputEl) bookmarkUrlInputEl.value = '';
     if (saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = null;
 
     if (!calledByOther && dom.bookmarkPromptOverlay) {
         dom.bookmarkPromptOverlay.classList.remove('show');
     }
 
-    if(bookmarkPromptEl) {
+    if (bookmarkPromptEl) {
         bookmarkPromptEl.classList.add('fade-out-prompt');
         bookmarkPromptEl.addEventListener('animationend', (e) => {
             if (e.animationName === 'fadeOut') {
@@ -290,20 +290,20 @@ export function initializeBookmarks() {
                 </ul>
             </div>
         `;
-        
+
         const iframeContainer = document.getElementById('iframe-container');
         const contentWrapper = document.querySelector('.wrapper');
         if (contentWrapper && iframeContainer) {
             contentWrapper.insertBefore(bookmarksContainer, iframeContainer);
         } else if (contentWrapper) {
-             contentWrapper.appendChild(bookmarksContainer);
+            contentWrapper.appendChild(bookmarksContainer);
         }
     }
 
     bookmarksListEl = document.getElementById('bookmarks-list');
     addBookmarkLiEl = bookmarksContainer.querySelector('.bookmark-item-add');
     addBookmarkBtnEl = document.getElementById('add-bookmark-btn');
-    
+
     bookmarkPromptEl = document.getElementById('bookmark-prompt');
     if (!bookmarkPromptEl) {
         bookmarkPromptEl = document.createElement('div');
@@ -315,7 +315,7 @@ export function initializeBookmarks() {
         bookmarkPromptEl.innerHTML = `
             <div class="input-container">
                 <label>bookmark name</label>
-                <input type="text" id="bookmarkName" placeholder="my cool site" autocomplete="off">
+                <input type="text" id="bookmarkName" placeholder="my cool website" autocomplete="off">
                 <label style="margin-top:15px;">bookmark url</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
@@ -335,13 +335,13 @@ export function initializeBookmarks() {
 
     window.hideBookmarkPrompt = hideBookmarkPrompt;
     renderBookmarks();
-    
+
     if (addBookmarkBtnEl) addBookmarkBtnEl.addEventListener('click', () => setupAndShowBookmarkPrompt());
-    
-    if(cancelBookmarkBtnEl) cancelBookmarkBtnEl.addEventListener('click', () => hideBookmarkPrompt(false));
-    
+
+    if (cancelBookmarkBtnEl) cancelBookmarkBtnEl.addEventListener('click', () => hideBookmarkPrompt(false));
+
     dom.bookmarkPromptOverlay?.addEventListener('click', e => {
-        if (e.target === dom.bookmarkPromptOverlay && bookmarkPromptEl.style.display === 'block') hideBookmarkPrompt(false);
+        if (e.target === dom.bookmarkPromptOverlay && bookmarkPromptEl.style.display === 'flex') hideBookmarkPrompt(false);
     });
 
     if (editToggleButton && bookmarksContainer) {
@@ -356,7 +356,7 @@ export function initializeBookmarks() {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             const prompt = document.getElementById('bookmark-prompt');
-            if (prompt && prompt.style.display === 'block' && !prompt.classList.contains('fade-out-prompt')) {
+            if (prompt && prompt.style.display === 'flex' && !prompt.classList.contains('fade-out-prompt')) {
                 hideBookmarkPrompt(false);
             }
         }

@@ -16,10 +16,7 @@ export function initializeGame() {
   const homeIconClass = 'fa-solid fa-magnifying-glass';
 
   const SOURCE_CONFIG = {
-    selenite: {
-      games: "/!!/https://selenite.cc/resources/games.json",
-      assets: "https://selenite.cc/resources/semag"
-    },
+
     gnMath: {
       zones: "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
       covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main",
@@ -97,7 +94,7 @@ export function initializeGame() {
   let savedScrollPosition = 0;
   let cardTemplate = null;
 
-  const getSourceKey = () => localStorage.getItem('gameSource') || 'selenite';
+  const getSourceKey = () => localStorage.getItem('gameSource') || 'gn-math';
   const getCacheKey = () => `waves-game-cache${getSourceKey()}`;
 
   function setIconAsHome(isHome) {
@@ -238,6 +235,7 @@ export function initializeGame() {
     card.dataset.gameTitle = game.name;
     card.dataset.gameAuthor = (game.author || '').toLowerCase();
     card.dataset.featured = game.featured ? 'true' : 'false';
+    card.dataset.gameIcon = game.coverUrl;
 
     const media = card.firstChild;
     const img = media.firstChild;
@@ -346,22 +344,7 @@ export function initializeGame() {
         return data;
       };
 
-      if (source === 'selenite') {
-        gameDataPromise = fetch(SOURCE_CONFIG.selenite.games)
-          .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
-          .then(data => {
-            allGames = data.map(game => ({
-              id: game.directory,
-              name: game.name,
-              coverUrl: `/!!/${SOURCE_CONFIG.selenite.assets}/${game.directory}/${game.image}`,
-              gameUrl: `${SOURCE_CONFIG.selenite.assets}/${game.directory}/`,
-              isExternal: false,
-              featured: game.tags && game.tags.includes('top')
-            })).sort((a, b) => a.name.localeCompare(b.name));
-            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
-            return saveToCache(allGames);
-          });
-      } else if (source === 'truffled') {
+      if (source === 'truffled') {
         gameDataPromise = fetch(SOURCE_CONFIG.truffled.games)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
@@ -491,7 +474,7 @@ export function initializeGame() {
         renderGames();
         filterAndDisplayGames();
       })
-      .catch(() => setStatus('error fetching games!'));
+      .catch(() => setStatus('failed to fetch games :('));
   }
 
   function hideGamesPage() {
@@ -569,7 +552,8 @@ export function initializeGame() {
         } else if (window.WavesApp?.handleSearch) {
           hideGamesPage();
           const gameTitle = card.dataset.gameTitle || card.dataset.gameName;
-          window.WavesApp.handleSearch(gameUrl, gameTitle);
+          const gameIcon = card.dataset.gameIcon;
+          window.WavesApp.handleSearch(gameUrl, gameTitle, gameIcon);
         }
       }
     });

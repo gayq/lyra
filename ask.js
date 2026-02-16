@@ -187,11 +187,11 @@ Bun.serve({
 
       if (isInLockdown()) {
         logAbuse(ip, 'LOCKDOWN_REJECT', domain);
-        return new Response('service temporarily unavailable', { status: 503 });
+        return new Response('temporarily unavailable :(', { status: 503 });
       }
 
       if (checkGlobalRateLimit()) {
-        return new Response('service temporarily unavailable', { status: 503 });
+        return new Response('temporarily unavailable :(', { status: 503 });
       }
 
       if (!isValidDomain(domain)) {

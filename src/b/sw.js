@@ -37,7 +37,6 @@ let uv;
 let scramjetConfigLoaded = false;
 
 self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;
-
 self.addEventListener('message', (event) => {
   const data = event?.data;
   if (data && data.type === 'mochi-base' && typeof data.base === 'string' && data.base.startsWith('http')) {

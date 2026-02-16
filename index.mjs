@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+
 import fs from "fs";
 import path from "path";
 import { createServer, request } from "http";
@@ -6,26 +9,22 @@ import compression from "compression";
 import helmet from "helmet";
 import wisp from "wisp-server-node";
 import { LRUCache } from "lru-cache";
-import dotenv from "dotenv";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
 import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
 import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
 import rateLimit from "express-rate-limit";
 
 process.env.UV_THREADPOOL_SIZE = 32;
-
-dotenv.config();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const packageJsonPath = path.resolve("package.json");
 const notificationsPath = path.resolve("notifications.json");
-
 const apiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
+  message: { error: "too many requests, please try again later!" },
   validate: { trustProxy: false }
 });
 
@@ -36,25 +35,29 @@ try {
   const data = fs.readFileSync(notificationsPath, "utf8");
   cachedNotifications = JSON.parse(data);
 } catch (err) {
-  notificationError = { error: "Unable to load notification :(" };
+  notificationError = { error: "unable to load notification :(" };
 }
-
-
 
 const __dirname = process.cwd();
 const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src');
 const publicPath = path.join(__dirname, "public");
-
 const app = express();
 app.set("trust proxy", true);
 const server = createServer(app);
-
 const pageCache = new LRUCache({ max: 1000, ttl: 1000 * 60 * 5 });
 
+import cookieParser from "cookie-parser";
+
+app.use(cookieParser());
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
-  frameguard: false
+  xPoweredBy: false,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
 app.use((req, res, next) => {
@@ -73,8 +76,29 @@ app.use((req, res, next) => {
     });
 
     proxyReq.on('error', (e) => {
-      console.error(`forwarding failed: ${e.message}`);
+      console.error(`mochi forwarding failed: ${e.message}`);
       if (!res.headersSent) res.status(502).send("make sure mochi is running!");
+    });
+
+    req.pipe(proxyReq);
+    req.pipe(proxyReq);
+  } else if (NODE_ENV === 'development' && (req.url.startsWith('/api/auth') || req.url.startsWith('/api/sync'))) {
+    const options = {
+      hostname: '127.0.0.1',
+      port: 5000,
+      path: req.url,
+      method: req.method,
+      headers: req.headers,
+    };
+
+    const proxyReq = request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    });
+
+    proxyReq.on('error', (e) => {
+      console.error(`cloudsync forwarding failed: ${e.message}`);
+      if (!res.headersSent) res.status(502).send("make sure cloudsync is running!");
     });
 
     req.pipe(proxyReq);
@@ -84,6 +108,7 @@ app.use((req, res, next) => {
 });
 
 app.use('/api/', apiLimiter);
+app.use(express.json({ limit: '50mb' }));
 
 app.use(compression({
   filter: (req, res) => {
@@ -202,7 +227,7 @@ app.use(express.static(srcPath, staticOpts));
 
 app.get("/api/version", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "Version error" });
+    if (err) return res.status(500).json({ error: "version error" });
     try { res.json({ version: JSON.parse(data).version }); } catch { res.status(500).json({}); }
   });
 });
@@ -249,7 +274,6 @@ server.on("upgrade", (req, sock, head) => {
 
 server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;
-
 server.listen(PORT, () => {
-  console.log(`server listening on ${PORT}!!!!`);
+  console.log(`server listening on ${PORT}!!`);
 });

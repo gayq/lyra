@@ -142,6 +142,13 @@ if [ -d "mochi" ]; then
     cd ..
 fi
 
+if [ -d "cloudsync" ]; then
+    cd cloudsync
+    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+    cd ..
+fi
+
+
 bun run build
 
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
@@ -166,6 +173,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 
 :443 {
+
     log {
         output file /var/log/caddy/access.log
         format json
@@ -173,8 +181,22 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
-        issuer acme {
-            preferred_chains smallest
+    }
+
+    handle_path /yay/* {
+        reverse_proxy h ttps://openairtowhardworking.com {
+            header_up Host openairtowhardworking.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    handle_path /analytics/* {
+        reverse_proxy https://www.googletagmanager.com {
+            header_up Host www.googletagmanager.com
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -189,7 +211,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         header Origin *
         expression !{header.Origin}.startsWith("https://" + {host})
     }
-
     abort @origin_mismatch
 
     reverse_proxy @websockets 127.0.0.1:8080 {
@@ -202,9 +223,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 256
-            dial_timeout 10s
-            read_timeout 90s
-            write_timeout 90s
+            dial_timeout 5s
         }
     }
 
@@ -218,8 +237,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 64
-            dial_timeout 10s
-            response_header_timeout 90s
+            dial_timeout 5s
+            response_header_timeout 60s
         }
     }
 
@@ -231,7 +250,14 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive 120s
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 64
-            dial_timeout 10s
+            dial_timeout 5s
+        }
+    }
+    
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:5000 {
+             header_up X-Real-IP {remote_host}
+             header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -302,8 +328,8 @@ module.exports = {
   apps: [
     {
       name: "ask",
-      script: "ask.js",
-      interpreter: "/root/.bun/bin/bun",
+      script: "bun",
+      args: "run ask.js",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -336,6 +362,19 @@ module.exports = {
       }
     },
     {
+      name: "cloudsync",
+      script: "./target/release/cloudsync", 
+      cwd: "./cloudsync",
+      interpreter: "none", 
+      exec_mode: "fork",
+      instances: 1, 
+      autorestart: true,
+      max_memory_restart: "512M",
+      env: {
+        RUST_LOG: "info"
+      }
+    },
+    {
       name: "epoxy-server",
       script: "/usr/local/bin/epoxy-server", 
       args: ["/etc/epoxy-server/config.toml"], 
@@ -362,6 +401,50 @@ if command -v ufw && ufw status | grep -q "Status: active"; then
     sudo ufw allow 3478/tcp
     sudo ufw allow 3478/udp
     sudo ufw allow 49152:65535/udp
+fi
+
+
+if [ ! -f .env ]; then
+    echo "generating secrets..."
+    JWT_SECRET=$(openssl rand -hex 64)
+    SYNC_SECRET=$(openssl rand -hex 32)
+    echo "JWT_SECRET=$JWT_SECRET" > .env
+    echo "SYNC_SECRET=$SYNC_SECRET" >> .env
+    chmod 600 .env
+else
+    if ! grep -q "JWT_SECRET" .env; then
+        echo "appending JWT_SECRET to existing .env..."
+        JWT_SECRET=$(openssl rand -hex 64)
+        echo "" >> .env
+        echo "JWT_SECRET=$JWT_SECRET" >> .env
+    else
+        JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d '=' -f2)
+    fi
+
+    if ! grep -q "SYNC_SECRET" .env; then
+        echo "appending SYNC_SECRET to existing .env..."
+        SYNC_SECRET=$(openssl rand -hex 32)
+        echo "SYNC_SECRET=$SYNC_SECRET" >> .env
+    else
+        SYNC_SECRET=$(grep "^SYNC_SECRET=" .env | cut -d '=' -f2)
+    fi
+fi
+
+if [ -d "cloudsync" ]; then
+    echo "copying secrets to cloudsync/.env..."
+    echo "JWT_SECRET=$JWT_SECRET" > cloudsync/.env
+    echo "SYNC_SECRET=$SYNC_SECRET" >> cloudsync/.env
+    chmod 600 cloudsync/.env
+fi
+
+if [ ! -f "cloudsync/.db" ]; then
+    touch cloudsync/.db
+fi
+
+if [ -f "cloudsync/.db" ]; then
+    chmod 600 cloudsync/.db
+    chmod 600 cloudsync/.db-shm 2>/dev/null
+    chmod 600 cloudsync/.db-wal 2>/dev/null
 fi
 
 "$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env

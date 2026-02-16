@@ -41,8 +41,9 @@ pub const SCRIPT_PART_2: &str = r##"";
         }
 
         if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith(window.__MOCHI_PREFIX__)) return url;
-        if (url.startsWith(window.location.origin + window.__MOCHI_PREFIX__)) return url;
-        if (url.startsWith("http")) return window.__MOCHI_PREFIX__ + url;
+        if (url.startsWith(window.__MOCHI_BASE__)) return url;
+        if (url.startsWith("https://cdn.jsdelivr.net") || url.startsWith("https://fastly.jsdelivr.net") || url.startsWith("https://gcore.jsdelivr.net") || url.startsWith("https://testing.jsdelivr.net")) return url;
+        if (url.startsWith("http")) return window.__MOCHI_BASE__ + url;
         
         let base = window.__MOCHI_TARGET__;
         try {
@@ -52,8 +53,11 @@ pub const SCRIPT_PART_2: &str = r##"";
 
         try {
             const resolved = new URL(url, base).href;
-            return window.__MOCHI_PREFIX__ + resolved;
+            const rewritten = window.__MOCHI_BASE__ + resolved;
+            console.log("[mochi] rewrote", url, "to", rewritten);
+            return rewritten;
         } catch (e) {
+            console.error("[mochi] rewrite failed", url, e);
             return url;
         }
     };

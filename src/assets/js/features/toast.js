@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function () {
         toastContainer.className = 'toast-container';
         document.body.appendChild(toastContainer);
     }
-    
+
     const activeToasts = new Map();
     let hoverTimeout;
 
@@ -28,17 +28,20 @@ document.addEventListener('DOMContentLoaded', function () {
         const toasts = Array.from(toastContainer.querySelectorAll('.toast:not(.is-hiding)'));
         const visibleStackedCount = 3;
 
+        let cumulativeHeight = 0;
+
         toasts.forEach((toast, index) => {
             toast.style.zIndex = toasts.length - index;
 
             if (isHovered) {
-                const toastHeight = toast.offsetHeight + 10;
-                toast.style.transform = `translateY(-${index * toastHeight}px) scale(1)`;
+                const hoverGap = 13;
+                toast.style.transform = `translateY(-${cumulativeHeight}px) scale(1)`;
                 toast.style.opacity = '1';
+                cumulativeHeight += toast.offsetHeight + hoverGap;
             } else {
                 if (index < visibleStackedCount) {
                     const scale = 1 - (index * 0.05);
-                    const translateY = index * -12; 
+                    const translateY = index * -12;
                     toast.style.transform = `translateY(${translateY}px) scale(${scale})`;
                     toast.style.opacity = '1';
                 } else {
@@ -51,8 +54,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     };
-    
-    window.showToast = function (type, message, iconName) {
+
+    window.showToast = function (type, message, iconName, actions = []) {
         const maxToasts = 3;
 
         const currentToasts = toastContainer.querySelectorAll('.toast:not(.is-hiding)');
@@ -64,14 +67,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const toast = document.createElement('div');
         toast.className = `toast ${type}`;
-        
+
         toast.style.opacity = '0';
         toast.style.transform = 'translateY(100%)';
 
         const icons = {
-            'success': 'check-circle',
-            'error': 'times-circle',
-            'info': 'info-circle'
+            'success': 'fa-solid fa-check-circle',
+            'error': 'fa-solid fa-times-circle',
+            'info': 'fa-solid fa-info-circle'
         };
         const iconClass = iconName ? `fa-solid fa-${iconName}` : (icons[type] || 'fa-solid fa-info-circle');
 
@@ -79,35 +82,57 @@ document.addEventListener('DOMContentLoaded', function () {
         content.className = 'toast-content';
         content.innerHTML = `<i class="${iconClass}"></i><span>${message}</span>`;
         toast.appendChild(content);
-        
+
+        if (actions && actions.length > 0) {
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'toast-actions';
+
+            actions.forEach(action => {
+                const btn = document.createElement('button');
+                btn.className = 'toast-btn';
+                if (action.class) btn.classList.add(action.class);
+                btn.textContent = action.text;
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (action.callback) action.callback();
+                    if (action.dismiss !== false) hideToast(toast);
+                };
+                actionsContainer.appendChild(btn);
+            });
+
+            toast.appendChild(actionsContainer);
+        }
+
         const controller = {
             id: null,
-            remaining: 6000,
+            remaining: 3000,
             startTime: null,
-            pause: function() {
+            pause: function () {
                 if (this.id) {
                     clearTimeout(this.id);
                     this.id = null;
                     this.remaining -= (Date.now() - this.startTime);
                 }
             },
-            start: function() {
+            start: function () {
                 if (this.id || this.remaining <= 0) return;
                 this.startTime = Date.now();
                 this.id = setTimeout(() => hideToast(toast), this.remaining);
             },
-            clear: function() {
+            clear: function () {
                 clearTimeout(this.id);
             }
         };
 
         activeToasts.set(toast, controller);
-        
+
         toastContainer.prepend(toast);
+
+        void toast.offsetWidth;
 
         setTimeout(() => {
             updateToastPositions(toastContainer.matches(':hover'));
-        }, 0);
+        }, 10);
 
         controller.start();
     };
@@ -121,7 +146,7 @@ document.addEventListener('DOMContentLoaded', function () {
             activeToasts.get(toast).clear();
             activeToasts.delete(toast);
         }
-        
+
         toast.style.zIndex = '-1';
         toast.classList.add('is-hiding');
 

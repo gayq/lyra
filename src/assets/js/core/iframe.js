@@ -92,8 +92,12 @@ export function navigateIframeTo(iframe, url) {
     iframe.classList.remove('loaded');
 
     if (tab) {
-        tab.title = 'fetching data...';
-        tab.favicon = null;
+        if (!tab.fixedTitle) {
+            tab.title = 'fetching data...';
+        }
+        if (!tab.fixedFavicon) {
+            tab.favicon = null;
+        }
         if (window.WavesApp.renderTabs) window.WavesApp.renderTabs();
     }
 
@@ -158,13 +162,15 @@ function updateTabDetails(iframe) {
         const realUrl = decodeUrl(currentProxiedUrl);
 
         const newTitle = (doc.title || '').trim();
-        if (newTitle) {
-            tabToUpdate.title = newTitle;
-        } else if (tabToUpdate.title === 'fetching data...') {
-            try {
-                tabToUpdate.title = new URL(realUrl).hostname || 'new tab';
-            } catch (e) {
-                tabToUpdate.title = 'new tab';
+        if (!tabToUpdate.fixedTitle) {
+            if (newTitle) {
+                tabToUpdate.title = newTitle;
+            } else if (tabToUpdate.title === 'fetching data...') {
+                try {
+                    tabToUpdate.title = new URL(realUrl).hostname || 'new tab';
+                } catch (e) {
+                    tabToUpdate.title = 'new tab';
+                }
             }
         }
 
@@ -188,17 +194,21 @@ function updateTabDetails(iframe) {
             }
         }
         const iconLink = doc.querySelector("link[rel*='icon']");
-        if (iconLink) {
-            tabToUpdate.favicon = getProxyUrl(decodeUrl(iconLink.href));
-        } else {
-            try {
-                const realOrigin = new URL('/', realUrl).href;
-                tabToUpdate.favicon = getProxyUrl(new URL('favicon.ico', realOrigin).href);
-            } catch (e) { tabToUpdate.favicon = null; }
+        if (!tabToUpdate.fixedFavicon) {
+            if (iconLink) {
+                tabToUpdate.favicon = getProxyUrl(decodeUrl(iconLink.href));
+            } else {
+                try {
+                    const realOrigin = new URL('/', realUrl).href;
+                    tabToUpdate.favicon = getProxyUrl(new URL('favicon.ico', realOrigin).href);
+                } catch (e) { tabToUpdate.favicon = null; }
+            }
         }
     } catch (e) {
         tabToUpdate.title = prevTitle || 'new tab';
-        tabToUpdate.favicon = prevFavicon || null;
+        if (!tabToUpdate.fixedFavicon) {
+            tabToUpdate.favicon = prevFavicon || null;
+        }
     } finally {
         if (!isReloading && window.WavesApp.renderTabs) window.WavesApp.renderTabs();
     }
@@ -259,8 +269,12 @@ function setupIframeContentListeners(iframe, historyManager, tabId) {
             iframe.classList.remove('loaded');
             const tab = window.WavesApp.tabs.find(t => t.id === tabId);
             if (tab) {
-                tab.title = 'fetching data...';
-                tab.favicon = null;
+                if (!tab.fixedTitle) {
+                    tab.title = 'fetching data...';
+                }
+                if (!tab.fixedFavicon) {
+                    tab.favicon = null;
+                }
                 if (window.WavesApp.renderTabs) window.WavesApp.renderTabs();
             }
         });

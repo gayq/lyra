@@ -1,7 +1,6 @@
 .new-tab-unified-wrapper {
     background-color: #131313;
-    border: 1.5px solid #ffffff1c;
-    border-radius: 12px;
+    border-radius: 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;

@@ -62,7 +62,9 @@ body.games-view .games-topbar {
   margin-top: -35px;
   width: 100%;
   min-width: 0;
-  transition: width 0.1s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.1s ease;
+  transition:
+    width 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.1s ease;
   max-width: 520px;
 }
 
@@ -95,7 +97,7 @@ body.games-view .games-topbar {
 }
 
 .games-search-bar:focus-within .games-search-icon {
-    color: #ffffff7f;
+  color: #ffffff7f;
 }
 
 body.games-view #left-icons,
@@ -256,7 +258,7 @@ body.games-view .games-page {
 
 .game-load-more-btn:hover {
   color: #ffffff;
-    background-color: #1f1f1f;
+  background-color: #1f1f1f;
 }
 
 .game-cover.no-cover {

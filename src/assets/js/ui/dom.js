@@ -23,6 +23,7 @@ export const dom = {
     get refreshBtn() { return _get('refreshIcon'); },
     get refreshBtnIcon() { return _q('#refreshIcon > i'); },
     get fullscreenBtn() { return _get('fullscreenBtn'); },
+    get homeBtn() { return _get('home-btn'); },
     get backBtn() { return _get('backIcon'); },
     get forwardBtn() { return _get('forwardIcon'); },
     get searchInputNav() { return _get('searchInputt'); },

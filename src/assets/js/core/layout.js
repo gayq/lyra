@@ -46,12 +46,22 @@ export function initializeLayout() {
     const topRightStuff = document.createElement('div');
     topRightStuff.id = 'top-right-stuff';
     topRightStuff.innerHTML = `
-        <div class="angel-corner">
-            <span class="angel-text">angel devil corner</span>
-            <img src="/assets/images/peaks/angel.webp" class="angel-img">
+        <div id="auth-container" class="text-icon-btn">
+            <i class="fa-solid fa-cloud-moon"></i>
+            <span id="auth-status">sync to cloud</span>
         </div>
     `;
     document.body.appendChild(topRightStuff);
+
+    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    if (user.username) {
+        const statusEl = topRightStuff.querySelector('#auth-status');
+        if (statusEl) statusEl.textContent = user.username;
+    }
+
+    topRightStuff.addEventListener('click', () => {
+        document.dispatchEvent(new CustomEvent('toggleAuthModal'));
+    });
 
     const mainNav = document.createElement('div');
     mainNav.className = 'main-nav';
@@ -67,7 +77,7 @@ export function initializeLayout() {
             <input type="text" id="searchInputt" placeholder="search or enter address" autocomplete="off">
         </div>
         <div class="window-controls">
-            <a href="/"><i class="fa-regular fa-house-chimney-window"></i></a>
+            <a id="home-btn" href="/"><i class="fa-regular fa-house-chimney-window"></i></a>
             <a id="fullscreenBtn" href="#"><i class="fa-regular fa-expand"></i></a>
             <a id="splitViewBtn" href="#"><i class="fa-regular fa-table-columns"></i></a>
             <a id="erudaBtn" href="#"><i class="fa-regular fa-square-code"></i></a>
@@ -90,7 +100,7 @@ export function initializeLayout() {
 
     const iframeContainer = document.createElement('div');
     iframeContainer.id = 'iframe-container';
-    
+
     const resizeDivider = document.createElement('div');
     resizeDivider.id = 'iframe-resize-divider';
     iframeContainer.appendChild(resizeDivider);
@@ -116,7 +126,7 @@ export function initializeLayout() {
 
     const wrapper = document.querySelector('.wrapper');
     if (wrapper) {
-        wrapper.prepend(mainNav); 
+        wrapper.prepend(mainNav);
         mainNav.after(mainContainer);
         mainContainer.after(iframeContainer);
         iframeContainer.after(footer);
@@ -168,7 +178,7 @@ export function initializeFall() {
         '/assets/images/peaks/chii.png',
         '/assets/images/peaks/pochi.png'
     ];
-    const SPAWN_RATE = 300; 
+    const SPAWN_RATE = 300;
 
     try {
         if (!document.getElementById('fall-styles')) {
@@ -221,17 +231,17 @@ export function initializeFall() {
 
         function spawnImage() {
             const img = document.createElement('img');
-            
+
             const randomSrc = IMAGE_SOURCES[Math.floor(Math.random() * IMAGE_SOURCES.length)];
             img.src = randomSrc;
-            
+
             img.className = 'falling';
-            
-            const duration = Math.random() * 5 + 5; 
-            const spreadWidth = 800; 
-            const driftX = (Math.random() - 0.5) * spreadWidth; 
-            const rotationEnd = (Math.random() - 0.5) * 720; 
-            
+
+            const duration = Math.random() * 5 + 5;
+            const spreadWidth = 800;
+            const driftX = (Math.random() - 0.5) * spreadWidth;
+            const rotationEnd = (Math.random() - 0.5) * 720;
+
             img.style.animationDuration = `${duration}s`;
             img.style.setProperty('--drift-x', `${driftX}px`);
             img.style.setProperty('--rot-end', `${rotationEnd}deg`);
@@ -244,13 +254,13 @@ export function initializeFall() {
         }
 
         const startAnimation = () => setInterval(spawnImage, SPAWN_RATE);
-        
+
         if (document.readyState === 'complete') {
             startAnimation();
         } else {
             window.addEventListener('load', startAnimation);
         }
-        
+
     } catch (e) {
         console.error("fall error:", e);
     }

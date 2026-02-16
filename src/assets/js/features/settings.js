@@ -2,10 +2,10 @@ document.addEventListener('DOMContentLoaded', function () {
     function openDB(dbName) {
         return new Promise((resolve, reject) => {
             if (!('indexedDB' in window)) {
-                return reject(new Error('IndexedDB is not supported in this browser.'));
+                return reject(new Error('indexeddb is not supported in this browser.'));
             }
             const request = indexedDB.open(dbName);
-            request.onerror = (event) => reject(`Error opening DB: ${event.target.error}`);
+            request.onerror = (event) => reject(`error opening db: ${event.target.error}`);
             request.onsuccess = (event) => resolve(event.target.result);
         });
     }
@@ -68,45 +68,50 @@ document.addEventListener('DOMContentLoaded', function () {
         return exportData;
     }
 
+    window.wavesExportAllData = async function () {
+        const masterExport = {
+            localStorage: {
+                ...localStorage
+            },
+            sessionStorage: {
+                ...sessionStorage
+            },
+            cookies: document.cookie,
+            indexedDB: {}
+        };
+
+        if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
+            const dbs = await indexedDB.databases();
+            if (dbs && dbs.length > 0) {
+                await Promise.all(dbs.map(async (dbInfo) => {
+                    const dbName = dbInfo.name;
+                    if (!dbName) return;
+                    try {
+                        const dbData = await _exportDB(dbName);
+                        if (dbData) {
+                            masterExport.indexedDB[dbName] = dbData;
+                        }
+                    } catch (err) {
+                        console.error(`failed to export db: ${dbName}`, err);
+                    }
+                }));
+            }
+        } else {
+            try {
+                const dbData = await _exportDB('__op');
+                if (dbData) {
+                    masterExport.indexedDB['__op'] = dbData;
+                }
+            } catch (err) {
+                console.error('failed to export default db: __op', err);
+            }
+        }
+        return masterExport;
+    };
+
     async function exportAllData(fileName) {
         try {
-            const masterExport = {
-                localStorage: {
-                    ...localStorage
-                },
-                sessionStorage: {
-                    ...sessionStorage
-                },
-                indexedDB: {}
-            };
-
-            if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
-                const dbs = await indexedDB.databases();
-                if (dbs && dbs.length > 0) {
-                    await Promise.all(dbs.map(async (dbInfo) => {
-                        const dbName = dbInfo.name;
-                        if (!dbName) return;
-                        try {
-                            const dbData = await _exportDB(dbName);
-                            if (dbData) {
-                                masterExport.indexedDB[dbName] = dbData;
-                            }
-                        } catch (err) {
-                            console.error(`failed to export db: ${dbName}`, err);
-                        }
-                    }));
-                }
-            } else {
-                console.warn('indexedDB.databases() is not supported, exporting only __op.');
-                try {
-                    const dbData = await _exportDB('__op');
-                    if (dbData) {
-                        masterExport.indexedDB['__op'] = dbData;
-                    }
-                } catch (err) {
-                    console.error('failed to export default db: __op', err);
-                }
-            }
+            const masterExport = await window.wavesExportAllData();
 
             const dataStr = JSON.stringify(masterExport, null, 2);
             const dataBlob = new Blob([dataStr], {
@@ -126,6 +131,126 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('error exporting all data:', err);
         }
     }
+
+    window.wavesImportDataFromObject = async function (importedData, progressCallback = () => { }) {
+        if (!importedData || !importedData.localStorage || !importedData.sessionStorage || !importedData.indexedDB) {
+            return;
+        }
+
+        try {
+            progressCallback("clearing local storage...");
+            localStorage.clear();
+            const totalKeys = Object.keys(importedData.localStorage).length;
+            let currentKey = 0;
+
+            for (const [key, value] of Object.entries(importedData.localStorage)) {
+                try {
+                    localStorage.setItem(key, value);
+                } catch (e) {
+                    console.warn(`failed to import localStorage key: ${key}`, e);
+                }
+                currentKey++;
+                if (currentKey % 10 === 0) progressCallback(`importing settings (${Math.round((currentKey / totalKeys) * 100)}%)...`);
+            }
+
+            if (importedData.cookies) {
+                progressCallback("importing cookies...");
+                try {
+                    const cookies = importedData.cookies.split(';');
+                    cookies.forEach(cookie => {
+                        const eqPos = cookie.indexOf('=');
+                        if (eqPos > -1) {
+                            const name = cookie.substring(0, eqPos).trim();
+                            const value = cookie.substring(eqPos + 1).trim();
+                            document.cookie = `${name}=${value}; path=/; max-age=31536000`;
+                        }
+                    });
+                } catch (e) {
+                    console.warn(`failed to import cookies`, e);
+                }
+            }
+
+            const dbNames = Object.keys(importedData.indexedDB);
+            if (dbNames.length > 0) {
+                let dbIndex = 0;
+                await Promise.all(dbNames.map(async (dbName) => {
+                    dbIndex++;
+                    progressCallback(`importing database... (${dbIndex}/${dbNames.length})`);
+
+                    const dbData = importedData.indexedDB[dbName];
+                    if (!dbData) return;
+                    const storeNames = Object.keys(dbData);
+                    if (storeNames.length === 0) return;
+
+                    try {
+                        const db = await openDB(dbName);
+                        const dbStoreNames = Array.from(db.objectStoreNames);
+                        const validStoreNames = storeNames.filter(name => {
+                            if (!dbStoreNames.includes(name)) {
+                                return false;
+                            }
+                            return true;
+                        });
+
+                        if (validStoreNames.length === 0) {
+                            db.close();
+                            return;
+                        }
+
+                        const transaction = db.transaction(validStoreNames, 'readwrite');
+
+                        await Promise.all(validStoreNames.map(storeName => {
+                            return new Promise((resolve, reject) => {
+                                const store = transaction.objectStore(storeName);
+                                store.clear().onsuccess = () => {
+                                    const storeData = dbData[storeName];
+                                    let records = [];
+                                    let usesOutOfLineKeys = false;
+                                    if (storeData && typeof storeData === 'object' && storeData.hasOwnProperty('__isExportFormatV2')) {
+                                        records = storeData.data;
+                                        usesOutOfLineKeys = storeData.usesOutOfLineKeys;
+                                    } else {
+                                        records = storeData;
+                                    }
+
+                                    if (!Array.isArray(records)) {
+                                        resolve();
+                                        return;
+                                    }
+
+                                    Promise.all(records.map(record => {
+                                        return new Promise((resolveAdd) => {
+                                            let addRequest;
+                                            if (usesOutOfLineKeys) {
+                                                if (record && typeof record === 'object' && record.hasOwnProperty('key') && record.hasOwnProperty('value')) {
+                                                    addRequest = store.put(record.value, record.key);
+                                                } else {
+                                                    resolveAdd(); return;
+                                                }
+                                            } else {
+                                                addRequest = store.put(record);
+                                            }
+                                            addRequest.onsuccess = resolveAdd;
+                                            addRequest.onerror = resolveAdd;
+                                        });
+                                    })).then(resolve);
+                                };
+                            });
+                        }));
+                        db.close();
+
+                    } catch (err) {
+                        console.error(`failed to import data for db: ${dbName}`, err);
+                    }
+                }));
+            }
+
+
+        } catch (err) {
+            console.error('error importing data:', err);
+            progressCallback("import error!");
+        }
+    };
 
     function importAllData() {
         try {
@@ -264,8 +389,6 @@ document.addEventListener('DOMContentLoaded', function () {
                             }));
                         }
 
-                        setTimeout(() => window.location.reload(), 1500);
-
                     } catch (err) {
                         console.error('error importing data:', err);
                     }
@@ -280,6 +403,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     window.addEventListener('beforeunload', function (e) {
+        if (window.bypassPreventClosing) return;
         const preventClosingEnabled = localStorage.getItem('preventClosing') !== 'false';
         if (preventClosingEnabled) {
             e.preventDefault();
@@ -329,21 +453,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function applyInitialDecoy(decoyName) {
         const preset = decoyPresets[decoyName];
-        let favicon = document.querySelector("link[rel*='icon']");
         const titleTag = document.querySelector('title');
 
-        if (!favicon) {
-            favicon = document.createElement('link');
-            favicon.rel = 'shortcut icon';
-            document.head.appendChild(favicon);
-        }
+        const existingFavicons = document.querySelectorAll("link[rel*='icon']");
+        existingFavicons.forEach(el => el.remove());
+
+        const favicon = document.createElement('link');
+        favicon.rel = 'shortcut icon';
+        document.head.appendChild(favicon);
 
         if (titleObserver) {
             titleObserver.disconnect();
             titleObserver = null;
         }
 
-        if (decoyName === 'none' || !preset) {
+        if (decoyName === 'default' || !preset) {
             document.title = originalTitle;
             favicon.href = originalFavicon;
         } else {
@@ -386,7 +510,7 @@ document.addEventListener('DOMContentLoaded', function () {
         let title;
         let icon;
 
-        if (decoyName !== 'none' && preset) {
+        if (decoyName !== 'default' && preset) {
             title = preset.title;
             icon = preset.icon;
         } else {
@@ -401,12 +525,25 @@ document.addEventListener('DOMContentLoaded', function () {
             if (!popup || popup.closed) {
                 return;
             }
-            popup.document.head.innerHTML = `<title>${title}</title><link rel="icon" href="${icon}">`;
-            popup.document.body.innerHTML = `<iframe style="height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;" src="${window.location.origin}"></iframe>`;
+            const doc = popup.document;
+            doc.title = title;
+
+            const linkRel = doc.createElement('link');
+            linkRel.rel = 'icon';
+            linkRel.href = icon;
+            doc.head.appendChild(linkRel);
+
+            const iframe = doc.createElement('iframe');
+            iframe.style.cssText = "height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;";
+            iframe.src = window.location.origin;
+            doc.body.appendChild(iframe);
 
         } else if (cloakLink === 'blob:') {
             const iframeSrc = window.location.origin;
-            const html = `<html><head><title>${title}</title><link rel="icon" href="${icon}"></head><body><iframe style="height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;" src="${iframeSrc}"></iframe></body></html>`;
+            const safeTitle = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            const safeIcon = icon.replace(/"/g, '&quot;');
+
+            const html = `<html><head><title>${safeTitle}</title><link rel="icon" href="${safeIcon}"></head><body><iframe style="height: 100%; width: 100%; border: none; position: fixed; top: 0; right: 0; left: 0; bottom: 0;" src="${iframeSrc}"></iframe></body></html>`;
             const blob = new Blob([html], {
                 type: 'text/html'
             });
@@ -422,11 +559,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
 
     function runInitialCloak(cloakLinkValue) {
-        const decoyName = localStorage.getItem('decoy') || 'none';
+        const decoyName = localStorage.getItem('decoy') || 'default';
         executeTabCloak(cloakLinkValue, decoyName);
     }
 
-    const initialDecoy = localStorage.getItem('decoy') || 'none';
+    const initialDecoy = localStorage.getItem('decoy') || 'default';
     const initialCloakLink = localStorage.getItem('cloakLink') || 'none';
 
     applyInitialDecoy(initialDecoy);
@@ -488,9 +625,9 @@ document.addEventListener('DOMContentLoaded', function () {
             transport: localStorage.getItem('transport') || 'libcurl',
             customWispUrl: localStorage.getItem('customWispUrl'),
             cloakLink: localStorage.getItem('cloakLink') || 'none',
-            decoy: localStorage.getItem('decoy') || 'none',
+            decoy: localStorage.getItem('decoy') || 'default',
             searchEngine: localStorage.getItem('searchEngine') || 'duckduckgo',
-            gameSource: localStorage.getItem('gameSource') || 'selenite',
+            gameSource: localStorage.getItem('gameSource') || 'gn-math',
             preventClosing: localStorage.getItem('preventClosing') !== 'false'
         };
 
@@ -506,16 +643,13 @@ document.addEventListener('DOMContentLoaded', function () {
             <div class="settings-container">
                 <div class="settings-tabs">
                     <button class="tab-button active" id="preferences-tab">
-                        <i class="fa-regular fa-sliders"></i> preferences
+                        <i class="fa-solid fa-sliders"></i> preferences
                     </button>
                     <button class="tab-button" id="cloaking-tab">
                         <i class="fa-regular fa-ghost"></i> cloaking
                     </button>
                     <button class="tab-button" id="advanced-tab">
                         <i class="fa-regular fa-server"></i> advanced
-                    </button>
-                    <button class="tab-button" id="data-tab">
-                        <i class="fa-regular fa-user"></i> data
                     </button>
                     <button class="tab-button" id="about-tab">
                         <i class="fa-regular fa-heart"></i> credits
@@ -549,7 +683,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div id="cloaking-content" class="tab-content">
                         <div class="settings-item">
                             <label>decoy</label>
-                            <p>cloak the current site title and favicon as a different site.</p>
+                            <p>cloak the current website title and favicon as a different website.</p>
                             <div class="decoy-selector">
                                 <div class="decoy-selected"></div>
                                 <div class="decoy-options"></div>
@@ -557,7 +691,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         </div>
                         <div class="settings-item">
                             <label>cloak link</label>
-                            <p>cloak the site link in the url bar.</p>
+                            <p>cloak the website link in the url bar.</p>
                             <div class="cloak-link-selector">
                                 <div class="cloak-link-selected"></div>
                                 <div class="cloak-link-options"></div>
@@ -567,7 +701,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
                             <label>backend</label>
-                            <p>the engine responsible for loading all your sites.</p>
+                            <p>the engine responsible for loading all your websites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>
@@ -588,22 +722,10 @@ document.addEventListener('DOMContentLoaded', function () {
                             <button id="save-wisp-url">save</button>
                         </div>
                     </div>
-                    <div id="data-content" class="tab-content">
-                        <div class="settings-item">
-                            <label>data management</label>
-                            <p>export or import all your data.</p>
-                            <button id="export-data-btn" class="data-action-btn">
-                                <i class="fa-solid fa-file-export"></i> export data
-                            </button>
-                            <button id="import-data-btn" class="data-action-btn">
-                                <i class="fa-solid fa-file-import"></i> import data
-                            </button>
-                        </div>
-                    </div>
+
                     <div id="about-content" class="tab-content">
                         <div class="settings-item">
                             <label>credits</label>
-                            <p>selenite - game source</p>
                             <p>gn-math - game source</p>
                             <p>truffled - game source</p>
                             <p>velara - game source</p>
@@ -615,8 +737,8 @@ document.addEventListener('DOMContentLoaded', function () {
                             <label>you have reached the end!</label>
                             <p>
                                 thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">waves!</a> 
-                                Iif you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">discord server</a> 
-                                or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">github repository</a> <3
+                                if you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">discord server</a> 
+                                or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">github repository</a> &lt;3
                             </p>
                         </div>
                     </div>
@@ -655,9 +777,9 @@ document.addEventListener('DOMContentLoaded', function () {
         const allBackendOptions = ['ultraviolet', 'scramjet'];
         const allTransportOptions = ['epoxy', 'libcurl'];
         const allSearchEngineOptions = ['google', 'bing', 'duckduckgo', 'startpage', 'brave', 'mojeek', 'swisscows'];
-        const allDecoyOptions = ['none', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
+        const allDecoyOptions = ['default', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
-        const allGameSourceOptions = ['selenite', 'gn-math', 'truffled', 'velara'];
+        const allGameSourceOptions = ['gn-math', 'truffled', 'velara'];
 
         let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 
@@ -725,16 +847,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function updateWispServerUrl(url) {
             if (isValidUrl(url)) {
-                currentWispUrl = url;
-                appSettings.customWispUrl = url;
-                localStorage.setItem('customWispUrl', url);
-                document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
-                    detail: currentWispUrl
-                }));
+                if (url !== currentWispUrl) {
+                    currentWispUrl = url;
+                    appSettings.customWispUrl = url;
+                    localStorage.setItem('customWispUrl', url);
+                    window.showToast('success', 'wisp server updated!');
+                    document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
+                        detail: currentWispUrl
+                    }));
+                }
             } else {
                 currentWispUrl = defaultWispUrl;
                 appSettings.customWispUrl = defaultWispUrl;
                 localStorage.setItem('customWispUrl', defaultWispUrl);
+                window.showToast('error', 'invalid wisp server url!');
                 document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
                     detail: currentWispUrl
                 }));
@@ -748,8 +874,20 @@ document.addEventListener('DOMContentLoaded', function () {
 
         function changeTab(targetId) {
             closeAllSelectors();
+
+            document.querySelectorAll('.tab-button i').forEach(icon => {
+                icon.classList.remove('fa-solid');
+                icon.classList.add('fa-regular');
+            });
+
             document.querySelectorAll('.tab-button.active').forEach(button => button.classList.remove('active'));
-            document.getElementById(targetId).classList.add('active');
+            const activeBtn = document.getElementById(targetId);
+            activeBtn.classList.add('active');
+            const activeIcon = activeBtn.querySelector('i');
+            if (activeIcon) {
+                activeIcon.classList.remove('fa-regular');
+                activeIcon.classList.add('fa-solid');
+            }
 
             const contentId = targetId.replace('-tab', '-content');
             document.querySelectorAll('.tab-content.active').forEach(content => content.classList.remove('active'));
@@ -781,6 +919,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                                 appSettings[storageKey] = storageVal;
                                 localStorage.setItem(storageKey, storageVal);
+                                window.showToast('success', 'setting saved successfully!');
                                 closeAllSelectors();
 
                                 if (storageKey === 'gameSource') {
@@ -791,6 +930,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                     document.dispatchEvent(new CustomEvent('backendUpdated', {
                                         detail: storageVal
                                     }));
+                                    window.bypassPreventClosing = true;
                                     window.location.reload();
                                 } else if (storageKey === 'transport') {
                                     document.dispatchEvent(new CustomEvent('newTransport', {
@@ -805,6 +945,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 }
 
                                 if (storageKey === 'cloakLink') {
+                                    window.bypassPreventClosing = true;
                                     runMenuCloak();
                                 }
                             });
@@ -873,6 +1014,7 @@ document.addEventListener('DOMContentLoaded', function () {
         preventClosingToggle.addEventListener('change', function () {
             appSettings.preventClosing = this.checked;
             localStorage.setItem('preventClosing', this.checked.toString());
+            window.showToast('success', 'setting saved successfully!');
         });
 
         document.querySelectorAll('input[type="checkbox"]').forEach(toggle => {

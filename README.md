@@ -44,7 +44,6 @@ bun dev
 ## Credits
 
 - [GN-Math](https://github.com/gn-math/gn-math.github.io/) - Game Source
-- [Selenite](https://git.ceres.rip/selenite/) - Game Source
 - [Truffled](https://github.com/aukak/) - Game Source
 - [Velara](https://velara.cc/) - Game Source
 - [Bog](https://github.com/aukak/) - Ports for Hollow Knight, RE:RUN, and Touhou Mother

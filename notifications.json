@@ -131,7 +131,7 @@
     "title": "Patch v3.5.1!!",
     "message": "Bug fixes!",
     "date": "2026-02-08T22:41:21.195Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Fixed where page would take forever to load.",
@@ -144,7 +144,7 @@
     "title": "Mochi v0.2.0 release!!",
     "message": "Improved performance and patched some bugs!",
     "date": "2026-02-08T22:41:21.195Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Improved performance and caching.",
@@ -180,5 +180,35 @@
       "Fixed some more bottleneck issues."
     ],
     "endMessage": "Join the Discord server now!!!!"
+  },
+  {
+    "id": 12,
+    "title": "Patch v3.5.6!!",
+    "message": "New features, bug fixes, optimizations, and a lot of improvements.",
+    "date": "2026-02-13T23:47:14.953Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Added a brand new cloud syncing system.",
+      "Fixed site slow speed.",
+      "Fixed the favicon not changing to the selected cloak.",
+      "Fixed toat notifications not working",
+      "Removed selenite as a game source.",
+      "Very big performance improvements.",
+      "There was a lot more stuff but im too lazy to list them all out!"
+    ],
+    "endMessage": "Everything should be fixed and the site should feel a lot faster. Join the Discord server for more links!!"
+  },
+  {
+    "id": 13,
+    "title": "Mochi patch v0.2.4!!",
+    "message": "Fixed a ton load of bugs and optimizations.",
+    "date": "2026-02-13T23:47:14.953Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "The message above should be self explanatory."
+    ],
+    "endMessage": "Join the Discord"
   }
 ]
