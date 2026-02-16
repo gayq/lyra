@@ -9,6 +9,8 @@ axum = { version = "0.7", features = ["http2", "ws"] }
 tokio = { version = "1.0", features = ["rt-multi-thread", "net", "macros", "sync"] }
 tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+tokio-util = { version = "0.7", features = ["io"] }
+urlencoding = "2.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2", "hickory-dns"] }
 lol_html = "1.0"
 moka = { version = "0.12", features = ["future"] }
