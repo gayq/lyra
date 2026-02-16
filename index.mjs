@@ -53,6 +53,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
   xPoweredBy: false,
+  frameguard: false,
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,
