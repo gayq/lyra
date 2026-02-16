@@ -1,8 +1,7 @@
 use axum::{
     extract::State,
-    http::{StatusCode, header::{SET_COOKIE, COOKIE}},
+    http::StatusCode,
     response::{IntoResponse, Json},
-    Json as AxumJson,
 };
 use tower_cookies::{Cookies, Cookie};
 use tower_cookies::cookie::SameSite;
