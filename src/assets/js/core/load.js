@@ -190,7 +190,7 @@ export function initializeLoad() {
         this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
             <label>successfully updated!</label>
-            <p>if you don’t see any changes or the website breaks, do Ctrl + Shift + R a few times</p>
+            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }
@@ -288,8 +288,8 @@ export function initializeLoad() {
         document.body.appendChild(this.shareEl);
         this.shareEl.innerHTML = `
             <i class="fa-solid fa-seedling" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>help the website grow!</label>
-            <p>share this website with all your friends to help keep the traffic up and everything else running smoothly!</p>
+            <label>help the site grow!</label>
+            <p>share this site with all your friends to help keep the traffic up and everything else running smoothly!</p>
             <button class="prompt-close-btn" id="sharePromptClose">okay!!</button>
           `;
       }
@@ -366,7 +366,7 @@ export function initializeLoad() {
     "(˶˃ ᵕ ˂˶)",
     "join the discord server!",
     "1 update per year",
-    "waves is such a good website!!"
+    "waves is such a good site!!"
   ];
 
   if (searchInput) {

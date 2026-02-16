@@ -315,7 +315,7 @@ export function initializeBookmarks() {
         bookmarkPromptEl.innerHTML = `
             <div class="input-container">
                 <label>bookmark name</label>
-                <input type="text" id="bookmarkName" placeholder="my cool website" autocomplete="off">
+                <input type="text" id="bookmarkName" placeholder="my cool site" autocomplete="off">
                 <label style="margin-top:15px;">bookmark url</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">

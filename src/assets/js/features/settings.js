@@ -686,7 +686,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div id="cloaking-content" class="tab-content">
                         <div class="settings-item">
                             <label>decoy</label>
-                            <p>cloak the current website title and favicon as a different website.</p>
+                            <p>cloak the current site title and favicon as a different site.</p>
                             <div class="decoy-selector">
                                 <div class="decoy-selected"></div>
                                 <div class="decoy-options"></div>
@@ -694,7 +694,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         </div>
                         <div class="settings-item">
                             <label>cloak link</label>
-                            <p>cloak the website link in the url bar.</p>
+                            <p>cloak the site link in the url bar.</p>
                             <div class="cloak-link-selector">
                                 <div class="cloak-link-selected"></div>
                                 <div class="cloak-link-options"></div>
@@ -704,7 +704,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div id="advanced-content" class="tab-content">
                         <div class="settings-item">
                             <label>backend</label>
-                            <p>the engine responsible for loading all your websites.</p>
+                            <p>the engine responsible for loading all your sites.</p>
                             <div class="backend-selector">
                                 <div class="backend-selected"></div>
                                 <div class="backend-options"></div>
