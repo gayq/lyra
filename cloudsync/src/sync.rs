@@ -1,3 +1,8 @@
+use axum::{
+    extract::{State, Json},
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
     Router,
 };
 use tower_cookies::Cookies;
@@ -45,7 +50,7 @@ async fn meta(
     };
 
     let pool = state.pool.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || -> Result<String, &'static str> {
         let conn = pool.get().map_err(|_| "db pool error")?;
         let updated_at: String = conn.query_row(
             "SELECT updated_at FROM sync_data WHERE user_id = ?",
@@ -90,7 +95,7 @@ async fn upload(
     let compressed_data = compressor.into_inner();
     let sync_secret = state.sync_secret.clone();
     let pool = state.pool.clone();
-    let result = tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || -> Result<(), &'static str> {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
         hasher.update(sync_secret.as_bytes());
@@ -143,7 +148,7 @@ async fn download(
     let pool = state.pool.clone();
     let sync_secret = state.sync_secret.clone();
 
-    let result = tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, String), &'static str> {
         let conn = pool.get().map_err(|_| "db pool error")?;
         let row_result: Result<(Vec<u8>, String), _> = conn.query_row(
             "SELECT data_blob, updated_at FROM sync_data WHERE user_id = ?",
