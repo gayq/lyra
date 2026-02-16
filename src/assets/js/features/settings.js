@@ -922,7 +922,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
                                 appSettings[storageKey] = storageVal;
                                 localStorage.setItem(storageKey, storageVal);
-                                window.showToast('success', 'setting saved successfully!');
+                                window.showToast('success', 'settings saved!');
                                 closeAllSelectors();
 
                                 if (storageKey === 'gameSource') {
@@ -1017,7 +1017,7 @@ document.addEventListener('DOMContentLoaded', function () {
         preventClosingToggle.addEventListener('change', function () {
             appSettings.preventClosing = this.checked;
             localStorage.setItem('preventClosing', this.checked.toString());
-            window.showToast('success', 'setting saved successfully!');
+            window.showToast('success', 'settings saved!');
         });
 
         document.querySelectorAll('input[type="checkbox"]').forEach(toggle => {

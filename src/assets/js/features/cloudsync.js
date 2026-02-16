@@ -64,7 +64,7 @@ export class CloudSync {
         this.hookStorage();
 
         if (this.isAuthenticated) {
-            setInterval(() => this.checkForChanges(), 10000);
+            setInterval(() => this.checkForChanges(), 5000);
         }
     }
 
@@ -119,7 +119,7 @@ export class CloudSync {
             }
             this.updateModalState();
         } catch (e) {
-            console.warn("auth check failed", e);
+            console.warn("auth check failed!", e);
             this.isAuthenticated = false;
         }
     }
@@ -182,7 +182,7 @@ export class CloudSync {
 
         this.syncTimeout = setTimeout(() => {
             this.syncData();
-        }, 1000);
+        }, 500);
     }
 
     checkForChanges() {
@@ -229,11 +229,14 @@ export class CloudSync {
                         
                         <div style="text-align: center;">
                             <button type="submit" class="auth-action-btn" style="width: 60%; margin-top: 15px;">create account</button>
+                            <p style="font-size: 11.5px; color: #ff5555; margin-top: 10px; max-width: 80%; margin-left: auto; margin-right: auto;">
+                                save your password somewhere safe! all data will be forever lost if you forget your password 🙀🙀
+                            </p>
                         </div>
                     </form>
 
-                    <div style="margin-top: 15px; font-size: 13px; color: #888; text-align: center;" id="auth-switch-container">
-                        <span id="auth-prompt-text">don't have an account?</span> <span id="auth-action-text" class="hover-link">create an account</span>
+                    <div style="margin-top: 15px; margin-bottom: -20px; font-size: 13px; color: #888; text-align: center;" id="auth-switch-container">
+                        <span id="auth-prompt-text">don't have an account?</span> <span id="auth-action-text" class="hover-link">create an account!</span>
                     </div>
                     <div id="auth-error" style="color: #ff5555; margin-top: 10px; font-size: 13px; min-height: 18px; text-align: center;"></div>
                 </div>
@@ -330,13 +333,13 @@ export class CloudSync {
                 regForm.style.display = 'block';
                 authTitle.textContent = 'create account';
                 promptText.textContent = 'already have an account?';
-                actionText.textContent = 'login';
+                actionText.textContent = 'login!';
             } else {
                 loginForm.style.display = 'block';
                 regForm.style.display = 'none';
                 authTitle.textContent = 'login';
                 promptText.textContent = "don't have an account?";
-                actionText.textContent = 'create an account';
+                actionText.textContent = 'create an account!';
             }
             this.showError('');
         });
@@ -465,13 +468,13 @@ export class CloudSync {
                 await this.restoreData();
             } else {
                 if (toastController) toastController.hide();
-                if (window.showToast) window.showToast('error', data.error || 'login failed', 'warning');
+                if (window.showToast) window.showToast('error', data.error || 'login failed!', 'warning');
                 else this.showError(data.error);
             }
         } catch (err) {
             if (toastController) toastController.hide();
-            if (window.showToast) window.showToast('error', 'connection error', 'warning');
-            else this.showError('login failed');
+            if (window.showToast) window.showToast('error', 'connection error!', 'warning');
+            else this.showError('login failed!');
             console.error(err);
         }
     }
@@ -507,13 +510,13 @@ export class CloudSync {
                 await this.syncData();
             } else {
                 if (toastController) toastController.hide();
-                if (window.showToast) window.showToast('error', data.error || 'registration failed', 'warning');
+                if (window.showToast) window.showToast('error', data.error || 'registration failed!', 'warning');
                 else this.showError(data.error);
             }
         } catch (err) {
             if (toastController) toastController.hide();
-            if (window.showToast) window.showToast('error', 'connection error', 'warning');
-            else this.showError('registration failed');
+            if (window.showToast) window.showToast('error', 'connection error!', 'warning');
+            else this.showError('registration failed!');
         }
     }
 
@@ -550,7 +553,7 @@ export class CloudSync {
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
         } catch (e) {
-            console.warn("server logout failed", e);
+            console.warn("server logout failed!", e);
         }
 
         this.isAuthenticated = false;
@@ -612,13 +615,13 @@ export class CloudSync {
             } else {
                 if (toastController) toastController.hide();
                 const data = await res.json();
-                if (window.showToast) window.showToast('error', data.error || 'delete failed', 'warning');
+                if (window.showToast) window.showToast('error', data.error || 'deletion failed!', 'warning');
                 else alert("failed to delete account: " + (data.error || "unknown error"));
             }
         } catch (err) {
             if (toastController) toastController.hide();
-            if (window.showToast) window.showToast('error', 'delete failed', 'warning');
-            else alert("failed to delete account");
+            if (window.showToast) window.showToast('error', 'deletion failed!', 'warning');
+            else alert("failed to delete account!");
         }
     }
 
@@ -661,7 +664,7 @@ export class CloudSync {
                 document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
             });
         } catch (e) {
-            console.warn("cookie clear failed", e);
+            console.warn("cookie clear failed!", e);
         }
 
         if ('indexedDB' in window && typeof indexedDB.databases === 'function') {
@@ -703,13 +706,13 @@ export class CloudSync {
                 this.syncMeta.last_synced = new Date().toISOString().replace('T', ' ').slice(0, 19);
                 this.saveMeta();
 
-                this.updateStatus('synced', 'success');
+                this.updateStatus('synced!', 'success');
             } else {
-                this.updateStatus('sync failed', 'error');
+                this.updateStatus('sync failed!', 'error');
             }
         } catch (err) {
-            console.error("sync error", err);
-            this.updateStatus('connection error', 'error');
+            console.error("sync error!", err);
+            this.updateStatus('connection error!', 'error');
         } finally {
             this.isSyncing = false;
         }
@@ -720,17 +723,24 @@ export class CloudSync {
         if (!silent) this.updateStatus('restoring...', 'loading');
         this.isRestoring = true;
 
+        let restoreToast = null;
+        let reloading = false;
+
+        if (!silent && window.showToast) {
+            restoreToast = window.showToast('info', 'restoring data...', 'rotate', 0);
+        }
+
         try {
             const res = await fetch('/api/sync/download');
 
             if (res.status === 429) {
-                if (!silent) this.updateStatus('too many requests', 'error');
+                if (!silent) this.updateStatus('too many requests!', 'error');
                 console.warn("[cloudsync] too many requests, retrying later");
                 return;
             }
 
             if (!res.ok && res.status !== 404) {
-                if (!silent) this.updateStatus('server error', 'error');
+                if (!silent) this.updateStatus('server error!', 'error');
                 return;
             }
 
@@ -748,18 +758,22 @@ export class CloudSync {
                     this.saveMeta();
 
                     if (!silent) {
+                        reloading = true;
                         window.bypassPreventClosing = true;
                         window.location.reload();
                     }
                 }
             } else if (res.status === 404) {
-                if (!silent) this.updateStatus('no data found', 'success');
+                if (!silent) this.updateStatus('no data found!', 'success');
             }
         } catch (err) {
-            console.error("restore error", err);
-            if (!silent) this.updateStatus('restore failed', 'error');
+            console.error("restore error!", err);
+            if (!silent) this.updateStatus('restore failed!', 'error');
         } finally {
             this.isRestoring = false;
+            if (restoreToast && !reloading) {
+                restoreToast.hide();
+            }
         }
     }
 }

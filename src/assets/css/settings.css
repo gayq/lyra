@@ -368,7 +368,7 @@ input[type="checkbox"]:checked:hover::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #1f1f1f80;
+  border: 1px solid #28282880;
   border-radius: 11px;
   font-size: 14px;
   flex-shrink: 0;
@@ -416,7 +416,6 @@ input[type="checkbox"]:checked:hover::before {
 .settings-item {
   border-radius: 14px;
   padding: 15px;
-  border: 1px solid #1f1f1f80;
   margin-bottom: 10px;
   box-sizing: border-box;
   text-align: left;
