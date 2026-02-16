@@ -7,6 +7,12 @@ const LOADING_SCREEN = `
 export class CloudSync {
     constructor() {
         this.user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+        try {
+            this.syncMeta = JSON.parse(localStorage.getItem('waves-sync-meta') || '{"dirty": false, "last_synced": null}');
+        } catch (e) {
+            this.syncMeta = { dirty: false, last_synced: null };
+        }
+
         this.syncTimeout = null;
         this.isSyncing = false;
         this.isAuthenticated = false;
@@ -21,7 +27,7 @@ export class CloudSync {
             await this.checkAuthStatus();
 
             if (this.isAuthenticated) {
-                await this.restoreData(true);
+                await this.sync();
             }
         } catch (e) {
             console.warn("[cloudsync] startup check failed", e);
@@ -38,6 +44,26 @@ export class CloudSync {
         }
     }
 
+    async sync() {
+        try {
+            const metaRes = await fetch('/api/sync/meta', { cache: 'no-store' });
+            if (!metaRes.ok) return;
+
+            const metaData = await metaRes.json();
+            const serverUpdatedAt = metaData.updated_at;
+
+            if (this.syncMeta.dirty) {
+                await this.syncData(true);
+            } else if (serverUpdatedAt && serverUpdatedAt !== this.syncMeta.last_synced) {
+                await this.restoreData(true);
+            } else {
+                this.updateStatus('synced', 'success');
+            }
+        } catch (e) {
+            console.warn("[cloudsync] sync error", e);
+        }
+    }
+
     showLoadingScreen() {
         if (!document.getElementById('loading-screen')) {
             const div = document.createElement('div');
@@ -49,7 +75,7 @@ export class CloudSync {
     hideLoadingScreen() {
         const screen = document.getElementById('loading-screen');
         if (screen) {
-            setTimeout(() => screen.remove(), 500);
+            setTimeout(() => screen.remove(), 200);
         }
     }
 
@@ -75,23 +101,53 @@ export class CloudSync {
         }
     }
 
+    saveMeta() {
+        localStorage.setItem('waves-sync-meta', JSON.stringify(this.syncMeta));
+    }
+
     hookStorage() {
         const originalSetItem = localStorage.setItem;
         const self = this;
         localStorage.setItem = function (key, value) {
             originalSetItem.apply(this, arguments);
-            if (key !== 'auth_user' && key !== 'auth_token') {
-                self.notifyChange();
+            if (key !== 'auth_user' && key !== 'auth_token' && key !== 'waves-sync-meta') {
+                self.markDirty();
             }
         };
 
         const originalRemoveItem = localStorage.removeItem;
         localStorage.removeItem = function (key) {
             originalRemoveItem.apply(this, arguments);
-            if (key !== 'auth_user' && key !== 'auth_token') {
-                self.notifyChange();
+            if (key !== 'auth_user' && key !== 'auth_token' && key !== 'waves-sync-meta') {
+                self.markDirty();
             }
         };
+
+        if (window.IDBObjectStore) {
+            const hookIDB = (method) => {
+                const original = IDBObjectStore.prototype[method];
+                IDBObjectStore.prototype[method] = function (...args) {
+                    self.markDirty();
+                    return original.apply(this, args);
+                };
+            };
+            hookIDB('put');
+            hookIDB('add');
+            hookIDB('delete');
+            hookIDB('clear');
+        }
+    }
+
+    markDirty() {
+        if (!this.isAuthenticated) return;
+        if (this.syncMeta.dirty) {
+            this.notifyChange();
+            return;
+        }
+
+        this.syncMeta.dirty = true;
+        this.saveMeta();
+        this.notifyChange();
     }
 
     notifyChange() {
@@ -103,11 +159,11 @@ export class CloudSync {
 
         this.syncTimeout = setTimeout(() => {
             this.syncData();
-        }, 500);
+        }, 1000);
     }
 
     checkForChanges() {
-        if (this.isAuthenticated && !this.isSyncing) {
+        if (this.isAuthenticated && !this.isSyncing && this.syncMeta.dirty) {
             this.syncData();
         }
     }
@@ -137,11 +193,11 @@ export class CloudSync {
                     </form>
                     
                     <form id="register-form" style="display: none;">
-                        <label>choose username</label>
+                        <label>username</label>
                         <input type="text" id="reg-username" placeholder="create username" autocomplete="off">
                         <div id="reg-username-feedback" style="font-size: 11px; color: #888; margin-top: 4px; text-align: left; min-height: 14px;">3-20 chars, letters/numbers</div>
                         
-                        <label style="margin-top: 15px;">choose password</label>
+                        <label style="margin-top: 15px;">password</label>
                         <div style="position: relative;">
                             <input type="password" id="reg-password" placeholder="create password" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
                             <i class="fa-regular fa-eye password-toggle" data-target="reg-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: #888; font-size: 13px;"></i>
@@ -380,11 +436,8 @@ export class CloudSync {
 
             if (res.ok) {
                 this.setSession(data);
-
                 this.toggleModal();
-
                 await this.restoreData();
-
             } else {
                 if (window.showToast) window.showToast('error', data.error || 'login failed', 'warning');
                 else this.showError(data.error);
@@ -420,7 +473,8 @@ export class CloudSync {
             if (res.ok) {
                 this.setSession(data);
                 this.toggleModal();
-
+                this.syncMeta.dirty = true;
+                this.saveMeta();
                 await this.syncData();
             } else {
                 if (window.showToast) window.showToast('error', data.error || 'registration failed', 'warning');
@@ -471,6 +525,7 @@ export class CloudSync {
         this.isAuthenticated = false;
         this.user = {};
         localStorage.removeItem('auth_user');
+        localStorage.removeItem('waves-sync-meta');
 
         await this.wipeLocalData();
 
@@ -513,6 +568,7 @@ export class CloudSync {
                 this.isAuthenticated = false;
                 this.user = {};
                 localStorage.removeItem('auth_user');
+                localStorage.removeItem('waves-sync-meta');
 
                 await this.wipeLocalData();
 
@@ -585,8 +641,8 @@ export class CloudSync {
         }
     }
 
-    async syncData() {
-        if (!this.isAuthenticated || this.isSyncing) return;
+    async syncData(manual = false) {
+        if (!manual && (!this.isAuthenticated || this.isSyncing)) return;
         this.isSyncing = true;
 
         try {
@@ -606,6 +662,10 @@ export class CloudSync {
             });
 
             if (res.ok) {
+                this.syncMeta.dirty = false;
+                this.syncMeta.last_synced = new Date().toISOString().replace('T', ' ').slice(0, 19);
+                this.saveMeta();
+
                 this.updateStatus('synced', 'success');
             } else {
                 this.updateStatus('sync failed', 'error');
@@ -644,6 +704,11 @@ export class CloudSync {
                         const loadingH1 = document.querySelector('#loading-screen h1');
                         if (loadingH1) loadingH1.textContent = progressText;
                     });
+
+                    this.syncMeta.dirty = false;
+                    this.syncMeta.last_synced = json.updated_at;
+                    this.saveMeta();
+
                     if (!silent) {
                         window.bypassPreventClosing = true;
                         window.location.reload();

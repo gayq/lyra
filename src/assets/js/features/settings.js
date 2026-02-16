@@ -70,9 +70,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     window.wavesExportAllData = async function () {
         const masterExport = {
-            localStorage: {
-                ...localStorage
-            },
+            localStorage: Object.keys(localStorage).reduce((acc, key) => {
+                if (key !== 'waves-sync-meta') {
+                    acc[key] = localStorage.getItem(key);
+                }
+                return acc;
+            }, {}),
             sessionStorage: {
                 ...sessionStorage
             },
