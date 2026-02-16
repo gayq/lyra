@@ -397,7 +397,7 @@ export function initializeGame() {
                 id: zone.id,
                 name: zone.name,
                 author: zone.author,
-                coverUrl: zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers),
+                coverUrl: `/!!/${zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers)}`,
                 gameUrl: isExternal ? zone.url : zone.url.replace('{HTML_URL}', SOURCE_CONFIG.gnMath.html),
                 isExternal: isExternal,
                 featured: zone.featured || false

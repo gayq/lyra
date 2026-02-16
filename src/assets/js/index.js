@@ -288,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         };
                     }));
         } else {
-            fetchPromise = fetch(SOURCE_CONFIG.gnMath.zones)
+            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.gnMath.zones}`)
                 .then(res => {
                     if (!res.ok) throw new Error(`network response was not ok: ${res.statusText}`);
                     return res.json();
