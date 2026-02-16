@@ -794,16 +794,18 @@ self.addEventListener("fetch", (event) => {
         const path = url.pathname;
 
         if (request.destination === 'document' || path === '/' || path.endsWith('.html')) {
-          const cached = await caches.match(request);
-          const networkPromise = fetch(request).then(res => {
-            if (res && res.ok) {
-              const clone = res.clone();
-              caches.open(SHELL_CACHE).then(c => c.put(request, clone));
+          try {
+            const networkResponse = await fetch(request);
+            if (networkResponse && networkResponse.ok) {
+              const clone = networkResponse.clone();
+              caches.open(SHELL_CACHE).then(cache => cache.put(request, clone));
+              return networkResponse;
             }
-            return res;
-          }).catch(() => null);
-
-          return cached || await networkPromise || new Response('offline', { status: 503 });
+          } catch (e) {
+          }
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          return new Response('offline', { status: 503 });
         }
 
         if (CACHEABLE_STATIC_EXT.test(path) || path.startsWith('/assets/') || path.startsWith('/bmux/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path.startsWith('/s/')) {

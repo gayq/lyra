@@ -9,6 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer};
 use tower_http::{cors::CorsLayer, set_header::SetResponseHeaderLayer};
 use axum::http::{HeaderValue, header::{X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION, REFERRER_POLICY}};
+use axum::extract::DefaultBodyLimit;
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -80,7 +81,8 @@ async fn main() {
         .layer(SetResponseHeaderLayer::overriding(X_FRAME_OPTIONS, HeaderValue::from_static("DENY")))
         .layer(SetResponseHeaderLayer::overriding(X_XSS_PROTECTION, HeaderValue::from_static("1; mode=block")))
         .layer(SetResponseHeaderLayer::overriding(REFERRER_POLICY, HeaderValue::from_static("strict-origin-when-cross-origin")))
-        .layer(GovernorLayer { config: governor_conf.into() });
+        .layer(GovernorLayer { config: governor_conf.into() })
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
     tracing::info!("listening on {}!!", addr);

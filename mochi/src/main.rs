@@ -352,8 +352,6 @@ async fn proxy_handler(
          error!("upstream error body for {}: {}", target_url, error_body);
          return (status, error_body.to_string()).into_response();
     }
-    
-
 
     let res_headers_ref = upstream_res.headers();
     

@@ -5,6 +5,8 @@ use axum::{
     routing::{post, get},
     Router,
 };
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::{HeaderValue, header::CACHE_CONTROL};
 use tower_cookies::{Cookies, Cookie};
 use tower_cookies::cookie::SameSite;
 use bcrypt::{hash, verify};
@@ -63,6 +65,10 @@ pub fn routes(state: Arc<AppState>) -> Router {
         .route("/logout", post(logout))
         .route("/me", get(me).delete(delete_account))
         .with_state(state)
+        .layer(SetResponseHeaderLayer::overriding(
+            CACHE_CONTROL,
+            HeaderValue::from_static("no-store, no-cache, must-revalidate, proxy-revalidate"),
+        ))
 }
 
 const COOKIE_NAME: &str = "token";
