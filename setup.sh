@@ -158,6 +158,7 @@ sudo docker run -d --name anubis \
     --network="host" \
     --restart unless-stopped \
     -e TARGET="http://127.0.0.1:3000" \
+    -e OG_PASSTHROUGH="true" \
     ghcr.io/techarohq/anubis:latest
 
 bun run build
