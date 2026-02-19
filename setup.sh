@@ -123,11 +123,24 @@ realm=waves.lat
 external-ip=$PUBLIC_IP
 min-port=49152
 max-port=65535
+no-stale-nonce
+total-quota=0
 log-file=/var/log/turnserver.log
-verbose
 EOF
+
+if [ ! -f /etc/default/coturn ]; then
+    echo "TURNSERVER_ENABLED=1" | sudo tee /etc/default/coturn
+else
+    sudo sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/g' /etc/default/coturn
+fi
+
+sudo systemctl unmask coturn
 sudo systemctl enable coturn
 sudo systemctl restart coturn
+
+if ! systemctl is-active coturn; then
+    sudo turnserver -c /etc/turnserver.conf -o -v -z &
+fi
 
 cd "$HOME/waves"
 export PATH="$HOME/.bun/bin:$PATH"
@@ -181,7 +194,11 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     on_demand_tls {
         ask http://127.0.0.1:3001/
+        burst 50
+        interval 1m
     }
+
+    acme_dns_resolvers 1.1.1.1 8.8.8.8
 }
 
 :443 {
@@ -193,6 +210,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+        issuer acme {
+            preferred_chains smallest
+        }
     }
 
     @websockets {
@@ -215,8 +235,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
         transport http {
             keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 256
+            keepalive_idle_conns 1024
+            keepalive_idle_conns_per_host 512
             dial_timeout 5s
         }
     }
@@ -287,14 +307,15 @@ transport = "websocket"
 resolve_ipv6 = false
 tcp_nodelay = true
 file_raw_mode = false
-use_real_ip_headers = false
+use_real_ip_headers = true
 non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
-max_message_size = 262144
+max_message_size = 1048576
 log_level = "OFF"
 runtime = "multithread"
+stats_endpoint = "/stats"
 [wisp]
 allow_wsproxy = true
-buffer_size = 512
+buffer_size = 4096
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
@@ -302,7 +323,7 @@ password_extension_required = false
 certificate_extension_required = false
 [stream]
 tcp_nodelay = true
-buffer_size = 262144
+buffer_size = 524288
 allow_udp = true
 allow_wsproxy_udp = false
 dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
@@ -382,7 +403,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
-      max_memory_restart: "4G",
+      max_memory_restart: "8G",
       env: {
         RUST_LOG: "off"
       }

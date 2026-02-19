@@ -43,7 +43,7 @@ async fn main() {
     let strict_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_second(1)
-            .burst_size(5)
+            .burst_size(3)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
@@ -97,14 +97,15 @@ async fn main() {
         .nest("/api", api_routes)
         .route("/", get(|| async { "CloudSync Service Active" }))
         .layer(tower_cookies::CookieManagerLayer::new())
-        .layer(
+        .layer({
+            use tower_http::cors::AllowOrigin;
+
             CorsLayer::new()
-                .allow_origin([
-                    "http://localhost:3000".parse().unwrap(),
-                    "http://127.0.0.1:3000".parse().unwrap(),
-                    "http://localhost:5000".parse().unwrap(),
-                    "http://127.0.0.1:5000".parse().unwrap(),
-                ])
+                .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
+                    origin.to_str()
+                        .map(|s| s.starts_with("https://") || s.starts_with("http://localhost") || s.starts_with("http://127.0.0.1"))
+                        .unwrap_or(false)
+                }))
                 .allow_methods([
                     axum::http::Method::GET,
                     axum::http::Method::POST,
@@ -118,8 +119,8 @@ async fn main() {
                     axum::http::header::ACCEPT,
                     axum::http::header::COOKIE,
                 ])
-                .allow_credentials(true),
-        )
+                .allow_credentials(true)
+        })
         .layer(SetResponseHeaderLayer::overriding(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::overriding(X_FRAME_OPTIONS, HeaderValue::from_static("DENY")))
         .layer(SetResponseHeaderLayer::overriding(X_XSS_PROTECTION, HeaderValue::from_static("1; mode=block")))

@@ -229,12 +229,44 @@ export function initializeFall() {
             document.body.appendChild(container);
         }
 
+        const preloadedBlobUrls = [];
+        let preloadCount = 0;
+
+        IMAGE_SOURCES.forEach(src => {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                canvas.toBlob(blob => {
+                    if (blob) {
+                        preloadedBlobUrls.push(URL.createObjectURL(blob));
+                    } else {
+                        preloadedBlobUrls.push(src);
+                    }
+                    preloadCount++;
+                    if (preloadCount === IMAGE_SOURCES.length) {
+                        startWhenReady();
+                    }
+                }, 'image/png');
+            };
+            img.onerror = () => {
+                preloadedBlobUrls.push(src);
+                preloadCount++;
+                if (preloadCount === IMAGE_SOURCES.length) {
+                    startWhenReady();
+                }
+            };
+            img.src = src;
+        });
+
         function spawnImage() {
+            if (preloadedBlobUrls.length === 0) return;
+
             const img = document.createElement('img');
-
-            const randomSrc = IMAGE_SOURCES[Math.floor(Math.random() * IMAGE_SOURCES.length)];
-            img.src = randomSrc;
-
+            img.src = preloadedBlobUrls[Math.floor(Math.random() * preloadedBlobUrls.length)];
             img.className = 'falling';
 
             const duration = Math.random() * 5 + 5;
@@ -253,12 +285,13 @@ export function initializeFall() {
             }, duration * 1000);
         }
 
-        const startAnimation = () => setInterval(spawnImage, SPAWN_RATE);
-
-        if (document.readyState === 'complete') {
-            startAnimation();
-        } else {
-            window.addEventListener('load', startAnimation);
+        function startWhenReady() {
+            const start = () => setInterval(spawnImage, SPAWN_RATE);
+            if (document.readyState === 'complete') {
+                start();
+            } else {
+                window.addEventListener('load', start);
+            }
         }
 
     } catch (e) {

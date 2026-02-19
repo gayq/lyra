@@ -128,9 +128,18 @@ const tasks = {
         if (!bunBuild.success) throw new Error("bun build failed");
 
         const appCode = (await bunBuild.outputs[0].text()).replace("__BUILD_ID__", buildId);
+        const serverIp = process.env.IP || "127.0.0.1";
+        console.log(`${serverIp}`);
         let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
-            .replace("__SERVER_IP__", process.env.IP || "127.0.0.1")
+            .replace("__SERVER_IP__", serverIp)
             .replace("__BUILD_ID__", buildId);
+
+        const serserPath = path.join("public", "b", "u", "serser.js");
+        if (existsSync(serserPath)) {
+            let serser = await Bun.file(serserPath).text();
+            serser = serser.replace(/__SERVER_IP__/g, serverIp);
+            await Bun.write(serserPath, serser);
+        }
 
         const [appObf, swObf] = await Promise.all([
             Promise.resolve(obfuscate(appCode, { ...CONFIG.obfuscation, reservedStrings: ['./b/sw.js'] }).getObfuscatedCode()),

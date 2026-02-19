@@ -5,13 +5,20 @@ use r2d2::Pool;
 pub type DbPool = Pool<SqliteConnectionManager>;
 
 pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
-    let manager = SqliteConnectionManager::file(".db");
-    let pool = Pool::new(manager)?;
+    let manager = SqliteConnectionManager::file(".db")
+        .with_init(|conn| {
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA foreign_keys = ON;"
+            )
+        });
+    let pool = Pool::builder()
+        .max_size(20)
+        .min_idle(Some(2))
+        .build(manager)?;
     let conn = pool.get()?;
     
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,3 +65,4 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
 
     Ok(pool)
 }
+

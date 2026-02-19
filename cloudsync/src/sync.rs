@@ -22,6 +22,19 @@ use tokio::io::BufReader;
 use crate::auth::{get_current_user, AppState};
 
 const IV_LENGTH: usize = 12;
+const MAX_JSON_DEPTH: usize = 10;
+const MAX_RAW_SIZE: usize = 10 * 1024 * 1024;
+
+fn check_json_depth(val: &serde_json::Value, depth: usize) -> bool {
+    if depth > MAX_JSON_DEPTH {
+        return false;
+    }
+    match val {
+        serde_json::Value::Object(map) => map.values().all(|v| check_json_depth(v, depth + 1)),
+        serde_json::Value::Array(arr) => arr.iter().all(|v| check_json_depth(v, depth + 1)),
+        _ => true,
+    }
+}
 
 #[derive(Serialize)]
 struct SyncResponse {
@@ -55,7 +68,7 @@ pub async fn meta(
     match result {
         Ok(Ok(updated_at)) => (StatusCode::OK, Json(SyncResponse { success: true, data: None, updated_at: Some(updated_at), error: None })),
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) })),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("internal error".into()) })),
     }
 }
 
@@ -75,7 +88,13 @@ pub async fn upload(
     } else {
         return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("invalid json".into()) }));
     }
+    if !check_json_depth(&payload, 0) {
+        return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("json too deeply nested".into()) }));
+    }
     let json_bytes = serde_json::to_vec(&payload).unwrap();
+    if json_bytes.len() > MAX_RAW_SIZE {
+        return (StatusCode::PAYLOAD_TOO_LARGE, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("payload too large".into()) }));
+    }
     let mut compressor = BrotliEncoder::new(Vec::new());
     if let Err(_) = compressor.write_all(&json_bytes).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("compression failed".into()) }));
@@ -123,7 +142,7 @@ pub async fn upload(
             let status = if e == "blob too large" { StatusCode::PAYLOAD_TOO_LARGE } else { StatusCode::INTERNAL_SERVER_ERROR };
             (status, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) }))
         },
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("internal error".into()) })),
     }
 }
 
@@ -187,6 +206,6 @@ pub async fn download(
         },
         Ok(Err("no data found")) => (StatusCode::NOT_FOUND, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("no data found".into()) })),
         Ok(Err(e)) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) })),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("mt error".into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("internal error".into()) })),
     }
 }

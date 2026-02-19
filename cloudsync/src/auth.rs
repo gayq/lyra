@@ -1,7 +1,8 @@
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{StatusCode, header::{SET_COOKIE, COOKIE}},
     response::{IntoResponse, Json},
+    Json as AxumJson,
 };
 use tower_cookies::{Cookies, Cookie};
 use tower_cookies::cookie::SameSite;
@@ -68,25 +69,28 @@ pub async fn register(
     if payload.password.len() < 8 {
         return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("password too short".into()) }));
     }
+    if payload.password.len() > 128 {
+        return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("password too long".into()) }));
+    }
 
     let pool = state.pool.clone();
     let username = payload.username.clone();
     let password = payload.password.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        let conn = pool.get().map_err(|_| "db pool error")?;
+        let conn = pool.get().map_err(|_| "internal error")?;
 
         let exists: bool = conn.query_row("SELECT 1 FROM users WHERE username = ?", params![username], |_row: &rusqlite::Row| Ok(true)).unwrap_or(false);
         if exists {
             return Err("username taken!");
         }
 
-        let hashed = hash(&password, 12).map_err(|_| "hash error")?;
+        let hashed = hash(&password, 12).map_err(|_| "internal error")?;
 
         conn.execute(
             "INSERT INTO users (username, password_hash, token_version) VALUES (?, ?, 1)",
             params![username, hashed],
-        ).map_err(|_| "db insert error")?;
+        ).map_err(|_| "internal error")?;
         
         Ok(conn.last_insert_rowid())
     }).await.map_err(|_| "task error");
@@ -102,7 +106,7 @@ pub async fn register(
         
             let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(state.jwt_secret.as_bytes())) {
                 Ok(t) => t,
-                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("jwt error".into()) })),
+                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("internal error".into()) })),
             };
         
             let cookie = Cookie::build((COOKIE_NAME, token))
@@ -117,10 +121,10 @@ pub async fn register(
             (StatusCode::CREATED, Json(AuthResponse { success: true, user: Some(UserResponse { id: user_id, username: payload.username }), error: None }))
         },
         Ok(Err(e)) => {
-            let status = if e == "username taken" { StatusCode::CONFLICT } else { StatusCode::INTERNAL_SERVER_ERROR };
+            let status = if e == "username taken!" { StatusCode::CONFLICT } else { StatusCode::INTERNAL_SERVER_ERROR };
             (status, Json(AuthResponse { success: false, user: None, error: Some(e.into()) }))
         },
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("mt error".into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("internal error".into()) })),
     }
 }
 
@@ -129,12 +133,16 @@ pub async fn login(
     cookies: Cookies,
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
+    if payload.password.len() > 128 {
+        return (StatusCode::BAD_REQUEST, Json(AuthResponse { success: false, user: None, error: Some("password too long".into()) }));
+    }
+
     let pool = state.pool.clone();
     let username = payload.username.clone();
     let password = payload.password.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        let conn = pool.get().map_err(|_| "db pool error")?;
+        let conn = pool.get().map_err(|_| "internal error")?;
 
         let (id, password_hash, token_version): (i64, String, i64) = conn.query_row(
             "SELECT id, password_hash, token_version FROM users WHERE username = ?",
@@ -160,7 +168,7 @@ pub async fn login(
         
             let token = match encode(&Header::default(), &claims, &EncodingKey::from_secret(state.jwt_secret.as_bytes())) {
                 Ok(t) => t,
-                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("jwt error".into()) })),
+                Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("internal error".into()) })),
             };
         
             let cookie = Cookie::build((COOKIE_NAME, token))
@@ -175,7 +183,7 @@ pub async fn login(
             (StatusCode::OK, Json(AuthResponse { success: true, user: Some(UserResponse { id, username: payload.username }), error: None }))
         },
         Ok(Err(e)) => (StatusCode::UNAUTHORIZED, Json(AuthResponse { success: false, user: None, error: Some(e.into()) })),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("mt error".into()) })),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(AuthResponse { success: false, user: None, error: Some("internal error".into()) })),
     }
 }
 

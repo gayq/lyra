@@ -21,7 +21,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, oneshot, Semaphore};
+use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::{connect_async, tungstenite::{handshake::client::generate_key, protocol::Message as TungsteniteMessage}};
 use tower_http::cors::{Any, CorsLayer};
@@ -49,12 +49,23 @@ struct AppState {
     asset_client: Client,
     cache: Cache<String, Arc<CachedResponse>>,
     blocklist_matcher: Arc<AhoCorasick>,
-    inflight: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
+    caching_inflight: DashMap<String, ()>,
+    coalesce: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
     request_permit: Arc<Semaphore>,
+    html_rewrite_permit: Arc<Semaphore>,
 }
 
 const MAX_CACHE_SIZE_BYTES: usize = 150 * 1024 * 1024;
-const RAM_CACHE_LIMIT: usize = 10 * 1024 * 1024;
+const RAM_CACHE_LIMIT: usize = 2 * 1024 * 1024;
+const CDN_DOMAINS: &[&str] = &[
+    "site-assets.fontawesome.com",
+    "ka-f.fontawesome.com",
+    "kit.fontawesome.com",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
+    "cdn.cloudflare.com",
+    "ajax.googleapis.com",
+];
 
 #[tokio::main]
 async fn main() {
@@ -76,11 +87,11 @@ async fn main() {
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(4096)
+        .pool_max_idle_per_host(100)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
-        .timeout(Duration::from_secs(1200))
-        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(10))
         .http2_keep_alive_interval(Duration::from_secs(15))
         .http2_keep_alive_timeout(Duration::from_secs(20))
         .pool_idle_timeout(Duration::from_secs(300))
@@ -119,8 +130,10 @@ async fn main() {
         asset_client,
         cache,
         blocklist_matcher,
-        inflight: DashMap::new(),
-        request_permit: Arc::new(Semaphore::new(2000)),
+        caching_inflight: DashMap::new(),
+        coalesce: DashMap::new(),
+        request_permit: Arc::new(Semaphore::new(10000)),
+        html_rewrite_permit: Arc::new(Semaphore::new(100)),
     });
 
     let app = Router::new()
@@ -207,6 +220,15 @@ async fn proxy_handler(
         if let Some(cached) = state.cache.get(target_url_str).await {
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
+
+            if let Some(etag) = res_headers.get("etag").cloned() {
+                if let Some(inm) = headers.get("if-none-match") {
+                    if etag == *inm {
+                        return (StatusCode::NOT_MODIFIED, res_headers).into_response();
+                    }
+                }
+            }
+
             let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
             return (status, res_headers, cached.body.clone()).into_response();
         }
@@ -259,45 +281,10 @@ async fn proxy_handler(
     let is_likely_asset = is_likely_static_asset(&target_url_string);
 
     if method == Method::GET && is_likely_asset {
-        let cache_key = target_url_str.to_string();
-        
-        if let Some(entry) = state.inflight.get(&cache_key) {
-            let mut rx = entry.value().subscribe();
-            drop(entry);
-            
-            if let Ok(result) = rx.recv().await {
-                let mut res_headers = result.headers.clone();
-                res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
-                let status = StatusCode::from_u16(result.status).unwrap_or(StatusCode::OK);
-                return (status, res_headers, result.body.clone()).into_response();
-            }
-        }
-        
-        let (tx, _) = broadcast::channel::<Arc<CachedResponse>>(1);
-        state.inflight.insert(cache_key.clone(), tx.clone());
-        
-        let result = fetch_and_cache(
+        return fetch_and_cache(
             &state, &target_url, &target_url_string, target_url_str,
             &method, &headers, &req_body, is_likely_asset,
-        ).await;
-        
-        match result {
-            Ok((response, rx_cache)) => {
-                let cache_key_clone = cache_key.clone();
-                let state_clone = state.clone();
-                tokio::spawn(async move {
-                    if let Ok(Some(cached_arc)) = rx_cache.await {
-                        let _ = tx.send(cached_arc);
-                    }
-                    state_clone.inflight.remove(&cache_key_clone);
-                });
-                return response;
-            }
-            Err(response) => {
-                state.inflight.remove(&cache_key);
-                return response;
-            }
-        }
+        ).await.unwrap_or_else(|e| e);
     }
     
     let client = if is_likely_asset {
@@ -398,6 +385,16 @@ async fn proxy_handler(
         safe_headers.remove("content-length");
         safe_headers.remove("content-encoding"); 
         
+        let html_permit = match tokio::time::timeout(
+            Duration::from_secs(5),
+            state.html_rewrite_permit.clone().acquire_owned(),
+        ).await {
+            Ok(Ok(permit)) => permit,
+            _ => {
+                return (StatusCode::SERVICE_UNAVAILABLE, "server busy, try again").into_response();
+            }
+        };
+
         let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(256);
         let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(256);
 
@@ -413,9 +410,9 @@ async fn proxy_handler(
         let target_url_clone = target_url.clone();
         
         tokio::task::spawn_blocking(move || {
+            let _permit = html_permit;
             let base_url = target_url_clone;
             let base_url_str = base_url.to_string();
-            
             let mut rewriter = HtmlRewriter::new(
                 Settings {
                     element_content_handlers: vec![
@@ -468,31 +465,66 @@ async fn proxy_handler(
         && !headers.contains_key("upgrade");
 
     if should_cache {
-        match upstream_res.bytes().await {
-            Ok(body_bytes) => {
-                if body_bytes.len() < MAX_CACHE_SIZE_BYTES {
-                    safe_headers.insert(
-                        "Cache-Control",
-                        HeaderValue::from_static("public, max-age=86400, stale-while-revalidate=3600"),
-                    );
-                    
-                    let cached = Arc::new(CachedResponse {
-                        status: status.as_u16(),
-                        headers: safe_headers.clone(),
-                        body: body_bytes.clone(),
-                    });
-                    
-                    state.cache.insert(target_url_str.to_string(), cached).await;
-                    
-                    return (status, safe_headers, body_bytes).into_response();
-                } else {
-                    return (status, safe_headers, body_bytes).into_response();
+        let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
+        let target_url_str_owned = target_url_str.to_string();
+        let state_clone = state.clone();
+        let safe_headers_clone = safe_headers.clone();
+        let status_u16 = status.as_u16();
+        let cc = get_cdn_cache_control(&target_url_string);
+        safe_headers.insert("Cache-Control", HeaderValue::from_static(cc));
+
+        tokio::spawn(async move {
+            let mut stream = upstream_res.bytes_stream();
+            let mut accumulator = Vec::new();
+            let mut total_size = 0usize;
+            let mut aborted = false;
+
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(chunk) => {
+                        total_size += chunk.len();
+                        if total_size < MAX_CACHE_SIZE_BYTES {
+                            accumulator.extend_from_slice(&chunk);
+                        }
+                        if sender_tx.send_timeout(
+                            Ok(chunk),
+                            Duration::from_secs(10),
+                        ).await.is_err() {
+                            aborted = true;
+                            while let Some(item) = stream.next().await {
+                                if let Ok(chunk) = item {
+                                    total_size += chunk.len();
+                                    if total_size < MAX_CACHE_SIZE_BYTES {
+                                        accumulator.extend_from_slice(&chunk);
+                                    }
+                                } else { break; }
+                            }
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = sender_tx.send(Err(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))).await;
+                        aborted = true;
+                        break;
+                    }
                 }
-            },
-            Err(_) => {
-                return (StatusCode::BAD_GATEWAY, "asset stream failed").into_response();
             }
-        };
+
+            if !aborted || total_size < MAX_CACHE_SIZE_BYTES {
+                if total_size < MAX_CACHE_SIZE_BYTES && total_size > 0 {
+                    let body_bytes = Bytes::from(accumulator);
+                    let cached = Arc::new(CachedResponse {
+                        status: status_u16,
+                        headers: safe_headers_clone,
+                        body: body_bytes,
+                    });
+                    state_clone.cache.insert(target_url_str_owned, cached).await;
+                }
+            }
+        });
+
+        let stream_body = Body::from_stream(ReceiverStream::new(sender_rx));
+        return (status, safe_headers, stream_body).into_response();
     }
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
@@ -512,9 +544,6 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
         Ok(f) => f,
         Err(_) => return None,
     };
-
-    let metadata = file.metadata().await.ok()?;
-    let file_len = metadata.len();
 
     let mut buf_u16 = [0u8; 2];
     if file.read_exact(&mut buf_u16).await.is_err() { return None; }
@@ -548,16 +577,6 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
 
 
-    if file_len < RAM_CACHE_LIMIT as u64 {
-        let mut body = Vec::new();
-        if file.read_to_end(&mut body).await.is_err() { return None; }
-        let body_bytes = Bytes::from(body);
-        
-
-        return Some(((status, headers, body_bytes).into_response(), true));
-    }
-
-
     let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
     
@@ -573,29 +592,58 @@ async fn fetch_and_cache(
     headers: &HeaderMap,
     req_body: &Bytes,
     is_likely_asset: bool,
-) -> Result<(Response, oneshot::Receiver<Option<Arc<CachedResponse>>>), Response> {
+) -> Result<Response, Response> {
     let force_refresh = headers.get("cache-control")
         .and_then(|h| h.to_str().ok())
         .map(|v| v.contains("no-cache"))
         .unwrap_or(false);
 
     if method == &Method::GET && !force_refresh {
-        if let Some(disk_response) = load_from_disk(target_url_str).await {
-            debug!("disk cache hit for {}", target_url_str);
-            let (response, should_promote) = disk_response;
-
-            if should_promote {
-
-            }
-            
-
-            return Ok((response, oneshot::channel().1));
+        if let Some(cached) = state.cache.get(target_url_str).await {
+            let mut res_headers = cached.headers.clone();
+            res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
+            let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+            return Ok((status, res_headers, cached.body.clone()).into_response());
         }
     }
 
+    if method == &Method::GET && !force_refresh {
+        if let Some(disk_response) = load_from_disk(target_url_str).await {
+            debug!("disk cache hit for {}", target_url_str);
+            let (response, _) = disk_response;
+            return Ok(response);
+        }
+    }
+
+    if method == &Method::GET {
+        if let Some(entry) = state.coalesce.get(target_url_str) {
+            let mut rx = entry.subscribe();
+            drop(entry);
+            debug!("coalescing request for {}", target_url_str);
+
+            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
+                Ok(Ok(cached)) => {
+                    let mut res_headers = cached.headers.clone();
+                    res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
+                    let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+                    return Ok((status, res_headers, cached.body.clone()).into_response());
+                }
+                _ => {
+                    debug!("coalesce wait failed for {}, becoming leader", target_url_str);
+                }
+            }
+        }
+    }
+
+    let (coalesce_tx, _) = broadcast::channel::<Arc<CachedResponse>>(1);
+    let coalesce_tx_clone = coalesce_tx.clone();
+    state.coalesce.insert(target_url_str.to_string(), coalesce_tx);
     let _permit = match state.request_permit.acquire().await {
         Ok(p) => p,
-        Err(_) => return Err((StatusCode::SERVICE_UNAVAILABLE, "too many requests").into_response()),
+        Err(_) => {
+            state.coalesce.remove(target_url_str);
+            return Err((StatusCode::SERVICE_UNAVAILABLE, "too many requests").into_response());
+        }
     };
 
     let client = if is_likely_asset {
@@ -637,6 +685,7 @@ async fn fetch_and_cache(
         Ok(res) => res,
         Err(e) => {
             error!("upstream error for {}: {}", target_url_str, e);
+            state.coalesce.remove(target_url_str);
             return Err((StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response());
         }
     };
@@ -674,23 +723,37 @@ async fn fetch_and_cache(
         let cc_value = if is_unstable {
             "public, max-age=300, stale-while-revalidate=60"
         } else {
-            "public, max-age=86400, stale-while-revalidate=3600"
+            get_cdn_cache_control(_target_url_string)
         };
         safe_headers.insert("Cache-Control", HeaderValue::from_static(cc_value));
     }
 
     let should_cache = is_likely_asset && status.is_success() && method == &Method::GET;
 
-    if should_cache {
+    let actually_cache = if should_cache {
+        if state.caching_inflight.contains_key(target_url_str) {
+            false
+        } else {
+            state.caching_inflight.insert(target_url_str.to_string(), ());
+            true
+        }
+    } else {
+        false
+    };
+
+    if !actually_cache {
+        state.coalesce.remove(target_url_str);
+    }
+
+    if actually_cache {
         let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
-        let (cache_tx, cache_rx) = oneshot::channel();
         let target_url_str_owned = target_url_str.to_string();
         let state_clone = state.clone();
         let safe_headers_clone = safe_headers.clone();
         
         tokio::spawn(async move {
             let cache_path = get_cache_path(&target_url_str_owned);
-            let temp_path = format!("{}.tmp", cache_path);
+            let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
 
             let mut file = match File::create(&temp_path).await {
                 Ok(f) => Some(f),
@@ -699,7 +762,6 @@ async fn fetch_and_cache(
                     None
                 }
             };
-
 
             if let Some(ref mut f) = file {
                 let status_bytes = status.as_u16().to_le_bytes();
@@ -751,8 +813,11 @@ async fn fetch_and_cache(
                             }
                         }
                         
-                        if sender_tx.send(Ok(chunk)).await.is_err() {
-
+                        if sender_tx.send_timeout(
+                            Ok(chunk),
+                            Duration::from_secs(10),
+                        ).await.is_err() {
+                            aborted = true;
                         }
                     }
                     Err(e) => {
@@ -765,37 +830,38 @@ async fn fetch_and_cache(
             
             if !aborted && file.is_some() {
                  let _ = fs::rename(&temp_path, &cache_path).await;
-                 
 
                  if !is_too_large_for_ram && total_size < RAM_CACHE_LIMIT {
                      let body_bytes = Bytes::from(accumulator);
                      let cached = Arc::new(CachedResponse {
                          status: status.as_u16(),
                          headers: safe_headers_clone,
-                         body: body_bytes.clone(),
+                         body: body_bytes,
                      });
-                     state_clone.cache.insert(target_url_str_owned, cached.clone()).await;
-                     let _ = cache_tx.send(Some(cached));
-                 } else {
-
-                     let _ = cache_tx.send(None);
+                     state_clone.cache.insert(target_url_str_owned.clone(), cached.clone());
+                     let _ = coalesce_tx_clone.send(cached);
                  }
             } else {
                 let _ = fs::remove_file(&temp_path).await;
-                let _ = cache_tx.send(None);
             }
+            
+            state_clone.caching_inflight.remove(&target_url_str_owned);
+            state_clone.coalesce.remove(&target_url_str_owned);
         });
-        
 
         let stream_body = Body::from_stream(ReceiverStream::new(sender_rx));
         let response = (status, safe_headers, stream_body).into_response();
 
-        return Ok((response, cache_rx));
+        return Ok(response);
     }
+
+    fix_game_content_type(_target_url_string, &mut safe_headers);
+    safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
     let response = (status, safe_headers, stream).into_response();
-    Err(response)
+    Ok(response)
 }
 
 async fn handle_socket(client_socket: WebSocket, target_url: String, headers: HeaderMap) {
@@ -945,6 +1011,23 @@ fn is_likely_static_asset(url: &str) -> bool {
     }
 
     false
+}
+
+fn is_cdn_url(url: &str) -> bool {
+    CDN_DOMAINS.iter().any(|domain| url.contains(domain))
+}
+
+fn get_cdn_cache_control(url: &str) -> &'static str {
+    if is_cdn_url(url) {
+        let has_version = url.contains("/v") || url.contains("@") || url.contains("/releases/");
+        if has_version {
+            "public, max-age=31536000, immutable"
+        } else {
+            "public, max-age=604800, stale-while-revalidate=86400"
+        }
+    } else {
+        "public, max-age=86400, stale-while-revalidate=3600"
+    }
 }
 
 fn is_blacklisted_header(name: &str) -> bool {

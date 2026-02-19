@@ -155,7 +155,7 @@
 .cloak-link-selected::after,
 .game-source-selected::after {
   content: "\f107";
-  font-family: "Font Awesome 6 Pro";
+  font-family: "Font Awesome 7 Pro";
   font-weight: 900;
   font-size: 0.8em;
   color: #9b9b9b;
