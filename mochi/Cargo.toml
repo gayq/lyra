@@ -22,3 +22,4 @@ bytes = "1.5"
 tower-http = { version = "0.5", features = ["cors"] }
 futures = "0.3"
 dashmap = "6"
+uuid = { version = "1.8", features = ["v4"] }
