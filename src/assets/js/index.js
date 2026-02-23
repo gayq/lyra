@@ -8,7 +8,6 @@ import { initializeNotifications } from './features/notifications.js';
 import { initializeLayout, initializeFall } from './core/layout.js';
 import { initializeLoad } from './core/load.js';
 import { initializeGame } from './features/games.js';
-import { initializeWatch } from './features/watch.js';
 import './features/cloudsync.js';
 import { getProxyUrl } from './core/utils.js';
 
