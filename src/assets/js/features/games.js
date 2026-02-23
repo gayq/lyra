@@ -27,7 +27,7 @@ export function initializeGame() {
       assets: "https://truffled.lol"
     },
     velara: {
-      games: "/!!/https://velara.cc/json/gg.json",
+      games: "/!!/https://velara.cc/data/games.json",
       assets: "https://velara.cc"
     }
   };
@@ -45,7 +45,7 @@ export function initializeGame() {
           <div class="light-border"></div>
           <div class="light-inset-bg"></div>
           <i class="fa-regular fa-magnifying-glass games-search-icon"></i>
-          <input type="text" id="gameSearchInput" placeholder="fetching games..." autocomplete="off">
+          <input type="text" id="gameSearchInput" placeholder="fetching..." autocomplete="off">
         </div>
       </div>
       <div class="game-grid-container">
@@ -90,7 +90,7 @@ export function initializeGame() {
   let gameFadeTimer = null;
   const SKELETON_COUNT = 12;
   let _filterTimer = 0;
-
+  let _lastFilterQuery = null;
   let savedScrollPosition = 0;
   let cardTemplate = null;
 
@@ -109,8 +109,8 @@ export function initializeGame() {
     if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
       window.wavesUpdater.hideSuccess(true);
     }
-    if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-      window.SharePromoter.hideSharePrompt(true);
+    if (window.SharePromoter && typeof window.SharePromoter.hideWarningPrompt === 'function' && document.getElementById('warningPrompt')?.style.display === 'block') {
+      window.SharePromoter.hideWarningPrompt(true);
     }
     if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
       window.hideBookmarkPrompt(true);
@@ -132,7 +132,7 @@ export function initializeGame() {
     }
 
     const count = allGames.length || 0;
-    gameSearchInput.placeholder = `search through ${count} games`;
+    gameSearchInput.placeholder = `search through ${count} games...`;
     updateCountLabel(count);
   }
 
@@ -186,9 +186,6 @@ export function initializeGame() {
 
     const card = document.createElement('article');
     card.className = 'game-card';
-    card.style.contentVisibility = 'auto';
-    card.style.containIntrinsicSize = '100px 100px';
-    card.style.contain = 'layout paint style';
 
     const media = document.createElement('div');
     media.className = 'game-cover skeleton';
@@ -273,6 +270,7 @@ export function initializeGame() {
     if (gameRendered || !gameDataLoaded || !gameGrid) return;
     renderGameCards(allGames);
     gameRendered = true;
+    _lastFilterQuery = null;
   }
 
   function filterAndDisplayGames() {
@@ -280,36 +278,49 @@ export function initializeGame() {
 
     const query = (gameSearchInput?.value || '').toLowerCase().trim();
 
+    if (query === _lastFilterQuery) return;
+    _lastFilterQuery = query;
+
     if (query) {
       savedScrollPosition = 0;
     }
 
+    const cards = gameGrid.children;
+    const cardCount = cards.length;
+
+    if (!cardCount) {
+      renderGameCards(allGames);
+    }
+
     if (!query) {
       if (noResultsEl) noResultsEl.style.display = 'none';
-      renderGameCards(allGames);
+      for (let i = 0; i < cardCount; i++) {
+        cards[i].style.display = '';
+      }
+      gameGrid.style.display = 'grid';
       updateCountLabel(allGames.length);
       return;
     }
 
-    const filteredGames = allGames.filter(game => {
-      const matchesName = (game._nameLc || game.name.toLowerCase()).includes(query);
-      const matchesAuthor = (game._authorLc || '').includes(query);
-      return matchesName || matchesAuthor;
-    });
+    let visibleCount = 0;
+    for (let i = 0; i < cardCount; i++) {
+      const card = cards[i];
+      const name = card.dataset.gameName || '';
+      const author = card.dataset.gameAuthor || '';
+      const match = name.includes(query) || author.includes(query);
+      card.style.display = match ? '' : 'none';
+      if (match) visibleCount++;
+    }
 
-    const resultsFound = filteredGames.length;
-    if (resultsFound === 0) {
+    if (visibleCount === 0) {
       setStatus('zero games match were found :(');
       updateCountLabel(0);
       return;
     }
 
-    if (noResultsEl) {
-      noResultsEl.style.display = 'none';
-    }
-
-    renderGameCards(filteredGames);
-    updateCountLabel(resultsFound);
+    if (noResultsEl) noResultsEl.style.display = 'none';
+    gameGrid.style.display = 'grid';
+    updateCountLabel(visibleCount);
 
     if (wrapper) wrapper.scrollTop = 0;
   }
@@ -365,29 +376,41 @@ export function initializeGame() {
             return saveToCache(allGames);
           });
       } else if (source === 'velara') {
-        gameDataPromise = fetch(SOURCE_CONFIG.velara.games)
-          .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
-          .then(data => {
-            allGames = data
-              .filter(g => g.name !== '!!DMCA' && g.name !== '!!Game Request')
-              .map(game => {
-                let finalUrl = game.link;
-                if (finalUrl && !finalUrl.startsWith('http')) finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
-                else if (game.grdmca) finalUrl = game.grdmca;
+  gameDataPromise = fetch(SOURCE_CONFIG.velara.games)
+    .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+    .then(data => {
+      allGames = data
+        .filter(g => 
+          g && 
+          g.title && 
+          g.title !== '!!DMCA' && 
+          g.title !== '!!Game Request' &&
+          !(g.location && g.location.includes('astra'))
+        )
+        .map(game => {
+          let finalUrl = game.location;
+          if (finalUrl && !finalUrl.startsWith('http')) {
+            finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
+          }
 
-                return {
-                  id: game.name,
-                  name: game.name,
-                  coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/assets/game-imgs/${game.imgpath}`,
-                  gameUrl: finalUrl,
-                  isExternal: !game.link && !!game.grdmca,
-                  featured: false
-                };
-              }).sort((a, b) => a.name.localeCompare(b.name));
-            allGames.forEach(g => { g._nameLc = g.name.toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
-            return saveToCache(allGames);
-          });
-      } else {
+          return {
+            id: game.title,
+            name: game.title,
+            coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}`,
+            gameUrl: finalUrl,
+            isExternal: !game.location && !!game.grdmca,
+            featured: false
+          };
+        })
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+      allGames.forEach(g => { 
+        g._nameLc = (g.name || "").toLowerCase(); 
+        g._authorLc = (g.author || '').toLowerCase(); 
+      });
+      return saveToCache(allGames);
+    });
+} else {
         gameDataPromise = fetch(SOURCE_CONFIG.gnMath.zones)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
@@ -442,6 +465,11 @@ export function initializeGame() {
       clearTimeout(gameFadeTimer);
       gameFadeTimer = null;
     }
+
+    if (document.body.classList.contains('watch-view') && window.hideWatchMenu) {
+      window.hideWatchMenu();
+    }
+
     showHomeView();
     dismissOverlays();
     if (overlay) overlay.classList.remove('fade-out');
@@ -468,6 +496,8 @@ export function initializeGame() {
     if (isAlreadyRendered) return;
 
     showSkeletonLoading();
+
+    gameRendered = false;
 
     getGameData()
       .then(() => {

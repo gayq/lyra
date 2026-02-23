@@ -42,6 +42,7 @@ export const dom = {
     get tabsContainer() { return _get('tabs-container'); },
     get addTabBtn() { return _get('add-tab-btn'); },
     get splitViewBtn() { return _get('splitViewBtn'); },
+    get watchBtn() { return _get('watch-btn'); },
     get notificationsBtn() { return _get('notifications'); },
     get notificationsIcon() { return _q('#notifications > i'); },
     get memoryUsageValue() { return _get('memory-usage-value'); },

@@ -57,7 +57,7 @@
   color: #e0e0e0;
   font-size: 20px;
   margin: 0;
-  font-weight: lighter;
+  font-weight: 400;
 }
 
 #mark-all-read-btn {
@@ -65,7 +65,7 @@
   border: none;
   color: #adadad;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   padding: 6px 10px;
   margin-right: 230px;
@@ -166,7 +166,7 @@
 
 .notification-title {
   font-size: 20px;
-  font-weight: 300;
+  font-weight: 400;
   color: #e0e0e0;
   margin: 0;
   white-space: nowrap;

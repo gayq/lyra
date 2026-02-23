@@ -88,7 +88,7 @@ body.games-view .games-topbar {
 
 .games-search-icon {
   position: absolute;
-  left: 18px;
+  left: 16px;
   top: 50%;
   transform: translateY(-50%);
   color: #ffffff43;
@@ -135,10 +135,13 @@ body.games-view .games-page {
   padding: 0;
   box-sizing: border-box;
   display: block;
-  transition: all 0.1s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
   cursor: pointer;
   position: relative;
   overflow: hidden;
+  contain: layout style paint;
+  content-visibility: auto;
+  contain-intrinsic-size: 100px 105px;
 }
 
 .game-cover {
@@ -156,7 +159,7 @@ body.games-view .games-page {
   object-fit: cover;
   display: block;
   filter: brightness(0.8);
-  transition: all 0.1s ease;
+  transition: filter 0.1s ease, transform 0.1s ease;
 }
 
 .game-card:hover .game-cover img {
@@ -211,6 +214,7 @@ body.games-view .games-page {
   background: linear-gradient(90deg, #0d0d0d 0%, #161616 50%, #0d0d0d 100%);
   background-size: 200% 100%;
   animation: skeleton 1s infinite linear;
+  will-change: background-position;
 }
 
 .game-card.skeleton-card {

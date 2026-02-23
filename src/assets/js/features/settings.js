@@ -658,7 +658,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     <button class="tab-button" id="about-tab">
                         <i class="fa-regular fa-heart"></i> credits
                     </button>
-                    <div class="settings-version-label" id="settings-version-label">≽^•⩊•^≼</div>
+                    <div class="settings-bottom">≽^•⩊•^≼</div>
                 </div>
                 <div class="settings-content-wrapper">
                     <div id="preferences-content" class="tab-content active">
@@ -803,8 +803,8 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (window.wavesUpdate && typeof window.wavesUpdate.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
                     window.wavesUpdate.hideSuccess(true);
                 }
-                if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-                    window.SharePromoter.hideSharePrompt(true);
+                if (window.SharePromoter && typeof window.SharePromoter.hideWarningPrompt === 'function' && document.getElementById('warningPrompt')?.style.display === 'block') {
+                    window.SharePromoter.hideWarningPrompt(true);
                 }
                 if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
                     window.hideBookmarkPrompt(true);

@@ -1,6 +1,6 @@
 const LOADING_SCREEN = `
     <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
-        <h1 style="margin: 0; font-size: 1.2rem; font-weight: 400;">syncing data...</h1>
+        <h1 style="margin: 0; font-size: 1.2rem; font-weight: 300;">syncing data...</h1>
     </div>
 `;
 
@@ -21,6 +21,15 @@ export class CloudSync {
     }
 
     async init() {
+        if (!this.user || Object.keys(this.user).length === 0) {
+            this.isAuthenticated = false;
+            this.updateModalState();
+
+            document.addEventListener('toggleAuthModal', () => this.toggleModal());
+            this.hookStorage();
+            return; 
+        }
+
         this.showLoadingScreen();
 
         try {
@@ -60,7 +69,6 @@ export class CloudSync {
         }
 
         document.addEventListener('toggleAuthModal', () => this.toggleModal());
-
         this.hookStorage();
 
         if (this.isAuthenticated) {
@@ -230,7 +238,7 @@ export class CloudSync {
                         <div style="text-align: center;">
                             <button type="submit" class="auth-action-btn" style="width: 60%; margin-top: 15px;">create account</button>
                             <p style="font-size: 11.5px; color: #ff5555; margin-top: 10px; max-width: 80%; margin-left: auto; margin-right: auto;">
-                                save your password somewhere safe! all data will be forever lost if you forget your password 🙀🙀
+                                save your password somewhere safe! all data will be forever lost if you forget your password ( •̯́ ^ •̯̀)
                             </p>
                         </div>
                     </form>
@@ -429,7 +437,7 @@ export class CloudSync {
         }
 
         const statusEl = document.querySelector('#auth-status');
-        if (statusEl) statusEl.textContent = this.isAuthenticated ? this.user.username : 'sync to cloud';
+        if (statusEl) statusEl.textContent = this.isAuthenticated ? this.user.username : 'cloud sync';
     }
 
     updateStatus(text, type) {

@@ -1,12 +1,4 @@
-﻿@font-face {
-  font-display: fallback;
-  font-family: Lexend;
-  font-style: normal;
-  font-weight: 400;
-  src: url(../fonts/Lexend-Regular.woff2) format("woff2");
-}
-
-a,
+﻿a,
 blockquote,
 body,
 button,
@@ -171,7 +163,7 @@ body.browser-view #top-left-stuff,
 body.browser-view #top-right-stuff,
 body.browser-view #stuff,
 body.browser-view #fall-container,
-body.browser-view #discord,
+body.browser-view #share,
 body.browser-view #oneko,
 body.browser-view .footer {
   display: none !important;
@@ -572,7 +564,6 @@ body.browser-view .main-nav {
   gap: 8px;
   height: 22px;
   justify-content: center;
-  margin-top: -4px;
   padding: 10px 15px;
   text-decoration: none;
   transition:
@@ -654,8 +645,7 @@ body.browser-view .main-nav {
 }
 
 #top-right-stuff {
-  align-items: right;
-  align-items: flex-start;
+  align-items: center;
   height: auto;
   right: 25px;
 }
@@ -695,7 +685,7 @@ body.browser-view .main-nav {
   cursor: default;
   cursor: pointer;
   font-size: 15px;
-  font-weight: 300;
+  font-weight: 400;
   margin: 0;
   padding-left: 2px;
   position: relative;
@@ -746,7 +736,7 @@ body.browser-view .main-nav {
   cursor: text;
 }
 
-#discord {
+#share {
   left: auto;
   margin-left: auto;
   max-width: 280px;
@@ -756,7 +746,7 @@ body.browser-view .main-nav {
   z-index: 1;
 }
 
-#discord a {
+#share a {
   cursor: text;
 }
 
@@ -774,7 +764,7 @@ body.browser-view .main-nav {
   color: #fff;
   display: inline-block;
   font-size: 52px;
-  font-weight: 300;
+  font-weight: 400;
   margin-bottom: 7px;
   text-align: center;
   transition: opacity 0.1s ease;
@@ -817,12 +807,12 @@ body.browser-view .main-nav {
 .search-icon {
   color: #ffffff43;
   font-size: 18px;
-  left: 19px;
+  left: 16px;
   pointer-events: none;
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  transition: color 0.15s ease;
+  transition: color 0.1s ease;
   z-index: 4;
 }
 
@@ -970,7 +960,7 @@ body.browser-view .main-nav {
   user-select: none;
 }
 
-#sharePrompt,
+#warningPrompt,
 #updateSuccess {
   animation: fadeIn 0.1s forwards;
   backdrop-filter: blur(10px);
@@ -990,7 +980,7 @@ body.browser-view .main-nav {
   z-index: 999999;
 }
 
-#sharePrompt label,
+#warningPrompt label,
 #updateSuccess label {
   color: #e0e0e0;
   cursor: text;
@@ -998,14 +988,14 @@ body.browser-view .main-nav {
   font-size: 20px;
 }
 
-#sharePrompt p,
+#warningPrompt p,
 #updateSuccess p {
   color: #727272;
   font-size: 14px;
   margin-top: 10px;
 }
 
-#sharePrompt.fade-out,
+#warningPrompt.fade-out,
 #updateSuccess.fade-out {
   animation: fadeOut 0.1s forwards;
 }

@@ -19,7 +19,7 @@ use moka::future::Cache;
 use reqwest::{redirect::Policy, Client};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
@@ -32,7 +32,6 @@ use std::hash::{Hash, Hasher};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
-
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -121,6 +120,7 @@ async fn main() {
         "googletagmanager.com",
         "doubleclick.net",
         "adsbygoogle",
+        "cdn-cgi/rum",
     ];
     
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
@@ -229,6 +229,7 @@ async fn proxy_handler(
                 }
             }
 
+            fix_game_content_type(target_url_str, &mut res_headers);
             let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
             return (status, res_headers, cached.body.clone()).into_response();
         }
@@ -250,19 +251,12 @@ async fn proxy_handler(
         || target_url_string.contains(".css");
 
     let target_url_string = if target_url_string.contains("jsdelivr.net/gh/") {
-        if !is_script_or_page {
-            target_url_string
-                .replace("cdn.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-                .replace("fastly.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-                .replace("gcore.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-                .replace("testing.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-                .replacen("@", "/", 1)
-        } else {
-             target_url_string
-                .replace("fastly.jsdelivr.net", "cdn.jsdelivr.net")
-                .replace("gcore.jsdelivr.net", "cdn.jsdelivr.net")
-                .replace("testing.jsdelivr.net", "cdn.jsdelivr.net")
-        }
+        target_url_string
+            .replace("cdn.jsdelivr.net/gh/", "raw.githubusercontent.com/")
+            .replace("fastly.jsdelivr.net/gh/", "raw.githubusercontent.com/")
+            .replace("gcore.jsdelivr.net/gh/", "raw.githubusercontent.com/")
+            .replace("testing.jsdelivr.net/gh/", "raw.githubusercontent.com/")
+            .replacen("@", "/", 1)
     } else if target_url_string.contains("raw.githubusercontent.com/") && is_script_or_page {
         target_url_string
     } else {
@@ -270,7 +264,9 @@ async fn proxy_handler(
     };
 
     if state.blocklist_matcher.is_match(&target_url_string) {
-        return (StatusCode::OK, "/* blocked */").into_response();
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Type", HeaderValue::from_static("application/javascript"));
+        return (StatusCode::OK, headers, "/* no */").into_response();
     }
 
     let target_url = match Url::parse(&target_url_string) {
@@ -334,10 +330,18 @@ async fn proxy_handler(
     debug!("upstream response status: {} for {}", status, target_url);
 
     if !status.is_success() {
+         let mut error_headers = HeaderMap::new();
+         if let Some(ct) = upstream_res.headers().get("content-type") {
+             error_headers.insert("content-type", ct.clone());
+         } else {
+             error_headers.insert("content-type", HeaderValue::from_static("text/html; charset=utf-8"));
+         }
+         
          let bytes = upstream_res.bytes().await.unwrap_or_default();
          let error_body = String::from_utf8_lossy(&bytes);
          error!("upstream error body for {}: {}", target_url, error_body);
-         return (status, error_body.to_string()).into_response();
+         
+         return (status, error_headers, error_body.to_string()).into_response();
     }
 
     let res_headers_ref = upstream_res.headers();
@@ -411,8 +415,40 @@ async fn proxy_handler(
         
         tokio::task::spawn_blocking(move || {
             let _permit = html_permit;
-            let base_url = target_url_clone;
-            let base_url_str = base_url.to_string();
+            let base_url_str = target_url_clone.to_string();
+            
+            let current_base = Arc::new(RwLock::new(target_url_clone.clone()));
+            let base_for_updater = current_base.clone();
+            let target_url_clone_for_base = target_url_clone.clone();
+
+            let rewrite_url = {
+                let current_base = current_base.clone();
+                std::sync::Arc::new(move |url: &str| -> Option<String> {
+                    if url.is_empty() || url.starts_with("data:") || url.starts_with("blob:") || url.starts_with("javascript:") || url.starts_with("#") || url.starts_with(MOCHI_PREFIX) {
+                        return None;
+                    }
+                    if url.starts_with("http://") || url.starts_with("https://") {
+                        return Some(format!("{}{}", MOCHI_PREFIX, url));
+                    }
+                    if url.starts_with("//") {
+                        return Some(format!("{}https:{}", MOCHI_PREFIX, url));
+                    }
+                    
+                    if let Ok(lock) = current_base.read() {
+                        let base = lock.clone();
+                        if let Ok(resolved) = base.join(url) {
+                            return Some(format!("{}{}", MOCHI_PREFIX, resolved.as_str()));
+                        }
+                    }
+                    None
+                })
+            };
+
+            let rw1 = rewrite_url.clone();
+            let rw2 = rewrite_url.clone();
+            let rw3 = rewrite_url.clone();
+            let rw5 = rewrite_url.clone();
+
             let mut rewriter = HtmlRewriter::new(
                 Settings {
                     element_content_handlers: vec![
@@ -421,17 +457,71 @@ async fn proxy_handler(
                             let _ = el.prepend(&full_script, ContentType::Html);
                             Ok(())
                         }),
-                        element!("base[href]", |el| {
+                        element!("base[href]", move |el| {
                              if let Some(href) = el.get_attribute("href") {
-                                 if href.contains("jsdelivr.net/gh/") {
-                                     let new_href = href
-                                         .replace("fastly.jsdelivr.net", "cdn.jsdelivr.net")
-                                         .replace("gcore.jsdelivr.net", "cdn.jsdelivr.net")
-                                         .replace("testing.jsdelivr.net", "cdn.jsdelivr.net");
-                                     let _ = el.set_attribute("href", &new_href);
+                                 if let Ok(parsed_base) = target_url_clone_for_base.join(&href) {
+                                     if let Ok(mut lock) = base_for_updater.write() {
+                                         *lock = parsed_base;
+                                     }
                                  }
+
+                                 let proxy_href = if href.starts_with("http://") || href.starts_with("https://") {
+                                     format!("{}{}", MOCHI_PREFIX, href)
+                                 } else if href.starts_with("//") {
+                                     format!("{}https:{}", MOCHI_PREFIX, href)
+                                 } else {
+                                     if let Ok(parsed_base) = target_url_clone_for_base.join(&href) {
+                                         format!("{}{}", MOCHI_PREFIX, parsed_base.as_str())
+                                     } else {
+                                         href.to_string()
+                                     }
+                                 };
+
+                                 let final_href = proxy_href
+                                     .replace("fastly.jsdelivr.net", "cdn.jsdelivr.net")
+                                     .replace("gcore.jsdelivr.net", "cdn.jsdelivr.net")
+                                     .replace("testing.jsdelivr.net", "cdn.jsdelivr.net");
+                                     
+                                 let _ = el.set_attribute("href", &final_href);
                              }
                              Ok(())
+                        }),
+                        element!("link[href]", move |el| {
+                            if let Some(val) = el.get_attribute("href") {
+                                if let Some(rewritten) = rw1(&val) {
+                                    let _ = el.set_attribute("href", &rewritten);
+                                }
+                            }
+                            Ok(())
+                        }),
+                        element!("script[src]", move |el| {
+                            if let Some(val) = el.get_attribute("src") {
+                                if let Some(rewritten) = rw2(&val) {
+                                    let _ = el.set_attribute("src", &rewritten);
+                                }
+                            }
+                            Ok(())
+                        }),
+                        element!("img[src]", move |el| {
+                            if let Some(val) = el.get_attribute("src") {
+                                if let Some(rewritten) = rw3(&val) {
+                                    let _ = el.set_attribute("src", &rewritten);
+                                }
+                            }
+                            Ok(())
+                        }),
+                        element!("source[src], video[src], audio[src], video[poster]", move |el| {
+                            if let Some(val) = el.get_attribute("src") {
+                                if let Some(rewritten) = rw5(&val) {
+                                    let _ = el.set_attribute("src", &rewritten);
+                                }
+                            }
+                            if let Some(val) = el.get_attribute("poster") {
+                                if let Some(rewritten) = rw5(&val) {
+                                    let _ = el.set_attribute("poster", &rewritten);
+                                }
+                            }
+                            Ok(())
                         }),
                     ],
                     ..Settings::default()
@@ -545,6 +635,8 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
         Err(_) => return None,
     };
 
+    let _metadata = file.metadata().await.ok()?;
+
     let mut buf_u16 = [0u8; 2];
     if file.read_exact(&mut buf_u16).await.is_err() { return None; }
     let status_code = u16::from_le_bytes(buf_u16);
@@ -573,6 +665,8 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     }
     
     headers.insert("X-Cache", HeaderValue::from_static("DISK"));
+    
+    fix_game_content_type(url, &mut headers);
 
     let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
 
@@ -602,6 +696,7 @@ async fn fetch_and_cache(
         if let Some(cached) = state.cache.get(target_url_str).await {
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
+            fix_game_content_type(_target_url_string, &mut res_headers);
             let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
             return Ok((status, res_headers, cached.body.clone()).into_response());
         }
@@ -610,7 +705,8 @@ async fn fetch_and_cache(
     if method == &Method::GET && !force_refresh {
         if let Some(disk_response) = load_from_disk(target_url_str).await {
             debug!("disk cache hit for {}", target_url_str);
-            let (response, _) = disk_response;
+            let (mut response, _) = disk_response;
+            fix_game_content_type(_target_url_string, response.headers_mut());
             return Ok(response);
         }
     }
@@ -625,6 +721,7 @@ async fn fetch_and_cache(
                 Ok(Ok(cached)) => {
                     let mut res_headers = cached.headers.clone();
                     res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
+                    fix_game_content_type(_target_url_string, &mut res_headers);
                     let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
                     return Ok((status, res_headers, cached.body.clone()).into_response());
                 }
@@ -727,6 +824,10 @@ async fn fetch_and_cache(
         };
         safe_headers.insert("Cache-Control", HeaderValue::from_static(cc_value));
     }
+
+    fix_game_content_type(_target_url_string, &mut safe_headers);
+    safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
     let should_cache = is_likely_asset && status.is_success() && method == &Method::GET;
 
@@ -838,7 +939,7 @@ async fn fetch_and_cache(
                          headers: safe_headers_clone,
                          body: body_bytes,
                      });
-                     state_clone.cache.insert(target_url_str_owned.clone(), cached.clone());
+                     state_clone.cache.insert(target_url_str_owned.clone(), cached.clone()).await;
                      let _ = coalesce_tx_clone.send(cached);
                  }
             } else {
@@ -855,9 +956,6 @@ async fn fetch_and_cache(
         return Ok(response);
     }
 
-    fix_game_content_type(_target_url_string, &mut safe_headers);
-    safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
-    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
     let stream = Body::from_stream(upstream_res.bytes_stream());
     let response = (status, safe_headers, stream).into_response();

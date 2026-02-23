@@ -8,6 +8,7 @@ import { initializeNotifications } from './features/notifications.js';
 import { initializeLayout, initializeFall } from './core/layout.js';
 import { initializeLoad } from './core/load.js';
 import { initializeGame } from './features/games.js';
+import { initializeWatch } from './features/watch.js';
 import './features/cloudsync.js';
 import { getProxyUrl } from './core/utils.js';
 
@@ -208,6 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeFall();
     initializeLoad();
     initializeGame();
+    initializeWatch();
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
@@ -348,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const iframe = document.createElement('iframe');
         iframe.className = 'iframe';
         iframe.loading = 'lazy';
-        iframe.allow = 'fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; speaker-selection;';
+        iframe.allow = 'fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay;';
         iframe.referrerPolicy = 'no-referrer';
         iframe.tabIndex = -1;
         dom.iframeContainer.appendChild(iframe);

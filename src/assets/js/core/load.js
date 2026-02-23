@@ -158,7 +158,8 @@ function setupScrollShadow() {
   const updateShadow = () => {
     raf = null;
     const isGamesView = document.body.classList.contains('games-view');
-    const shouldShow = isGamesView && readScrollTop() > threshold;
+    const isWatchView = document.body.classList.contains('watch-view');
+    const shouldShow = (isGamesView || isWatchView) && readScrollTop() > threshold;
     document.body.classList.toggle('has-scroll-shadow', shouldShow);
   };
 
@@ -189,7 +190,7 @@ export function initializeLoad() {
         document.body.appendChild(this.successEl);
         this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>successfully updated!</label>
+            <label>successfully updated ฅ^>⩊<^ฅ</label>
             <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
@@ -206,7 +207,6 @@ export function initializeLoad() {
         localStorage.removeItem("justUpdated");
         this.showSuccess();
       }
-      this.checkVersion();
 
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && this.successEl && this.successEl.style.display === 'block' && !this.successEl.classList.contains('fade-out')) {
@@ -219,8 +219,8 @@ export function initializeLoad() {
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
           window.toggleSettingsMenu();
         }
-        if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-          window.SharePromoter.hideSharePrompt(true);
+        if (window.SharePromoter && typeof window.SharePromoter.hideWarningPrompt === 'function' && document.getElementById('warningPrompt')?.style.display === 'block') {
+          window.SharePromoter.hideWarningPrompt(true);
         }
         if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
           window.hideBookmarkPrompt(true);
@@ -280,25 +280,25 @@ export function initializeLoad() {
     overlay: document.getElementById("overlay"),
     closeBtn: null,
     init() {
-      this.shareEl = document.getElementById("sharePrompt");
+      this.shareEl = document.getElementById("warningPrompt");
       if (!this.shareEl) {
         this.shareEl = document.createElement('div');
-        this.shareEl.id = 'sharePrompt';
+        this.shareEl.id = 'warningPrompt';
         this.shareEl.style.display = 'none';
         document.body.appendChild(this.shareEl);
         this.shareEl.innerHTML = `
-            <i class="fa-solid fa-seedling" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>help the site grow!</label>
-            <p>share this site with all your friends to help keep the traffic up and everything else running smoothly!</p>
-            <button class="prompt-close-btn" id="sharePromptClose">okay!!</button>
+            <i class="fa-solid fa-triangle-exclamation" style="font-size:40px;margin-bottom:15px;"></i>
+            <label>warning ( •̯́ ^ •̯̀)</label>
+            <p>please close any new tabs that open up randomly; those are ads!</p>
+            <button class="prompt-close-btn" id="warningPromptClose">okay!!</button>
           `;
       }
-      this.closeBtn = document.getElementById("sharePromptClose");
+      this.closeBtn = document.getElementById("warningPromptClose");
 
-      this.closeBtn?.addEventListener('click', () => this.hideSharePrompt(false));
+      this.closeBtn?.addEventListener('click', () => this.hideWarningPrompt(false));
       this.overlay?.addEventListener('click', (e) => {
         if (e.target === this.overlay && this.shareEl.style.display === "block") {
-          this.hideSharePrompt(false);
+          this.hideWarningPrompt(false);
         }
       });
 
@@ -306,10 +306,10 @@ export function initializeLoad() {
         const visited = localStorage.getItem("wavesVisited");
         if (!visited) {
           localStorage.setItem("wavesVisited", "true");
-          this.showSharePrompt();
+          this.showWarningPrompt();
         } else {
           if (Math.random() < 0.10) {
-            this.showSharePrompt();
+            this.showWarningPrompt();
           }
         }
       };
@@ -318,11 +318,11 @@ export function initializeLoad() {
 
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && this.shareEl && this.shareEl.style.display === 'block' && !this.shareEl.classList.contains('fade-out')) {
-          this.hideSharePrompt(false);
+          this.hideWarningPrompt(false);
         }
       });
     },
-    showSharePrompt() {
+    showWarningPrompt() {
       if (this.shareEl && this.overlay) {
         if (window.toggleSettingsMenu && document.getElementById('settings-menu')?.classList.contains('open')) {
           window.toggleSettingsMenu();
@@ -339,7 +339,7 @@ export function initializeLoad() {
         this.shareEl.classList.remove("fade-out");
       }
     },
-    hideSharePrompt(calledByOther) {
+    hideWarningPrompt(calledByOther) {
       if (!this.shareEl || this.shareEl.style.display === 'none') return;
 
       this.shareEl.classList.add("fade-out");
@@ -363,7 +363,7 @@ export function initializeLoad() {
   const searchInput = document.getElementById('searchInput');
   const placeholders = [
     "have anything in mind?",
-    "(˶˃ ᵕ ˂˶)",
+    "( • ̀ω•́ )✧",
     "join the discord server!",
     "1 update per year",
     "waves is such a good site!!"

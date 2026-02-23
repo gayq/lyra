@@ -224,7 +224,7 @@ app.use("/s/", express.static(path.join(__dirname, "scramjet"), staticOpts));
 app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
 app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
 app.use("/b", express.static(path.join(publicPath, "b"), staticOpts));
-app.use(express.static(srcPath, staticOpts));
+app.use(express.static(srcPath, { ...staticOpts, index: false }));
 
 app.get("/api/version", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
@@ -238,8 +238,13 @@ app.get("/api/notifications", (_req, res) => {
   res.json(cachedNotifications);
 });
 
-app.get("/", (_req, res) => { res.sendFile(path.join(srcPath, "index.html")); });
-app.use((_req, res) => res.status(404).sendFile(path.join(srcPath, "404.html")));
+app.get("/", (_req, res) => { 
+  res.status(404).sendFile(path.join(srcPath, "index.html")); 
+});
+
+app.use((_req, res) => {
+  res.status(404).sendFile(path.join(srcPath, "404.html"));
+});
 
 server.on("upgrade", (req, sock, head) => {
   if (req.url.startsWith("/w/")) {

@@ -1,8 +1,7 @@
 use axum::{
     extract::State,
-    http::{StatusCode, header::{SET_COOKIE, COOKIE}},
+    http::{StatusCode},
     response::{IntoResponse, Json},
-    Json as AxumJson,
 };
 use tower_cookies::{Cookies, Cookie};
 use tower_cookies::cookie::SameSite;
@@ -13,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::Duration;
 
-const COOKIE_NAME: &str = "auth_token";
+const COOKIE_NAME: &str = "token";
 
 #[derive(Clone)]
 pub struct AppState {

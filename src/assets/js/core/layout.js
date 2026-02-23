@@ -31,11 +31,11 @@ export function initializeLayout() {
             <span id="brand">waves!!</span>
             <div id="oneko"></div>
         </div>
-        <a href="#" id="settings" class="icon-btn">
-            <i class="settings fa-solid fa-gear"></i>
+        <a href="https://discord.gg/dJvdkPRheV" target="_blank" id="discord-btn" class="icon-btn">
+            <i class="fa-brands fa-discord"></i>
         </a>
-        <a href="#" id="notifications" class="icon-btn">
-            <i class="fa-solid fa-bell"></i>
+        <a href="#" id="watch-btn" class="icon-btn">
+            <i class="fa-solid fa-tv-retro"></i>
         </a>
         <a href="#" id="choi" class="icon-btn">
             <i class="fa-solid fa-gamepad-modern"></i>
@@ -46,10 +46,16 @@ export function initializeLayout() {
     const topRightStuff = document.createElement('div');
     topRightStuff.id = 'top-right-stuff';
     topRightStuff.innerHTML = `
+        <a href="#" id="notifications" class="icon-btn">
+            <i class="fa-solid fa-bell"></i>
+        </a>
         <div id="auth-container" class="text-icon-btn">
-            <i class="fa-solid fa-cloud-moon"></i>
-            <span id="auth-status">sync to cloud</span>
+            <i class="fa-solid fa-cloud"></i>
+            <span id="auth-status">cloud sync</span>
         </div>
+        <a href="#" id="settings" class="icon-btn">
+            <i class="settings fa-solid fa-gear"></i>
+        </a>
     `;
     document.body.appendChild(topRightStuff);
 
@@ -59,9 +65,12 @@ export function initializeLayout() {
         if (statusEl) statusEl.textContent = user.username;
     }
 
-    topRightStuff.addEventListener('click', () => {
-        document.dispatchEvent(new CustomEvent('toggleAuthModal'));
-    });
+    const authContainer = topRightStuff.querySelector('#auth-container');
+    if (authContainer) {
+        authContainer.addEventListener('click', () => {
+            document.dispatchEvent(new CustomEvent('toggleAuthModal'));
+        });
+    }
 
     const mainNav = document.createElement('div');
     mainNav.className = 'main-nav';
@@ -111,18 +120,18 @@ export function initializeLayout() {
     const stuff = document.createElement('div');
     stuff.id = 'stuff';
     stuff.innerHTML = `
-        <a>a</a>
+        <a>--</a>
     `;
 
     footer.appendChild(stuff);
 
-    const discord = document.createElement('div');
-    discord.id = 'discord';
-    discord.innerHTML = `
-        <a>discord.gg/dJvdkPRheV</a>
+    const share = document.createElement('div');
+    share.id = 'share';
+    share.innerHTML = `
+        <a>share the site with your friends!</a>
     `;
 
-    footer.appendChild(discord);
+    footer.appendChild(share);
 
     const wrapper = document.querySelector('.wrapper');
     if (wrapper) {

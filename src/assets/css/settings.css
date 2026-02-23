@@ -24,7 +24,7 @@
   margin-left: 0;
   text-align: left;
   font-size: 20px;
-  font-weight: lighter;
+  font-weight: 400;
   user-select: none;
 }
 
@@ -33,7 +33,7 @@
   margin-bottom: 15px;
   text-align: left;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 400;
   color: #e0e0e0;
   cursor: text;
 }
@@ -43,7 +43,7 @@
   color: #616161;
   margin-top: -10px;
   text-align: left;
-  font-weight: 500;
+  font-weight: 400;
   margin-bottom: 10px;
   transition: color 0.1s ease;
 }
@@ -404,7 +404,7 @@ input[type="checkbox"]:checked:hover::before {
   display: block;
 }
 
-.settings-version-label {
+.settings-bottom {
   margin-top: auto;
   font-size: 10px;
   color: #5a5a5a;

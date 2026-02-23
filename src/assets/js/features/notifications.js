@@ -244,8 +244,8 @@ export function showNotificationsMenu() {
     if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
         window.wavesUpdater.hideSuccess(true);
     }
-    if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-        window.SharePromoter.hideSharePrompt(true);
+    if (window.SharePromoter && typeof window.SharePromoter.hideWarningPrompt === 'function' && document.getElementById('warningPrompt')?.style.display === 'block') {
+        window.SharePromoter.hideWarningPrompt(true);
     }
     if (window.hideBookmarkPrompt && document.getElementById('bookmark-prompt')?.style.display === 'block') {
         window.hideBookmarkPrompt(true);

@@ -194,7 +194,11 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     on_demand_tls {
         ask http://127.0.0.1:3001/
+        burst 50
+        interval 1m
     }
+
+    acme_dns_resolvers 1.1.1.1 8.8.8.8
 }
 
 :443 {
@@ -206,6 +210,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+        issuer acme {
+            preferred_chains smallest
+        }
     }
 
     @websockets {
@@ -228,8 +235,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
         transport http {
             keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 256
+            keepalive_idle_conns 1024
+            keepalive_idle_conns_per_host 512
             dial_timeout 5s
         }
     }
@@ -279,7 +286,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
         X-Frame-Options "ALLOWALL"
         X-Content-Type-Options "nosniff"
         X-XSS-Protection "1; mode=block"

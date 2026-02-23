@@ -19,6 +19,12 @@ pub const SCRIPT_PART_1: &str = r##"<script>
         history.replaceState = function(s, t, u) { try { _r.call(this, s, t, u); } catch(e) {} };
     } catch(e) {}
 
+    try {
+        Object.defineProperty(window, 'devicePixelRatio', {
+            get: function() { return 1; }
+        });
+    } catch(e) {}
+
     window.__MOCHI_PREFIX__="/!!/";
     window.__MOCHI_TARGET__=""##;
 
@@ -33,31 +39,17 @@ pub const SCRIPT_PART_2: &str = r##"";
     } catch(e) {}
 
     const rewrite = (url) => {
-        if (!url || typeof url !== "string") return url;
-
-        const path = window.location.pathname;
-        if (path.startsWith("/b/s/") || path.startsWith("/b/u/")) {
-            return url;
-        }
-
-        if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith(window.__MOCHI_PREFIX__)) return url;
-        if (url.startsWith(window.__MOCHI_BASE__)) return url;
-        if (url.startsWith("https://cdn.jsdelivr.net") || url.startsWith("https://fastly.jsdelivr.net") || url.startsWith("https://gcore.jsdelivr.net") || url.startsWith("https://testing.jsdelivr.net")) return url;
+        if (!url) return url;
+        if (typeof url !== 'string') return url;
+        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("javascript:") || url.includes(window.__MOCHI_PREFIX__)) return url;
         if (url.startsWith("http")) return window.__MOCHI_BASE__ + url;
+        if (url.startsWith("//")) return window.__MOCHI_BASE__ + "https:" + url;
         
-        let base = window.__MOCHI_TARGET__;
         try {
-            const baseEl = document.querySelector('base[href]');
-            if (baseEl && baseEl.href) base = baseEl.href;
-        } catch(e) {}
-
-        try {
-            const resolved = new URL(url, base).href;
-            const rewritten = window.__MOCHI_BASE__ + resolved;
-            console.log("[mochi] rewrote", url, "to", rewritten);
-            return rewritten;
+            const resolved = new _U(url, document.baseURI).href;
+            if (resolved.includes(window.__MOCHI_PREFIX__)) return resolved;
+            return window.__MOCHI_BASE__ + resolved;
         } catch (e) {
-            console.error("[mochi] rewrite failed", url, e);
             return url;
         }
     };
@@ -95,6 +87,38 @@ pub const SCRIPT_PART_2: &str = r##"";
         return new originalWorker(rewrite(scriptURL), options)
     };
     
+    const hookProperty = (proto, prop) => {
+        try {
+            const desc = Object.getOwnPropertyDescriptor(proto, prop);
+            if (!desc || !desc.set) return;
+            const originalSet = desc.set;
+            Object.defineProperty(proto, prop, {
+                get: desc.get,
+                set: function(val) {
+                    return originalSet.call(this, typeof val === "string" ? rewrite(val) : val);
+                },
+                configurable: true,
+                enumerable: true
+            });
+        } catch(e) {}
+    };
+    hookProperty(HTMLIFrameElement.prototype, "src");
+    hookProperty(HTMLImageElement.prototype, "src");
+    hookProperty(HTMLScriptElement.prototype, "src");
+    hookProperty(HTMLSourceElement.prototype, "src");
+    hookProperty(HTMLMediaElement.prototype, "src");
+    hookProperty(HTMLEmbedElement.prototype, "src");
+    hookProperty(HTMLObjectElement.prototype, "data");
+    hookProperty(HTMLLinkElement.prototype, "href");
+
+    const originalSetAttr = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function(name, value) {
+        if (typeof value === "string" && (name === "src" || name === "href" || name === "poster" || name === "data" || name === "action")) {
+            value = rewrite(value);
+        }
+        return originalSetAttr.call(this, name, value);
+    };
+
     const downloadExts = [".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".exe", ".msi", ".apk", ".dmg", ".deb", ".rpm", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".iso", ".img", ".bin", ".msix", ".pkg", ".mp3", ".mp4", ".wav", ".flac", ".mkv", ".mov"];
     document.addEventListener("click", function(e) {
         if (e.defaultPrevented) return;
@@ -122,6 +146,27 @@ pub const SCRIPT_PART_2: &str = r##"";
                 base: window.__MOCHI_BASE__
             });
         } catch (e) {}
+    }
+
+    if (window.location.href.includes("vidsrc") && window.location.href.includes("/embed/tv")) {
+        const doAutoPlay = () => {
+            let attempts = 0;
+            const autoPlayTimer = setInterval(() => {
+                attempts++;
+                const activeEp = document.querySelector("#eps .ep_active");
+                if (activeEp) {
+                    activeEp.click();
+                    clearInterval(autoPlayTimer);
+                }
+                if (attempts > 50) clearInterval(autoPlayTimer);
+            }, 40);
+        };
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => setTimeout(doAutoPlay, 500));
+        } else {
+            setTimeout(doAutoPlay, 200);
+        }
     }
 
     window.dataLayer = [];

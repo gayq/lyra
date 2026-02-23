@@ -1,6 +1,6 @@
 import { dom } from '../ui/dom.js';
 import { BANGS, SEARCH_ENGINES } from '../core/config.js';
-import { showLoading, showBrowserView } from '../ui/ui.js';
+import { showBrowserView } from '../ui/ui.js';
 import { navigateIframeTo, updateHistoryUI } from '../core/iframe.js';
 
 function isBangQuery(query) { return query.trim().startsWith('!'); }
@@ -21,8 +21,8 @@ function executeBang(query) {
     const { bang, searchQuery } = parsed;
     const bangData = BANGS[bang];
     if (!bangData) return null;
-    return bangData.url.includes('{query}') 
-        ? bangData.url.replace('{query}', encodeURIComponent(searchQuery)) 
+    return bangData.url.includes('{query}')
+        ? bangData.url.replace('{query}', encodeURIComponent(searchQuery))
         : bangData.url;
 }
 
@@ -32,18 +32,18 @@ function generateSearchUrl(query) {
     const baseUrl = SEARCH_ENGINES[searchEngine] || SEARCH_ENGINES['duckduckgo'];
     if (!query) return searchEngine === 'duckduckgo' ? 'https://duckduckgo.com/?q=&ia=web' : baseUrl;
     if (/^[a-zA-Z]+:\/\//.test(query)) {
-        try { new URL(query); return query; } catch {}
+        try { new URL(query); return query; } catch { }
     }
     if (/^(localhost|(\d{1,3}\.){3}\d{1,3})(:\d+)?(\/.*)?$/i.test(query)) return `http://${query}`;
     if (!query.includes(' ')) {
         try {
             const urlWithHttps = new URL(`https://${query}`);
-            if (urlWithHttps.hostname.includes('.') && 
-                urlWithHttps.hostname.split('.').pop().length >= 2 && 
+            if (urlWithHttps.hostname.includes('.') &&
+                urlWithHttps.hostname.split('.').pop().length >= 2 &&
                 !/^\d+$/.test(urlWithHttps.hostname.split('.').pop())) {
                 return urlWithHttps.toString();
             }
-        } catch {}
+        } catch { }
     }
     const finalUrl = baseUrl + encodeURIComponent(query);
     return searchEngine === 'duckduckgo' ? `${finalUrl}&ia=web` : finalUrl;
@@ -65,16 +65,16 @@ export async function handleSearch(query, activeTab, gameName) {
     showBrowserView();
     activeTab.isUrlLoaded = true;
     const searchURL = executeBang(query) || generateSearchUrl(query);
-    const isGame = /jsdelivr|googleusercontent|githack|selenite|truffled|velara/.test(searchURL);
+    const isGame = /jsdelivr|googleusercontent|githack|selenite|truffled|velara|vidsrc-embed|vidsrc\.me/.test(searchURL);
     if (isGame) {
         let processedURL = searchURL;
-        if (!processedURL.split('/').pop().includes('.')) {
+        if (!processedURL.includes('?') && !processedURL.split('/').pop().includes('.')) {
             processedURL = processedURL.endsWith('/') ? processedURL + 'index.html' : processedURL + '/index.html';
         }
         navigateIframeTo(activeTab.iframe, '/!!/' + processedURL);
     } else {
-        const finalUrlToLoad = searchURL.includes('/assets/gs/') 
-            ? new URL(searchURL, window.location.origin).href 
+        const finalUrlToLoad = searchURL.includes('/assets/gs/')
+            ? new URL(searchURL, window.location.origin).href
             : await getUrl(searchURL);
         navigateIframeTo(activeTab.iframe, finalUrlToLoad);
     }

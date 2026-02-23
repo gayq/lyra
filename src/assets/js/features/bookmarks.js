@@ -239,8 +239,8 @@ const showBookmarkPrompt = () => {
     if (window.wavesUpdater && typeof window.wavesUpdater.hideSuccess === 'function' && document.getElementById('updateSuccess')?.style.display === 'block') {
         window.wavesUpdater.hideSuccess(true);
     }
-    if (window.SharePromoter && typeof window.SharePromoter.hideSharePrompt === 'function' && document.getElementById('sharePrompt')?.style.display === 'block') {
-        window.SharePromoter.hideSharePrompt(true);
+    if (window.SharePromoter && typeof window.SharePromoter.hideWarningPrompt === 'function' && document.getElementById('warningPrompt')?.style.display === 'block') {
+        window.SharePromoter.hideWarningPrompt(true);
     }
 
     dom.bookmarkPromptOverlay?.classList.add('show');
@@ -315,7 +315,7 @@ export function initializeBookmarks() {
         bookmarkPromptEl.innerHTML = `
             <div class="input-container">
                 <label>bookmark name</label>
-                <input type="text" id="bookmarkName" placeholder="my cool site" autocomplete="off">
+                <input type="text" id="bookmarkName" placeholder="my cool website" autocomplete="off">
                 <label style="margin-top:15px;">bookmark url</label>
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
