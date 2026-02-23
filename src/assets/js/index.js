@@ -208,7 +208,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeFall();
     initializeLoad();
     initializeGame();
-    initializeWatch();
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
