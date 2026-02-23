@@ -81,13 +81,6 @@
             });
         }
 
-        if ('mediaDevices' in navigator && 'enumerateDevices' in navigator.mediaDevices) {
-            navigator.mediaDevices.enumerateDevices = () => Promise.resolve([
-                { deviceId: 'default', kind: 'audioinput', label: '', groupId: 'default' },
-                { deviceId: 'default', kind: 'audiooutput', label: '', groupId: 'default' },
-                { deviceId: 'default', kind: 'videoinput', label: '', groupId: 'default' }
-            ]);
-        }
 
         const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
         HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
@@ -135,10 +128,6 @@
                 writable: false,
                 configurable: false
             });
-        }
-
-        if ('permissions' in navigator) {
-            navigator.permissions.query = () => Promise.resolve({ state: 'granted' });
         }
 
         const originalRTCPeerConnection = window.RTCPeerConnection;
