@@ -65,7 +65,7 @@ export async function handleSearch(query, activeTab, gameName) {
     showBrowserView();
     activeTab.isUrlLoaded = true;
     const searchURL = executeBang(query) || generateSearchUrl(query);
-    const isGame = /jsdelivr|googleusercontent|githack|selenite|truffled|velara|vidsrc-embed|vidsrc\.me/.test(searchURL);
+    const isGame = /jsdelivr|googleusercontent|githack|truffled|velara|vsembed|vidsrc\.me|gn-math\.dev/.test(searchURL);
     if (isGame) {
         let processedURL = searchURL;
         if (!processedURL.includes('?') && !processedURL.split('/').pop().includes('.')) {

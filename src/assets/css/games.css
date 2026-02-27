@@ -286,11 +286,3 @@ body.games-view .games-page {
   top: 50%;
   left: 50%;
 }
-
-.game-cover.no-cover::before {
-  transform: translate(-50%, -50%) rotate(45deg);
-}
-
-.game-cover.no-cover::after {
-  transform: translate(-50%, -50%) rotate(-45deg);
-}

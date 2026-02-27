@@ -198,7 +198,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 
 :443 {
-
     log {
         output file /var/log/caddy/access.log
         format json
@@ -206,6 +205,19 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+    }
+
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+        X-Frame-Options "ALLOWALL"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
+        +Alt-Svc 'h3=":443"; ma=2592000'
     }
 
     @websockets {
@@ -223,7 +235,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
-
         flush_interval -1
 
         transport http {
@@ -235,10 +246,13 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
-
         header_up X-Real-IP {remote_host}
-
         flush_interval -1
+
+        health_uri /health
+        health_interval 10s
+        health_timeout 2s
+        health_status 200
 
         transport http {
             keepalive 120s
@@ -250,9 +264,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     reverse_proxy 127.0.0.1:8923 {
-
         header_up X-Real-IP {remote_host}
-
+        
         transport http {
             keepalive 120s
             keepalive_idle_conns 512
@@ -263,28 +276,31 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
-             header_up X-Real-IP {remote_host}
-
+            header_up X-Real-IP {remote_host}
+            health_uri /health
+            health_interval 30s
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
-             header_up X-Real-IP {remote_host}
-
+            header_up X-Real-IP {remote_host}
+            health_uri /health
+            health_interval 30s
         }
     }
 
-    encode zstd gzip
-
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
-        X-Frame-Options "ALLOWALL"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Real-IP {remote_host}
+        
+        health_uri /api/version
+        health_interval 30s
+        
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 64
+        }
     }
 }
 

@@ -1,26 +1,46 @@
-import { appendFile, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
-
-const PORT = 3001;
-const NO = [
-  '.nip.io', '.sslip.io', '.securly.cloud', '.traefik.me',
-  '.myaddr.io', '.backname.io', '.tiktokv.us', '.localtest.me',
-  '.lvh.me', '.xip.io', '.nip.io.br', '.vcap.me',
-];
-
-const IPS = new Set(['127.0.0.1', 'localhost', '::1', 'unknown']);
+const LOG_DIR = process.cwd();
+const LOG_FILE = join(LOG_DIR, 'ban_log.jsonl');
+const STORAGE_FILE = join(LOG_DIR, 'approved_domains.json');
 const approvedDomains = new Map();
 const APPROVED_TTL = 24 * 60 * 60 * 1000;
+
+async function loadApprovedDomains() {
+  try {
+    const data = await Bun.file(STORAGE_FILE).json();
+    const now = Date.now();
+    for (const [domain, expiry] of Object.entries(data)) {
+      if (expiry > now) {
+        approvedDomains.set(domain, expiry);
+      }
+    }
+    console.log(`loaded ${approvedDomains.size} approved domains`);
+  } catch (err) {
+    console.log('no existing approved domains found or error loading');
+  }
+}
+
+async function saveApprovedDomains() {
+  try {
+    const data = Object.fromEntries(approvedDomains);
+    await Bun.write(STORAGE_FILE, JSON.stringify(data));
+  } catch (err) {
+    console.error(`failed to save approved domains: ${err.message}`);
+  }
+}
 
 function isApproved(domain) {
   const expiry = approvedDomains.get(domain);
   if (expiry && Date.now() < expiry) return true;
-  if (expiry) approvedDomains.delete(domain);
+  if (expiry) {
+    approvedDomains.delete(domain);
+    saveApprovedDomains();
+  }
   return false;
 }
 
 function approveDomain(domain) {
   approvedDomains.set(domain, Date.now() + APPROVED_TTL);
+  saveApprovedDomains();
 }
 
 const domainState = new Map();
@@ -98,20 +118,14 @@ function isInLockdown() {
   return Date.now() < lockdownUntil;
 }
 
-const LOG_DIR = process.cwd();
-const LOG_FILE = join(LOG_DIR, 'ban_log.jsonl');
+const PORT = 3001;
+const NO = [
+  '.nip.io', '.sslip.io', '.securly.cloud', '.traefik.me',
+  '.myaddr.io', '.backname.io', '.tiktokv.us', '.localtest.me',
+  '.lvh.me', '.xip.io', '.nip.io.br', '.vcap.me',
+];
 
-async function logAbuse(identifier, action, details) {
-  const entry = JSON.stringify({
-    t: new Date().toISOString(),
-    identifier,
-    action,
-    details,
-  }) + '\n';
-  try {
-    await appendFile(LOG_FILE, entry);
-  } catch { }
-}
+const IPS = new Set(['127.0.0.1', 'localhost', '::1', 'unknown']);
 
 async function cleanOldLogs() {
   try {
@@ -135,11 +149,11 @@ function isValidDomain(domain) {
 
 setInterval(() => {
   const now = Date.now();
-  
+
   for (const [d, expiry] of approvedDomains) {
     if (now > expiry) approvedDomains.delete(d);
   }
-  
+
   for (const [d, state] of domainState) {
     if (state.bannedUntil < now && (now - state.windowStart) > 2 * 60 * 60 * 1000) {
       domainState.delete(d);
@@ -149,6 +163,7 @@ setInterval(() => {
 
 setInterval(cleanOldLogs, 24 * 60 * 60_000);
 
+await loadApprovedDomains();
 console.log(`tls server listening on ${PORT}!!`);
 
 Bun.serve({
@@ -176,11 +191,11 @@ Bun.serve({
         if (NO.some(s => domain.endsWith(s))) {
           return new Response('no!!', { status: 410 });
         }
-        
+
         if (checkDomainRateLimit(domain)) {
           return new Response('domain rate limited', { status: 429 });
         }
-        
+
         approveDomain(domain);
         return new Response('yes!!', { status: 200 });
       }

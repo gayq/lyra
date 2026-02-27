@@ -9,6 +9,7 @@ use axum::{
     routing::any,
     Router,
 };
+use tower_http::compression::CompressionLayer;
 use bytes::Bytes;
 use constants::{MOCHI_PREFIX, SCRIPT_PART_1, SCRIPT_PART_2};
 use dashmap::DashMap;
@@ -94,9 +95,6 @@ async fn main() {
         .http2_keep_alive_interval(Duration::from_secs(15))
         .http2_keep_alive_timeout(Duration::from_secs(20))
         .pool_idle_timeout(Duration::from_secs(300))
-        .no_gzip()
-        .no_brotli()
-        .no_deflate()
         .build()
         .expect("failed to build asset client");
 
@@ -107,9 +105,6 @@ async fn main() {
         .pool_idle_timeout(Duration::from_secs(120))
         .pool_max_idle_per_host(1024)
         .tcp_nodelay(true)
-        .no_brotli()
-        .no_gzip()
-        .no_deflate()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .build()
@@ -144,6 +139,7 @@ async fn main() {
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        .layer(CompressionLayer::new())
         .with_state(state);
 
     let port = std::env::var("MOCHI_PORT").unwrap_or_else(|_| "4000".to_string());
@@ -245,23 +241,6 @@ async fn proxy_handler(
         || target_url_string.contains(".wasm") 
         || target_url_string.contains(".data")
         || target_url_string.contains(".mem");
-
-    let is_script_or_page = target_url_string.contains(".js") 
-        || target_url_string.contains(".html") 
-        || target_url_string.contains(".css");
-
-    let target_url_string = if target_url_string.contains("jsdelivr.net/gh/") {
-        target_url_string
-            .replace("cdn.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-            .replace("fastly.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-            .replace("gcore.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-            .replace("testing.jsdelivr.net/gh/", "raw.githubusercontent.com/")
-            .replacen("@", "/", 1)
-    } else if target_url_string.contains("raw.githubusercontent.com/") && is_script_or_page {
-        target_url_string
-    } else {
-        target_url_string
-    };
 
     if state.blocklist_matcher.is_match(&target_url_string) {
         let mut headers = HeaderMap::new();
@@ -448,13 +427,27 @@ async fn proxy_handler(
             let rw2 = rewrite_url.clone();
             let rw3 = rewrite_url.clone();
             let rw5 = rewrite_url.clone();
+            let rw6 = rewrite_url.clone();
+            let rw7 = rewrite_url.clone();
 
             let mut rewriter = HtmlRewriter::new(
                 Settings {
                     element_content_handlers: vec![
-                        element!("head", |el| {
+                        element!("head", move |el| {
                             let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_str, SCRIPT_PART_2);
                             let _ = el.prepend(&full_script, ContentType::Html);
+                            if base_url_str.contains("gn-math.dev") {
+                                let gnmath_inject = r#"<style>
+                                    .zone-header, #sidebarad1, #sidebarad2 { display: none !important; }
+                                    header { display: none !important; }
+                                    main { display: none !important; }
+                                    footer { display: none !important; }
+                                    #zoneViewer { display: flex !important; position: fixed; inset: 0; z-index: 9999; }
+                                    #zoneFrame { flex: 1; width: 100%; height: 100%; border: none; }
+                                    body { margin: 0; padding: 0; overflow: hidden; background: #000; }
+                                </style>"#;
+                                let _ = el.append(gnmath_inject, ContentType::Html);
+                            }
                             Ok(())
                         }),
                         element!("base[href]", move |el| {
@@ -477,10 +470,7 @@ async fn proxy_handler(
                                      }
                                  };
 
-                                 let final_href = proxy_href
-                                     .replace("fastly.jsdelivr.net", "cdn.jsdelivr.net")
-                                     .replace("gcore.jsdelivr.net", "cdn.jsdelivr.net")
-                                     .replace("testing.jsdelivr.net", "cdn.jsdelivr.net");
+                                 let final_href = proxy_href;
                                      
                                  let _ = el.set_attribute("href", &final_href);
                              }
@@ -519,6 +509,23 @@ async fn proxy_handler(
                             if let Some(val) = el.get_attribute("poster") {
                                 if let Some(rewritten) = rw5(&val) {
                                     let _ = el.set_attribute("poster", &rewritten);
+                                }
+                            }
+                            Ok(())
+                        }),
+                        element!("a[href], area[href]", move |el| {
+                            if let Some(val) = el.get_attribute("href") {
+                                if let Some(rewritten) = rw6(&val) {
+                                    let _ = el.set_attribute("href", &rewritten);
+                                }
+                            }
+                            Ok(())
+                        }),
+                        element!("iframe[src], embed[src], form[action]", move |el| {
+                            let attr = if el.tag_name() == "form" { "action" } else { "src" };
+                            if let Some(val) = el.get_attribute(attr) {
+                                if let Some(rewritten) = rw7(&val) {
+                                    let _ = el.set_attribute(attr, &rewritten);
                                 }
                             }
                             Ok(())

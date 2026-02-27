@@ -34,9 +34,6 @@ export function initializeLayout() {
         <a href="https://discord.gg/dJvdkPRheV" target="_blank" id="discord-btn" class="icon-btn">
             <i class="fa-brands fa-discord"></i>
         </a>
-        <a href="#" id="watch-btn" class="icon-btn">
-            <i class="fa-solid fa-tv-retro"></i>
-        </a>
         <a href="#" id="choi" class="icon-btn">
             <i class="fa-solid fa-gamepad-modern"></i>
         </a>

@@ -19,7 +19,7 @@ url = "2.5"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 bytes = "1.5"
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.5", features = ["compression-full", "cors"] }
 futures = "0.3"
 dashmap = "6"
 uuid = { version = "1.8", features = ["v4"] }

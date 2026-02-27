@@ -730,9 +730,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     <div id="about-content" class="tab-content">
                         <div class="settings-item">
                             <label>credits</label>
-                            <p>gn-math - game source</p>
-                            <p>truffled - game source</p>
-                            <p>velara - game source</p>
+                             <p>gn-math - game source</p>
+                             <p>truffled - game source</p>
+                             <p>velara - game source</p>
                             <p>bog - ports for hollow knight, re:run, and touhou mother</p>
                             <p>titanium network - ultraviolet</p>
                             <p>mercury workshop - scramjet, epxoy, and libcurl</p>

@@ -54,11 +54,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   xPoweredBy: false,
   frameguard: false,
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  }
+  hsts: false
 }));
 
 app.use((req, res, next) => {
@@ -166,10 +162,12 @@ if (NODE_ENV === 'production') {
     const accept = req.headers['accept-encoding'] || '';
     for (const { ext, encoding } of ENCODING_MAP) {
       if (!accept.includes(encoding)) continue;
+
       const candidates = [
         path.join(srcPath, req.path + ext),
         path.join(publicPath, req.path + ext)
       ];
+
       for (const filePath of candidates) {
         if (fs.existsSync(filePath)) {
           const fileExt = path.extname(req.path);
@@ -238,8 +236,8 @@ app.get("/api/notifications", (_req, res) => {
   res.json(cachedNotifications);
 });
 
-app.get("/", (_req, res) => { 
-  res.status(404).sendFile(path.join(srcPath, "index.html")); 
+app.get("/", (_req, res) => {
+  res.status(404).sendFile(path.join(srcPath, "index.html"));
 });
 
 app.use((_req, res) => {

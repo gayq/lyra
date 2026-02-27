@@ -17,6 +17,22 @@ pub const SCRIPT_PART_1: &str = r##"<script>
         const _r = history.replaceState;
         history.pushState = function(s, t, u) { try { _p.call(this, s, t, u); } catch(e) {} };
         history.replaceState = function(s, t, u) { try { _r.call(this, s, t, u); } catch(e) {} };
+
+        const _ae = window.addEventListener;
+        window.addEventListener = function(t, l, o) {
+            if (t === 'beforeunload') return;
+            return _ae.call(this, t, l, o);
+        };
+        const _re = window.removeEventListener;
+        window.removeEventListener = function(t, l, o) {
+            if (t === 'beforeunload') return;
+            return _re.call(this, t, l, o);
+        };
+        Object.defineProperty(window, 'onbeforeunload', {
+            get: function() { return null; },
+            set: function() { },
+            configurable: true
+        });
     } catch(e) {}
 
     try {

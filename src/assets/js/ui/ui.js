@@ -184,17 +184,6 @@ export function showBrowserView() {
     }
   }
 
-  const watchPage = document.getElementById('watch-page');
-  if (watchPage && document.body.classList.contains('watch-view')) {
-    const watchGrid = watchPage.querySelector('.watch-grid');
-    if (watchGrid) {
-      watchGrid.innerHTML = '';
-    }
-    const watchSearchInput = watchPage.querySelector('#watchSearchInput');
-    if (watchSearchInput) {
-      watchSearchInput.value = '';
-    }
-  }
 }
 
 export function showHomeView() {

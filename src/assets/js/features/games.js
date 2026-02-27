@@ -19,8 +19,7 @@ export function initializeGame() {
 
     gnMath: {
       zones: "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
-      covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main",
-      html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
+      covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main"
     },
     truffled: {
       games: "/!!/https://truffled.lol/js/json/g.json",
@@ -376,41 +375,41 @@ export function initializeGame() {
             return saveToCache(allGames);
           });
       } else if (source === 'velara') {
-  gameDataPromise = fetch(SOURCE_CONFIG.velara.games)
-    .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
-    .then(data => {
-      allGames = data
-        .filter(g => 
-          g && 
-          g.title && 
-          g.title !== '!!DMCA' && 
-          g.title !== '!!Game Request' &&
-          !(g.location && g.location.includes('astra'))
-        )
-        .map(game => {
-          let finalUrl = game.location;
-          if (finalUrl && !finalUrl.startsWith('http')) {
-            finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
-          }
+        gameDataPromise = fetch(SOURCE_CONFIG.velara.games)
+          .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+          .then(data => {
+            allGames = data
+              .filter(g =>
+                g &&
+                g.title &&
+                g.title !== '!!DMCA' &&
+                g.title !== '!!Game Request' &&
+                !(g.location && g.location.includes('astra'))
+              )
+              .map(game => {
+                let finalUrl = game.location;
+                if (finalUrl && !finalUrl.startsWith('http')) {
+                  finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith('/') ? '' : '/') + finalUrl;
+                }
 
-          return {
-            id: game.title,
-            name: game.title,
-            coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}`,
-            gameUrl: finalUrl,
-            isExternal: !game.location && !!game.grdmca,
-            featured: false
-          };
-        })
-        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+                return {
+                  id: game.title,
+                  name: game.title,
+                  coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}`,
+                  gameUrl: finalUrl,
+                  isExternal: !game.location && !!game.grdmca,
+                  featured: false
+                };
+              })
+              .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-      allGames.forEach(g => { 
-        g._nameLc = (g.name || "").toLowerCase(); 
-        g._authorLc = (g.author || '').toLowerCase(); 
-      });
-      return saveToCache(allGames);
-    });
-} else {
+            allGames.forEach(g => {
+              g._nameLc = (g.name || "").toLowerCase();
+              g._authorLc = (g.author || '').toLowerCase();
+            });
+            return saveToCache(allGames);
+          });
+      } else {
         gameDataPromise = fetch(SOURCE_CONFIG.gnMath.zones)
           .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
           .then(data => {
@@ -421,7 +420,7 @@ export function initializeGame() {
                 name: zone.name,
                 author: zone.author,
                 coverUrl: `/!!/${zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers)}`,
-                gameUrl: isExternal ? zone.url : zone.url.replace('{HTML_URL}', SOURCE_CONFIG.gnMath.html),
+                gameUrl: isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`,
                 isExternal: isExternal,
                 featured: zone.featured || false
               };
