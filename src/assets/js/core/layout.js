@@ -184,7 +184,7 @@ export function initializeFall() {
         '/assets/images/peaks/chii.png',
         '/assets/images/peaks/pochi.png'
     ];
-    const SPAWN_RATE = 500;
+    const SPAWN_RATE = 400;
 
     try {
         if (!document.getElementById('fall-styles')) {
@@ -275,8 +275,8 @@ export function initializeFall() {
             img.src = preloadedBlobUrls[Math.floor(Math.random() * preloadedBlobUrls.length)];
             img.className = 'falling';
 
-            const duration = Math.random() * 10 + 15;
-            const spreadWidth = 800;
+            const duration = Math.random() * 5 + 5;
+            const spreadWidth = 900;
             const driftX = (Math.random() - 0.5) * spreadWidth;
             const rotationEnd = (Math.random() - 0.5) * 720;
 
