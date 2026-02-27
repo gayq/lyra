@@ -25,7 +25,7 @@ const CONFIG = {
     },
     filesToRemove: [
         'assets/js/core/register.js', 'assets/js/core/load.js', 'assets/js/features/settings.js',
-        'assets/js/features/games.js', 'assets/js/features/shortcuts.js', 'assets/js/ads.js', 
+        'assets/js/features/games.js', 'assets/js/features/shortcuts.js', 'assets/js/ads.js', 'assets/js/features/toast.js',
         'assets/css/settings.css', 'assets/css/games.css', 'assets/css/toast.css', 
         'assets/css/notifications.css', 'assets/css/bookmarks.css', '/assets/css/tabs.css', '/assets/css/newtab.css', 
         '/assets/css/cloudsync.css', 'assets/css/watch.css'
