@@ -2,12 +2,12 @@
 
 echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
 echo ""
-echo "type 'ok' to continue or 'cancel' to abort."
+echo "type 'oki' to continue or 'cancel' to abort."
 
 while true; do
     read -p "> " user_input
     case "$user_input" in
-        ok)
+        oki)
             echo "starting setup..."
             break
             ;;
@@ -16,7 +16,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo "please type 'ok' or 'cancel'."
+            echo "please type 'oki' or 'cancel'."
             ;;
     esac
 done
@@ -198,6 +198,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 
 :443 {
+
     log {
         output file /var/log/caddy/access.log
         format json
@@ -205,19 +206,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
-    }
-
-    encode zstd gzip
-
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
-        X-Frame-Options "ALLOWALL"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
-        +Alt-Svc 'h3=":443"; ma=2592000'
     }
 
     @websockets {
@@ -235,6 +223,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
+
         flush_interval -1
 
         transport http {
@@ -246,13 +235,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
-        header_up X-Real-IP {remote_host}
-        flush_interval -1
 
-        health_uri /health
-        health_interval 10s
-        health_timeout 2s
-        health_status 200
+        header_up X-Real-IP {remote_host}
+
+        flush_interval -1
 
         transport http {
             keepalive 120s
@@ -264,8 +250,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     reverse_proxy 127.0.0.1:8923 {
+
         header_up X-Real-IP {remote_host}
-        
+
         transport http {
             keepalive 120s
             keepalive_idle_conns 512
@@ -276,31 +263,28 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
-            header_up X-Real-IP {remote_host}
-            health_uri /health
-            health_interval 30s
+             header_up X-Real-IP {remote_host}
+
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
-            header_up X-Real-IP {remote_host}
-            health_uri /health
-            health_interval 30s
+             header_up X-Real-IP {remote_host}
+
         }
     }
 
-    reverse_proxy 127.0.0.1:3000 {
-        header_up X-Real-IP {remote_host}
-        
-        health_uri /api/version
-        health_interval 30s
-        
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 64
-        }
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+        X-Frame-Options "ALLOWALL"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
     }
 }
 
