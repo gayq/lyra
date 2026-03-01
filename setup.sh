@@ -236,12 +236,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
         flush_interval -1
-
-        health_uri /api/stuff
-        health_interval 10s
-        health_timeout 30s
-        health_status 200
-
         transport http {
             keepalive 120s
             keepalive_idle_conns 4096
@@ -254,27 +248,19 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
-
-            health_uri /api/stuff
-            health_interval 30s
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
-
-            health_uri /api/stuff
-            health_interval 30s
         }
     }
 
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Real-IP {remote_host}
-
         health_uri /api/stuff
         health_interval 30s
-        
         transport http {
             keepalive 120s
             keepalive_idle_conns 4096
