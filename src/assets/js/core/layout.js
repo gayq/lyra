@@ -184,7 +184,7 @@ export function initializeFall() {
         '/assets/images/peaks/chii.png',
         '/assets/images/peaks/pochi.png'
     ];
-    const SPAWN_RATE = 400;
+    const SPAWN_RATE = 300;
 
     try {
         if (!document.getElementById('fall-styles')) {
