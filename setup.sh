@@ -173,99 +173,49 @@ sudo systemctl daemon-reload
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
-
     servers {
         protocols h1 h2 h3
     }
-
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
 }
 
 :443 {
-    log {
-        output file /var/log/caddy/access.log
-        format json
-    }
-    
     tls {
         on_demand
     }
 
     encode zstd gzip
 
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
-        X-Frame-Options "ALLOWALL"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
-        +Alt-Svc 'h3=":443"; ma=2592000'
-    }
-
-    @websockets {
-        path /w/*
-        header Connection *Upgrade*
-        header Upgrade websocket
-    }
-
-    @origin_mismatch {
-        path /w/*
-        header Origin *
-        expression !{header.Origin}.startsWith("https://" + {host})
-    }
-    abort @origin_mismatch
-
-    reverse_proxy @websockets 127.0.0.1:8080 {
+    reverse_proxy /w/* 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         flush_interval -1
-
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
-            dial_timeout 5s
-            read_buffer 65536
-            write_buffer 65536
-        }
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
-        flush_interval -1
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
+        health_uri /
+        health_interval 10s
     }
     
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
+            health_uri /
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
+            health_uri /
         }
     }
 
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Real-IP {remote_host}
-        health_uri /api/stuff
-        health_interval 30s
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
-        }
+        health_uri /
     }
 }
 
