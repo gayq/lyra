@@ -21,7 +21,7 @@ use reqwest::{redirect::Policy, Client};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_tungstenite::{connect_async, tungstenite::{handshake::client::generate_key, protocol::Message as TungsteniteMessage}};
@@ -66,6 +66,53 @@ const CDN_DOMAINS: &[&str] = &[
     "cdn.cloudflare.com",
     "ajax.googleapis.com",
 ];
+
+async fn disk_cache_cleanup_task(max_dir_size_bytes: u64, max_age_secs: u64) {
+    let cache_dir = "./cache";
+    
+    loop {
+        tokio::time::sleep(Duration::from_secs(3600)).await;
+
+        let mut entries = match fs::read_dir(cache_dir).await {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("failed to read cache for cleanup: {}", e);
+                continue;
+            }
+        };
+
+        let mut files = Vec::new();
+        let mut total_size = 0u64;
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(metadata) = entry.metadata().await {
+                if metadata.is_file() {
+                    let size = metadata.len();
+                    let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                    files.push((entry.path(), size, modified));
+                    total_size += size;
+                }
+            }
+        }
+
+        files.sort_by_key(|&(_, _, modified)| modified);
+
+        let now = SystemTime::now();
+
+        for (path, size, modified) in files {
+            let age_secs = now.duration_since(modified).unwrap_or(Duration::from_secs(0)).as_secs();
+
+            if age_secs > max_age_secs || total_size > max_dir_size_bytes {
+                if fs::remove_file(&path).await.is_ok() {
+                    total_size = total_size.saturating_sub(size);
+                    tracing::debug!("deleted old cache: {:?}", path);
+                }
+            } else if total_size <= max_dir_size_bytes {
+                break;
+            }
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -146,6 +193,9 @@ async fn main() {
     let port = port.parse::<u16>().unwrap_or(4000);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("listening on {}!!", addr);
+    let max_disk_cache = 20 * 1024 * 1024 * 1024;
+    let max_file_age = 24 * 60 * 60;
+    tokio::spawn(disk_cache_cleanup_task(max_disk_cache, max_file_age));
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
@@ -629,8 +679,14 @@ async fn proxy_handler(
 }
 
 fn get_cache_path(url: &str) -> String {
+    let cache_key = if is_likely_static_asset(url) {
+        url.split('?').next().unwrap_or(url)
+    } else {
+        url
+    };
+    
     let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
+    cache_key.hash(&mut hasher);
     let hash = hasher.finish();
     format!("./cache/{:x}.bin", hash)
 }
