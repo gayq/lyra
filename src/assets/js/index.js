@@ -241,7 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const SOURCE_CONFIG = {
         gnMath: {
             zones: "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
-            html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
+            html: "https://cdn.jsdelivr.net/gh/gn-math/html@main",
+            covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main"
         },
         truffled: {
             games: "https://truffled.lol/js/json/g.json",
@@ -264,10 +265,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
                 .then(data => (data.games || []).map(game => {
                     let finalUrl = game.url.startsWith('http') ? game.url : SOURCE_CONFIG.truffled.assets + (game.url.startsWith('/') ? '' : '/') + game.url;
+                    let finalCover = game.thumbnail ? (game.thumbnail.startsWith('http') ? game.thumbnail : SOURCE_CONFIG.truffled.assets + (game.thumbnail.startsWith('/') ? '' : '/') + game.thumbnail) : '';
                     return {
                         name: game.name,
                         gameUrl: finalUrl,
-                        isExternal: false
+                        isExternal: false,
+                        coverUrl: finalCover ? `/!!/${finalCover}` : null
                     };
                 }));
         } else if (source === 'velara') {
@@ -283,7 +286,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         return {
                             name: game.name,
                             gameUrl: finalUrl,
-                            isExternal: !game.link && !!game.grdmca
+                            isExternal: !game.link && !!game.grdmca,
+                            coverUrl: game.image ? `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}` : null
                         };
                     }));
         } else {
@@ -299,7 +303,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             id: zone.id,
                             name: zone.name,
                             gameUrl: isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`,
-                            isExternal: isExternal
+                            isExternal: isExternal,
+                            coverUrl: zone.cover ? `/!!/${zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers)}` : null
                         };
                     })
                     .filter(game => !game.name.startsWith('[!]') && !game.name.startsWith('Chat Bot'))
@@ -879,11 +884,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!item) return;
 
                 const mode = newTabInputEl.dataset.mode;
-                const { action, url, title, tabId } = item.dataset;
+                const { action, url, title, tabId, icon } = item.dataset;
 
                 if (mode === 'newTab') {
-                    if (action === 'search' || action === 'game') {
+                    if (action === 'search') {
                         handleNewTabAction(url, title);
+                    } else if (action === 'game') {
+                        handleNewTabAction(url, title, true, icon);
                     }
                 } else if (mode === 'splitSelect') {
                     if (action === 'select-tab' && tabId) {
@@ -945,9 +952,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleNewTabAction(url, title) {
+    function handleNewTabAction(url, title, isGame = false, icon = null) {
         if (url) {
-            addTab(url, title);
+            const tab = addTab(url, title);
+            if (isGame && tab) {
+                tab.fixedTitle = true;
+                tab.title = title;
+                if (icon) {
+                    tab.fixedFavicon = true;
+                    tab.favicon = icon;
+                }
+                if (window.WavesApp.renderTabs) {
+                    window.WavesApp.renderTabs();
+                }
+            }
         }
         hideTabSelectionModal();
     }
@@ -985,6 +1003,9 @@ document.addEventListener('DOMContentLoaded', () => {
             gameEl.dataset.action = 'game';
             gameEl.dataset.url = game.gameUrl;
             gameEl.dataset.title = game.name;
+            if (game.coverUrl) {
+                gameEl.dataset.icon = game.coverUrl;
+            }
             newTabResultsContainer.appendChild(gameEl);
         });
     }

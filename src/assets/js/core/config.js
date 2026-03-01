@@ -1,6 +1,6 @@
 export const DEFAULT_BOOKMARKS = [
     { name: 'youtube', url: 'https://www.youtube.com/?themeRefresh=1' },
-    { name: 'movies', url: 'https://www.cineby.gd/' },
+    { name: 'movies', url: 'https://www.bitcine.app/' },
     { name: 'soundcloud', url: 'https://soundcloud.com/' },
     { name: 'tiktok', url: 'https://www.tiktok.com/' },
     { name: 'discord', url: 'https://discord.com/login/' },
