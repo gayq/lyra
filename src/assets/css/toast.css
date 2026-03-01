@@ -18,9 +18,7 @@
   color: white;
   font-weight: 400;
   border: 1.5px solid #ffffff1e;
-  transition:
-    transform 0.3s ease,
-    opacity 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
   display: flex;
   align-items: center;
   overflow: hidden;
