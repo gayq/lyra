@@ -348,7 +348,7 @@ module.exports = {
     {
       name: "waves",
       script: "./index.mjs",
-      exec_mode: "cluster",
+      exec_mode: "fork",
       instances: "max",
       autorestart: true,
       max_memory_restart: "4G",
