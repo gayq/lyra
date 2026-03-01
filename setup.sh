@@ -195,27 +195,22 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
-        health_uri /
-        health_interval 10s
     }
     
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
-            health_uri /
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
-            health_uri /
         }
     }
 
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Real-IP {remote_host}
-        health_uri /
     }
 }
 
