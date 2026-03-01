@@ -731,9 +731,12 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     try {
       if (realUrl && realUrl.startsWith('http')) {
-        const isCacheable = request.method === 'GET';
+        const dest = request.destination;
+        const accept = request.headers.get('Accept') || '';
+        const isDocument = dest === 'document' || dest === 'iframe' || (!dest && accept.includes('text/html'));
+        const isCacheableAsset = request.method === 'GET' && !isDocument;
 
-        if (isCacheable) {
+        if (isCacheableAsset) {
           try {
             const mochiResponse = await fetchThroughMochi(request, realUrl);
             if (mochiResponse && mochiResponse.ok) {
