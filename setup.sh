@@ -16,7 +16,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo "please type 'ok' or 'cancel'."
+            echo "please type 'oki' or 'cancel'."
             ;;
     esac
 done
