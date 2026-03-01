@@ -239,7 +239,6 @@ document.addEventListener('DOMContentLoaded', () => {
     newTabInputEl.autocomplete = 'off';
 
     const SOURCE_CONFIG = {
-
         gnMath: {
             zones: "https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
             html: "https://cdn.jsdelivr.net/gh/gn-math/html@main"
@@ -299,7 +298,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         return {
                             id: zone.id,
                             name: zone.name,
-                            gameUrl: isExternal ? zone.url : zone.url.replace("{HTML_URL}", SOURCE_CONFIG.gnMath.html),
+                            gameUrl: isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`,
                             isExternal: isExternal
                         };
                     })
@@ -632,7 +631,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (newTitle && newTitle.trim() !== '') {
                             newTab.title = newTitle;
                         } else {
-                            newTab.title = newTab.iframe.contentWindow.location.hostname || 'Untitled';
+                            newTab.title = newTab.iframe.contentWindow.location.hostname || 'untitled';
                         }
                     }
 

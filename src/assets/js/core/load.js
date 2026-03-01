@@ -149,11 +149,11 @@ export function attachSearchLight(searchBar) {
 }
 
 function setupScrollShadow() {
-  const wrapper = document.querySelector('.wrapper');
+  const yay = document.querySelector('.yay');
   const threshold = 48;
   let raf = null;
 
-  const readScrollTop = () => Math.max(window.scrollY || 0, wrapper?.scrollTop || 0);
+  const readScrollTop = () => Math.max(window.scrollY || 0, yay?.scrollTop || 0);
 
   const updateShadow = () => {
     raf = null;
@@ -169,7 +169,7 @@ function setupScrollShadow() {
   };
 
   window.addEventListener('scroll', requestUpdate, { passive: true });
-  wrapper?.addEventListener('scroll', requestUpdate, { passive: true });
+  yay?.addEventListener('scroll', requestUpdate, { passive: true });
 
   requestUpdate();
 }
@@ -191,7 +191,7 @@ export function initializeLoad() {
         this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
             <label>successfully updated ฅ^>⩊<^ฅ</label>
-            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times</p>
+            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times.</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }
@@ -261,10 +261,9 @@ export function initializeLoad() {
     },
     async checkVersion() {
       try {
-        const res = await fetch("/api/version", { cache: "no-store" });
+        const res = await fetch("/api/stuff", { cache: "no-store" });
         if (!res.ok) return;
         const { version } = await res.json();
-        this.versionEl && (this.versionEl.textContent = "Version " + version);
         const prev = localStorage.getItem("wavesVersion");
         localStorage.setItem("wavesVersion", version);
         if (prev && version !== prev) await this.performUpdate();
@@ -274,6 +273,7 @@ export function initializeLoad() {
     }
   };
   window.wavesUpdater.init();
+  window.wavesUpdater.checkVersion();
 
   window.SharePromoter = {
     shareEl: null,
@@ -289,7 +289,7 @@ export function initializeLoad() {
         this.shareEl.innerHTML = `
             <i class="fa-solid fa-triangle-exclamation" style="font-size:40px;margin-bottom:15px;"></i>
             <label>warning ( •̯́ ^ •̯̀)</label>
-            <p>please close any new tabs that open up randomly; those are ads!</p>
+            <p>please close any new tabs that open up randomly; those are ads.</p>
             <button class="prompt-close-btn" id="warningPromptClose">okay!!</button>
           `;
       }
@@ -353,12 +353,6 @@ export function initializeLoad() {
       }, { once: true });
     }
   };
-
-  const phrasesElement = document.querySelector(".phrases");
-  const phrases = ["hihihi", "<33", "uhh....", "xin chào!"];
-  if (phrasesElement) {
-    phrasesElement.textContent = phrases[Math.floor(Math.random() * phrases.length)];
-  }
 
   const searchInput = document.getElementById('searchInput');
   const placeholders = [

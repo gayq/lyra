@@ -72,7 +72,7 @@ export class CloudSync {
         this.hookStorage();
 
         if (this.isAuthenticated) {
-            setInterval(() => this.checkForChanges(), 1000);
+            setInterval(() => this.checkForChanges(), 5000);
         }
     }
 
@@ -714,13 +714,13 @@ export class CloudSync {
                 this.syncMeta.last_synced = new Date().toISOString().replace('T', ' ').slice(0, 19);
                 this.saveMeta();
 
-                this.updateStatus('synced', 'success');
+                this.updateStatus('synced!', 'success');
             } else {
-                this.updateStatus('sync failed', 'error');
+                this.updateStatus('sync failed!', 'error');
             }
         } catch (err) {
-            console.error("sync error", err);
-            this.updateStatus('connection error', 'error');
+            console.error("sync error!", err);
+            this.updateStatus('connection error!', 'error');
         } finally {
             this.isSyncing = false;
         }
@@ -742,13 +742,13 @@ export class CloudSync {
             const res = await fetch('/api/sync/download');
 
             if (res.status === 429) {
-                if (!silent) this.updateStatus('too many requests', 'error');
+                if (!silent) this.updateStatus('too many requests!', 'error');
                 console.warn("[cloudsync] too many requests, retrying later");
                 return;
             }
 
             if (!res.ok && res.status !== 404) {
-                if (!silent) this.updateStatus('server error', 'error');
+                if (!silent) this.updateStatus('server error!', 'error');
                 return;
             }
 
@@ -772,11 +772,11 @@ export class CloudSync {
                     }
                 }
             } else if (res.status === 404) {
-                if (!silent) this.updateStatus('no data found', 'success');
+                if (!silent) this.updateStatus('no data found!', 'success');
             }
         } catch (err) {
             console.error("restore error!", err);
-            if (!silent) this.updateStatus('restore failed', 'error');
+            if (!silent) this.updateStatus('restore failed!', 'error');
         } finally {
             this.isRestoring = false;
             if (restoreToast && !reloading) {

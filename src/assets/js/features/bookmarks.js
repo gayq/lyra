@@ -292,7 +292,7 @@ export function initializeBookmarks() {
         `;
 
         const iframeContainer = document.getElementById('iframe-container');
-        const contentWrapper = document.querySelector('.wrapper');
+        const contentWrapper = document.querySelector('.yay');
         if (contentWrapper && iframeContainer) {
             contentWrapper.insertBefore(bookmarksContainer, iframeContainer);
         } else if (contentWrapper) {

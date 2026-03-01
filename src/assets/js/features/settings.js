@@ -627,7 +627,6 @@ document.addEventListener('DOMContentLoaded', function () {
         const appSettings = {
             backend: localStorage.getItem('backend') || 'scramjet',
             transport: localStorage.getItem('transport') || 'libcurl',
-            customWispUrl: localStorage.getItem('customWispUrl'),
             cloakLink: localStorage.getItem('cloakLink') || 'none',
             decoy: localStorage.getItem('decoy') || 'default',
             searchEngine: localStorage.getItem('searchEngine') || 'duckduckgo',
@@ -719,12 +718,6 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <div class="transport-options"></div>
                             </div>
                         </div>
-                        <div class="settings-item">
-                            <label>wisp server</label>
-                            <p>enable support for websockets.</p>
-                            <input type="text" id="wisp-server" placeholder="wisp server url here" autocomplete="off">
-                            <button id="save-wisp-url">save</button>
-                        </div>
                     </div>
 
                     <div id="about-content" class="tab-content">
@@ -754,9 +747,7 @@ document.addEventListener('DOMContentLoaded', function () {
         `;
 
         const closeSettingsBtn = document.getElementById('close-settings-menu');
-        const saveWispBtn = document.getElementById('save-wisp-url');
         const preventClosingToggle = document.getElementById('prevent-closing-toggle');
-        const wispInput = document.querySelector("#wisp-server");
         const exportDataBtn = document.getElementById('export-data-btn');
         const importDataBtn = document.getElementById('import-data-btn');
         const backendSelector = document.querySelector('.backend-selector');
@@ -777,15 +768,12 @@ document.addEventListener('DOMContentLoaded', function () {
         const gameSourceSelector = document.querySelector('.game-source-selector');
         const gameSourceSelected = gameSourceSelector.querySelector('.game-source-selected');
         const gameSourceOptions = gameSourceSelector.querySelector('.game-source-options');
-        const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
         const allBackendOptions = ['ultraviolet', 'scramjet'];
         const allTransportOptions = ['epoxy', 'libcurl'];
         const allSearchEngineOptions = ['google', 'bing', 'duckduckgo', 'startpage', 'brave', 'mojeek', 'swisscows'];
         const allDecoyOptions = ['default', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
         const allGameSourceOptions = ['gn-math', 'truffled', 'velara'];
-
-        let currentWispUrl = appSettings.customWispUrl || defaultWispUrl;
 
         window.toggleSettingsMenu = function () {
             if (isToggling) return;
@@ -836,39 +824,8 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        function isValidUrl(url) {
-            try {
-                const p = new URL(url);
-                return (p.protocol === "wss:" || p.protocol === "ws:") && url.endsWith('/');
-            } catch (_) {
-                return false;
-            }
-        }
-
         function runMenuCloak() {
             executeTabCloak(appSettings.cloakLink, appSettings.decoy);
-        }
-
-        function updateWispServerUrl(url) {
-            if (isValidUrl(url)) {
-                if (url !== currentWispUrl) {
-                    currentWispUrl = url;
-                    appSettings.customWispUrl = url;
-                    localStorage.setItem('customWispUrl', url);
-                    window.showToast('success', 'wisp server updated!');
-                    document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
-                        detail: currentWispUrl
-                    }));
-                }
-            } else {
-                currentWispUrl = defaultWispUrl;
-                appSettings.customWispUrl = defaultWispUrl;
-                localStorage.setItem('customWispUrl', defaultWispUrl);
-                window.showToast('error', 'invalid wisp server url!');
-                document.dispatchEvent(new CustomEvent('wispUrlUpdated', {
-                    detail: currentWispUrl
-                }));
-            }
         }
 
         function closeAllSelectors() {
@@ -962,7 +919,6 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
 
-        wispInput.value = currentWispUrl;
         preventClosingToggle.checked = appSettings.preventClosing;
 
         createSelector('backend', backendSelected, backendOptions, allBackendOptions, appSettings.backend, 'backend');
@@ -973,7 +929,6 @@ document.addEventListener('DOMContentLoaded', function () {
         createSelector('game-source', gameSourceSelected, gameSourceOptions, allGameSourceOptions, appSettings.gameSource, 'gameSource');
 
         closeSettingsBtn.addEventListener('click', window.toggleSettingsMenu);
-        saveWispBtn.addEventListener('click', () => updateWispServerUrl(wispInput.value.trim()));
 
         document.addEventListener('decoyUpdated', (e) => applyInitialDecoy(e.detail));
 
@@ -1041,24 +996,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
     window.initializeSettingsMenu = initializeSettingsMenu;
 
-    (function updateVersionInfo() {
-        const applyVersion = (versionStr) => {
+    (function updateServerInfo() {
+        const applyText = (textStr) => {
             const stuffDiv = document.getElementById('stuff');
             if (stuffDiv) {
-                stuffDiv.textContent = versionStr;
+                stuffDiv.textContent = textStr;
             }
         };
 
-        fetch('/api/version', {
+        fetch('/api/stuff', {
             cache: 'no-store'
         })
             .then(res => res.ok ? res.json() : null)
             .then(data => {
-                const buildId = "__BUILD_ID__";
-                const fullStr = data && data.version ? `v${data.version} build ${buildId}` : `build ${buildId}`;
-                applyVersion(fullStr);
+                const location = data && data.location ? data.location : "unknown";
+                applyText(`server: ${location.toLowerCase()}`);
             })
-            .catch(() => applyVersion(`build __BUILD_ID__`));
+            .catch(() => applyText(`server: unknown`));
     })();
 
     document.addEventListener('click', e => {

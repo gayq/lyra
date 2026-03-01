@@ -10,7 +10,7 @@
   class WavesConnectionManager {
     constructor() {
       this.state = STATES.IDLE;
-      this.appConfig = { backend: 'scramjet', transport: 'libcurl', customWispUrl: null };
+      this.appConfig = { backend: 'scramjet', transport: 'libcurl' };
       this.bareMuxConnection = null;
       this.currentWispUrl = '';
       this.healthCheckInterval = null;
@@ -64,7 +64,6 @@
       try {
         this.appConfig.backend = localStorage.getItem("backend") || "scramjet";
         this.appConfig.transport = localStorage.getItem("transport") || "libcurl";
-        this.appConfig.customWispUrl = localStorage.getItem("customWispUrl");
       } catch (e) {
         this.updateStatus('Could not access localStorage. Using defaults.', 'error');
       }
@@ -127,7 +126,7 @@
         }
 
         const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
-        this.currentWispUrl = this.appConfig.customWispUrl || defaultWispUrl;
+        this.currentWispUrl = defaultWispUrl;
 
         const scope = { 'ultraviolet': "/b/u/hi/", 'scramjet': "/b/s/" }[this.appConfig.backend];
         if (!scope) throw new Error(`unknown backend: ${this.appConfig.backend}`);
@@ -224,10 +223,7 @@
         }
       });
       window.addEventListener('offline', () => this.updateStatus('network offline.', 'error'));
-
-      document.addEventListener("wispUrlUpdated", (e) => applyLiveChanges(async () => {
-        this.appConfig.customWispUrl = e.detail;
-      }));
+      
       document.addEventListener("newTransport", (e) => applyLiveChanges(async () => {
         this.appConfig.transport = e.detail;
       }));

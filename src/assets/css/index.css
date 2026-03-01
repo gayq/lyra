@@ -151,7 +151,7 @@ body.is-resizing .iframe {
 }
 
 .sidebar,
-.wrapper {
+.yay {
   flex-direction: column;
   height: 100vh;
   position: relative;
@@ -169,7 +169,7 @@ body.browser-view .footer {
   display: none !important;
 }
 
-.wrapper {
+.yay {
   display: flex;
   flex-grow: 1;
 }
@@ -377,7 +377,7 @@ body.browser-view #iframe-container {
   height: 100%;
 }
 
-body.browser-view .wrapper {
+body.browser-view .yay {
   margin-left: 0;
 }
 
@@ -760,14 +760,13 @@ body.browser-view .main-nav {
   z-index: 5;
 }
 
-.phrases {
+.title {
   color: #fff;
   display: inline-block;
-  font-size: 52px;
-  font-weight: 400;
+  font-family: "Sniglet";
+  font-size: 54px;
   margin-bottom: 7px;
   text-align: center;
-  transition: opacity 0.1s ease;
 }
 
 .search-bar {

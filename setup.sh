@@ -16,7 +16,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo "please type 'oki' or 'cancel'."
+            echo "please type 'ok' or 'cancel'."
             ;;
     esac
 done
@@ -24,7 +24,7 @@ done
 sudo ip link delete veth0-global 2>/dev/null
 sudo modprobe nf_conntrack
 sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io libjemalloc2
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -160,20 +160,6 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
-sudo docker pull ghcr.io/techarohq/anubis:latest
-
-if sudo docker ps -a | grep -q "anubis"; then
-    sudo docker stop anubis 2>/dev/null || true
-    sudo docker rm anubis 2>/dev/null || true
-fi
-
-sudo docker run -d --name anubis \
-    --network="host" \
-    --restart unless-stopped \
-    -e TARGET="http://127.0.0.1:3000" \
-    -e OG_PASSTHROUGH="true" \
-    ghcr.io/techarohq/anubis:latest
-
 bun run build
 
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
@@ -198,7 +184,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 
 :443 {
-
     log {
         output file /var/log/caddy/access.log
         format json
@@ -206,6 +191,19 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     
     tls {
         on_demand
+    }
+
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
+        X-Frame-Options "ALLOWALL"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
+        +Alt-Svc 'h3=":443"; ma=2592000'
     }
 
     @websockets {
@@ -223,68 +221,65 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy @websockets 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
-
         flush_interval -1
 
         transport http {
             keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 256
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
             dial_timeout 5s
+            read_buffer 65536
+            write_buffer 65536
         }
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
-
         header_up X-Real-IP {remote_host}
-
         flush_interval -1
 
+        health_uri /api/stuff
+        health_interval 10s
+        health_timeout 30s
+        health_status 200
+
         transport http {
             keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 64
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
             dial_timeout 5s
             response_header_timeout 60s
-        }
-    }
-
-    reverse_proxy 127.0.0.1:8923 {
-
-        header_up X-Real-IP {remote_host}
-
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 64
-            dial_timeout 5s
         }
     }
     
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
-             header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {remote_host}
 
+            health_uri /api/stuff
+            health_interval 30s
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:5000 {
-             header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {remote_host}
 
+            health_uri /api/stuff
+            health_interval 30s
         }
     }
 
-    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Real-IP {remote_host}
 
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
-        X-Frame-Options "ALLOWALL"
-        X-Content-Type-Options "nosniff"
-        X-XSS-Protection "1; mode=block"
-        Referrer-Policy "no-referrer"
-        Permissions-Policy "interest-cohort=(), payment=(), usb=(), geolocation=()"
+        health_uri /api/stuff
+        health_interval 30s
+        
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+        }
     }
 }
 
@@ -308,7 +303,7 @@ runtime = "multithread"
 stats_endpoint = "/stats"
 [wisp]
 allow_wsproxy = true
-buffer_size = 4096
+buffer_size = 65536
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
@@ -348,16 +343,16 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
-      max_memory_restart: "150M"
+      max_memory_restart: "256M"
     },
     {
       name: "waves",
       script: "./index.mjs",
-      exec_mode: "fork",
-      instances: 1,
+      exec_mode: "cluster",
+      instances: "max",
       autorestart: true,
-      max_memory_restart: "1G",
-      node_args: "--max-old-space-size=512 --turbo-fast-api-calls --no-warnings",
+      max_memory_restart: "4G",
+      node_args: "--max-old-space-size=4096 --turbo-fast-api-calls --no-warnings",
       env: {
         NODE_ENV: "production",
         PORT: "3000"
@@ -370,7 +365,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1, 
       autorestart: true,
-      max_memory_restart: "1G", 
+      max_memory_restart: "8G", 
       env: {
         RUST_LOG: "info",
         MOCHI_PORT: "4000"
@@ -384,7 +379,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1, 
       autorestart: true,
-      max_memory_restart: "512M",
+      max_memory_restart: "1G",
       env: {
         RUST_LOG: "info"
       }
@@ -398,7 +393,8 @@ module.exports = {
       autorestart: true,
       max_memory_restart: "8G",
       env: {
-        RUST_LOG: "off"
+        RUST_LOG: "off",
+        LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
       }
     }
   ]

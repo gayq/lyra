@@ -56,7 +56,7 @@ struct AppState {
 }
 
 const MAX_CACHE_SIZE_BYTES: usize = 150 * 1024 * 1024;
-const RAM_CACHE_LIMIT: usize = 2 * 1024 * 1024;
+const RAM_CACHE_LIMIT: usize = 100 * 1024 * 1024;
 const CDN_DOMAINS: &[&str] = &[
     "site-assets.fontawesome.com",
     "ka-f.fontawesome.com",
@@ -75,7 +75,7 @@ async fn main() {
 
     let _ = fs::create_dir_all("./cache").await;
     let cache = Cache::builder()
-        .max_capacity(512 * 1024 * 1024)
+        .max_capacity(8u64 * 1024 * 1024 * 1024)
         .weigher(|_key: &String, val: &Arc<CachedResponse>| -> u32 {
             (val.body.len() as u32).saturating_add(200)
         })
@@ -87,7 +87,7 @@ async fn main() {
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(100)
+        .pool_max_idle_per_host(2048)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -128,7 +128,7 @@ async fn main() {
         caching_inflight: DashMap::new(),
         coalesce: DashMap::new(),
         request_permit: Arc::new(Semaphore::new(10000)),
-        html_rewrite_permit: Arc::new(Semaphore::new(100)),
+        html_rewrite_permit: Arc::new(Semaphore::new(2048)),
     });
 
     let app = Router::new()
@@ -438,11 +438,11 @@ async fn proxy_handler(
                             let _ = el.prepend(&full_script, ContentType::Html);
                             if base_url_str.contains("gn-math.dev") {
                                 let gnmath_inject = r#"<style>
-                                    .zone-header, #sidebarad1, #sidebarad2 { display: none !important; }
+                                    .zone-header { display: none !important; }
                                     header { display: none !important; }
                                     main { display: none !important; }
                                     footer { display: none !important; }
-                                    #zoneViewer { display: flex !important; position: fixed; inset: 0; z-index: 9999; }
+                                    #zoneViewer { display: flex !important; position: fixed; inset: 0; z-index: 9999; background: #000; }
                                     #zoneFrame { flex: 1; width: 100%; height: 100%; border: none; }
                                     body { margin: 0; padding: 0; overflow: hidden; background: #000; }
                                 </style>"#;

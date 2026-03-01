@@ -2,14 +2,14 @@ import { showHomeView } from '../ui/ui.js';
 import { attachSearchLight } from '../core/load.js';
 
 export function initializeGame() {
-  const wrapper = document.querySelector('.wrapper');
+  const yay = document.querySelector('.yay');
   const mainContainer = document.querySelector('.main-container');
   const gameIcon = document.getElementById('choi');
   const brand = document.getElementById('brand');
   const brandingContainer = document.getElementById('branding-container');
   const overlay = document.getElementById('overlay');
 
-  if (!wrapper || !gameIcon) return;
+  if (!yay || !gameIcon) return;
 
   const iconEl = gameIcon.querySelector('i');
   const defaultIconClass = iconEl?.className || 'fa-solid fa-gamepad-modern';
@@ -56,7 +56,7 @@ export function initializeGame() {
     if (mainContainer) {
       mainContainer.insertAdjacentElement('afterend', gamesPage);
     } else {
-      wrapper.prepend(gamesPage);
+      yay.prepend(gamesPage);
     }
   }
 
@@ -68,10 +68,10 @@ export function initializeGame() {
 
   attachSearchLight(gamesSearchBar);
 
-  const scrollTarget = wrapper || window;
+  const scrollTarget = yay || window;
 
   scrollTarget.addEventListener('scroll', () => {
-    const currentScroll = wrapper ? wrapper.scrollTop : window.scrollY;
+    const currentScroll = yay ? yay.scrollTop : window.scrollY;
 
     if (currentScroll > 10) {
       gamesSearchBar.classList.add('is-sticky');
@@ -321,7 +321,7 @@ export function initializeGame() {
     gameGrid.style.display = 'grid';
     updateCountLabel(visibleCount);
 
-    if (wrapper) wrapper.scrollTop = 0;
+    if (yay) yay.scrollTop = 0;
   }
 
   function getGameData() {
@@ -481,8 +481,8 @@ export function initializeGame() {
     requestAnimationFrame(() => {
       gamesPage.classList.add('is-active');
 
-      if (wrapper) {
-        wrapper.scrollTop = savedScrollPosition;
+      if (yay) {
+        yay.scrollTop = savedScrollPosition;
       } else {
         window.scrollTo(0, savedScrollPosition);
       }
@@ -509,8 +509,8 @@ export function initializeGame() {
   function hideGamesPage() {
     if (!document.body.classList.contains('games-view')) return;
 
-    if (wrapper) {
-      savedScrollPosition = wrapper.scrollTop;
+    if (yay) {
+      savedScrollPosition = yay.scrollTop;
     } else {
       savedScrollPosition = window.scrollY || document.documentElement.scrollTop;
     }

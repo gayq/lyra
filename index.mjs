@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
 dotenv.config();
-
 import fs from "fs";
 import path from "path";
 import { createServer, request } from "http";
@@ -30,6 +29,16 @@ const apiLimiter = rateLimit({
 
 let cachedNotifications = [];
 let notificationError = null;
+let location = "unknown";
+
+fetch("https://get.geojs.io/v1/ip/geo.json")
+  .then(res => res.json())
+  .then(data => {
+    if (data && data.country_code && data.region) {
+      location = `${data.country_code}, ${data.region}`;
+    }
+  })
+  .catch(err => console.error("failed to fetch location:", err.message));
 
 try {
   const data = fs.readFileSync(notificationsPath, "utf8");
@@ -188,7 +197,6 @@ app.use((req, res, next) => {
   const accept = req.headers['accept'] || '';
   if (accept.includes('text/html') || req.path === '/' || req.path.endsWith('.html')) {
     res.setHeader('Link', [
-      '</assets/css/index.css>; rel=preload; as=style',
       '</assets/fonts/Lexend-Regular.woff2>; rel=preload; as=font; crossorigin',
     ].join(', '));
   }
@@ -209,7 +217,7 @@ for (const [id, filePath] of Object.entries(bMap)) {
 
 app.get("/b", (req, res) => {
   const buf = bCache[req.query.id];
-  if (!buf) return res.status(404).send("file not found");
+  if (!buf) return res.status(404).send("file not found :(");
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.send(buf);
@@ -224,10 +232,15 @@ app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
 app.use("/b", express.static(path.join(publicPath, "b"), staticOpts));
 app.use(express.static(srcPath, { ...staticOpts, index: false }));
 
-app.get("/api/version", (_req, res) => {
+app.get("/api/stuff", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
-    if (err) return res.status(500).json({ error: "version error" });
-    try { res.json({ version: JSON.parse(data).version }); } catch { res.status(500).json({}); }
+    if (err) return res.status(500).json({ error: "stuff error" });
+    try { 
+      const parsedData = JSON.parse(data);
+      res.json({ version: parsedData.version, location: location }); 
+    } catch { 
+      res.status(500).json({}); 
+    }
   });
 });
 
@@ -237,7 +250,7 @@ app.get("/api/notifications", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
-  res.status(404).sendFile(path.join(srcPath, "index.html"));
+  res.status(418).sendFile(path.join(srcPath, "index.html"));
 });
 
 app.use((_req, res) => {

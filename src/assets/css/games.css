@@ -26,7 +26,7 @@ body.games-view {
   background-color: #050505;
 }
 
-body.games-view .wrapper {
+body.games-view .yay {
   overflow-y: auto;
   overscroll-behavior: none;
 }

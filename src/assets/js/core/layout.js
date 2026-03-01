@@ -93,7 +93,7 @@ export function initializeLayout() {
     const mainContainer = document.createElement('div');
     mainContainer.className = 'main-container';
     mainContainer.innerHTML = `
-        <div class="phrases"></div>
+        <div class="title">waves!!</div>
         <div class="search-bar">
             <div class="light-border"></div>
             <div class="light-inset-bg"></div>
@@ -130,9 +130,9 @@ export function initializeLayout() {
 
     footer.appendChild(share);
 
-    const wrapper = document.querySelector('.wrapper');
-    if (wrapper) {
-        wrapper.prepend(mainNav);
+    const yay = document.querySelector('.yay');
+    if (yay) {
+        yay.prepend(mainNav);
         mainNav.after(mainContainer);
         mainContainer.after(iframeContainer);
         iframeContainer.after(footer);
@@ -184,7 +184,7 @@ export function initializeFall() {
         '/assets/images/peaks/chii.png',
         '/assets/images/peaks/pochi.png'
     ];
-    const SPAWN_RATE = 300;
+    const SPAWN_RATE = 800;
 
     try {
         if (!document.getElementById('fall-styles')) {
@@ -193,7 +193,7 @@ export function initializeFall() {
             style.innerHTML = `
                 .falling {
                     position: fixed;
-                    top: -10%; 
+                    top: -8%; 
                     left: 50%; 
                     width: 50px;
                     height: auto;
@@ -207,7 +207,7 @@ export function initializeFall() {
                 }
                 @keyframes fallAndFade {
                     0% {
-                        opacity: 1; 
+                        opacity: 0.8; 
                         transform: translate(-50%, 0) rotate(0deg);
                     }
                     100% {
@@ -275,7 +275,7 @@ export function initializeFall() {
             img.src = preloadedBlobUrls[Math.floor(Math.random() * preloadedBlobUrls.length)];
             img.className = 'falling';
 
-            const duration = Math.random() * 5 + 5;
+            const duration = Math.random() * 10 + 15;
             const spreadWidth = 800;
             const driftX = (Math.random() - 0.5) * spreadWidth;
             const rotationEnd = (Math.random() - 0.5) * 720;
