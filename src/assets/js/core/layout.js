@@ -275,7 +275,7 @@ export function initializeFall() {
             img.src = preloadedBlobUrls[Math.floor(Math.random() * preloadedBlobUrls.length)];
             img.className = 'falling';
 
-            const duration = Math.random() * 10 + 15;
+            const duration = Math.random() * 8 + 10;
             const spreadWidth = 800;
             const driftX = (Math.random() - 0.5) * spreadWidth;
             const rotationEnd = (Math.random() - 0.5) * 720;
