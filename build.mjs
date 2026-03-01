@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { Glob } from "bun";
 import { obfuscate } from 'javascript-obfuscator';
 import postcss from "postcss";
