@@ -32,12 +32,38 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let sync_secret = std::env::var("SYNC_SECRET").expect("SYNC_SECRET must be set");
+    
     let state = Arc::new(auth::AppState {
         jwt_secret,
         sync_secret,
-        pool,
+        pool: pool.clone(),
+    });
+
+    let vacuum_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+        
+        interval.tick().await; 
+        
+        loop {
+            interval.tick().await;
+            tracing::info!("running db vacuum...");
+            
+            let pool_clone = vacuum_pool.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(conn) = pool_clone.get() {
+                    match conn.execute("VACUUM", []) {
+                        Ok(_) => tracing::info!("db vacuum successful"),
+                        Err(e) => tracing::error!("failed to vacuum db: {}", e),
+                    }
+                } else {
+                    tracing::error!("vacuum task failed to get a db connection");
+                }
+            }).await;
+        }
     });
 
     let strict_conf = Box::new(
