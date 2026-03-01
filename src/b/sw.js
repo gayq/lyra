@@ -731,12 +731,24 @@ self.addEventListener("fetch", (event) => {
   event.respondWith((async () => {
     try {
       if (realUrl && realUrl.startsWith('http')) {
+        const ext = getUrlExtension(realUrl);
         const dest = request.destination;
         const accept = request.headers.get('Accept') || '';
-        const isDocument = dest === 'document' || dest === 'iframe' || (!dest && accept.includes('text/html'));
-        const isCacheableAsset = request.method === 'GET' && !isDocument;
 
-        if (isCacheableAsset) {
+        const isHeavyAsset =
+          dest === 'video' ||
+          dest === 'audio' ||
+          dest === 'image' ||
+          dest === 'font' ||
+          dest === 'track' ||
+          accept.startsWith('image/') ||
+          accept.startsWith('video/') ||
+          accept.startsWith('audio/') ||
+          accept.startsWith('font/') ||
+          STATIC_ASSET_REGEX.test(url.pathname) ||
+          ['.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
+
+        if (isHeavyAsset) {
           try {
             const mochiResponse = await fetchThroughMochi(request, realUrl);
             if (mochiResponse && mochiResponse.ok) {
