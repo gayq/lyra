@@ -241,11 +241,12 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     handle {
         reverse_proxy 127.0.0.1:9000 {
-        header_up X-Real-IP {remote_host}
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
+            header_up X-Real-IP {remote_host}
+            transport http {
+                keepalive 120s
+                keepalive_idle_conns 4096
+                keepalive_idle_conns_per_host 1024
+            }
         }
     }
 }
