@@ -187,9 +187,11 @@ sudo systemctl daemon-reload
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
+    
     servers {
         protocols h1 h2 h3
     }
+
     on_demand_tls {
         ask http://127.0.0.1:3001/
     }
@@ -226,16 +228,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    reverse_proxy 127.0.0.1:8923 {
-        header_up X-Real-IP {remote_host}
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 512
-            keepalive_idle_conns_per_host 64
-            dial_timeout 5s
-        }
-    }
-
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
@@ -247,6 +239,17 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             header_up X-Real-IP {remote_host}
         }
     }
+
+    reverse_proxy 127.0.0.1:8923 {
+        header_up X-Real-IP {remote_host}
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 64
+            dial_timeout 5s
+        }
+    }
+}
 
 :80 {
     redir https://{host}{uri} permanent
