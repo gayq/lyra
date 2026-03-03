@@ -170,7 +170,6 @@ fi
 sudo docker run -d --name anubis \
     --network="host" \
     --restart unless-stopped \
-    -e PORT="9000" \
     -e TARGET="http://127.0.0.1:3000" \
     -e OG_PASSTHROUGH="true" \
     ghcr.io/techarohq/anubis:latest
@@ -227,6 +226,16 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
+    reverse_proxy 127.0.0.1:8923 {
+        header_up X-Real-IP {remote_host}
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 64
+            dial_timeout 5s
+        }
+    }
+
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:5000 {
             header_up X-Real-IP {remote_host}
@@ -238,18 +247,6 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             header_up X-Real-IP {remote_host}
         }
     }
-
-    handle {
-        reverse_proxy 127.0.0.1:9000 {
-            header_up X-Real-IP {remote_host}
-            transport http {
-                keepalive 120s
-                keepalive_idle_conns 4096
-                keepalive_idle_conns_per_host 1024
-            }
-        }
-    }
-}
 
 :80 {
     redir https://{host}{uri} permanent
