@@ -726,14 +726,15 @@ document.addEventListener('DOMContentLoaded', function () {
                              <p>gn-math - game source</p>
                              <p>truffled - game source</p>
                              <p>velara - game source</p>
-                            <p>bog - ports for hollow knight, re:run, and touhou mother</p>
+                             <p>squall - game source</p>
+                             <p>bog - ports for hollow knight, re:run, and touhou mother</p>
                             <p>titanium network - ultraviolet</p>
                             <p>mercury workshop - scramjet, epxoy, and libcurl</p>
                         </div>
                         <div class="settings-item">
                             <label>you have reached the end!</label>
                             <p>
-                                thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">waves!</a> 
+                                thank you so much for using <a href="https://waves.lat/" target="_blank" class="hover-link">waves!!</a> 
                                 if you have any suggestions or issues, please contact us on our <a href="https://discord.gg/dJvdkPRheV" target="_blank" class="hover-link">discord server</a> 
                                 or open an issue on our <a href="https://github.com/l4uy/Waves" target="_blank" class="hover-link">github repository</a> &lt;3
                             </p>
@@ -773,7 +774,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const allSearchEngineOptions = ['google', 'bing', 'duckduckgo', 'startpage', 'brave', 'mojeek', 'swisscows'];
         const allDecoyOptions = ['default', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
-        const allGameSourceOptions = ['gn-math', 'truffled', 'velara'];
+        const allGameSourceOptions = ['gn-math', 'truffled', 'velara', 'squall'];
 
         window.toggleSettingsMenu = function () {
             if (isToggling) return;

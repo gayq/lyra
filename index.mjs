@@ -87,7 +87,6 @@ app.use((req, res, next) => {
     });
 
     req.pipe(proxyReq);
-    req.pipe(proxyReq);
   } else if (NODE_ENV === 'development' && (req.url.startsWith('/api/auth') || req.url.startsWith('/api/sync'))) {
     const options = {
       hostname: '127.0.0.1',
@@ -235,11 +234,11 @@ app.use(express.static(srcPath, { ...staticOpts, index: false }));
 app.get("/api/stuff", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
     if (err) return res.status(500).json({ error: "stuff error" });
-    try { 
+    try {
       const parsedData = JSON.parse(data);
-      res.json({ version: parsedData.version, location: location }); 
-    } catch { 
-      res.status(500).json({}); 
+      res.json({ version: parsedData.version, location: location });
+    } catch {
+      res.status(500).json({});
     }
   });
 });

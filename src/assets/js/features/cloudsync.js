@@ -27,7 +27,7 @@ export class CloudSync {
 
             document.addEventListener('toggleAuthModal', () => this.toggleModal());
             this.hookStorage();
-            return; 
+            return;
         }
 
         this.showLoadingScreen();
@@ -190,7 +190,7 @@ export class CloudSync {
 
         this.syncTimeout = setTimeout(() => {
             this.syncData();
-        }, 500);
+        }, 1500);
     }
 
     checkForChanges() {
@@ -687,6 +687,24 @@ export class CloudSync {
                 console.warn("[cloudsync] error wiping idb:", e);
             }
         }
+
+        if ('serviceWorker' in navigator) {
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(r => r.unregister()));
+            } catch (e) {
+                console.warn("[cloudsync] error unregistering service workers:", e);
+            }
+        }
+
+        if ('caches' in window) {
+            try {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+            } catch (e) {
+                console.warn("[cloudsync] error clearing caches:", e);
+            }
+        }
     }
 
     async syncData(manual = false) {
@@ -695,7 +713,9 @@ export class CloudSync {
 
         try {
             if (typeof window.wavesExportAllData !== 'function') {
+                console.warn('[cloudsync] wavesExportAllData not available yet, retrying in 2s...');
                 this.isSyncing = false;
+                setTimeout(() => this.syncData(manual), 2000);
                 return;
             }
 
@@ -710,12 +730,14 @@ export class CloudSync {
             });
 
             if (res.ok) {
+                const result = await res.json();
                 this.syncMeta.dirty = false;
-                this.syncMeta.last_synced = new Date().toISOString().replace('T', ' ').slice(0, 19);
+                this.syncMeta.last_synced = result.updated_at || new Date().toISOString().replace('T', ' ').slice(0, 19);
                 this.saveMeta();
 
                 this.updateStatus('synced!', 'success');
             } else {
+                console.warn('[cloudsync] upload failed:', res.status);
                 this.updateStatus('sync failed!', 'error');
             }
         } catch (err) {
@@ -769,6 +791,9 @@ export class CloudSync {
                         reloading = true;
                         window.bypassPreventClosing = true;
                         window.location.reload();
+                    } else {
+                        document.dispatchEvent(new CustomEvent('cloudsync-restored'));
+                        this.updateStatus('synced', 'success');
                     }
                 }
             } else if (res.status === 404) {

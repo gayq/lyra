@@ -1085,3 +1085,61 @@ body.browser-view .main-nav {
   }
 
 }
+
+.iframe-loading-overlay {
+  align-items: center;
+  background-color: #050505c9;
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  justify-content: center;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: 50;
+}
+
+.iframe-loading-overlay.visible {
+  display: flex;
+}
+
+.iframe-loading-cat {
+  background-image: url(../images/gifs/oneko.gif);
+  height: 32px;
+  image-rendering: pixelated;
+  transform: scale(2);
+  width: 32px;
+  margin-left: -9px;
+  animation: onekoGroom 1.2s steps(1) infinite;
+}
+
+.iframe-loading-text {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 300;
+  margin-top: 5px;
+}
+
+@keyframes onekoGroom {
+  0% {
+    background-position: -96px -96px;
+  }
+
+  20% {
+    background-position: -96px -64px;
+  }
+
+  40% {
+    background-position: -160px 0px;
+  }
+
+  60% {
+    background-position: -192px 0px;
+  }
+
+  80% {
+    background-position: -224px 0px;
+  }
+}

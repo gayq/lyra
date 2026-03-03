@@ -106,7 +106,7 @@ pub async fn upload(
     let compressed_data = compressor.into_inner();
     let sync_secret = state.sync_secret.clone();
     let pool = state.pool.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<(), &'static str> {
+    let result = tokio::task::spawn_blocking(move || -> Result<String, &'static str> {
         use sha2::{Sha256, Digest};
         let mut hasher = Sha256::new();
         hasher.update(sync_secret.as_bytes());
@@ -133,12 +133,18 @@ pub async fn upload(
             tracing::error!("db error: {}", e); 
             "db error"
         })?;
+
+        let updated_at: String = conn.query_row(
+            "SELECT updated_at FROM sync_data WHERE user_id = ?",
+            params![user_id],
+            |row: &rusqlite::Row| row.get(0),
+        ).unwrap_or_default();
         
-        Ok(())
+        Ok(updated_at)
     }).await.map_err(|_| "task error");
 
     match result {
-        Ok(Ok(_)) => (StatusCode::OK, Json(SyncResponse { success: true, data: None, updated_at: None, error: None })),
+        Ok(Ok(updated_at)) => (StatusCode::OK, Json(SyncResponse { success: true, data: None, updated_at: Some(updated_at), error: None })),
         Ok(Err(e)) => {
             let status = if e == "blob too large" { StatusCode::PAYLOAD_TOO_LARGE } else { StatusCode::INTERNAL_SERVER_ERROR };
             (status, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some(e.into()) }))

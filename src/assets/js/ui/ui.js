@@ -122,6 +122,41 @@ export function showLoading(tabId = null) {
   }
 
   setRefreshButtonState(true);
+  showIframeLoading();
+}
+
+export function showIframeLoading() {
+  const container = dom.iframeContainer;
+  if (!container) return;
+
+  let overlay = container.querySelector('.iframe-loading-overlay');
+  if (overlay) {
+    overlay.classList.add('visible');
+    return;
+  }
+
+  overlay = document.createElement('div');
+  overlay.className = 'iframe-loading-overlay visible';
+
+  const cat = document.createElement('div');
+  cat.className = 'iframe-loading-cat';
+
+  const text = document.createElement('div');
+  text.className = 'iframe-loading-text';
+  text.textContent = 'loading...';
+
+  overlay.appendChild(cat);
+  overlay.appendChild(text);
+  container.appendChild(overlay);
+}
+
+export function hideIframeLoading() {
+  const container = dom.iframeContainer;
+  if (!container) return;
+  const overlay = container.querySelector('.iframe-loading-overlay');
+  if (overlay) {
+    overlay.classList.remove('visible');
+  }
 }
 
 export function hideLoading(tabId = null) {
@@ -138,6 +173,7 @@ export function hideLoading(tabId = null) {
 
   document.title = originalTitle;
   setRefreshButtonState(false);
+  hideIframeLoading();
 }
 
 function setupOnekoAnimation() {

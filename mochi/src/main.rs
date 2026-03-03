@@ -65,6 +65,9 @@ const CDN_DOMAINS: &[&str] = &[
     "fonts.gstatic.com",
     "cdn.cloudflare.com",
     "ajax.googleapis.com",
+    "cdn.jsdelivr.net",
+    "raw.githubusercontent.com",
+    "gn-math.dev",
 ];
 
 async fn disk_cache_cleanup_task(max_dir_size_bytes: u64, max_age_secs: u64) {
@@ -150,10 +153,13 @@ async fn main() {
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(1024)
+        .pool_max_idle_per_host(2048)
         .tcp_nodelay(true)
-        .timeout(Duration::from_secs(30))
+        .tcp_keepalive(Duration::from_secs(60))
+        .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(10))
+        .http2_keep_alive_interval(Duration::from_secs(15))
+        .http2_keep_alive_timeout(Duration::from_secs(20))
         .build()
         .expect("failed to build html client");
 
@@ -339,7 +345,6 @@ async fn proxy_handler(
     req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
     req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
     req_builder = req_builder.header("Priority", "u=1, i");
-
     let origin = target_url.origin().ascii_serialization();
     req_builder = req_builder.header("Referer", format!("{}/", origin));
     req_builder = req_builder.header("Origin", origin);

@@ -15,7 +15,6 @@ const isUltraviolet = scope.endsWith('/b/u/hi/');
 const UV_PREFIX = '/b/u/hi/';
 const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
 const MOCHI_PREFIX = '/!!/';
-
 const CACHE_VERSION = '__BUILD_ID__';
 const SHELL_CACHE = 'waves-shell-' + CACHE_VERSION;
 const RUNTIME_CACHE = 'waves-runtime-' + CACHE_VERSION;
@@ -35,6 +34,321 @@ const DOWNLOAD_EXTENSIONS = new Set([
 let scramjet;
 let uv;
 let scramjetConfigLoaded = false;
+
+const HARDCODED_AD_DOMAINS = new Set([
+  'pagead2.googlesyndication.com', 'googlesyndication.com', 'googleadservices.com',
+  'google-analytics.com', 'analytics.google.com', 'googletagmanager.com',
+  'googletagservices.com', 'googlesyndication.com', 'googleads.g.doubleclick.net',
+  'tpc.googlesyndication.com', 'adservice.google.com', 'adservice.google.co.uk',
+  'adservice.google.ca', 'adservice.google.de', 'adservice.google.fr',
+  'adservice.google.com.au', 'adservice.google.co.jp', 'adservice.google.co.in',
+  'pagead-googlehosted.l.google.com', 'partnerad.l.google.com',
+  'doubleclick.net', 'ad.doubleclick.net', 's0.2mdn.net', '2mdn.net',
+  'stats.g.doubleclick.net', 'cm.g.doubleclick.net',
+  'pixel.facebook.com', 'an.facebook.com', 'www.facebook.com/tr',
+  'connect.facebook.net/en_US/fbevents.js',
+  'aax.amazon-adsystem.com', 'amazon-adsystem.com', 'z-na.amazon-adsystem.com',
+  'aax-eu.amazon-adsystem.com', 'fls-na.amazon-adsystem.com',
+  'bat.bing.com', 'ads.microsoft.com', 'c.bing.com', 'c.msn.com',
+  'adnxs.com', 'adsrvr.org', 'rubiconproject.com', 'pubmatic.com',
+  'openx.net', 'casalemedia.com', 'contextweb.com', 'indexww.com',
+  'criteo.com', 'criteo.net', 'outbrain.com', 'taboola.com', 'mgid.com',
+  'revcontent.com', 'content-ad.net', 'adhese.com', 'smartadserver.com',
+  'serving-sys.com', 'eyeota.net', 'krxd.net', 'bluekai.com',
+  'exelator.com', 'rlcdn.com', 'addthis.com', 'sharethrough.com',
+  'bidswitch.net', 'spotxchange.com', 'spotx.tv', 'advertising.com',
+  'yieldmo.com', 'yieldmanager.com', 'yieldoptimizer.com',
+  'scorecardresearch.com', 'quantserve.com', 'imrworldwide.com',
+  'chartbeat.com', 'chartbeat.net', 'segment.com', 'segment.io',
+  'hotjar.com', 'mouseflow.com', 'fullstory.com', 'crazyegg.com',
+  'luckyorange.com', 'inspectlet.com', 'clicktale.com',
+  'newrelic.com', 'nr-data.net', 'mixpanel.com', 'amplitude.com',
+  'heap.io', 'heapanalytics.com', 'optimizely.com', 'abtasty.com',
+  'demdex.net', 'omtrdc.net', '2o7.net', 'sc.omtrdc.net',
+  'everesttech.net', 'mookie1.com', 'mathtag.com',
+  'popads.net', 'popcash.net', 'propellerads.com', 'adcash.com',
+  'trafficjunky.com', 'trafficfactory.biz', 'juicyads.com',
+  'exoclick.com', 'plugrush.com', 'hilltopads.net',
+  'moatads.com', 'doubleverify.com', 'adsafeprotected.com',
+  'iasds01.com', 'peer39.net', 'grapeshot.co.uk',
+  'adskeeper.co.uk', 'adtelligent.com', 'sovrn.com',
+  'conversantmedia.com', 'media.net', 'media6degrees.com',
+  'adform.net', 'adform.com', 'smaato.net', 'inmobi.com',
+  'unity3d.com/ads', 'unityads.unity3d.com', 'mopub.com',
+  'appsflyer.com', 'adjust.com', 'branch.io', 'kochava.com',
+  'supersonicads.com', 'vungle.com', 'chartboost.com',
+  'adcolony.com', 'ironsrc.com', 'fyber.com', 'tapjoy.com',
+  'zemanta.com', 'nativeads.com', 'triplelift.com',
+  'teads.tv', 'gumgum.com', 'vibrantmedia.com',
+  'undertone.com', 'kargo.com', 'yieldlab.net',
+  'aniview.com', 'primis.tech', 'seedtag.com',
+  'aps.amazon.com', 'amazon-adsystem.com', 'assoc-amazon.com',
+  'udc.yahoo.com', 'browser.sentry-cdn.com',
+  'consensu.org', 'trustarc.com', 'cookielaw.org', 'onetrust.com',
+  'cdn.taboola.com', 'cdn.outbrain.com', 'cdn.mgid.com',
+  'static.criteo.net', 'static.adsafeprotected.com',
+]);
+
+const AD_PATH_PATTERNS = [
+  /\/ads[\/.?]/i,
+  /\/adserv/i,
+  /\/pagead\//i,
+  /\/adsbygoogle/i,
+  /\/adsense[\/.]/i,
+  /\/googlesyndication[\/.]/i,
+  /\/api\/ads/i,
+  /\/prebid/i,
+  /\/gpt\.js/i,
+  /\/gpt\/pubads/i,
+  /\/gampad\/ads/i,
+  /\/show_ads/i,
+  /\/smart_?ad/i,
+  /\/openx[\/.]/i,
+  /\/header[_-]?bidding/i,
+  /\/pixel\.gif/i,
+  /\/pixel\.png/i,
+  /\/beacon\.js/i,
+  /\/collect\?.*tid=/i,
+  /\/fbevents?\.js/i,
+];
+
+let adBlockDomains = new Set(HARDCODED_AD_DOMAINS);
+let adBlockLoaded = HARDCODED_AD_DOMAINS.size > 0;
+
+const AD_LISTS = [
+  {
+    url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0',
+    parse: 'plain'
+  },
+  {
+    url: 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts',
+    parse: 'hosts'
+  },
+  {
+    url: 'https://small.oisd.nl/domainswild',
+    parse: 'wildcard'
+  },
+  {
+    url: 'https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt',
+    parse: 'adguard'
+  },
+  {
+    url: 'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/light.txt',
+    parse: 'plain'
+  }
+];
+
+function parsePlainList(text) {
+  const domains = [];
+  for (const line of text.split('\n')) {
+    const d = line.trim().toLowerCase();
+    if (d && !d.startsWith('#') && !d.startsWith('!') && d.includes('.')) {
+      domains.push(d);
+    }
+  }
+  return domains;
+}
+
+function parseHostsFile(text) {
+  const domains = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2 && (parts[0] === '0.0.0.0' || parts[0] === '127.0.0.1')) {
+      const d = parts[1].toLowerCase();
+      if (d && d !== 'localhost' && d !== 'localhost.localdomain' && d.includes('.')) {
+        domains.push(d);
+      }
+    }
+  }
+  return domains;
+}
+
+function parseWildcardList(text) {
+  const domains = [];
+  for (const line of text.split('\n')) {
+    let d = line.trim().toLowerCase();
+    if (!d || d.startsWith('#') || d.startsWith('!')) continue;
+    d = d.replace(/^\*\./, '').replace(/^\|\|/, '').replace(/\^$/, '');
+    if (d && d.includes('.')) domains.push(d);
+  }
+  return domains;
+}
+
+function parseAdguardFilter(text) {
+  const domains = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('!') || trimmed.startsWith('[')) continue;
+    if (trimmed.startsWith('||') && trimmed.endsWith('^')) {
+      const d = trimmed.slice(2, -1).toLowerCase();
+      if (d && d.includes('.') && !d.includes('/') && !d.includes('*')) {
+        domains.push(d);
+      }
+    }
+  }
+  return domains;
+}
+
+const IDB_NAME = 'waves-adblock';
+const IDB_STORE = 'domains';
+const IDB_KEY = 'domainlist';
+
+function openAdBlockDB() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    } catch (e) { reject(e); }
+  });
+}
+
+async function saveDomainsToIDB(domains) {
+  try {
+    const db = await openAdBlockDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ domains: [...domains], ts: Date.now() }, IDB_KEY);
+    await new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = rej; });
+    db.close();
+  } catch (e) { }
+}
+
+async function loadDomainsFromIDB() {
+  try {
+    const db = await openAdBlockDB();
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+    const result = await new Promise((res, rej) => { req.onsuccess = () => res(req.result); req.onerror = rej; });
+    db.close();
+    if (result && result.domains && result.domains.length > 100) {
+      return { domains: new Set(result.domains), ts: result.ts };
+    }
+  } catch (e) { }
+  return null;
+}
+
+async function loadAdBlockList() {
+  try {
+    const cached = await loadDomainsFromIDB();
+    if (cached && cached.domains.size > 100) {
+      adBlockDomains = new Set([...HARDCODED_AD_DOMAINS, ...cached.domains]);
+      adBlockLoaded = true;
+      console.log(`[cool ad blocker :3] Loaded ${adBlockDomains.size} domains from cache`);
+      if (cached.ts && (Date.now() - cached.ts) < 12 * 60 * 60 * 1000) return;
+    }
+  } catch (e) { }
+
+  const allDomains = new Set(HARDCODED_AD_DOMAINS);
+  const results = await Promise.allSettled(
+    AD_LISTS.map(async (list) => {
+      try {
+        const res = await fetch(MOCHI_PREFIX + list.url);
+        if (!res.ok) return [];
+        const text = await res.text();
+        switch (list.parse) {
+          case 'plain': return parsePlainList(text);
+          case 'hosts': return parseHostsFile(text);
+          case 'wildcard': return parseWildcardList(text);
+          case 'adguard': return parseAdguardFilter(text);
+          default: return parsePlainList(text);
+        }
+      } catch (e) { return []; }
+    })
+  );
+
+  for (const r of results) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      for (const d of r.value) allDomains.add(d);
+    }
+  }
+
+  if (allDomains.size > HARDCODED_AD_DOMAINS.size + 100) {
+    adBlockDomains = allDomains;
+    adBlockLoaded = true;
+    console.log(`[cool ad blocker :3] loaded ${adBlockDomains.size} domains from ${AD_LISTS.length} lists`);
+    saveDomainsToIDB(allDomains);
+  }
+}
+
+function matchesDomain(hostname) {
+  if (adBlockDomains.has(hostname)) return true;
+  const parts = hostname.split('.');
+  for (let i = 1; i < parts.length - 1; i++) {
+    if (adBlockDomains.has(parts.slice(i).join('.'))) return true;
+  }
+  return false;
+}
+
+function isAdUrl(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (matchesDomain(hostname)) return true;
+    const fullPath = parsed.pathname + parsed.search;
+    for (const pat of AD_PATH_PATTERNS) {
+      if (pat.test(fullPath)) return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getBlockResponse(url) {
+  const lower = (url || '').toLowerCase();
+  if (lower.endsWith('.js')) return new Response('/* no */', { status: 200, headers: { 'Content-Type': 'application/javascript' } });
+  if (lower.endsWith('.css')) return new Response('/* no */', { status: 200, headers: { 'Content-Type': 'text/css' } });
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) return new Response('', { status: 200, headers: { 'Content-Type': 'text/html' } });
+  if (/\.(gif|png|jpg|jpeg|webp|svg|ico)(\?|$)/.test(lower)) return new Response('', { status: 200, headers: { 'Content-Type': 'image/gif' } });
+  if (/\.(mp4|webm|m3u8)(\?|$)/.test(lower)) return new Response('', { status: 200, headers: { 'Content-Type': 'video/mp4' } });
+  return new Response('', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+}
+
+const AD_COSMETIC_CSS = `
+<style id="waves-adblock-cosmetic">
+  [class*="ad-container"], [class*="ad-slot"], [class*="ad-wrapper"],
+  [class*="ad-banner"], [class*="ad-unit"], [class*="ad-frame"],
+  [class*="adcontainer"], [class*="adslot"], [class*="adwrapper"],
+  [class*="adbanner"], [class*="adunit"], [class*="adframe"],
+  [id*="google_ads"], [id*="ad-container"], [id*="ad-slot"],
+  [id*="ad-banner"], [id*="ad-wrapper"], [id*="ad_unit"],
+  [id*="adcontainer"], [id*="adslot"], [id*="adbanner"],
+  iframe[src*="doubleclick"], iframe[src*="googlesyndication"],
+  iframe[src*="amazon-adsystem"], iframe[src*="adnxs"],
+  iframe[src*="taboola"], iframe[src*="outbrain"],
+  ins.adsbygoogle, div[data-ad], div[data-ad-slot],
+  div[data-ad-unit], div[data-adunit], div[data-adslot],
+  div[data-google-query-id], amp-ad, amp-embed,
+  [class*="sponsored-content"], [class*="sponsored_content"],
+  [class*="advertisement"], [id*="advertisement"],
+  [class*="GoogleActiveViewElement"],
+  [class*="taboola"], [id*="taboola"],
+  [class*="outbrain"], [id*="outbrain"],
+  [class*="mgid"], [id*="mgid"],
+  a[href*="doubleclick.net"], a[href*="googleadservices.com"],
+  div.ad, div.ads, aside.ad, aside.ads,
+  section.ad, section.ads {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    z-index: -9999 !important;
+  }
+</style>
+`;
+
+setInterval(() => loadAdBlockList(), 6 * 60 * 60 * 1000);
 
 self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;
 self.addEventListener('message', (event) => {
@@ -670,7 +984,7 @@ async function handleProxyResponse(response) {
   try {
     const clonedResponse = response.clone();
     const originalBody = await clonedResponse.text();
-    const scripts = TURN_SCRIPT + META_SCRIPT;
+    const scripts = AD_COSMETIC_CSS + TURN_SCRIPT + META_SCRIPT;
 
     let newBodyStr;
     const headMatch = originalBody.match(/<head[^>]*>/i);
@@ -702,12 +1016,15 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => {
-      return Promise.all(
-        keys.filter(k => k.startsWith('waves-') && k !== SHELL_CACHE && k !== RUNTIME_CACHE)
-          .map(k => caches.delete(k))
-      );
-    }).then(() => self.clients.claim())
+    Promise.all([
+      caches.keys().then(keys => {
+        return Promise.all(
+          keys.filter(k => k.startsWith('waves-') && k !== SHELL_CACHE && k !== RUNTIME_CACHE)
+            .map(k => caches.delete(k))
+        );
+      }),
+      loadAdBlockList()
+    ]).then(() => self.clients.claim())
   );
 });
 
@@ -718,6 +1035,10 @@ self.addEventListener("fetch", (event) => {
 
   if (url.pathname.startsWith(MOCHI_PREFIX)) {
     return;
+  }
+
+  if (realUrl && isAdUrl(realUrl)) {
+    return event.respondWith(getBlockResponse(realUrl));
   }
 
   if (realUrl && realUrl.includes('/!!/')) {

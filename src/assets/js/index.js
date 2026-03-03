@@ -244,6 +244,10 @@ document.addEventListener('DOMContentLoaded', () => {
             html: "https://cdn.jsdelivr.net/gh/gn-math/html@main",
             covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main"
         },
+        squall: {
+            games: "https://squall.cc/games/games.json",
+            assets: "https://squall.cc"
+        },
         truffled: {
             games: "https://truffled.lol/js/json/g.json",
             assets: "https://truffled.lol"
@@ -290,6 +294,19 @@ document.addEventListener('DOMContentLoaded', () => {
                             coverUrl: game.image ? `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}` : null
                         };
                     }));
+        } else if (source === 'squall') {
+            fetchPromise = fetch(`/!!/${SOURCE_CONFIG.squall.games}`)
+                .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+                .then(data => data.map(game => {
+                    let finalUrl = game.link.startsWith('http') ? game.link : SOURCE_CONFIG.squall.assets + '/games/' + (game.link.startsWith('/') ? game.link.substring(1) : game.link);
+                    let finalCover = game.cover.startsWith('http') ? game.cover : SOURCE_CONFIG.squall.assets + '/games/' + (game.cover.startsWith('/') ? game.cover.substring(1) : game.cover);
+                    return {
+                        name: game.name,
+                        gameUrl: finalUrl,
+                        isExternal: false,
+                        coverUrl: finalCover ? `/!!/${finalCover}` : null
+                    };
+                }));
         } else {
             fetchPromise = fetch(`/!!/${SOURCE_CONFIG.gnMath.zones}`)
                 .then(res => {

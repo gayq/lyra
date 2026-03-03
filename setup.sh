@@ -160,6 +160,20 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
+sudo docker pull ghcr.io/techarohq/anubis:latest
+
+if sudo docker ps -a | grep -q "anubis"; then
+    sudo docker stop anubis 2>/dev/null || true
+    sudo docker rm anubis 2>/dev/null || true
+fi
+
+sudo docker run -d --name anubis \
+    --network="host" \
+    --restart unless-stopped \
+    -e TARGET="http://127.0.0.1:3000" \
+    -e OG_PASSTHROUGH="true" \
+    ghcr.io/techarohq/anubis:latest
+
 bun run build
 
 sudo mkdir -p /etc/epoxy-server /etc/systemd/system/caddy.service.d
@@ -191,10 +205,34 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     reverse_proxy /w/* 127.0.0.1:8080 {
         header_up X-Real-IP {remote_host}
         flush_interval -1
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+            dial_timeout 5s
+            read_buffer 65536
+            write_buffer 65536
     }
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
+         transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
+    }
+
+    reverse_proxy 127.0.0.1:8923 {
+        header_up X-Real-IP {remote_host}
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 512
+            keepalive_idle_conns_per_host 64
+            dial_timeout 5s
+        }
     }
     
     handle /api/auth/* {
@@ -211,6 +249,11 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Real-IP {remote_host}
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+        }
     }
 }
 

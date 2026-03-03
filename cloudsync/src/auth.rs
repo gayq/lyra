@@ -14,6 +14,10 @@ use time::Duration;
 
 const COOKIE_NAME: &str = "token";
 
+fn is_cookie_secure() -> bool {
+    std::env::var("COOKIE_SECURE").map(|v| v != "false" && v != "0").unwrap_or(true)
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub jwt_secret: String,
@@ -111,8 +115,8 @@ pub async fn register(
             let cookie = Cookie::build((COOKIE_NAME, token))
                 .path("/")
                 .http_only(true)
-                .secure(true)
-                .same_site(SameSite::Strict)
+                .secure(is_cookie_secure())
+                .same_site(if is_cookie_secure() { SameSite::Strict } else { SameSite::Lax })
                 .max_age(Duration::days(7));
             
             cookies.add(cookie.into());
@@ -173,8 +177,8 @@ pub async fn login(
             let cookie = Cookie::build((COOKIE_NAME, token))
                 .path("/")
                 .http_only(true)
-                .secure(true)
-                .same_site(SameSite::Strict)
+                .secure(is_cookie_secure())
+                .same_site(if is_cookie_secure() { SameSite::Strict } else { SameSite::Lax })
                 .max_age(Duration::days(7));
         
             cookies.add(cookie.into());
@@ -193,8 +197,8 @@ pub async fn logout(
     let cookie = Cookie::build((COOKIE_NAME, ""))
         .path("/")
         .http_only(true)
-        .secure(true)
-        .same_site(SameSite::Strict)
+        .secure(is_cookie_secure())
+        .same_site(if is_cookie_secure() { SameSite::Strict } else { SameSite::Lax })
         .max_age(Duration::seconds(0));
     
     cookies.add(cookie.into());
@@ -233,8 +237,8 @@ pub async fn delete_account(
     let cookie = Cookie::build((COOKIE_NAME, ""))
         .path("/")
         .http_only(true)
-        .secure(true)
-        .same_site(SameSite::Strict)
+        .secure(is_cookie_secure())
+        .same_site(if is_cookie_secure() { SameSite::Strict } else { SameSite::Lax })
         .max_age(Duration::seconds(0));
 
     cookies.add(cookie.into());

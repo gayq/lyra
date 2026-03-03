@@ -14,9 +14,16 @@ let saveBookmarkBtnEl = null;
 let cancelBookmarkBtnEl = null;
 
 const getBookmarks = () => {
-    if (bookmarksCache) return bookmarksCache;
+    const raw = localStorage.getItem('waves-bookmarks');
+    if (bookmarksCache) {
+        const cachedStr = JSON.stringify(bookmarksCache);
+        if (raw && raw !== cachedStr) {
+            bookmarksCache = null;
+        } else {
+            return bookmarksCache;
+        }
+    }
     try {
-        const raw = localStorage.getItem('waves-bookmarks');
         if (!raw) {
             bookmarksCache = DEFAULT_BOOKMARKS.slice();
             localStorage.setItem('waves-bookmarks', JSON.stringify(bookmarksCache));
@@ -64,6 +71,7 @@ const renderBookmarks = () => {
 
         const iconWrapper = document.createElement('div');
         iconWrapper.className = 'bookmark-icon skeleton';
+        iconWrapper.dataset.bookmarkUrl = bookmark.url;
 
         const icon = document.createElement('img');
         icon.className = 'bookmark-icon-img';
@@ -74,14 +82,12 @@ const renderBookmarks = () => {
             iconWrapper.classList.remove('skeleton');
         };
 
-        setTimeout(() => {
-            try {
-                const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
-                icon.src = getProxyUrl(originalFavicon);
-            } catch {
-                icon.src = '';
-            }
-        }, 0);
+        try {
+            const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
+            icon.src = getProxyUrl(originalFavicon);
+        } catch {
+            icon.src = '';
+        }
 
         icon.onerror = () => {
             iconWrapper.classList.remove('skeleton');
@@ -359,6 +365,18 @@ export function initializeBookmarks() {
             if (prompt && prompt.style.display === 'flex' && !prompt.classList.contains('fade-out-prompt')) {
                 hideBookmarkPrompt(false);
             }
+        }
+    });
+
+    document.addEventListener('cloudsync-restored', () => {
+        bookmarksCache = null;
+        renderBookmarks();
+    });
+
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'waves-bookmarks') {
+            bookmarksCache = null;
+            renderBookmarks();
         }
     });
 }

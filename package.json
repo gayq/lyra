@@ -1,6 +1,6 @@
 {
   "name": "waves",
-  "version": "3.5.7",
+  "version": "3.5.8",
   "description": "a really cool web-proxy",
   "type": "module",
   "packageManager": "bun@latest",

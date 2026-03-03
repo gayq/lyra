@@ -120,18 +120,20 @@ const tasks = {
             fs.mkdir(CONFIG.dirs.swDest, { recursive: true })
         ]);
 
+        const buildId = crypto.randomBytes(4).toString('hex');
+
         const bunBuild = await Bun.build({
             entrypoints: [path.join(CONFIG.dirs.src, 'assets/js/entry.js')],
             minify: true,
         });
         if (!bunBuild.success) throw new Error("bun build failed");
 
-        const appCode = await bunBuild.outputs[0].text();
+        const appCode = (await bunBuild.outputs[0].text()).replace("__BUILD_ID__", buildId);
         const serverIp = process.env.IP || "127.0.0.1";
         console.log(`${serverIp}`);
-        
         let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
-            .replace("__SERVER_IP__", serverIp);
+            .replace("__SERVER_IP__", serverIp)
+            .replace("__BUILD_ID__", buildId);
 
         const serserPath = path.join("public", "b", "u", "serser.js");
         if (existsSync(serserPath)) {

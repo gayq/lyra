@@ -21,6 +21,10 @@ export function initializeGame() {
       zones: "/!!/https://cdn.jsdelivr.net/gh/gn-math/assets@main/zones.json",
       covers: "https://cdn.jsdelivr.net/gh/gn-math/covers@main"
     },
+    squall: {
+      games: "/!!/https://squall.cc/games/games.json",
+      assets: "https://squall.cc"
+    },
     truffled: {
       games: "/!!/https://truffled.lol/js/json/g.json",
       assets: "https://truffled.lol"
@@ -407,6 +411,25 @@ export function initializeGame() {
               g._nameLc = (g.name || "").toLowerCase();
               g._authorLc = (g.author || '').toLowerCase();
             });
+            return saveToCache(allGames);
+          });
+      } else if (source === 'squall') {
+        gameDataPromise = fetch(SOURCE_CONFIG.squall.games)
+          .then(res => res.ok ? res.json() : Promise.reject(res.statusText))
+          .then(data => {
+            allGames = data.map(game => {
+              let finalUrl = game.link.startsWith('http') ? game.link : SOURCE_CONFIG.squall.assets + '/games/' + (game.link.startsWith('/') ? game.link.substring(1) : game.link);
+              let finalCover = game.cover.startsWith('http') ? game.cover : SOURCE_CONFIG.squall.assets + '/games/' + (game.cover.startsWith('/') ? game.cover.substring(1) : game.cover);
+              return {
+                id: game.name,
+                name: game.name,
+                coverUrl: `/!!/${finalCover}`,
+                gameUrl: finalUrl,
+                isExternal: false,
+                featured: false
+              };
+            }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+            allGames.forEach(g => { g._nameLc = (g.name || "").toLowerCase(); g._authorLc = (g.author || '').toLowerCase(); });
             return saveToCache(allGames);
           });
       } else {

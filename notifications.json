@@ -210,5 +210,21 @@
       "The message above should be self explanatory."
     ],
     "endMessage": "Join the Discord"
+  },
+  {
+    "id": 14,
+    "title": "Patch v3.5.8!!",
+    "message": "Loads and loads of bug fixes and improvements!",
+    "date": "2026-03-03T04:32:55.423Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Make site speed faster by 10x.",
+      "Fixed some small bugs.",
+      "Improved CloudSync security.",
+      "Added a new game source: Squall.",
+      "Added a new loading screen."
+    ],
+    "endMessage": "I'm getting way too lazy to write these notifications. Join the Discord server for more links!!"
   }
 ]
