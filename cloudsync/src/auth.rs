@@ -11,6 +11,9 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use time::Duration;
+use std::sync::OnceLock;
+use dashmap::DashMap;
+use std::time::Instant;
 
 const COOKIE_NAME: &str = "token";
 
@@ -247,6 +250,12 @@ pub async fn delete_account(
 }
 
 
+static TOKEN_CACHE: OnceLock<DashMap<i64, (i64, Instant)>> = OnceLock::new();
+
+fn get_token_cache() -> &'static DashMap<i64, (i64, Instant)> {
+    TOKEN_CACHE.get_or_init(|| DashMap::new())
+}
+
 pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i64, String), ()> {
     let token = cookies.get(COOKIE_NAME).map(|c| c.value().to_string()).ok_or(())?;
     
@@ -256,18 +265,34 @@ pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i6
         &Validation::default(),
     ).map_err(|_| ())?;
 
+    let user_id = token_data.claims.id;
+    let token_v = token_data.claims.v;
+
+    let cache = get_token_cache();
+    if let Some(entry) = cache.get(&user_id) {
+        let (cached_v, cached_at) = *entry;
+        if cached_at.elapsed().as_secs() < 60 {
+            if cached_v != token_v {
+                return Err(());
+            }
+            return Ok((user_id, token_data.claims.username));
+        }
+    }
+
     let pool = state.pool.clone();
     let db_v = tokio::task::spawn_blocking(move || {
         let conn = pool.get().map_err(|_| ())?;
         let (db_version,): (i64,) = conn.query_row(
             "SELECT token_version FROM users WHERE id = ?",
-            params![token_data.claims.id],
+            params![user_id],
             |row: &rusqlite::Row| Ok((row.get(0)?,)),
         ).map_err(|_| ())?;
         Ok(db_version)
     }).await.map_err(|_| ())??;
 
-    if db_v != token_data.claims.v {
+    cache.insert(user_id, (db_v, Instant::now()));
+
+    if db_v != token_v {
         return Err(());
     }
 

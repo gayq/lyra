@@ -96,7 +96,7 @@ pub async fn upload(
     if json_bytes.len() > MAX_RAW_SIZE {
         return (StatusCode::PAYLOAD_TOO_LARGE, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("payload too large".into()) }));
     }
-    let mut compressor = BrotliEncoder::with_quality(Vec::new(), Level::Best);
+    let mut compressor = BrotliEncoder::with_quality(Vec::new(), Level::Precise(4));
     if let Err(_) = compressor.write_all(&json_bytes).await {
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("compression failed".into()) }));
     }

@@ -2,12 +2,12 @@
 
 echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
 echo ""
-echo "type 'oki' to continue or 'cancel' to abort."
+echo "type 'ok' to continue or 'cancel' to abort."
 
 while true; do
     read -p "> " user_input
     case "$user_input" in
-        oki)
+        ok)
             echo "starting setup..."
             break
             ;;
@@ -16,7 +16,7 @@ while true; do
             exit 0
             ;;
         *)
-            echo "please type 'oki' or 'cancel'."
+            echo "please type 'ok' or 'cancel'."
             ;;
     esac
 done

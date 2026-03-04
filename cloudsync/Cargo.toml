@@ -1,6 +1,6 @@
 [package]
 name = "cloudsync"
-version = "0.1.1"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]
@@ -27,6 +27,7 @@ tower_governor = "0.4"
 r2d2 = "0.8"
 r2d2_sqlite = "0.24"
 mimalloc = "0.1"
+dashmap = "6"
 
 [profile.release]
 lto = true

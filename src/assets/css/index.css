@@ -1086,7 +1086,7 @@ body.browser-view .main-nav {
 
 }
 
-.iframe-loading-overlay {
+.iframe-loading {
   align-items: center;
   background-color: #050505c9;
   display: none;
@@ -1101,7 +1101,7 @@ body.browser-view .main-nav {
   z-index: 50;
 }
 
-.iframe-loading-overlay.visible {
+.iframe-loading.visible {
   display: flex;
 }
 

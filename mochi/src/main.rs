@@ -55,8 +55,8 @@ struct AppState {
     html_rewrite_permit: Arc<Semaphore>,
 }
 
-const MAX_CACHE_SIZE_BYTES: usize = 150 * 1024 * 1024;
-const RAM_CACHE_LIMIT: usize = 100 * 1024 * 1024;
+const MAX_CACHE_SIZE_BYTES: usize = 512 * 1024 * 1024;
+const RAM_CACHE_LIMIT: usize = 512 * 1024 * 1024;
 const CDN_DOMAINS: &[&str] = &[
     "site-assets.fontawesome.com",
     "ka-f.fontawesome.com",
@@ -74,7 +74,7 @@ async fn disk_cache_cleanup_task(max_dir_size_bytes: u64, max_age_secs: u64) {
     let cache_dir = "./cache";
     
     loop {
-        tokio::time::sleep(Duration::from_secs(3600)).await;
+        tokio::time::sleep(Duration::from_secs(7200)).await;
 
         let mut entries = match fs::read_dir(cache_dir).await {
             Ok(e) => e,
@@ -125,26 +125,25 @@ async fn main() {
 
     let _ = fs::create_dir_all("./cache").await;
     let cache = Cache::builder()
-        .max_capacity(8u64 * 1024 * 1024 * 1024)
+        .max_capacity(16u64 * 1024 * 1024 * 1024)
         .weigher(|_key: &String, val: &Arc<CachedResponse>| -> u32 {
             (val.body.len() as u32).saturating_add(200)
         })
-        .time_to_live(Duration::from_secs(24 * 60 * 60))
+        .time_to_live(Duration::from_secs(48 * 60 * 60))
         .build();
 
     let asset_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(2048)
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(256)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
         .connect_timeout(Duration::from_secs(10))
         .http2_keep_alive_interval(Duration::from_secs(15))
         .http2_keep_alive_timeout(Duration::from_secs(20))
-        .pool_idle_timeout(Duration::from_secs(300))
         .build()
         .expect("failed to build asset client");
 
@@ -152,8 +151,8 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(2048)
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(256)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -180,27 +179,16 @@ async fn main() {
         blocklist_matcher,
         caching_inflight: DashMap::new(),
         coalesce: DashMap::new(),
-        request_permit: Arc::new(Semaphore::new(10000)),
-        html_rewrite_permit: Arc::new(Semaphore::new(2048)),
+        request_permit: Arc::new(Semaphore::new(8000)),
+        html_rewrite_permit: Arc::new(Semaphore::new(4096)),
     });
-
-    let app = Router::new()
-        .route("/!!/*path", any(proxy_handler))
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-        .layer(CompressionLayer::new())
-        .with_state(state);
 
     let port = std::env::var("MOCHI_PORT").unwrap_or_else(|_| "4000".to_string());
     let port = port.parse::<u16>().unwrap_or(4000);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("listening on {}!!", addr);
-    let max_disk_cache = 20 * 1024 * 1024 * 1024;
-    let max_file_age = 24 * 60 * 60;
+    let max_disk_cache = 40 * 1024 * 1024 * 1024;
+    let max_file_age = 72 * 60 * 60;
     tokio::spawn(disk_cache_cleanup_task(max_disk_cache, max_file_age));
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -345,6 +333,7 @@ async fn proxy_handler(
     req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
     req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
     req_builder = req_builder.header("Priority", "u=1, i");
+
     let origin = target_url.origin().ascii_serialization();
     req_builder = req_builder.header("Referer", format!("{}/", origin));
     req_builder = req_builder.header("Origin", origin);
@@ -433,8 +422,8 @@ async fn proxy_handler(
             }
         };
 
-        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(256);
-        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(256);
+        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(512);
+        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(512);
 
         let mut stream = upstream_res.bytes_stream();
         tokio::spawn(async move {
@@ -617,7 +606,7 @@ async fn proxy_handler(
         && !headers.contains_key("upgrade");
 
     if should_cache {
-        let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
+        let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(512);
         let target_url_str_owned = target_url_str.to_string();
         let state_clone = state.clone();
         let safe_headers_clone = safe_headers.clone();
@@ -684,7 +673,7 @@ async fn proxy_handler(
 }
 
 fn get_cache_path(url: &str) -> String {
-    let cache_key = if is_likely_static_asset(url) {
+    let cache_key = if is_likely_static_asset(url) && !url.contains("favicons?") {
         url.split('?').next().unwrap_or(url)
     } else {
         url
@@ -915,7 +904,7 @@ async fn fetch_and_cache(
     }
 
     if actually_cache {
-        let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(256);
+        let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(512);
         let target_url_str_owned = target_url_str.to_string();
         let state_clone = state.clone();
         let safe_headers_clone = safe_headers.clone();

@@ -73,30 +73,44 @@ const renderBookmarks = () => {
         iconWrapper.className = 'bookmark-icon skeleton';
         iconWrapper.dataset.bookmarkUrl = bookmark.url;
 
-        const icon = document.createElement('img');
-        icon.className = 'bookmark-icon-img';
-        icon.loading = 'lazy';
-        icon.decoding = 'async';
-
-        icon.onload = () => {
+        if (bookmark.icon && (bookmark.icon.startsWith('fa-') || bookmark.icon.includes(' fa-') || /^fa[srbltd]? /.test(bookmark.icon))) {
             iconWrapper.classList.remove('skeleton');
-        };
+            iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;color:#fff';
+            const faIcon = document.createElement('i');
+            faIcon.className = bookmark.icon;
+            faIcon.style.fontSize = '24px';
+            iconWrapper.appendChild(faIcon);
+        } else {
+            const icon = document.createElement('img');
+            icon.className = 'bookmark-icon-img';
+            icon.loading = 'lazy';
+            icon.decoding = 'async';
 
-        try {
-            const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
-            icon.src = getProxyUrl(originalFavicon);
-        } catch {
-            icon.src = '';
+            icon.onload = () => {
+                iconWrapper.classList.remove('skeleton');
+            };
+
+            if (bookmark.icon) {
+                icon.src = bookmark.icon;
+            } else {
+                try {
+                    const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
+                    icon.src = getProxyUrl(originalFavicon);
+                } catch {
+                    icon.src = '';
+                }
+            }
+
+            icon.onerror = () => {
+                iconWrapper.classList.remove('skeleton');
+                icon.remove();
+                iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:#fff';
+                iconWrapper.textContent = bookmark.name.charAt(0).toUpperCase();
+            };
+
+            iconWrapper.appendChild(icon);
         }
 
-        icon.onerror = () => {
-            iconWrapper.classList.remove('skeleton');
-            icon.remove();
-            iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:#fff';
-            iconWrapper.textContent = bookmark.name.charAt(0).toUpperCase();
-        };
-
-        iconWrapper.appendChild(icon);
         link.appendChild(iconWrapper);
 
         const name = document.createElement('span');
@@ -212,10 +226,12 @@ const deleteBookmark = index => {
 
 const setupAndShowBookmarkPrompt = (index) => {
     const isEditing = typeof index === 'number';
+    let existingIcon = null;
     if (isEditing) {
         const bookmark = getBookmarks()[index];
-        if (bookmarkNameInputEl) bookmarkNameInputEl.value = bookmark.name;
-        if (bookmarkUrlInputEl) bookmarkUrlInputEl.value = bookmark.url;
+        if (bookmarkNameInputEl) bookmarkNameInputEl.value = bookmark.name || '';
+        if (bookmarkUrlInputEl) bookmarkUrlInputEl.value = bookmark.url || '';
+        existingIcon = bookmark.icon;
     }
     showBookmarkPrompt();
     if (saveBookmarkBtnEl) saveBookmarkBtnEl.onclick = () => {
@@ -230,8 +246,12 @@ const setupAndShowBookmarkPrompt = (index) => {
         const canonUrls = otherBookmarks.map(s => canonicalize(s.url));
         if (canonUrls.includes(canonUrl)) { showToast('error', 'That bookmark URL already exists!', 'warning'); return; }
         if (!isEditing && bookmarks.length >= 5) { showToast('error', 'You can only have 5 bookmarks!', 'warning'); return; }
-        if (isEditing) bookmarks[index] = { name, url: canonUrl };
-        else bookmarks.push({ name, url: canonUrl });
+
+        const newBookmark = { name, url: canonUrl };
+        if (isEditing && existingIcon) newBookmark.icon = existingIcon;
+
+        if (isEditing) bookmarks[index] = newBookmark;
+        else bookmarks.push(newBookmark);
         saveBookmarks(bookmarks);
         renderBookmarks();
         hideBookmarkPrompt();

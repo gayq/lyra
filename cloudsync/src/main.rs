@@ -121,7 +121,7 @@ async fn main() {
 
     let app = Router::new()
         .nest("/api", api_routes)
-        .route("/", get(|| async { "CloudSync Service Active" }))
+        .route("/", get(|| async { "cloudsync active" }))
         .layer(tower_cookies::CookieManagerLayer::new())
         .layer({
             use tower_http::cors::AllowOrigin;

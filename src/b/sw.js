@@ -117,15 +117,19 @@ let adBlockLoaded = HARDCODED_AD_DOMAINS.size > 0;
 
 const AD_LISTS = [
   {
-    url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0',
+    url: 'https://raw.githubusercontent.com/nextdns/native-tracking-domains/main/domains/alexa',
     parse: 'plain'
   },
   {
-    url: 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts',
-    parse: 'hosts'
+    url: 'https://raw.githubusercontent.com/nextdns/native-tracking-domains/main/domains/apple',
+    parse: 'plain'
   },
   {
-    url: 'https://small.oisd.nl/domainswild',
+    url: 'https://raw.githubusercontent.com/nextdns/native-tracking-domains/main/domains/windows',
+    parse: 'plain'
+  },
+  {
+    url: 'https://big.oisd.nl/domainswild',
     parse: 'wildcard'
   },
   {
@@ -133,7 +137,11 @@ const AD_LISTS = [
     parse: 'adguard'
   },
   {
-    url: 'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/light.txt',
+    url: 'https://cdn.jsdelivr.net/gh/badmojr/1Hosts@latest/Lite/domains.txt',
+    parse: 'plain'
+  },
+  {
+    url: 'https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/domains/pro.txt',
     parse: 'plain'
   }
 ];
@@ -1056,7 +1064,7 @@ self.addEventListener("fetch", (event) => {
         const dest = request.destination;
         const accept = request.headers.get('Accept') || '';
 
-        const isHeavyAsset =
+        const isCacheableAsset =
           dest === 'video' ||
           dest === 'audio' ||
           dest === 'image' ||
@@ -1067,9 +1075,9 @@ self.addEventListener("fetch", (event) => {
           accept.startsWith('audio/') ||
           accept.startsWith('font/') ||
           STATIC_ASSET_REGEX.test(url.pathname) ||
-          ['.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
+          ['.css', '.wasm', '.mp4', '.m3u8', '.webm', '.mp3', '.wav', '.ogg', '.aac', '.flac', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'].includes(ext);
 
-        if (isHeavyAsset) {
+        if (isCacheableAsset && !realUrl.includes(self.location.host)) {
           try {
             const mochiResponse = await fetchThroughMochi(request, realUrl);
             if (mochiResponse && mochiResponse.ok) {

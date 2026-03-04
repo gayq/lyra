@@ -106,7 +106,13 @@ function setRefreshButtonState(loading) {
 
 export function syncRefreshButtonWithActiveTab() {
   const activeTab = window.WavesApp?.getActiveTab?.();
-  setRefreshButtonState(!!activeTab?.isLoading);
+  const isLoading = !!activeTab?.isLoading;
+  setRefreshButtonState(isLoading);
+  if (isLoading) {
+    showIframeLoading();
+  } else {
+    hideIframeLoading();
+  }
 }
 
 export function showLoading(tabId = null) {
@@ -129,14 +135,14 @@ export function showIframeLoading() {
   const container = dom.iframeContainer;
   if (!container) return;
 
-  let overlay = container.querySelector('.iframe-loading-overlay');
+  let overlay = container.querySelector('.iframe-loading');
   if (overlay) {
     overlay.classList.add('visible');
     return;
   }
 
   overlay = document.createElement('div');
-  overlay.className = 'iframe-loading-overlay visible';
+  overlay.className = 'iframe-loading visible';
 
   const cat = document.createElement('div');
   cat.className = 'iframe-loading-cat';
@@ -153,7 +159,7 @@ export function showIframeLoading() {
 export function hideIframeLoading() {
   const container = dom.iframeContainer;
   if (!container) return;
-  const overlay = container.querySelector('.iframe-loading-overlay');
+  const overlay = container.querySelector('.iframe-loading');
   if (overlay) {
     overlay.classList.remove('visible');
   }

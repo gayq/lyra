@@ -189,7 +189,9 @@ function updateTabDetails(iframe) {
                 iframe.dataset.lastReloadAt = now.toString();
                 isReloading = true;
                 iframe.classList.remove('loaded');
-                iframe.contentWindow.location.reload(true);
+
+                const currentUrl = iframe.dataset.manualUrl || iframe.src;
+                navigateIframeTo(iframe, currentUrl);
                 return;
             }
         }
