@@ -191,6 +191,18 @@ async fn main() {
     let max_file_age = 72 * 60 * 60;
     tokio::spawn(disk_cache_cleanup_task(max_disk_cache, max_file_age));
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let app = Router::new()
+        .route("/", any(proxy_handler))
+        .route("/*path", any(proxy_handler))
+        .layer(CompressionLayer::new())
+        .layer(cors)
+        .with_state(state);
+
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
         .tcp_nodelay(true)
