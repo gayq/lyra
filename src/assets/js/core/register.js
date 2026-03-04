@@ -145,7 +145,7 @@
         const transportModule = transportMap[this.appConfig.transport];
         if (!transportModule) throw new Error(`unknown transport: ${this.appConfig.transport}`);
 
-        this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
+        await this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
 
         this.updateStatus(`successfully connected!`, 'success');
         this.setState(STATES.CONNECTED);
@@ -223,7 +223,7 @@
         }
       });
       window.addEventListener('offline', () => this.updateStatus('network offline.', 'error'));
-      
+
       document.addEventListener("newTransport", (e) => applyLiveChanges(async () => {
         this.appConfig.transport = e.detail;
       }));

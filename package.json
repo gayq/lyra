@@ -1,6 +1,6 @@
 {
   "name": "waves",
-  "version": "3.5.8",
+  "version": "3.5.7",
   "description": "a really cool web-proxy",
   "type": "module",
   "packageManager": "bun@latest",
@@ -16,7 +16,8 @@
     "start": "NODE_ENV=production node --max-old-space-size=512 --turbo-fast-api-calls index.mjs",
     "dev": "NODE_ENV=development node --max-old-space-size=2048 --turbo-fast-api-calls index.mjs",
     "lint": "eslint .",
-    "build": "bun build.mjs"
+    "build": "bun build.mjs",
+    "postinstall": "node scripts/patch.js"
   },
   "dependencies": {
     "@mercuryworkshop/bare-mux": "^2.1.7",
