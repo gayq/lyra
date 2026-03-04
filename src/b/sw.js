@@ -1,5 +1,3 @@
-
-
 // dumb hack to allow firefox to work (please dont do this in prod)
 // do this in prod
 if (typeof crossOriginIsolated === 'undefined' && navigator.userAgent.includes('Firefox')) {
@@ -129,7 +127,15 @@ const AD_LISTS = [
     parse: 'plain'
   },
   {
-    url: 'https://big.oisd.nl/domainswild',
+    url: 'https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts',
+    parse: 'hosts'
+  },
+  {
+    url: 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml',
+    parse: 'plain'
+  },
+  {
+    url: 'https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-easylist.txt',
     parse: 'wildcard'
   },
   {
@@ -178,8 +184,14 @@ function parseWildcardList(text) {
   for (const line of text.split('\n')) {
     let d = line.trim().toLowerCase();
     if (!d || d.startsWith('#') || d.startsWith('!')) continue;
-    d = d.replace(/^\*\./, '').replace(/^\|\|/, '').replace(/\^$/, '');
-    if (d && d.includes('.')) domains.push(d);
+    
+    if (d.startsWith('||') && d.endsWith('^')) {
+      d = d.slice(2, -1);
+      if (d && d.includes('.') && !d.includes('/')) domains.push(d);
+    } else if (d.startsWith('*.')) {
+      d = d.slice(2);
+      if (d && d.includes('.') && !d.includes('/')) domains.push(d);
+    }
   }
   return domains;
 }
@@ -428,8 +440,6 @@ if (isScramjet) {
   );
   uv = new UVServiceWorker();
 }
-
-
 
 const TURN_SCRIPT = `
 <script>
