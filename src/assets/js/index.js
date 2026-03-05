@@ -1188,26 +1188,29 @@ document.addEventListener('DOMContentLoaded', () => {
         showHomeView();
     };
 
-    window.WavesApp.handleSearch = async (query, gameName, gameIcon) => {
-        const activeTab = getActiveTab();
-        if (activeTab) {
-            if (gameName) {
-                activeTab.fixedTitle = true;
-                activeTab.title = gameName;
-                if (gameIcon) {
-                    activeTab.fixedFavicon = true;
-                    activeTab.favicon = gameIcon;
-                } else {
-                    activeTab.fixedFavicon = false;
-                }
-                renderTabs();
-            } else {
-                activeTab.fixedTitle = false;
-                activeTab.fixedFavicon = false;
-            }
-            await performSearch(query, activeTab, gameName);
-        }
-    };
+        window.WavesApp.handleSearch = async (query, gameName, gameIcon) => {
+        const activeTab = getActiveTab();
+        if (activeTab) {
+            if (gameName) {
+                activeTab.fixedTitle = true;
+                activeTab.title = gameName;
+                if (gameIcon) {
+                    activeTab.fixedFavicon = true;
+                    activeTab.favicon = gameIcon;
+                } else {
+                    activeTab.fixedFavicon = false;
+                }
+                renderTabs();
+            } else {
+                const currentUrl = activeTab.historyManager?.getCurrentUrl() || '';
+                if (query.trim() !== currentUrl.trim()) {
+                    activeTab.fixedTitle = false;
+                    activeTab.fixedFavicon = false;
+                }
+            }
+            await performSearch(query, activeTab, gameName);
+        }
+    };
 
     initializeUI(getActiveTab);
     initializeSearch(getActiveTab);
