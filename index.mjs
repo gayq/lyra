@@ -200,17 +200,31 @@ app.use(compression({
 }));
 
 app.use((req, res, next) => {
+  if (!CACHING_ENABLED || req.method !== 'GET') return next();
   if (req.path.startsWith("/api/") || req.url.startsWith("/!!/") || req.path.startsWith("/b")) return next();
   const key = req.originalUrl;
   const val = pageCache.get(key);
   if (val) {
+    if (val.headers) {
+      for (const [k, v] of Object.entries(val.headers)) {
+        if (v) res.setHeader(k, v);
+      }
+    }
     res.setHeader("X-Cache", "HIT");
-    return res.send(val);
+    return res.send(val.body);
   }
   const originalSend = res.send;
   res.send = (body) => {
     if (res.statusCode === 200) {
-      pageCache.set(key, body);
+      pageCache.set(key, {
+        body,
+        headers: {
+          'Content-Type': res.getHeader('Content-Type'),
+          'Content-Encoding': res.getHeader('Content-Encoding'),
+          'Cache-Control': res.getHeader('Cache-Control'),
+          'Vary': res.getHeader('Vary')
+        }
+      });
       res.setHeader("X-Cache", "MISS");
     }
     originalSend.call(res, body);
