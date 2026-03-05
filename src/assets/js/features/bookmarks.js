@@ -346,7 +346,7 @@ export function initializeBookmarks() {
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
                     <button id="saveBookmarkBtn">save</button>
-                    <button id="cancelBookmarkBtn" style="background-color:#1a1a1a;color:white;" onmouseover="this.style.backgroundColor='#2f2f2f';" onmouseout="this.style.backgroundColor='#1a1a1a';">cancel</button>
+                    <button id="cancelBookmarkBtn" style="background-color:var(--btn-secondary-bg);color:var(--btn-secondary-text);" onmouseover="this.style.backgroundColor='var(--btn-secondary-bg-hover)';" onmouseout="this.style.backgroundColor='var(--btn-secondary-bg)';">cancel</button>
                 </div>
             </div>
         `;

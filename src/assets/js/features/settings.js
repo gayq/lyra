@@ -572,6 +572,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     applyInitialDecoy(initialDecoy);
 
+    const savedTheme = localStorage.getItem('theme') || 'default';
+    if (savedTheme && savedTheme !== 'default') {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+
     window.addEventListener("load", () => runInitialCloak(initialCloakLink));
 
     let settingsInitialized = false;
@@ -590,9 +597,9 @@ document.addEventListener('DOMContentLoaded', function () {
                     flex-wrap: wrap;
                 }
                 .data-action-btn {
-                    background-color: #181818;
-                    border: 2px solid #ffffff00;
-                    color: #e0e0e0;
+                    background-color: var(--bg-surface-7);
+                    border: 2px solid var(--border-transparent);
+                    color: var(--text-primary);
                     padding: 10px;
                     border-radius: 15px;
                     cursor: pointer;
@@ -606,7 +613,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     font-size: 16px; 
                 }
                 .data-action-btn:hover {
-                    background-color: #333; 
+                    background-color: var(--bg-surface-active); 
                 }
                 .data-action-btn i {
                     font-size: 1em; 
@@ -626,12 +633,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         const appSettings = {
             backend: localStorage.getItem('backend') || 'scramjet',
-            transport: localStorage.getItem('transport') || 'libcurl',
+            transport: localStorage.getItem('transport') || 'epoxy',
             cloakLink: localStorage.getItem('cloakLink') || 'none',
             decoy: localStorage.getItem('decoy') || 'default',
             searchEngine: localStorage.getItem('searchEngine') || 'duckduckgo',
             gameSource: localStorage.getItem('gameSource') || 'gn-math',
-            preventClosing: localStorage.getItem('preventClosing') !== 'false'
+            theme: localStorage.getItem('theme') || 'default',
+            preventClosing: localStorage.getItem('preventClosing') !== 'false',
+            fallEnabled: localStorage.getItem('fallEnabled') !== 'false'
         };
 
         let isToggling = false;
@@ -647,6 +656,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="settings-tabs">
                     <button class="tab-button active" id="preferences-tab">
                         <i class="fa-solid fa-sliders"></i> preferences
+                    </button>
+                    <button class="tab-button" id="appearance-tab">
+                        <i class="fa-regular fa-palette"></i> appearance
                     </button>
                     <button class="tab-button" id="cloaking-tab">
                         <i class="fa-regular fa-ghost"></i> cloaking
@@ -681,6 +693,21 @@ document.addEventListener('DOMContentLoaded', function () {
                             <label>prevent closing</label>
                             <p>prevent the tab from being closed.</p>
                             <input type="checkbox" id="prevent-closing-toggle">
+                        </div>
+                    </div>
+                    <div id="appearance-content" class="tab-content">
+                        <div class="settings-item">
+                            <label>theme</label>
+                            <p>change the look and feel of waves.</p>
+                            <div class="theme-selector">
+                                <div class="theme-selected"></div>
+                                <div class="theme-options"></div>
+                            </div>
+                        </div>
+                        <div class="settings-item">
+                            <label>falling things</label>
+                            <p>toggle the falling things on top of the screen.</p>
+                            <input type="checkbox" id="fall-toggle">
                         </div>
                     </div>
                     <div id="cloaking-content" class="tab-content">
@@ -769,12 +796,16 @@ document.addEventListener('DOMContentLoaded', function () {
         const gameSourceSelector = document.querySelector('.game-source-selector');
         const gameSourceSelected = gameSourceSelector.querySelector('.game-source-selected');
         const gameSourceOptions = gameSourceSelector.querySelector('.game-source-options');
+        const themeSelector = document.querySelector('.theme-selector');
+        const themeSelected = themeSelector.querySelector('.theme-selected');
+        const themeOptionsEl = themeSelector.querySelector('.theme-options');
         const allBackendOptions = ['ultraviolet', 'scramjet'];
         const allTransportOptions = ['epoxy', 'libcurl'];
         const allSearchEngineOptions = ['google', 'bing', 'duckduckgo', 'startpage', 'brave', 'mojeek', 'swisscows'];
         const allDecoyOptions = ['default', 'google', 'google classroom', 'google docs', 'youtube', 'google drive', 'schoology', 'wikipedia', 'canva'];
         const allCloakLinkOptions = ['none', 'about:blank', 'blob:'];
         const allGameSourceOptions = ['gn-math', 'truffled', 'velara', 'squall'];
+        const allThemeOptions = ['default', 'catppuccin', 'nord', 'rose pine', 'gruvbox', 'dracula', 'synthwave', 'tokyo night', 'everforest', 'kanagawa', 'solarized', 'sakura'];
 
         window.toggleSettingsMenu = function () {
             if (isToggling) return;
@@ -830,8 +861,8 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         function closeAllSelectors() {
-            document.querySelectorAll('.backend-show, .transport-show, .search-engine-show, .decoy-show, .cloak-link-show, .game-source-show').forEach(el => el.classList.remove('backend-show', 'transport-show', 'search-engine-show', 'decoy-show', 'cloak-link-show', 'game-source-show'));
-            document.querySelectorAll('.backend-arrow-active, .transport-arrow-active, .search-engine-arrow-active, .decoy-arrow-active, .cloak-link-arrow-active, .game-source-arrow-active').forEach(el => el.classList.remove('backend-arrow-active', 'transport-arrow-active', 'search-engine-arrow-active', 'decoy-arrow-active', 'cloak-link-arrow-active', 'game-source-arrow-active'));
+            document.querySelectorAll('.backend-show, .transport-show, .search-engine-show, .decoy-show, .cloak-link-show, .game-source-show, .theme-show').forEach(el => el.classList.remove('backend-show', 'transport-show', 'search-engine-show', 'decoy-show', 'cloak-link-show', 'game-source-show', 'theme-show'));
+            document.querySelectorAll('.backend-arrow-active, .transport-arrow-active, .search-engine-arrow-active, .decoy-arrow-active, .cloak-link-arrow-active, .game-source-arrow-active, .theme-arrow-active').forEach(el => el.classList.remove('backend-arrow-active', 'transport-arrow-active', 'search-engine-arrow-active', 'decoy-arrow-active', 'cloak-link-arrow-active', 'game-source-arrow-active', 'theme-arrow-active'));
         }
 
         function changeTab(targetId) {
@@ -884,7 +915,13 @@ document.addEventListener('DOMContentLoaded', function () {
                                 window.showToast('success', 'settings saved!');
                                 closeAllSelectors();
 
-                                if (storageKey === 'gameSource') {
+                                if (storageKey === 'theme') {
+                                    if (storageVal === 'default') {
+                                        document.documentElement.removeAttribute('data-theme');
+                                    } else {
+                                        document.documentElement.setAttribute('data-theme', storageVal);
+                                    }
+                                } else if (storageKey === 'gameSource') {
                                     document.dispatchEvent(new CustomEvent('gameSourceUpdated', {
                                         detail: storageVal
                                     }));
@@ -922,12 +959,16 @@ document.addEventListener('DOMContentLoaded', function () {
 
         preventClosingToggle.checked = appSettings.preventClosing;
 
+        const fallToggle = document.getElementById('fall-toggle');
+        fallToggle.checked = appSettings.fallEnabled;
+
         createSelector('backend', backendSelected, backendOptions, allBackendOptions, appSettings.backend, 'backend');
         createSelector('transport', transportSelected, transportOptions, allTransportOptions, appSettings.transport, 'transport');
         createSelector('cloak-link', cloakLinkSelected, cloakLinkOptions, allCloakLinkOptions, appSettings.cloakLink, 'cloakLink');
         createSelector('search-engine', searchEngineSelected, searchEngineOptions, allSearchEngineOptions, appSettings.searchEngine, 'searchEngine');
         createSelector('decoy', decoySelected, decoyOptions, allDecoyOptions, appSettings.decoy, 'decoy');
         createSelector('game-source', gameSourceSelected, gameSourceOptions, allGameSourceOptions, appSettings.gameSource, 'gameSource');
+        createSelector('theme', themeSelected, themeOptionsEl, allThemeOptions, appSettings.theme, 'theme');
 
         closeSettingsBtn.addEventListener('click', window.toggleSettingsMenu);
 
@@ -962,7 +1003,7 @@ document.addEventListener('DOMContentLoaded', function () {
             });
         }
         window.addEventListener('click', (e) => {
-            if (!e.target.closest('.backend-selector, .transport-selector, .search-engine-selector, .decoy-selector, .cloak-link-selector, .game-source-selector')) {
+            if (!e.target.closest('.backend-selector, .transport-selector, .search-engine-selector, .decoy-selector, .cloak-link-selector, .game-source-selector, .theme-selector')) {
                 closeAllSelectors();
             }
         });
@@ -974,6 +1015,16 @@ document.addEventListener('DOMContentLoaded', function () {
         preventClosingToggle.addEventListener('change', function () {
             appSettings.preventClosing = this.checked;
             localStorage.setItem('preventClosing', this.checked.toString());
+            window.showToast('success', 'settings saved!');
+        });
+
+        fallToggle.addEventListener('change', function () {
+            appSettings.fallEnabled = this.checked;
+            localStorage.setItem('fallEnabled', this.checked.toString());
+            const fallContainer = document.getElementById('fall-container');
+            if (fallContainer) {
+                fallContainer.style.display = this.checked ? '' : 'none';
+            }
             window.showToast('success', 'settings saved!');
         });
 

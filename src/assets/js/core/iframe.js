@@ -110,7 +110,17 @@ export function navigateIframeTo(iframe, url) {
         iframe.__usableTimeout = null;
     }
 
-    iframe.src = url;
+    const isProxyUrl = url.startsWith('/b/s/') || url.startsWith('/b/u/');
+    if (isProxyUrl && window.WavesApp?.waitForTransport) {
+        window.WavesApp.waitForTransport(8000).then(() => {
+            iframe.src = url;
+        }).catch((e) => {
+            console.error('navigateIframeTo: transport not ready, navigating anyway:', e.message);
+            iframe.src = url;
+        });
+    } else {
+        iframe.src = url;
+    }
 }
 
 export function cleanupIframe(iframe) {

@@ -109,9 +109,9 @@ export function syncRefreshButtonWithActiveTab() {
   const isLoading = !!activeTab?.isLoading;
   setRefreshButtonState(isLoading);
   if (isLoading) {
-    showIframeLoading();
+    showIframeLoading(activeTab?.id);
   } else {
-    hideIframeLoading();
+    hideIframeLoading(activeTab?.id);
   }
 }
 
@@ -120,29 +120,72 @@ export function showLoading(tabId = null) {
   const target = tabId ? tabs.find(t => t.id === tabId) : window.WavesApp?.getActiveTab?.();
   if (target) target.isLoading = true;
 
+  const resolvedTabId = tabId || window.WavesApp?.getActiveTab?.()?.id;
   const activeId = window.WavesApp?.getActiveTab?.()?.id ?? null;
-  if (!activeId || (tabId && activeId !== tabId)) return;
+  const isSplitView = document.body.classList.contains('split-view');
+  const splitPair = window.WavesApp?.splitPair;
+  const isInSplit = isSplitView && splitPair && (resolvedTabId === splitPair.left || resolvedTabId === splitPair.right);
 
-  if (dom.searchInputNav) {
-    dom.searchInputNav.placeholder = "fetching url...";
+  if (!isInSplit && (!activeId || (tabId && activeId !== tabId))) return;
+
+  if (!tabId || tabId === activeId) {
+    if (dom.searchInputNav) {
+      dom.searchInputNav.placeholder = "fetching url...";
+    }
+    setRefreshButtonState(true);
   }
 
-  setRefreshButtonState(true);
-  showIframeLoading();
+  showIframeLoading(resolvedTabId);
 }
 
-export function showIframeLoading() {
+function positionOverlayForTab(overlay, tabId) {
   const container = dom.iframeContainer;
   if (!container) return;
 
-  let overlay = container.querySelector('.iframe-loading');
+  const tabs = window.WavesApp?.tabs || [];
+  const tab = tabs.find(t => t.id === tabId);
+  if (!tab || !tab.iframe) {
+    overlay.style.left = '0';
+    overlay.style.top = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    return;
+  }
+
+  const isSplitView = document.body.classList.contains('split-view');
+  if (!isSplitView) {
+    overlay.style.left = '0';
+    overlay.style.top = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    return;
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  const iframeRect = tab.iframe.getBoundingClientRect();
+
+  overlay.style.left = (iframeRect.left - containerRect.left) + 'px';
+  overlay.style.top = (iframeRect.top - containerRect.top) + 'px';
+  overlay.style.width = iframeRect.width + 'px';
+  overlay.style.height = iframeRect.height + 'px';
+}
+
+export function showIframeLoading(tabId = null) {
+  const container = dom.iframeContainer;
+  if (!container) return;
+
+  const overlayId = tabId ? `iframe-loading-${tabId}` : 'iframe-loading-default';
+
+  let overlay = container.querySelector(`[data-loading-id="${overlayId}"]`);
   if (overlay) {
     overlay.classList.add('visible');
+    if (tabId) positionOverlayForTab(overlay, tabId);
     return;
   }
 
   overlay = document.createElement('div');
   overlay.className = 'iframe-loading visible';
+  overlay.dataset.loadingId = overlayId;
 
   const cat = document.createElement('div');
   cat.className = 'iframe-loading-cat';
@@ -154,14 +197,21 @@ export function showIframeLoading() {
   overlay.appendChild(cat);
   overlay.appendChild(text);
   container.appendChild(overlay);
+
+  if (tabId) positionOverlayForTab(overlay, tabId);
 }
 
-export function hideIframeLoading() {
+export function hideIframeLoading(tabId = null) {
   const container = dom.iframeContainer;
   if (!container) return;
-  const overlay = container.querySelector('.iframe-loading');
-  if (overlay) {
-    overlay.classList.remove('visible');
+
+  if (tabId) {
+    const overlayId = `iframe-loading-${tabId}`;
+    const overlay = container.querySelector(`[data-loading-id="${overlayId}"]`);
+    if (overlay) overlay.classList.remove('visible');
+  } else {
+    const overlays = container.querySelectorAll('.iframe-loading');
+    overlays.forEach(o => o.classList.remove('visible'));
   }
 }
 
@@ -171,15 +221,21 @@ export function hideLoading(tabId = null) {
   if (target) target.isLoading = false;
 
   const activeId = window.WavesApp?.getActiveTab?.()?.id ?? null;
-  if (tabId && activeId && tabId !== activeId) return;
+  const isSplitView = document.body.classList.contains('split-view');
+  const splitPair = window.WavesApp?.splitPair;
+  const isInSplit = isSplitView && splitPair && (tabId === splitPair?.left || tabId === splitPair?.right);
 
-  if (dom.searchInputNav) {
-    dom.searchInputNav.placeholder = "search or enter address";
+  if (!isInSplit && tabId && activeId && tabId !== activeId) return;
+
+  if (!tabId || tabId === activeId) {
+    if (dom.searchInputNav) {
+      dom.searchInputNav.placeholder = "search or enter address";
+    }
+    document.title = originalTitle;
+    setRefreshButtonState(false);
   }
 
-  document.title = originalTitle;
-  setRefreshButtonState(false);
-  hideIframeLoading();
+  hideIframeLoading(tabId);
 }
 
 function setupOnekoAnimation() {

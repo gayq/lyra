@@ -76,6 +76,17 @@ export async function handleSearch(query, activeTab, gameName) {
         const finalUrlToLoad = searchURL.includes('/assets/gs/')
             ? new URL(searchURL, window.location.origin).href
             : await getUrl(searchURL);
+
+        const isProxyUrl = finalUrlToLoad.startsWith('/b/s/') || finalUrlToLoad.startsWith('/b/u/');
+        if (isProxyUrl && window.WavesApp?.waitForTransport) {
+            try {
+                await window.WavesApp.waitForTransport(10000);
+            } catch (e) {
+                console.error('transport not ready, cannot navigate:', e.message);
+                return;
+            }
+        }
+
         navigateIframeTo(activeTab.iframe, finalUrlToLoad);
     }
 }

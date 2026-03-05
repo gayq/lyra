@@ -91,7 +91,7 @@ pub async fn register(
             return Err("username taken!");
         }
 
-        let hashed = hash(&password, 12).map_err(|_| "internal error")?;
+        let hashed = hash(&password, 10).map_err(|_| "internal error")?;
 
         conn.execute(
             "INSERT INTO users (username, password_hash, token_version) VALUES (?, ?, 1)",

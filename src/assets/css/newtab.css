@@ -1,5 +1,5 @@
 .new-tab-unified-wrapper {
-    background-color: #131313;
+    background-color: var(--bg-surface-5);
     border-radius: 10px;
     overflow: hidden;
     display: flex;
@@ -10,36 +10,36 @@
     position: relative;
 }
 
-.new-tab-search-container > i.fa-magnifying-glass {
+.new-tab-search-container>i.fa-magnifying-glass {
     position: absolute;
     left: 15px;
     top: 50%;
     transform: translateY(-50%);
-    color: #818181;
+    color: var(--text-dimmed);
     font-size: 14px;
     pointer-events: none;
 }
 
 .new-tab-unified-wrapper.has-results .new-tab-search-container {
-    border-bottom: 1px solid #ffffff1c !important;
+    border-bottom: 1px solid var(--border-faint) !important;
 }
 
 .new-tab-popup input {
     width: 100% !important;
     max-width: 100% !important;
     padding: 13px 13px 13px 40px !important;
-    background-color: #131313 !important;
+    background-color: var(--bg-surface-5) !important;
     border-radius: 0 !important;
     font-size: 14px !important;
-    border: 2px solid #ffffff00 !important;
-    color: #b9b9b9 !important;
+    border: 2px solid var(--border-transparent) !important;
+    color: var(--text-secondary) !important;
     outline: none !important;
     margin: 0 !important;
     box-sizing: border-box;
 }
 
 .new-tab-popup input::placeholder {
-    color: #818181 !important;
+    color: var(--text-dimmed) !important;
 }
 
 .new-tab-results-container {
@@ -56,7 +56,7 @@
 .new-tab-result-item {
     padding: 10px;
     cursor: pointer;
-    color: #b1b1b1;
+    color: var(--color-result);
     font-size: 14px;
     transition: all 0.1s ease;
     display: flex;
@@ -68,11 +68,11 @@
 .new-tab-result-item i {
     width: 20px;
     text-align: center;
-    color: #afafaf;
+    color: var(--color-result-icon);
     font-size: 14px;
 }
 
 .new-tab-result-item:hover {
-    color: #eee;
-    background-color: #ffffff1a;
+    color: var(--text-primary);
+    background-color: var(--hover-bg-toast);
 }

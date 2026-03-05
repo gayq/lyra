@@ -21,15 +21,15 @@
 
 #bookmarks-title {
   font-size: 15px;
-  color: #a5a5a5;
+  color: var(--color-label);
   font-weight: 400;
   margin: 0;
 }
 
 #bookmarks-edit-toggle {
-  background-color: #0f0f0f;
+  background-color: var(--bg-surface-3);
   border: none;
-  color: #adadad;
+  color: var(--color-tab);
   font-size: 11px;
   font-weight: 400;
   cursor: pointer;
@@ -40,8 +40,8 @@
 }
 
 #bookmarks-edit-toggle:hover {
-  color: #ffffff;
-  background-color: #1f1f1f;
+  color: var(--text-white);
+  background-color: var(--active-bg);
 }
 
 .bookmarks-wrapper {
@@ -79,9 +79,9 @@
   justify-content: center;
   width: 78px;
   height: 78px;
-  background-color: #0f0f0f;
+  background-color: var(--bg-surface-3);
   border-radius: 15px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
@@ -91,7 +91,7 @@
 }
 
 .bookmark-link:hover {
-  background-color: #131313;
+  background-color: var(--bg-surface-5);
 }
 
 .bookmark-icon {
@@ -128,9 +128,9 @@
   display: none;
   position: absolute;
   top: -6px;
-  background: #131313;
+  background: var(--bg-surface-5);
   border: none;
-  color: #c2c2c2;
+  color: var(--color-close-btn);
   border-radius: 50%;
   width: 22px;
   height: 22px;
@@ -152,7 +152,7 @@
 
 .bookmark-delete-trigger:hover,
 .bookmark-edit-trigger:hover {
-  color: #ffffff;
+  color: var(--text-white);
   transform: scale(1.1);
 }
 
@@ -178,9 +178,9 @@
   width: 88px;
   height: 88px;
   background-color: #0c0c0c00;
-  border: 1.5px dashed #ffffff28;
+  border: 1.5px dashed var(--border-dashed);
   border-radius: 20px;
-  color: #a0a0a0;
+  color: var(--color-tab);
   cursor: pointer;
   transition: all 0.1s ease;
   font-size: 24px;
@@ -188,8 +188,8 @@
 }
 
 #add-bookmark-btn:hover {
-  border: 1.5px dashed #ffffff46;
-  color: #ffffff;
+  border: 1.5px dashed var(--border-dashed-hover);
+  color: var(--text-white);
 }
 
 .bookmark-item.dragging {
@@ -213,7 +213,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: #ffffff;
+  background: var(--text-white);
   border-radius: 1px;
 }
 
@@ -228,7 +228,7 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: #ffffff;
+  background: var(--text-white);
   border-radius: 1px;
 }
 
@@ -248,14 +248,14 @@
 }
 
 #bookmarks-list.drag-over {
-  background-color: #ffffff08;
+  background-color: var(--hover-bg-faint);
   border-radius: 15px;
   transition: all 0.1s ease;
   transform: scale(1.02);
 }
 
 .bookmark-icon.skeleton {
-  background: linear-gradient(90deg, #0c0c0c 0%, #2a2a2a 50%, #0c0c0c 100%);
+  background: linear-gradient(90deg, var(--skeleton-from) 0%, var(--skeleton-via) 50%, var(--skeleton-to) 100%);
   background-size: 200% 100%;
   animation: skeleton 1s infinite linear;
 }

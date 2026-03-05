@@ -19,6 +19,81 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const packageJsonPath = path.resolve("package.json");
 const notificationsPath = path.resolve("notifications.json");
 
+const CACHING_ENABLED = NODE_ENV === 'production';
+const fileCache = CACHING_ENABLED ? new LRUCache({
+  maxSize: 800 * 1024 * 1024,
+  sizeCalculation: (buf) => buf.length,
+}) : null;
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.xml': 'application/xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.map': 'application/json',
+  '.wasm': 'application/wasm',
+};
+
+function cachedRead(absPath) {
+  if (!CACHING_ENABLED) {
+    try { return fs.readFileSync(absPath); } catch { return null; }
+  }
+  let buf = fileCache.get(absPath);
+  if (buf) return buf;
+  try {
+    buf = fs.readFileSync(absPath);
+    fileCache.set(absPath, buf);
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+function sendCached(res, absPath, cacheControl, extraHeaders) {
+  const buf = cachedRead(absPath);
+  if (!buf) return false;
+  const ext = path.extname(absPath).toLowerCase();
+  res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream');
+  res.setHeader('Cache-Control', cacheControl);
+  if (extraHeaders) for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v);
+  res.setHeader('X-File-Cache', 'HIT');
+  res.send(buf);
+  return true;
+}
+
+function cachedStatic(root, cacheControl = 'public, max-age=31536000, immutable', opts = {}) {
+  return (req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    const relative = decodeURIComponent(req.path).replace(/\\/g, '/');
+    if (relative.includes('..')) return next();
+    const absPath = path.join(root, relative);
+    if (opts.noIndex && relative === '/') return next();
+    if (sendCached(res, absPath, cacheControl)) return;
+    if (!opts.noIndex) {
+      const indexPath = path.join(absPath, 'index.html');
+      if (sendCached(res, indexPath, cacheControl)) return;
+    }
+    next();
+  };
+}
+
 const apiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 2000,
@@ -143,24 +218,12 @@ app.use((req, res, next) => {
   next();
 });
 
-const staticOpts = { maxAge: "365d", immutable: true, etag: false };
-const hashedOpts = { maxAge: "365d", immutable: true, etag: false };
-
 if (NODE_ENV === 'production') {
   const COMPRESSIBLE = /\.(js|css|html|mjs|json|svg|xml)$/i;
   const ENCODING_MAP = [
     { ext: '.br', encoding: 'br' },
     { ext: '.gz', encoding: 'gzip' }
   ];
-  const CONTENT_TYPES = {
-    '.js': 'application/javascript; charset=utf-8',
-    '.mjs': 'application/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.html': 'text/html; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.xml': 'application/xml'
-  };
 
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
@@ -177,13 +240,15 @@ if (NODE_ENV === 'production') {
       ];
 
       for (const filePath of candidates) {
-        if (fs.existsSync(filePath)) {
-          const fileExt = path.extname(req.path);
+        const buf = cachedRead(filePath);
+        if (buf) {
+          const fileExt = path.extname(req.path).toLowerCase();
           res.setHeader('Content-Encoding', encoding);
-          res.setHeader('Content-Type', CONTENT_TYPES[fileExt] || 'application/octet-stream');
+          res.setHeader('Content-Type', MIME_TYPES[fileExt] || 'application/octet-stream');
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           res.setHeader('Vary', 'Accept-Encoding');
-          return res.sendFile(filePath);
+          res.setHeader('X-File-Cache', 'HIT');
+          return res.send(buf);
         }
       }
     }
@@ -222,14 +287,29 @@ app.get("/b", (req, res) => {
   res.send(buf);
 });
 
-app.use("/bmux/", express.static(baremuxPath, staticOpts));
-app.use("/epoxy/", express.static(epoxyPath, hashedOpts));
-app.use("/libcurl/", express.static(libcurlPath, hashedOpts));
-app.use("/s/", express.static(path.join(__dirname, "scramjet"), staticOpts));
-app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), { maxAge: 0, immutable: false, etag: true }));
-app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
-app.use("/b", express.static(path.join(publicPath, "b"), staticOpts));
-app.use(express.static(srcPath, { ...staticOpts, index: false }));
+const IMMUTABLE_CC = 'public, max-age=31536000, immutable';
+const NO_CACHE_CC = 'public, max-age=0, must-revalidate';
+
+if (CACHING_ENABLED) {
+  app.use("/bmux/", cachedStatic(baremuxPath, IMMUTABLE_CC));
+  app.use("/epoxy/", cachedStatic(epoxyPath, IMMUTABLE_CC));
+  app.use("/libcurl/", cachedStatic(libcurlPath, IMMUTABLE_CC));
+  app.use("/s/", cachedStatic(path.join(__dirname, "scramjet"), IMMUTABLE_CC));
+  app.use("/assets/data", cachedStatic(path.join(publicPath, "assets", "data"), NO_CACHE_CC));
+  app.use("/assets", cachedStatic(path.join(publicPath, "assets"), IMMUTABLE_CC));
+  app.use("/b", cachedStatic(path.join(publicPath, "b"), IMMUTABLE_CC));
+  app.use(cachedStatic(srcPath, IMMUTABLE_CC, { noIndex: true }));
+} else {
+  const staticOpts = { maxAge: 0, etag: true };
+  app.use("/bmux/", express.static(baremuxPath, staticOpts));
+  app.use("/epoxy/", express.static(epoxyPath, staticOpts));
+  app.use("/libcurl/", express.static(libcurlPath, staticOpts));
+  app.use("/s/", express.static(path.join(__dirname, "scramjet"), staticOpts));
+  app.use("/assets/data", express.static(path.join(publicPath, "assets", "data"), staticOpts));
+  app.use("/assets", express.static(path.join(publicPath, "assets"), staticOpts));
+  app.use("/b", express.static(path.join(publicPath, "b"), staticOpts));
+  app.use(express.static(srcPath, { ...staticOpts, index: false }));
+}
 
 app.get("/api/stuff", (_req, res) => {
   fs.readFile(packageJsonPath, "utf8", (err, data) => {
@@ -249,11 +329,31 @@ app.get("/api/notifications", (_req, res) => {
 });
 
 app.get("/", (_req, res) => {
-  res.status(418).sendFile(path.join(srcPath, "index.html"));
+  const fp = path.join(srcPath, "index.html");
+  if (CACHING_ENABLED) {
+    const buf = cachedRead(fp);
+    if (buf) {
+      res.status(418);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('X-File-Cache', 'HIT');
+      return res.send(buf);
+    }
+  }
+  res.status(418).sendFile(fp);
 });
 
 app.use((_req, res) => {
-  res.status(404).sendFile(path.join(srcPath, "404.html"));
+  const fp = path.join(srcPath, "404.html");
+  if (CACHING_ENABLED) {
+    const buf = cachedRead(fp);
+    if (buf) {
+      res.status(404);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('X-File-Cache', 'HIT');
+      return res.send(buf);
+    }
+  }
+  res.status(404).sendFile(fp);
 });
 
 server.on("upgrade", (req, sock, head) => {
@@ -291,5 +391,5 @@ server.on("upgrade", (req, sock, head) => {
 server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;
 server.listen(PORT, () => {
-  console.log(`server listening on ${PORT}!!`);
+  console.log(`server listening on ${PORT}!! ~ cache: ${CACHING_ENABLED ? 'yes' : 'no'}`);
 });

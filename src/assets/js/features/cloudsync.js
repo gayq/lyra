@@ -4,6 +4,12 @@ const LOADING_SCREEN = `
     </div>
 `;
 
+function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id));
+}
+
 export class CloudSync {
     constructor() {
         this.user = JSON.parse(localStorage.getItem('auth_user') || '{}');
@@ -30,12 +36,13 @@ export class CloudSync {
             return;
         }
 
-        this.showLoadingScreen();
+        let needsLoadingScreen = false;
+        let safetyTimer = null;
 
         try {
             const [authRes, metaRes] = await Promise.all([
-                fetch('/api/auth/me', { cache: 'no-store' }),
-                fetch('/api/sync/meta', { cache: 'no-store' })
+                fetchWithTimeout('/api/auth/me', { cache: 'no-store' }),
+                fetchWithTimeout('/api/sync/meta', { cache: 'no-store' })
             ]);
 
             if (authRes.ok) {
@@ -57,6 +64,9 @@ export class CloudSync {
                 if (this.syncMeta.dirty) {
                     await this.syncData(true);
                 } else if (serverUpdatedAt && serverUpdatedAt !== this.syncMeta.last_synced) {
+                    needsLoadingScreen = true;
+                    this.showLoadingScreen();
+                    safetyTimer = setTimeout(() => this.hideLoadingScreen(), 10000);
                     await this.restoreData(true);
                 } else {
                     this.updateStatus('synced', 'success');
@@ -65,7 +75,8 @@ export class CloudSync {
         } catch (e) {
             console.warn("[cloudsync] startup check failed", e);
         } finally {
-            this.hideLoadingScreen();
+            if (safetyTimer) clearTimeout(safetyTimer);
+            if (needsLoadingScreen) this.hideLoadingScreen();
         }
 
         document.addEventListener('toggleAuthModal', () => this.toggleModal());
@@ -79,7 +90,7 @@ export class CloudSync {
     async sync() {
         try {
             if (!this.isAuthenticated) return;
-            const metaRes = await fetch('/api/sync/meta', { cache: 'no-store' });
+            const metaRes = await fetchWithTimeout('/api/sync/meta', { cache: 'no-store' });
             if (!metaRes.ok) return;
 
             const metaData = await metaRes.json();
@@ -114,7 +125,7 @@ export class CloudSync {
 
     async checkAuthStatus() {
         try {
-            const res = await fetch('/api/auth/me', { cache: 'no-store' });
+            const res = await fetchWithTimeout('/api/auth/me', { cache: 'no-store' });
             if (res.ok) {
                 const data = await res.json();
                 this.user = data.user;
@@ -215,7 +226,7 @@ export class CloudSync {
                         <label style="margin-top: 15px;">password</label>
                         <div style="position: relative;">
                             <input type="password" id="login-password" placeholder="enter password" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
-                            <i class="fa-regular fa-eye password-toggle" data-target="login-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: #888; font-size: 13px;"></i>
+                            <i class="fa-regular fa-eye password-toggle" data-target="login-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 13px;"></i>
                         </div>
                         
                         <div style="text-align: center;">
@@ -226,14 +237,14 @@ export class CloudSync {
                     <form id="register-form" style="display: none;">
                         <label>username</label>
                         <input type="text" id="reg-username" placeholder="create username" autocomplete="off">
-                        <div id="reg-username-feedback" style="font-size: 11px; color: #888; margin-top: 4px; text-align: left; min-height: 14px;">3-20 chars, letters/numbers</div>
+                        <div id="reg-username-feedback" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: left; min-height: 14px;">3-20 chars, letters/numbers</div>
                         
                         <label style="margin-top: 15px;">password</label>
                         <div style="position: relative;">
                             <input type="password" id="reg-password" placeholder="create password" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
-                            <i class="fa-regular fa-eye password-toggle" data-target="reg-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: #888; font-size: 13px;"></i>
+                            <i class="fa-regular fa-eye password-toggle" data-target="reg-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 13px;"></i>
                         </div>
-                        <div id="reg-password-feedback" style="font-size: 11px; color: #888; margin-top: 4px; text-align: left; min-height: 14px;">8+ chars, 1 number, 1 symbol</div>
+                        <div id="reg-password-feedback" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: left; min-height: 14px;">8+ chars, 1 number, 1 symbol</div>
                         
                         <div style="text-align: center;">
                             <button type="submit" class="auth-action-btn" style="width: 60%; margin-top: 15px;">create account</button>
@@ -243,17 +254,17 @@ export class CloudSync {
                         </div>
                     </form>
 
-                    <div style="margin-top: 15px; margin-bottom: -20px; font-size: 13px; color: #888; text-align: center;" id="auth-switch-container">
+                    <div style="margin-top: 15px; margin-bottom: -20px; font-size: 13px; color: var(--text-muted); text-align: center;" id="auth-switch-container">
                         <span id="auth-prompt-text">don't have an account?</span> <span id="auth-action-text" class="hover-link">create an account!</span>
                     </div>
                     <div id="auth-error" style="color: #ff5555; margin-top: 10px; font-size: 13px; min-height: 18px; text-align: center;"></div>
                 </div>
                 <div id="auth-logged-in" style="display: none; text-align: center;">
-                    <p style="margin-bottom: 20px; font-size: 16px;">logged in as <strong id="auth-user-display" style="color: white;"></strong></p>
+                    <p style="margin-bottom: 20px; font-size: 16px;">logged in as <strong id="auth-user-display" style="color: var(--text-white);"></strong></p>
                     
                     <div style="margin-bottom: 20px;">
-                        <span id="sync-status-indicator" style="color: #888; font-size: 14px;">
-                            <i class="fa-solid fa-check" style="color: #ffffffff"></i> synced
+                        <span id="sync-status-indicator" style="color: var(--text-muted); font-size: 14px;">
+                            <i class="fa-solid fa-check" style="color: var(--text-white)"></i> synced
                         </span>
                     </div>
 
@@ -292,7 +303,7 @@ export class CloudSync {
 
             if (len === 0) {
                 regUsernameFeedback.textContent = "3-20 chars, letters/numbers";
-                regUsernameFeedback.style.color = "#888";
+                regUsernameFeedback.style.color = "var(--text-muted)";
             } else if (len < 3 || len > 20) {
                 regUsernameFeedback.textContent = `${len}/20 chars (must be 3-20)`;
                 regUsernameFeedback.style.color = "#ff5555";
@@ -313,7 +324,7 @@ export class CloudSync {
 
             if (len === 0) {
                 regPasswordFeedback.textContent = "8+ chars, 1 number, 1 symbol";
-                regPasswordFeedback.style.color = "#888";
+                regPasswordFeedback.style.color = "var(--text-muted)";
             } else if (len < 8) {
                 regPasswordFeedback.textContent = `${len}/8 chars`;
                 regPasswordFeedback.style.color = "#ff5555";
@@ -445,11 +456,11 @@ export class CloudSync {
         if (!ind) return;
 
         if (type === 'loading') {
-            ind.innerHTML = `<i class="fa-solid fa-rotate" style="color: #ffffffff;"></i> ${text}`;
+            ind.innerHTML = `<i class="fa-solid fa-rotate" style="color: var(--text-white);"></i> ${text}`;
         } else if (type === 'error') {
             ind.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ff5555;"></i> ${text}`;
         } else {
-            ind.innerHTML = `<i class="fa-solid fa-check" style="color: #ffffffff;"></i> ${text}`;
+            ind.innerHTML = `<i class="fa-solid fa-check" style="color: var(--text-white);"></i> ${text}`;
         }
     }
 
@@ -707,27 +718,33 @@ export class CloudSync {
         }
     }
 
-    async syncData(manual = false) {
+    async syncData(manual = false, _retryCount = 0) {
         if (!manual && (!this.isAuthenticated || this.isSyncing)) return;
         this.isSyncing = true;
 
         try {
             if (typeof window.wavesExportAllData !== 'function') {
-                console.warn('[cloudsync] wavesExportAllData not available yet, retrying in 2s...');
+                if (_retryCount >= 3) {
+                    console.warn('[cloudsync] wavesExportAllData not available after 3 retries, aborting sync');
+                    this.isSyncing = false;
+                    this.updateStatus('sync skipped', 'error');
+                    return;
+                }
+                console.warn(`[cloudsync] wavesExportAllData not available yet, retry ${_retryCount + 1}/3...`);
                 this.isSyncing = false;
-                setTimeout(() => this.syncData(manual), 2000);
+                setTimeout(() => this.syncData(manual, _retryCount + 1), 2000);
                 return;
             }
 
             const data = await window.wavesExportAllData();
 
-            const res = await fetch('/api/sync/upload', {
+            const res = await fetchWithTimeout('/api/sync/upload', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(data)
-            });
+            }, 15000);
 
             if (res.ok) {
                 const result = await res.json();
@@ -736,12 +753,33 @@ export class CloudSync {
                 this.saveMeta();
 
                 this.updateStatus('synced!', 'success');
+                this._uploadRetries = 0;
             } else {
                 console.warn('[cloudsync] upload failed:', res.status);
+                if ((res.status === 429 || res.status >= 500) && (!this._uploadRetries || this._uploadRetries < 3)) {
+                    this._uploadRetries = (this._uploadRetries || 0) + 1;
+                    const delay = Math.min(2000 * Math.pow(2, this._uploadRetries - 1), 8000);
+                    console.warn(`[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`);
+                    this.updateStatus('retrying sync...', 'loading');
+                    this.isSyncing = false;
+                    setTimeout(() => this.syncData(manual, _retryCount), delay);
+                    return;
+                }
+                this._uploadRetries = 0;
                 this.updateStatus('sync failed!', 'error');
             }
         } catch (err) {
             console.error("sync error!", err);
+            if (!this._uploadRetries || this._uploadRetries < 3) {
+                this._uploadRetries = (this._uploadRetries || 0) + 1;
+                const delay = Math.min(2000 * Math.pow(2, this._uploadRetries - 1), 8000);
+                console.warn(`[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`);
+                this.updateStatus('retrying sync...', 'loading');
+                this.isSyncing = false;
+                setTimeout(() => this.syncData(manual, _retryCount), delay);
+                return;
+            }
+            this._uploadRetries = 0;
             this.updateStatus('connection error!', 'error');
         } finally {
             this.isSyncing = false;
@@ -761,7 +799,7 @@ export class CloudSync {
         }
 
         try {
-            const res = await fetch('/api/sync/download');
+            const res = await fetchWithTimeout('/api/sync/download', {}, 15000);
 
             if (res.status === 429) {
                 if (!silent) this.updateStatus('too many requests!', 'error');

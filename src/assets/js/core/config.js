@@ -1,6 +1,6 @@
 export const DEFAULT_BOOKMARKS = [
-    { name: 'movies', url: 'https://bcine.app', icon: 'fa-light fa-film' },
     { name: 'youtube', url: 'https://in.geeked.wtf/', icon: '!!/https://www.google.com/s2/favicons?domain=youtube.com&sz=64' },
+    { name: 'movies', url: 'https://bcine.app', icon: 'fa-light fa-film' },
     { name: 'music', url: 'https://soundcloud.com/'},
     { name: 'tiktok', url: 'https://www.tiktok.com/'},
     { name: 'discord', url: 'https://discord.com/login/'},

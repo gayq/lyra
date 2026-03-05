@@ -77,8 +77,8 @@ async fn main() {
 
     let loose_conf_auth = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(40)
-            .burst_size(150)
+            .per_second(80)
+            .burst_size(300)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
@@ -86,8 +86,8 @@ async fn main() {
 
     let loose_conf_sync = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(60)
-            .burst_size(200)
+            .per_second(120)
+            .burst_size(500)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),

@@ -225,6 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let activeTabId = null;
     let splitPair = { left: null, right: null };
+    window.WavesApp.splitPair = splitPair;
     let isPickingSplitTab = false;
 
     let allGames = window.WavesApp.allGames || [];
@@ -1173,7 +1174,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tabs.length = 0;
         tabMemory.clear();
         activeTabId = null;
-        splitPair = { left: null, right: null };
+        splitPair.left = null;
+        splitPair.right = null;
         isPickingSplitTab = false;
 
         dom.iframeContainer.innerHTML = '';

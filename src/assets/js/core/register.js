@@ -7,14 +7,40 @@
     RECONNECTING: 'RECONNECTING'
   });
 
+  function createResolvablePromise() {
+    let resolve, reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    promise._resolve = resolve;
+    promise._reject = reject;
+    promise._settled = false;
+    const origResolve = resolve;
+    const origReject = reject;
+    promise._resolve = (...args) => { promise._settled = true; origResolve(...args); };
+    promise._reject = (...args) => { promise._settled = true; origReject(...args); };
+    return promise;
+  }
+
   class WavesConnectionManager {
     constructor() {
       this.state = STATES.IDLE;
-      this.appConfig = { backend: 'scramjet', transport: 'libcurl' };
+      this.appConfig = { backend: 'scramjet', transport: 'epoxy' };
       this.bareMuxConnection = null;
       this.currentWispUrl = '';
       this.healthCheckInterval = null;
       this.isInitialLoad = true;
+      this._transportReadyPromise = createResolvablePromise();
+
+      window.WavesApp = window.WavesApp || {};
+      window.WavesApp.transportReady = this._transportReadyPromise;
+
+      window.WavesApp.waitForTransport = (timeoutMs = 10000) => {
+        return Promise.race([
+          this._transportReadyPromise,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Transport setup timed out')), timeoutMs)
+          )
+        ]);
+      };
 
       if (document.readyState === "complete" || document.readyState === "interactive") {
         this.start();
@@ -29,6 +55,17 @@
       this.initializeApp();
       this.startHealthCheck();
       this.setupEventListeners();
+    }
+
+    _resetTransportReady() {
+      if (this._transportReadyPromise._settled) {
+        this._transportReadyPromise = createResolvablePromise();
+        window.WavesApp.transportReady = this._transportReadyPromise;
+      }
+    }
+
+    _resolveTransportReady() {
+      this._transportReadyPromise._resolve();
     }
 
     setState(newState) {
@@ -63,7 +100,7 @@
     loadConfig() {
       try {
         this.appConfig.backend = localStorage.getItem("backend") || "scramjet";
-        this.appConfig.transport = localStorage.getItem("transport") || "libcurl";
+        this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
       } catch (e) {
         this.updateStatus('Could not access localStorage. Using defaults.', 'error');
       }
@@ -112,16 +149,49 @@
       });
     }
 
+    async _verifyTransport() {
+      if (!this.bareMuxConnection) return false;
+      try {
+        const name = await this.bareMuxConnection.getTransport();
+        return !!(name && name.length > 0);
+      } catch (e) {
+        console.warn('transport verification failed:', e);
+        return false;
+      }
+    }
+
+    async _reapplyTransport() {
+      if (!this.bareMuxConnection) return false;
+      try {
+        const transportMap = { epoxy: "/epoxy/index.mjs", libcurl: "/libcurl/index.mjs" };
+        const transportModule = transportMap[this.appConfig.transport];
+        if (!transportModule) return false;
+
+        await this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
+
+        const verified = await this._verifyTransport();
+        if (verified) {
+          this._resolveTransportReady();
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.error('failed to re-apply transport:', e);
+        return false;
+      }
+    }
+
     async initializeApp(isRetry = false) {
       if (this.state === STATES.CONNECTING && !isRetry) return;
       this.setState(isRetry ? STATES.RECONNECTING : STATES.CONNECTING);
+
+      this._resetTransportReady();
 
       if (!isRetry) this.updateStatus('connecting...', 'info');
 
       try {
         if (!this.bareMuxConnection) {
           this.bareMuxConnection = new BareMux.BareMuxConnection("/bmux/worker.js");
-          window.WavesApp = window.WavesApp || {};
           window.WavesApp.bareMuxConnection = this.bareMuxConnection;
         }
 
@@ -146,6 +216,13 @@
         if (!transportModule) throw new Error(`unknown transport: ${this.appConfig.transport}`);
 
         await this.bareMuxConnection.setTransport(transportModule, [{ wisp: this.currentWispUrl }]);
+
+        const transportVerified = await this._verifyTransport();
+        if (!transportVerified) {
+          throw new Error('transport was set but verification failed — SharedWorker may have lost state');
+        }
+
+        this._resolveTransportReady();
 
         this.updateStatus(`successfully connected!`, 'success');
         this.setState(STATES.CONNECTED);
@@ -191,6 +268,19 @@
         isChecking = true;
         try {
           await this.ensureWispServerConnection(this.currentWispUrl, 3000);
+
+          const transportAlive = await this._verifyTransport();
+          if (!transportAlive) {
+            console.warn('health check: transport lost in SharedWorker, re-applying...');
+            this._resetTransportReady();
+            const recovered = await this._reapplyTransport();
+            if (!recovered) {
+              this.updateStatus('transport lost. reconnecting...', 'error');
+              await this.initializeApp();
+            } else {
+              console.log('health check: transport recovered successfully');
+            }
+          }
         } catch (err) {
           this.updateStatus('health check failed. reconnecting...', 'error');
           await this.initializeApp();
@@ -205,6 +295,7 @@
         if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
 
         this.updateStatus('switching engine...', 'info');
+        this._resetTransportReady();
 
         await updateFn();
         await this.unregisterAllServiceWorkers();

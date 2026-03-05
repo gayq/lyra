@@ -1,9 +1,9 @@
 .cloudsync-close-btn {
   align-items: center;
-  background: #131313;
+  background: var(--bg-surface-5);
   border: none;
   border-radius: 50%;
-  color: #888;
+  color: var(--color-icon-dim);
   cursor: pointer;
   display: inline-flex;
   height: 30px;
@@ -19,17 +19,17 @@
 }
 
 .cloudsync-close-btn:hover {
-  color: #fff;
+  color: var(--text-white);
   transform: scale(1.1);
 }
 
 .popup .input-container input[type="password"],
 .popup .input-container input[type="text"] {
-  background-color: #181818;
+  background-color: var(--input-bg);
   border: 2px solid #00000000;
   border-radius: 15px;
   box-sizing: border-box;
-  color: #e0e0e0;
+  color: var(--input-text);
   font-size: 14px;
   outline: none;
   padding: 10px;
@@ -39,7 +39,7 @@
 
 .popup .input-container input:focus,
 .popup .input-container input:hover {
-  background-color: #222;
+  background-color: var(--bg-surface-10);
 }
 
 #auth-title {

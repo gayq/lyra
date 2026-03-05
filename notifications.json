@@ -158,7 +158,7 @@
     "title": "Patch v3.5.2!!",
     "message": "Bug fixes, optimizations, and improvements.",
     "date": "2026-02-13T23:47:14.953Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Changed from Coursea to Collegeboard for the page.",
@@ -173,7 +173,7 @@
     "title": "Mochi patch v0.2.1!!",
     "message": "Fixed more bugs and some optimizations.",
     "date": "2026-02-13T23:47:14.953Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Bunch of optimizations.",
@@ -186,7 +186,7 @@
     "title": "Patch v3.5.6!!",
     "message": "New features, bug fixes, optimizations, and a lot of improvements.",
     "date": "2026-02-16T00:49:49.445Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "Added a brand new cloud syncing system.",
@@ -204,7 +204,7 @@
     "title": "Mochi patch v0.2.4!!",
     "message": "Fixed a ton load of bugs and optimizations.",
     "date": "2026-02-16T00:49:49.445Z",
-    "isNew": true,
+    "isNew": false,
     "type": "Update",
     "changes":[
       "The message above should be self explanatory."
@@ -226,5 +226,18 @@
       "Added a new loading screen."
     ],
     "endMessage": "I'm getting way too lazy to write these notifications. Join the Discord server for more links!!"
+  },
+  {
+    "id": 14,
+    "title": "Even more bug fixes",
+    "message": "Self explanatory!",
+    "date": "2026-03-05T05:56:47.894Z",
+    "isNew": true,
+    "type": "Update",
+    "changes":[
+      "Fixed CloudSync not syncing properly.",
+      "Fixed some stability issues."
+    ],
+    "endMessage": "That's about it. Join the Discord server for cool stuff!!"
   }
 ]

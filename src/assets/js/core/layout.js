@@ -185,6 +185,7 @@ export function initializeFall() {
         '/assets/images/peaks/pochi.png'
     ];
     const SPAWN_RATE = 300;
+    const fallEnabled = localStorage.getItem('fallEnabled') !== 'false';
 
     try {
         if (!document.getElementById('fall-styles')) {
@@ -233,6 +234,11 @@ export function initializeFall() {
                 zIndex: '-1'
             });
             document.body.appendChild(container);
+        }
+
+        if (!fallEnabled) {
+            container.style.display = 'none';
+            return;
         }
 
         const preloadedBlobUrls = [];

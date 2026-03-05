@@ -10,12 +10,17 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
                  PRAGMA synchronous = NORMAL;
-                 PRAGMA foreign_keys = ON;"
+                 PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;
+                 PRAGMA cache_size = -20000;
+                 PRAGMA mmap_size = 268435456;
+                 PRAGMA temp_store = MEMORY;"
             )
         });
     let pool = Pool::builder()
-        .max_size(20)
-        .min_idle(Some(2))
+        .max_size(400)
+        .min_idle(Some(5))
+        .connection_timeout(std::time::Duration::from_secs(10))
         .build(manager)?;
     let conn = pool.get()?;
     
