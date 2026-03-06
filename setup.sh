@@ -45,6 +45,11 @@ if ! command -v cargo; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
+if ! command -v node; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt-get install -y nodejs
+fi
+
 if ! dpkg-query -l | grep -q caddy; then
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
