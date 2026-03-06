@@ -67,10 +67,3 @@ export function canonicalize(u) {
         return u;
     }
 }
-
-export function toggleButtonAnimation(button, animationClass) {
-    if (button) {
-        button.classList.add(animationClass);
-        setTimeout(() => button.classList.remove(animationClass), 200);
-    }
-}

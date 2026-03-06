@@ -451,6 +451,8 @@ async fn proxy_handler(
         tokio::task::spawn_blocking(move || {
             let _permit = html_permit;
             let base_url_str = target_url_clone.to_string();
+            let client_disconnected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let client_disconnected_clone = client_disconnected.clone();
             
             let current_base = Arc::new(RwLock::new(target_url_clone.clone()));
             let base_for_updater = current_base.clone();
@@ -589,17 +591,22 @@ async fn proxy_handler(
                     ],
                     ..Settings::default()
                 },
-                |c: &[u8]| {
+                move |c: &[u8]| {
                     if !c.is_empty() {
-                        let _ = tx_out.blocking_send(Ok(Bytes::copy_from_slice(c)));
+                        if tx_out.blocking_send(Ok(Bytes::copy_from_slice(c))).is_err() {
+                            client_disconnected_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                 },
             );
 
             while let Some(chunk) = rx_in.blocking_recv() {
+                if client_disconnected.load(std::sync::atomic::Ordering::Relaxed) { break; }
                 if rewriter.write(&chunk).is_err() { break; }
             }
-            let _ = rewriter.end();
+            if !client_disconnected.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = rewriter.end();
+            }
         });
 
         return (status, safe_headers, Body::from_stream(ReceiverStream::new(rx_out))).into_response();
@@ -644,14 +651,6 @@ async fn proxy_handler(
                             Duration::from_secs(10),
                         ).await.is_err() {
                             aborted = true;
-                            while let Some(item) = stream.next().await {
-                                if let Ok(chunk) = item {
-                                    total_size += chunk.len();
-                                    if total_size < MAX_CACHE_SIZE_BYTES {
-                                        accumulator.extend_from_slice(&chunk);
-                                    }
-                                } else { break; }
-                            }
                             break;
                         }
                     }
@@ -663,7 +662,7 @@ async fn proxy_handler(
                 }
             }
 
-            if !aborted || total_size < MAX_CACHE_SIZE_BYTES {
+            if !aborted {
                 if total_size < MAX_CACHE_SIZE_BYTES && total_size > 0 {
                     let body_bytes = Bytes::from(accumulator);
                     let cached = Arc::new(CachedResponse {
@@ -988,6 +987,7 @@ async fn fetch_and_cache(
                             Duration::from_secs(10),
                         ).await.is_err() {
                             aborted = true;
+                            break;
                         }
                     }
                     Err(e) => {

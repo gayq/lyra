@@ -1,5 +1,4 @@
 import { dom } from '../ui/dom.js';
-import { toggleButtonAnimation } from '../core/utils.js';
 import { navigateIframeTo, stopIframeLoading } from '../core/iframe.js';
 
 let isLoading = false;
@@ -95,7 +94,6 @@ function setRefreshButtonState(loading) {
   isLoading = !!loading;
   if (dom.refreshBtnIcon) {
     dom.refreshBtnIcon.classList.remove('fa-rotate-right', 'fa-xmark');
-    dom.refreshBtn.classList.remove('spin-animation');
     if (loading) {
       dom.refreshBtnIcon.classList.add('fa-xmark');
     } else {
@@ -108,11 +106,19 @@ export function syncRefreshButtonWithActiveTab() {
   const activeTab = window.WavesApp?.getActiveTab?.();
   const isLoading = !!activeTab?.isLoading;
   setRefreshButtonState(isLoading);
-  if (isLoading) {
-    showIframeLoading(activeTab?.id);
-  } else {
-    hideIframeLoading(activeTab?.id);
-  }
+
+  const isSplitView = document.body.classList.contains('split-view');
+  const splitPair = window.WavesApp?.splitPair || { left: null, right: null };
+  const visibleTabIds = isSplitView ? [splitPair.left, splitPair.right] : [activeTab?.id];
+
+  const tabs = window.WavesApp?.tabs || [];
+  tabs.forEach(tab => {
+    if (tab.isLoading && visibleTabIds.includes(tab.id)) {
+      showIframeLoading(tab.id);
+    } else {
+      hideIframeLoading(tab.id);
+    }
+  });
 }
 
 export function showLoading(tabId = null) {
@@ -225,6 +231,8 @@ export function hideLoading(tabId = null) {
   const splitPair = window.WavesApp?.splitPair;
   const isInSplit = isSplitView && splitPair && (tabId === splitPair?.left || tabId === splitPair?.right);
 
+  hideIframeLoading(tabId);
+
   if (!isInSplit && tabId && activeId && tabId !== activeId) return;
 
   if (!tabId || tabId === activeId) {
@@ -234,8 +242,6 @@ export function hideLoading(tabId = null) {
     document.title = originalTitle;
     setRefreshButtonState(false);
   }
-
-  hideIframeLoading(tabId);
 }
 
 function setupOnekoAnimation() {
@@ -292,7 +298,7 @@ export function initializeUI(getActiveTab) {
   originalTitle = document.title;
 
   const animationStyle = document.createElement('style');
-  animationStyle.textContent = `@keyframes slideLeft{0%{transform:translateX(0) scale(1)}50%{transform:translateX(-5px) scale(.95)}100%{transform:translateX(0) scale(1)}}@keyframes slideRight{0%{transform:translateX(0) scale(1)}50%{transform:translateX(5px) scale(.95)}100%{transform:translateX(0) scale(1)}}.button-animate-back{animation:slideLeft .2s ease-in-out}.button-animate-forward{animation:slideRight .2s ease-in-out}@keyframes spin-refresh{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}.spin-animation{animation:spin-refresh .4s ease-in-out}.spin{animation:spinAnimation .3s linear}@keyframes spinAnimation{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}.spin{animation:spin .6s linear infinite;backface-visibility:hidden;perspective:1000px;will-change:transform}@keyframes spin{0%{transform:translateY(-50%) translateZ(0) rotate(0)}100%{transform:translateY(-50%) translateZ(0) rotate(360deg)}}.bookmarks-disabled{opacity:.5;transition:opacity .3s ease}`;
+  animationStyle.textContent = `.bookmarks-disabled{opacity:.5;transition:opacity .3s ease}`;
   document.head.appendChild(animationStyle);
 
   setupOnekoAnimation();
@@ -308,34 +314,24 @@ export function initializeUI(getActiveTab) {
   dom.backBtn.addEventListener('click', async () => {
     const activeTab = getActiveTab();
     if (!activeTab) return;
-    toggleButtonAnimation(dom.backBtn, 'button-animate-back');
     const urlToGo = activeTab.historyManager.back();
 
     if (urlToGo) {
       activeTab._historyNavigating = true;
       activeTab._historyTarget = urlToGo;
-      if (urlToGo.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/")) {
-        await window.WavesApp.handleSearch(urlToGo, activeTab);
-      } else {
-        navigateIframeTo(activeTab.iframe, urlToGo);
-      }
+      navigateIframeTo(activeTab.iframe, urlToGo);
     }
   });
 
   dom.forwardBtn.addEventListener('click', async () => {
     const activeTab = getActiveTab();
     if (!activeTab) return;
-    toggleButtonAnimation(dom.forwardBtn, 'button-animate-forward');
     const urlToGo = activeTab.historyManager.forward();
 
     if (urlToGo) {
       activeTab._historyNavigating = true;
       activeTab._historyTarget = urlToGo;
-      if (urlToGo.startsWith("https://cdn.jsdelivr.net/gh/gn-math/html@main/")) {
-        await window.WavesApp.handleSearch(urlToGo, activeTab);
-      } else {
-        navigateIframeTo(activeTab.iframe, urlToGo);
-      }
+      navigateIframeTo(activeTab.iframe, urlToGo);
     }
   });
 
@@ -357,8 +353,12 @@ export function initializeUI(getActiveTab) {
         showLoading(activeTab.id);
 
         activeTab.iframe.classList.remove('loaded');
-        activeTab.title = 'fetching data...';
-        activeTab.favicon = null;
+        if (!activeTab.fixedTitle) {
+          activeTab.title = 'fetching data...';
+        }
+        if (!activeTab.fixedFavicon) {
+          activeTab.favicon = null;
+        }
         if (window.WavesApp.renderTabs) {
           window.WavesApp.renderTabs();
         }
