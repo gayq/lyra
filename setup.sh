@@ -1,7 +1,5 @@
 #!/bin/bash
 
-echo "if you have any issues join discord.gg/dJvdkPRheV for support!"
-echo ""
 echo "type 'ok' to continue or 'cancel' to abort."
 
 while true; do
@@ -21,8 +19,15 @@ while true; do
     esac
 done
 
+read -p "enter the domain for this node: " DOMAIN
+
+if [ -z "$DOMAIN" ]; then
+    echo "domain cannot be empty. abortinng."
+    exit 1
+fi
+
 sudo apt-get update -y
-sudo apt-get install -y unzip curl jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -47,13 +52,43 @@ if ! dpkg-query -l | grep -q caddy; then
   sudo apt-get install -y caddy
 fi
 
-cd "$HOME/waves"
+cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
+net.netfilter.nf_conntrack_max = 524288
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_slow_start_after_idle = 0
+net.ipv4.ip_local_port_range = 1024 65535
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+fs.file-max = 2097152
+fs.nr_open = 2097152
+vm.swappiness = 10
+vm.vfs_cache_pressure = 50
+EOF
+sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
+
+if ! grep -q "^\* soft nofile" /etc/security/limits.conf; then
+  echo "* soft nofile 1048576" | sudo tee -a /etc/security/limits.conf
+fi
+if ! grep -q "^\* hard nofile" /etc/security/limits.conf; then
+  echo "* hard nofile 1048576" | sudo tee -a /etc/security/limits.conf
+fi
+
+cd "$HOME/waves" || { echo "Run this in the waves directory!"; exit 1; }
 export PATH="$HOME/.bun/bin:$PATH"
 
 if [ -d "mochi" ]; then
     cd mochi
     RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
     cd ..
+else
+    echo "Could not find mochi directory! Did you clone the complete waves repository?"
+    exit 1
 fi
 
 sudo mkdir -p /etc/systemd/system/caddy.service.d
@@ -71,17 +106,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     servers {
         protocols h1 h2 h3
     }
-
-    on_demand_tls {
-        ask http://127.0.0.1:3001/
-    }
 }
 
-:443 {
-    tls {
-        on_demand
-    }
-
+$DOMAIN {
     encode zstd gzip
 
     reverse_proxy /!!/* 127.0.0.1:4000 {
@@ -104,18 +131,9 @@ EOF
 "$HOME/.bun/bin/pm2" stop all
 "$HOME/.bun/bin/pm2" delete all
 
-tee ecosystem.config.cjs <<EOF
+tee ecosystem_mochi.config.cjs <<EOF
 module.exports = {
   apps: [
-    {
-      name: "ask",
-      script: "bun",
-      args: "run ask.js",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      max_memory_restart: "256M"
-    },
     {
       name: "mochi",
       script: "./mochi/target/release/mochi", 
@@ -143,8 +161,8 @@ if command -v ufw && ufw status | grep -q "Status: active"; then
     sudo ufw allow 443/udp
 fi
 
-"$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env
+"$HOME/.bun/bin/pm2" start ecosystem_mochi.config.cjs --update-env
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "mochi is all set up!!"
+echo "all done! your mochi node is now ready to be used!!!!"
