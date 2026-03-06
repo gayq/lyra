@@ -122,7 +122,7 @@ $DOMAIN {
         }
     }
 
-    handle {
+    handle / {
         respond "<html><body style=\"background-color: black; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: monospace; font-size: 24px;\">discord.gg/dJvdkPRheV</body></html>" 200 {
             close
         }
