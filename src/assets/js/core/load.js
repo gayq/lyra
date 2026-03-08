@@ -10,7 +10,11 @@ try {
         sync: "/b/s/jetty.sync.js"
       },
       flags: {
-        rewriterLogs: true
+        sourcemaps: false,
+        captureErrors: false,
+        rewriterLogs: false,
+        strictRewrites: false,
+        destructureRewrites: false
       }
     });
     window.scramjetReady = scramjet.init();

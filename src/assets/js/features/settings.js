@@ -756,7 +756,7 @@ document.addEventListener('DOMContentLoaded', function () {
                              <p>squall - game source</p>
                              <p>bog - ports for hollow knight, re:run, and touhou mother</p>
                             <p>titanium network - ultraviolet</p>
-                            <p>mercury workshop - scramjet, epxoy, and libcurl</p>
+                            <p>mercury workshop - scramjet, epoxy, and libcurl</p>
                         </div>
                         <div class="settings-item">
                             <label>you have reached the end!</label>

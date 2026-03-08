@@ -126,7 +126,7 @@ const __dirname = process.cwd();
 const srcPath = path.join(__dirname, NODE_ENV === 'production' ? 'dist' : 'src');
 const publicPath = path.join(__dirname, "public");
 const app = express();
-app.set("trust proxy", true);
+app.set("trust proxy", 1);
 const server = createServer(app);
 const pageCache = new LRUCache({ max: 1000, ttl: 1000 * 60 * 5 });
 
@@ -142,7 +142,7 @@ app.use(helmet({
 }));
 
 app.use((req, res, next) => {
-  if (NODE_ENV === 'development' && req.url.startsWith('/!!/')) {
+  if (NODE_ENV === 'development' && (req.url.startsWith('/!!/') || req.url.startsWith('/!cover!/'))) {
     const options = {
       hostname: '127.0.0.1',
       port: 4000,
@@ -201,7 +201,7 @@ app.use(compression({
 
 app.use((req, res, next) => {
   if (!CACHING_ENABLED || req.method !== 'GET') return next();
-  if (req.path.startsWith("/api/") || req.url.startsWith("/!!/") || req.path.startsWith("/b")) return next();
+  if (req.path.startsWith("/api/") || req.url.startsWith("/!!/") || req.url.startsWith("/!cover!/") || req.path.startsWith("/b")) return next();
   const key = req.originalUrl;
   const val = pageCache.get(key);
   if (val) {
@@ -242,7 +242,7 @@ if (NODE_ENV === 'production') {
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (!COMPRESSIBLE.test(req.path)) return next();
-    if (req.path.startsWith('/api/') || req.url.startsWith('/!!/')) return next();
+    if (req.path.startsWith('/api/') || req.url.startsWith('/!!/') || req.url.startsWith('/!cover!/')) return next();
 
     const accept = req.headers['accept-encoding'] || '';
     for (const { ext, encoding } of ENCODING_MAP) {
@@ -374,7 +374,7 @@ server.on("upgrade", (req, sock, head) => {
   if (req.url.startsWith("/w/")) {
     sock.setNoDelay(true);
     wisp.routeRequest(req, sock, head);
-  } else if (NODE_ENV === 'development' && req.url.startsWith("/!!/")) {
+  } else if (NODE_ENV === 'development' && (req.url.startsWith("/!!/") || req.url.startsWith("/!cover!/"))) {
     const proxyReq = request({
       hostname: '127.0.0.1',
       port: 4000,

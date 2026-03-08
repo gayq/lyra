@@ -62,7 +62,7 @@ body.games-view .games-topbar {
   margin-top: -35px;
   width: 100%;
   min-width: 0;
-  transition: width 0.1s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.1s ease;
+  transition: width 0.1s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.05s ease;
   max-width: 520px;
 }
 

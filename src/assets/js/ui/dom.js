@@ -44,7 +44,6 @@ export const dom = {
     get splitViewBtn() { return _get('splitViewBtn'); },
     get notificationsBtn() { return _get('notifications'); },
     get notificationsIcon() { return _q('#notifications > i'); },
-    get memoryUsageValue() { return _get('memory-usage-value'); },
     get markAllReadBtn() { return _get('mark-all-read-btn'); },
 
     init() {

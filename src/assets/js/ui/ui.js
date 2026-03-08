@@ -93,11 +93,11 @@ function toggleEruda(getActiveTab) {
 function setRefreshButtonState(loading) {
   isLoading = !!loading;
   if (dom.refreshBtnIcon) {
-    dom.refreshBtnIcon.classList.remove('fa-rotate-right', 'fa-xmark');
+    dom.refreshBtnIcon.classList.remove('fa-arrow-rotate-right', 'fa-xmark');
     if (loading) {
       dom.refreshBtnIcon.classList.add('fa-xmark');
     } else {
-      dom.refreshBtnIcon.classList.add('fa-rotate-right');
+      dom.refreshBtnIcon.classList.add('fa-arrow-rotate-right');
     }
   }
 }
@@ -219,6 +219,16 @@ export function hideIframeLoading(tabId = null) {
     const overlays = container.querySelectorAll('.iframe-loading');
     overlays.forEach(o => o.classList.remove('visible'));
   }
+}
+
+export function removeIframeLoading(tabId) {
+  if (!tabId) return;
+  const container = dom.iframeContainer;
+  if (!container) return;
+
+  const overlayId = `iframe-loading-${tabId}`;
+  const overlay = container.querySelector(`[data-loading-id="${overlayId}"]`);
+  if (overlay) overlay.remove();
 }
 
 export function hideLoading(tabId = null) {

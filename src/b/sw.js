@@ -184,7 +184,7 @@ function parseWildcardList(text) {
   for (const line of text.split('\n')) {
     let d = line.trim().toLowerCase();
     if (!d || d.startsWith('#') || d.startsWith('!')) continue;
-    
+
     if (d.startsWith('||') && d.endsWith('^')) {
       d = d.slice(2, -1);
       if (d && d.includes('.') && !d.includes('/')) domains.push(d);
@@ -407,7 +407,6 @@ self.addEventListener('message', (event) => {
       rawFavicon: data.rawFavicon || data.favicon || null,
       tabId: data.tabId || null,
       isTopFrame: !!data.isTopFrame,
-      memory: data.memory || null,
       clientId: event.source && 'id' in event.source ? event.source.id : null,
       collectedAt: Date.now(),
       encoded: !!data.encoded
@@ -440,6 +439,30 @@ if (isScramjet) {
   );
   uv = new UVServiceWorker();
 }
+
+const DISCORD_FIX = `
+<script>
+(function() {
+    if (window.location.hostname.includes('discord.com') || window.location.hostname.includes('discordapp.com')) {
+        window.addEventListener('error', function(e) {
+            if (e.message && e.message.includes('ResizeObserver')) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        });
+        window.addEventListener('unhandledrejection', function(e) {
+            if (e.reason && e.reason.message && e.reason.message.includes('ResizeObserver')) {
+                e.preventDefault();
+            }
+        });
+        window.__SENTRY__ = { hub: { getClient: () => ({ getOptions: () => ({}) }) } };
+        try {
+            localStorage.setItem('hideMessageRequests', 'true');
+        } catch(e){}
+    }
+})();
+</script>
+`;
 
 const TURN_SCRIPT = `
 <script>
@@ -556,7 +579,6 @@ const META_SCRIPT = `
   let lastUrl=null;
   let lastTitle=null;
   let lastFavicon=null;
-  let lastMemoryUsed=null;
 
   const getBestTitle=()=>{
     try{
@@ -587,33 +609,7 @@ const META_SCRIPT = `
     }catch(e){ return ''; }
   };
 
-  const getMemorySnapshot=async ()=>{
-    try{
-      if (performance && typeof performance.measureUserAgentSpecificMemory === 'function') {
-        try{
-          const musm = await performance.measureUserAgentSpecificMemory();
-          if (musm && typeof musm.bytes === 'number') {
-            return {
-              usedJSHeapSize: musm.bytes,
-              totalJSHeapSize: musm.bytes,
-              jsHeapSizeLimit: null,
-              source: 'musm'
-            };
-          }
-        }catch(e){}
-      }
-      const pm=(typeof performance!=='undefined' && performance.memory) ? performance.memory : null;
-      if(!pm || typeof pm.usedJSHeapSize!=='number') return null;
-      return {
-        usedJSHeapSize: pm.usedJSHeapSize,
-        totalJSHeapSize: typeof pm.totalJSHeapSize === 'number' ? pm.totalJSHeapSize : null,
-        jsHeapSizeLimit: typeof pm.jsHeapSizeLimit === 'number' ? pm.jsHeapSizeLimit : null,
-        source: 'performance.memory'
-      };
-    }catch(e){ return null; }
-  };
-
-  const postMeta=async ()=>{
+  const doActualPostMeta=async ()=>{
     if(!isTopFrame && !tabId) return;
     if(!('serviceWorker' in navigator)) return;
     try{
@@ -624,15 +620,10 @@ const META_SCRIPT = `
       const title=getBestTitle();
       const rawFavicon=collectFavicon();
       const decodedFavicon=rawFavicon ? decodeProxiedUrl(rawFavicon) : null;
-      const memorySnap=await getMemorySnapshot();
-      const memoryUsed=memorySnap && typeof memorySnap.usedJSHeapSize==='number' ? memorySnap.usedJSHeapSize : null;
-      
-      if(url===lastUrl && title===lastTitle && rawFavicon===lastFavicon && memoryUsed===lastMemoryUsed) return;
       
       lastUrl=url;
       lastTitle=title;
       lastFavicon=rawFavicon;
-      lastMemoryUsed=memoryUsed;
       
       controller.postMessage({
         type:'page-meta',
@@ -641,12 +632,17 @@ const META_SCRIPT = `
         title: mEncode(title),
         favicon: mEncode(decodedFavicon || rawFavicon || null),
         rawFavicon: mEncode(rawFavicon || null),
-        memory: memorySnap,
         tabId:tabId,
         isTopFrame:isTopFrame,
         encoded: true
       });
     }catch(e){}
+  };
+
+  let postMetaDebounce;
+  const postMeta=()=>{
+    clearTimeout(postMetaDebounce);
+    postMetaDebounce=setTimeout(doActualPostMeta, 500);
   };
 
   const patchHistory=()=>{
@@ -1002,7 +998,7 @@ async function handleProxyResponse(response) {
   try {
     const clonedResponse = response.clone();
     const originalBody = await clonedResponse.text();
-    const scripts = AD_COSMETIC_CSS + TURN_SCRIPT + META_SCRIPT;
+    const scripts = AD_COSMETIC_CSS + TURN_SCRIPT + DISCORD_FIX + META_SCRIPT;
 
     let newBodyStr;
     const headMatch = originalBody.match(/<head[^>]*>/i);
@@ -1089,9 +1085,15 @@ self.addEventListener("fetch", (event) => {
 
         if (isCacheableAsset && !realUrl.includes(self.location.host)) {
           try {
+            const cached = await caches.match(request);
+            if (cached) return cached;
+
             const mochiResponse = await fetchThroughMochi(request, realUrl);
             if (mochiResponse && mochiResponse.ok) {
-              return handleProxyResponse(mochiResponse);
+              const proxyResponse = await handleProxyResponse(mochiResponse);
+              const clone = proxyResponse.clone();
+              caches.open(RUNTIME_CACHE).then(c => c.put(request, clone));
+              return proxyResponse;
             }
           } catch (e) {
           }

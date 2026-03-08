@@ -217,7 +217,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    reverse_proxy /!!/* 127.0.0.1:4000 {
+    reverse_proxy /!!/* /!cover!/* 127.0.0.1:4000 127.0.0.1:4001 127.0.0.1:4002 {
+        lb_policy round_robin
+        header_up Host {upstream_hostport}
         header_up X-Real-IP {remote_host}
         transport http {
             keepalive 120s
@@ -247,6 +249,34 @@ sudo tee /etc/caddy/Caddyfile <<EOF
             keepalive_idle_conns 512
             keepalive_idle_conns_per_host 64
             dial_timeout 5s
+        }
+    }
+}
+
+http://127.0.0.1:4001 {
+    reverse_proxy https://1.waves.lat {
+        header_up Host 1.waves.lat
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name 1.waves.lat
+            versions 1.1
+            keepalive 10s
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
+    }
+}
+
+http://127.0.0.1:4002 {
+    reverse_proxy https://2.waves.lat {
+        header_up Host 2.waves.lat
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name 2.waves.lat
+            versions 1.1
+            keepalive 10s
+            dial_timeout 5s
+            response_header_timeout 60s
         }
     }
 }

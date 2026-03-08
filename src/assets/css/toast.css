@@ -63,7 +63,7 @@
   border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.05s ease;
 }
 
 .toast-btn:hover {

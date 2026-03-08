@@ -143,7 +143,7 @@
             }
             if (!config.iceServers || config.iceServers.length === 0) {
                 config.iceServers = [{
-                    urls: "turn:__SERVER_IP__:3478",
+                    urls: "turn:127.0.0.1:3478",
                     username: "luy",
                     credential: "l4uy"
                 }];

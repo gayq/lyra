@@ -208,11 +208,11 @@ function updateTabDetails(iframe) {
         const iconLink = doc.querySelector("link[rel*='icon']");
         if (!tabToUpdate.fixedFavicon) {
             if (iconLink) {
-                tabToUpdate.favicon = getProxyUrl(decodeUrl(iconLink.href));
+                tabToUpdate.favicon = '/!cover!/' + decodeUrl(iconLink.href);
             } else {
                 try {
-                    const realOrigin = new URL('/', realUrl).href;
-                    tabToUpdate.favicon = getProxyUrl(new URL('favicon.ico', realOrigin).href);
+                    const realOrigin = new URL(getProxyUrl(decodedUrl, true)).origin;
+                    tabToUpdate.favicon = '/!cover!/' + new URL('favicon.ico', realOrigin).href;
                 } catch (e) { tabToUpdate.favicon = null; }
             }
         }

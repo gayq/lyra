@@ -34,7 +34,6 @@
 
 .notifications-menu-content.open {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
   animation: fadeIn 0.1s forwards;
 }
 
@@ -96,7 +95,7 @@
   z-index: 1000;
   outline: none;
   display: inline-flex;
-  transition: all 0.1s ease;
+  transition: all 0.05s ease;
 }
 
 #close-notifications-menu:hover {

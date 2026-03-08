@@ -453,15 +453,19 @@ export class CloudSync {
 
     updateStatus(text, type) {
         const ind = document.getElementById('sync-status-indicator');
-        if (!ind) return;
 
-        if (type === 'loading') {
-            ind.innerHTML = `<i class="fa-solid fa-rotate" style="color: var(--text-white);"></i> ${text}`;
-        } else if (type === 'error') {
-            ind.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ff5555;"></i> ${text}`;
-        } else {
-            ind.innerHTML = `<i class="fa-solid fa-check" style="color: var(--text-white);"></i> ${text}`;
-        }
+        const updateEl = (el) => {
+            if (!el) return;
+            if (type === 'loading') {
+                el.innerHTML = `<i class="fa-solid fa-rotate" style="color: var(--text-white);"></i> ${text}`;
+            } else if (type === 'error') {
+                el.innerHTML = `<i class="fa-solid fa-triangle-exclamation" style="color: #ff5555;"></i> ${text}`;
+            } else {
+                el.innerHTML = `<i class="fa-solid fa-check" style="color: var(--text-white);"></i> ${text}`;
+            }
+        };
+
+        updateEl(ind);
     }
 
     async handleLogin(e) {

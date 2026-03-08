@@ -47,8 +47,8 @@ export function initializeGame() {
           <div class="light"></div>
           <div class="light-border"></div>
           <div class="light-inset-bg"></div>
-          <i class="fa-regular fa-magnifying-glass games-search-icon"></i>
-          <input type="text" id="gameSearchInput" placeholder="fetching..." autocomplete="off">
+          <i class="fa-light fa-magnifying-glass games-search-icon"></i>
+          <input type="text" id="gameSearchInput" placeholder="fetching games..." autocomplete="off">
         </div>
       </div>
       <div class="game-grid-container">
@@ -96,6 +96,9 @@ export function initializeGame() {
   let _lastFilterQuery = null;
   let savedScrollPosition = 0;
   let cardTemplate = null;
+  let currentRenderAbortController = null;
+  let currentRenderedGames = [];
+  let cardObserver = null;
 
   const getSourceKey = () => localStorage.getItem('gameSource') || 'gn-math';
   const getCacheKey = () => `waves-game-cache${getSourceKey()}`;
@@ -184,33 +187,6 @@ export function initializeGame() {
     if (noResultsEl) noResultsEl.style.display = 'none';
   }
 
-  function getCardTemplate() {
-    if (cardTemplate) return cardTemplate;
-
-    const card = document.createElement('article');
-    card.className = 'game-card';
-
-    const media = document.createElement('div');
-    media.className = 'game-cover skeleton';
-
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.decoding = 'async';
-    media.appendChild(img);
-
-    const info = document.createElement('div');
-    info.className = 'game-info';
-
-    const title = document.createElement('h1');
-    info.appendChild(title);
-
-    card.appendChild(media);
-    card.appendChild(info);
-
-    cardTemplate = card;
-    return cardTemplate;
-  }
-
   function handleImageLoad(e) {
     const img = e.target;
     const media = img.parentElement;
@@ -226,54 +202,120 @@ export function initializeGame() {
     }
   }
 
-  function createGameCard(game) {
-    const card = getCardTemplate().cloneNode(true);
+  function hydrateCard(card, game) {
+    if (!game || card.hasChildNodes()) return;
 
     card.dataset.gameUrl = game.gameUrl;
     card.dataset.isExternal = game.isExternal;
-    card.dataset.gameName = game.name.toLowerCase();
     card.dataset.gameTitle = game.name;
-    card.dataset.gameAuthor = (game.author || '').toLowerCase();
-    card.dataset.featured = game.featured ? 'true' : 'false';
     card.dataset.gameIcon = game.coverUrl;
 
-    const media = card.firstChild;
-    const img = media.firstChild;
-    const info = card.lastChild;
-    const title = info.firstChild;
+    const media = document.createElement('div');
+    media.className = 'game-cover skeleton';
 
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
     img.alt = game.name;
     img.src = game.coverUrl;
-
     img.onload = handleImageLoad;
     img.onerror = handleImageError;
 
+    media.appendChild(img);
+
+    const info = document.createElement('div');
+    info.className = 'game-info';
+
+    const title = document.createElement('h1');
     title.textContent = game.name;
 
-    return card;
+    info.appendChild(title);
+
+    card.appendChild(media);
+    card.appendChild(info);
   }
 
   function renderGameCards(games) {
     if (!gameGrid) return;
 
-    const fragment = document.createDocumentFragment();
-    const count = games.length;
+    if (currentRenderAbortController) {
+      currentRenderAbortController.abort();
+    }
+    const abortController = new AbortController();
+    currentRenderAbortController = abortController;
 
-    for (let i = 0; i < count; i++) {
-      fragment.appendChild(createGameCard(games[i]));
+    if (!cardObserver) {
+      cardObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const card = entry.target;
+            observer.unobserve(card);
+            const idx = parseInt(card.dataset.idx, 10);
+            if (!isNaN(idx) && currentRenderedGames[idx]) {
+              hydrateCard(card, currentRenderedGames[idx]);
+            }
+          }
+        });
+      }, {
+        root: yay || null,
+        rootMargin: '400px'
+      });
     }
 
+    currentRenderedGames = games;
+    cardObserver.disconnect();
     gameGrid.innerHTML = '';
-    gameGrid.appendChild(fragment);
-
     gameGrid.style.display = games.length ? 'grid' : 'none';
-  }
-
-  function renderGames() {
-    if (gameRendered || !gameDataLoaded || !gameGrid) return;
-    renderGameCards(allGames);
     gameRendered = true;
-    _lastFilterQuery = null;
+
+    if (!games.length) return;
+
+    const CHUNK_SIZE = 150;
+    let index = 0;
+
+    function renderChunk() {
+      if (abortController.signal.aborted) return;
+
+      const fragment = document.createDocumentFragment();
+      const end = Math.min(index + CHUNK_SIZE, games.length);
+
+      for (let i = index; i < end; i++) {
+        const game = games[i];
+        const card = document.createElement('article');
+        card.className = 'game-card';
+        card.dataset.idx = i;
+
+        card.dataset.gameUrl = game.gameUrl;
+        card.dataset.isExternal = game.isExternal;
+        card.dataset.gameTitle = game.name;
+        card.dataset.gameIcon = game.coverUrl;
+
+        if (i < 60) {
+          hydrateCard(card, game);
+        }
+
+        fragment.appendChild(card);
+      }
+
+      gameGrid.appendChild(fragment);
+
+      const children = gameGrid.children;
+      for (let i = index; i < end; i++) {
+        if (i >= 60) {
+          cardObserver.observe(children[i]);
+        }
+      }
+
+      index = end;
+
+      if (index < games.length) {
+        requestAnimationFrame(renderChunk);
+      } else {
+        currentRenderAbortController = null;
+      }
+    }
+
+    renderChunk();
   }
 
   function filterAndDisplayGames() {
@@ -281,51 +323,37 @@ export function initializeGame() {
 
     const query = (gameSearchInput?.value || '').toLowerCase().trim();
 
-    if (query === _lastFilterQuery) return;
+    if (query === _lastFilterQuery && gameRendered) return;
     _lastFilterQuery = query;
 
     if (query) {
       savedScrollPosition = 0;
     }
 
-    const cards = gameGrid.children;
-    const cardCount = cards.length;
-
-    if (!cardCount) {
-      renderGameCards(allGames);
+    let filteredGames = allGames;
+    if (query) {
+      filteredGames = allGames.filter(g => {
+        const name = g._nameLc || '';
+        const author = g._authorLc || '';
+        return name.includes(query) || author.includes(query);
+      });
     }
 
-    if (!query) {
-      if (noResultsEl) noResultsEl.style.display = 'none';
-      for (let i = 0; i < cardCount; i++) {
-        cards[i].style.display = '';
+    if (filteredGames.length === 0) {
+      if (currentRenderAbortController) {
+        currentRenderAbortController.abort();
       }
-      gameGrid.style.display = 'grid';
-      updateCountLabel(allGames.length);
-      return;
-    }
-
-    let visibleCount = 0;
-    for (let i = 0; i < cardCount; i++) {
-      const card = cards[i];
-      const name = card.dataset.gameName || '';
-      const author = card.dataset.gameAuthor || '';
-      const match = name.includes(query) || author.includes(query);
-      card.style.display = match ? '' : 'none';
-      if (match) visibleCount++;
-    }
-
-    if (visibleCount === 0) {
       setStatus('zero games match were found :(');
       updateCountLabel(0);
       return;
     }
 
     if (noResultsEl) noResultsEl.style.display = 'none';
-    gameGrid.style.display = 'grid';
-    updateCountLabel(visibleCount);
+    updateCountLabel(filteredGames.length);
 
     if (yay) yay.scrollTop = 0;
+
+    renderGameCards(filteredGames);
   }
 
   function getGameData() {
@@ -369,7 +397,7 @@ export function initializeGame() {
               return {
                 id: game.name,
                 name: game.name,
-                coverUrl: `/!!/${finalCover}`,
+                coverUrl: `/!cover!/${finalCover}`,
                 gameUrl: finalUrl,
                 isExternal: false,
                 featured: false
@@ -399,7 +427,7 @@ export function initializeGame() {
                 return {
                   id: game.title,
                   name: game.title,
-                  coverUrl: `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}`,
+                  coverUrl: `/!cover!/${SOURCE_CONFIG.velara.assets}/${game.image}`,
                   gameUrl: finalUrl,
                   isExternal: !game.location && !!game.grdmca,
                   featured: false
@@ -423,7 +451,7 @@ export function initializeGame() {
               return {
                 id: game.name,
                 name: game.name,
-                coverUrl: `/!!/${finalCover}`,
+                coverUrl: `/!cover!/${finalCover}`,
                 gameUrl: finalUrl,
                 isExternal: false,
                 featured: false
@@ -442,7 +470,7 @@ export function initializeGame() {
                 id: zone.id,
                 name: zone.name,
                 author: zone.author,
-                coverUrl: `/!!/${zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers)}`,
+                coverUrl: `/!cover!/${zone.cover.replace('{COVER_URL}', SOURCE_CONFIG.gnMath.covers)}`,
                 gameUrl: isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`,
                 isExternal: isExternal,
                 featured: zone.featured || false
@@ -464,6 +492,10 @@ export function initializeGame() {
   }
 
   function resetGameData(showMessage) {
+    if (currentRenderAbortController) {
+      currentRenderAbortController.abort();
+      currentRenderAbortController = null;
+    }
     gameDataLoaded = false;
     gameRendered = false;
     gameDataPromise = null;
@@ -523,7 +555,7 @@ export function initializeGame() {
 
     getGameData()
       .then(() => {
-        renderGames();
+        _lastFilterQuery = null;
         filterAndDisplayGames();
       })
       .catch(() => setStatus('failed to fetch games :('));
@@ -565,7 +597,7 @@ export function initializeGame() {
     if (document.body.classList.contains('games-view')) {
       showSkeletonLoading();
       getGameData().then(() => {
-        renderGames();
+        _lastFilterQuery = null;
         filterAndDisplayGames();
       });
     }
@@ -585,7 +617,7 @@ export function initializeGame() {
       showSkeletonLoading();
       getGameData()
         .then(() => {
-          renderGames();
+          _lastFilterQuery = null;
           filterAndDisplayGames();
         })
         .catch(() => setStatus('Error refreshing games.'));

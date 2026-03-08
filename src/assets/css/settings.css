@@ -82,7 +82,7 @@
   z-index: 1000;
   outline: none;
   display: inline-flex;
-  transition: all 0.1s ease;
+  transition: all 0.05s ease;
 }
 
 #close-settings-menu:hover {
@@ -121,6 +121,7 @@
   max-width: 255px;
   margin-bottom: 15px;
   user-select: none;
+  transition: all 0.05s ease;
 }
 
 .transport-selected,
@@ -139,6 +140,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  transition: all 0.05s ease;
 }
 
 .transport-selected:hover,
@@ -228,6 +230,7 @@
   cursor: pointer;
   width: 93%;
   margin: 0 auto;
+  transition: all 0.05s ease;
 }
 
 .transport-options div:hover,
@@ -312,7 +315,7 @@ input[type="checkbox"]::before {
   position: absolute;
   top: 5px;
   left: 6px;
-  transition: all 0.1s ease;
+  transition: all 0.05s ease;
 }
 
 input[type="checkbox"]:hover::before {
@@ -360,15 +363,17 @@ input[type="checkbox"]:checked:hover::before {
   background-color: transparent;
   color: var(--color-icon-dim);
   padding: 5px 7px;
-  border: none;
+  border: 1px solid transparent;
   font-size: 15px;
   cursor: pointer;
+  border-radius: 15px;
   margin: 0;
   width: 170px;
   text-align: left;
   display: flex;
   align-items: center;
   gap: 5px;
+  transition: all 0.05s ease;
 }
 
 .tab-button i {
@@ -381,6 +386,7 @@ input[type="checkbox"]:checked:hover::before {
   border-radius: 11px;
   font-size: 14px;
   flex-shrink: 0;
+  transition: all 0.05s ease;
 }
 
 .tab-button:hover {
@@ -388,14 +394,13 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .tab-button.active {
-  color: var(--text-white);
+  color: var(--text-black);
+  background-color: var(--border-focus);
   cursor: default;
 }
 
 .tab-button.active i {
-  background-color: var(--text-white);
   color: var(--text-black);
-  border-color: var(--text-white);
 }
 
 .settings-content-wrapper {
@@ -423,7 +428,6 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .settings-item {
-  border-radius: 14px;
   padding: 15px;
   box-sizing: border-box;
   text-align: left;

@@ -7,10 +7,6 @@ export function initializeLayout() {
         </div>
         <button id="add-tab-btn"><i class="fa-regular fa-plus"></i> new tab</button>
         <div id="tabs-container" class="tabs-container"></div>
-        <div class="sidebar-footer">
-            <span class="memory-usage-label">memory usage:</span>
-            <span id="memory-usage-value" class="memory-value">--</span>
-        </div>
     `;
     document.body.insertBefore(sidebar, document.body.firstChild);
 
@@ -43,9 +39,6 @@ export function initializeLayout() {
     const topRightStuff = document.createElement('div');
     topRightStuff.id = 'top-right-stuff';
     topRightStuff.innerHTML = `
-        <a href="#" id="notifications" class="icon-btn">
-            <i class="fa-solid fa-bell"></i>
-        </a>
         <div id="auth-container" class="text-icon-btn">
             <i class="fa-solid fa-cloud"></i>
             <span id="auth-status">cloud sync</span>
@@ -76,7 +69,7 @@ export function initializeLayout() {
             <a id="toggle-sidebar-btn" href="#"><i class="fa-regular fa-table-rows"></i></a>
             <a id="backIcon" href="#"><i class="fa-regular fa-chevron-left"></i></a>
             <a id="forwardIcon" href="#"><i class="fa-regular fa-chevron-right"></i></a>
-            <a id="refreshIcon" href="#"><i class="fa-regular fa-rotate-right"></i></a>
+            <a id="refreshIcon" href="#"><i class="fa-regular fa-arrow-rotate-right"></i></a>
         </div>
         <div class="omnibox">
             <i id="lockIcon" class="fa-regular fa-unlock-keyhole"></i>
@@ -98,8 +91,8 @@ export function initializeLayout() {
             <div class="light-border"></div>
             <div class="light-inset-bg"></div>
             <div class="light"></div>
-            <i class="fa-regular fa-magnifying-glass search-icon"></i>
-            <input type="text" id="searchInput" placeholder="Have anything in mind?" autocomplete="off">
+            <i class="fa-light fa-magnifying-glass search-icon"></i>
+            <input type="text" id="searchInput" placeholder="have anything in mind?" autocomplete="off">
             <div id="suggestions-container" class="suggestions-box"></div>
         </div>
     `;
@@ -156,7 +149,7 @@ export function initializeLayout() {
         <i class="fa-regular fa-table-rows"></i>
         <i class="fa-regular fa-chevron-left"></i>
         <i class="fa-regular fa-chevron-right"></i>
-        <i class="fa-regular fa-rotate-right"></i>
+        <i class="fa-regular fa-arrow-rotate-right"></i>
         <i class="fa-regular fa-unlock-keyhole"></i>
         <i class="fa-regular fa-lock-keyhole"></i>
         <i class="fa-regular fa-house-chimney-window"></i>
@@ -185,6 +178,7 @@ export function initializeFall() {
         '/assets/images/peaks/pochi.png'
     ];
     const SPAWN_RATE = 300;
+    const MAX_PARTICLES = 40;
     const fallEnabled = localStorage.getItem('fallEnabled') !== 'false';
 
     try {
@@ -241,45 +235,31 @@ export function initializeFall() {
             return;
         }
 
-        const preloadedBlobUrls = [];
-        let preloadCount = 0;
-
-        IMAGE_SOURCES.forEach(src => {
-            const img = new Image();
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                canvas.getContext('2d').drawImage(img, 0, 0);
-                canvas.toBlob(blob => {
-                    if (blob) {
-                        preloadedBlobUrls.push(URL.createObjectURL(blob));
-                    } else {
-                        preloadedBlobUrls.push(src);
-                    }
-                    preloadCount++;
-                    if (preloadCount === IMAGE_SOURCES.length) {
-                        startWhenReady();
-                    }
-                }, 'image/png');
-            };
-            img.onerror = () => {
-                preloadedBlobUrls.push(src);
-                preloadCount++;
-                if (preloadCount === IMAGE_SOURCES.length) {
-                    startWhenReady();
-                }
-            };
-            img.src = src;
-        });
+        const imgPool = [];
+        for (let i = 0; i < MAX_PARTICLES; i++) {
+            const img = document.createElement('img');
+            img.className = 'falling';
+            img.style.display = 'none';
+            img.addEventListener('animationend', () => {
+                img.style.display = 'none';
+                img.style.animationName = 'none';
+            });
+            container.appendChild(img);
+            imgPool.push(img);
+        }
 
         function spawnImage() {
-            if (preloadedBlobUrls.length === 0) return;
+            let img = null;
+            for (let i = 0; i < imgPool.length; i++) {
+                if (imgPool[i].style.display === 'none') {
+                    img = imgPool[i];
+                    break;
+                }
+            }
 
-            const img = document.createElement('img');
-            img.src = preloadedBlobUrls[Math.floor(Math.random() * preloadedBlobUrls.length)];
-            img.className = 'falling';
+            if (!img) return;
+
+            img.src = IMAGE_SOURCES[Math.floor(Math.random() * IMAGE_SOURCES.length)];
 
             const duration = Math.random() * 5 + 10;
             const spreadWidth = 800;
@@ -290,11 +270,10 @@ export function initializeFall() {
             img.style.setProperty('--drift-x', `${driftX}px`);
             img.style.setProperty('--rot-end', `${rotationEnd}deg`);
 
-            container.appendChild(img);
+            void img.offsetWidth;
 
-            setTimeout(() => {
-                img.remove();
-            }, duration * 1000);
+            img.style.display = 'block';
+            img.style.animationName = 'fallAndFade';
         }
 
         function startWhenReady() {
@@ -305,6 +284,8 @@ export function initializeFall() {
                 window.addEventListener('load', start);
             }
         }
+
+        startWhenReady();
 
     } catch (e) {
         console.error("fall error:", e);

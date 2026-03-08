@@ -1,9 +1,9 @@
 export const DEFAULT_BOOKMARKS = [
-    { name: 'youtube', url: 'https://in.geeked.wtf/', icon: '!!/https://www.google.com/s2/favicons?domain=youtube.com&sz=64' },
-    { name: 'movies', url: 'https://bcine.app', icon: 'fa-light fa-film' },
-    { name: 'music', url: 'https://soundcloud.com/'},
-    { name: 'tiktok', url: 'https://www.tiktok.com/'},
-    { name: 'discord', url: 'https://discord.com/login/'},
+    { name: 'youtube', url: 'https://in.geeked.wtf/', icon: '/!cover!/https://www.google.com/s2/favicons?domain=youtube.com&sz=64' },
+    { name: 'movies', url: 'https://bcine.app/', icon: 'fa-light fa-film' },
+    { name: 'music', url: 'https://monochrome.tf/', icon: 'fa-light fa-music' },
+    { name: 'tiktok', url: 'https://www.tiktok.com/' },
+    { name: 'discord', url: 'https://discord.com/login/' },
 ];
 
 export const SEARCH_ENGINES = {

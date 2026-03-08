@@ -35,13 +35,18 @@
   cursor: pointer;
   padding: 5.5px 10px;
   border-radius: 9px;
-  transition: all 0.1s ease;
+  transition: all 0.05s ease;
   user-select: none;
 }
 
 #bookmarks-edit-toggle:hover {
   color: var(--text-white);
   background-color: var(--active-bg);
+  transform: scale(1.05);
+}
+
+#bookmarks-edit-toggle:active {
+  transform: scale(1);
 }
 
 .bookmarks-wrapper {
@@ -85,20 +90,21 @@
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.1s ease;
+  transition: all 0.05s ease;
   padding: 5px;
   word-break: break-all;
 }
 
 .bookmark-link:hover {
   background-color: var(--bg-surface-5);
+  transform: scale(1.05);
 }
 
 .bookmark-icon {
   width: 35px;
   height: 35px;
   border-radius: 50%;
-  background-color: #ffffff0a;
+  background-color: var(--bg-surface-7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -106,8 +112,8 @@
 }
 
 .bookmark-icon-img {
-  width: 60%;
-  height: 60%;
+  width: 50%;
+  height: 50%;
   object-fit: contain;
   display: block;
   image-rendering: auto;
@@ -168,7 +174,11 @@
 }
 
 .bookmarks-edit-mode .bookmark-item {
-  cursor: default !important;
+  cursor: grab !important;
+}
+
+.bookmarks-edit-mode .bookmark-item:active {
+  cursor: grabbing !important;
 }
 
 #add-bookmark-btn {
@@ -190,6 +200,7 @@
 #add-bookmark-btn:hover {
   border: 1.5px dashed var(--border-dashed-hover);
   color: var(--text-white);
+  transform: scale(1.05);
 }
 
 .bookmark-item.dragging {
@@ -209,12 +220,13 @@
 .bookmark-item.drop-before::before {
   content: "";
   position: absolute;
-  top: -4px;
-  left: 0;
-  right: 0;
-  height: 2px;
+  left: -8px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
   background: var(--text-white);
-  border-radius: 1px;
+  border-radius: 2px;
+  z-index: 100;
 }
 
 .bookmark-item.drop-after {
@@ -224,16 +236,16 @@
 .bookmark-item.drop-after::after {
   content: "";
   position: absolute;
-  bottom: -4px;
-  left: 0;
-  right: 0;
-  height: 2px;
+  right: -8px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
   background: var(--text-white);
-  border-radius: 1px;
+  border-radius: 2px;
+  z-index: 100;
 }
 
 .bookmark-item {
-  cursor: grab;
   transition: all 0.1s ease;
   position: relative;
 }
@@ -241,10 +253,6 @@
 .bookmark-item.dragging::before {
   opacity: 0;
   transform: scale(0.8);
-}
-
-.bookmark-item:active {
-  cursor: grabbing;
 }
 
 #bookmarks-list.drag-over {

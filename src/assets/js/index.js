@@ -1,6 +1,6 @@
 import { dom } from './ui/dom.js';
 import { HistoryManager } from './core/history.js';
-import { initializeUI, hideLoading, showHomeView, showBrowserView, syncRefreshButtonWithActiveTab } from './ui/ui.js';
+import { initializeUI, hideLoading, removeIframeLoading, showHomeView, showBrowserView, syncRefreshButtonWithActiveTab } from './ui/ui.js';
 import { initializeIframe, updateHistoryUI, cleanupIframe, reduceIframeMemory, restoreIframeActivity } from './core/iframe.js';
 import { initializeSearch, handleSearch as performSearch } from './search/search.js';
 import { initializeBookmarks } from './features/bookmarks.js';
@@ -34,32 +34,6 @@ function clearHistoryNavigation(tab, incomingUrl) {
         tab._historyNavigating = false;
         tab._historyTarget = null;
     }
-}
-
-function updateMemoryDisplay() {
-    const valueEl = dom.memoryUsageValue;
-    if (!valueEl) return;
-
-    const tabs = window.WavesApp?.tabs || [];
-    let total = 0;
-    let hasData = false;
-
-    for (const tab of tabs) {
-        const snap = tabMemory.get(tab.id);
-        if (snap && typeof snap.usedJSHeapSize === 'number') {
-            total += snap.usedJSHeapSize;
-            hasData = true;
-        }
-    }
-
-    if (!hasData) {
-        valueEl.textContent = '--';
-        return;
-    }
-
-    const mb = total / 1048576;
-    const precision = mb >= 100 ? 0 : 1;
-    valueEl.textContent = `${mb.toFixed(precision)} MB`;
 }
 
 function handleServiceWorkerMessage(event) {
@@ -185,7 +159,6 @@ function handleServiceWorkerMessage(event) {
                 canGoForward: targetTab.historyManager.canGoForward(),
             });
         }
-        updateMemoryDisplay();
         return;
     }
     if (data && data.type === 'url-update' && data.url) {
@@ -473,6 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         renderTabs();
         updateSplitButtonState();
+        syncRefreshButtonWithActiveTab();
     }
 
 
@@ -737,7 +711,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         hideTabSelectionModal();
 
-        updateMemoryDisplay();
         return newTab;
     }
 
@@ -807,6 +780,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const [closedTab] = tabs.splice(tabIndex, 1);
 
+        removeIframeLoading(tabId);
+
         if (closedTab.iframe) {
             closedTab.iframe.removeEventListener('load', closedTab._iframeLoadHandler);
             closedTab.iframe.removeEventListener('iframe-focus', closedTab._iframeFocusHandler);
@@ -849,7 +824,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             updateIframeView();
         }
-        updateMemoryDisplay();
     }
 
     function onWindowBlur() {
@@ -1184,7 +1158,6 @@ document.addEventListener('DOMContentLoaded', () => {
         addTab(null, 'new tab');
         renderTabs();
         updateSplitButtonState();
-        updateMemoryDisplay();
         showHomeView();
     };
 
@@ -1296,7 +1269,6 @@ document.addEventListener('DOMContentLoaded', () => {
     addTab(null, 'fetching data...');
     updateIframeView();
     updateSplitButtonState();
-    updateMemoryDisplay();
     requestAnimationFrame(() => {
         const activeTab = getActiveTab();
         if (activeTab && !activeTab.isUrlLoaded) {

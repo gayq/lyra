@@ -78,7 +78,7 @@ const renderBookmarks = () => {
             iconWrapper.style.cssText = 'display:flex;align-items:center;justify-content:center;color:#fff';
             const faIcon = document.createElement('i');
             faIcon.className = bookmark.icon;
-            faIcon.style.fontSize = '24px';
+            faIcon.style.fontSize = '16px';
             iconWrapper.appendChild(faIcon);
         } else {
             const icon = document.createElement('img');
@@ -95,7 +95,7 @@ const renderBookmarks = () => {
             } else {
                 try {
                     const originalFavicon = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
-                    icon.src = getProxyUrl(originalFavicon);
+                    icon.src = '/!cover!/' + originalFavicon;
                 } catch {
                     icon.src = '';
                 }
@@ -161,7 +161,7 @@ const setupDragAndDrop = () => {
 
     bookmarkItems.forEach((item) => {
         item.addEventListener('dragstart', (e) => {
-            if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
+            if (!bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
                 e.preventDefault();
                 return;
             }
@@ -178,7 +178,7 @@ const setupDragAndDrop = () => {
         });
 
         item.addEventListener('dragover', (e) => {
-            if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
+            if (!bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
                 e.preventDefault();
                 return;
             }
@@ -193,7 +193,7 @@ const setupDragAndDrop = () => {
         });
 
         item.addEventListener('drop', (e) => {
-            if (bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
+            if (!bookmarksContainer.classList.contains('bookmarks-edit-mode')) {
                 e.preventDefault();
                 return;
             }
@@ -202,7 +202,7 @@ const setupDragAndDrop = () => {
             if (draggedItem && draggedIndex !== null) {
                 const dropIndex = parseInt(item.dataset.index);
                 const rect = item.getBoundingClientRect();
-                let insertAt = (e.clientY >= rect.top + rect.height / 2) ? dropIndex + 1 : dropIndex;
+                let insertAt = (e.clientX >= rect.left + rect.width / 2) ? dropIndex + 1 : dropIndex;
                 if (insertAt > draggedIndex) insertAt--;
                 if (draggedIndex !== insertAt) {
                     const bookmarks = getBookmarks();
@@ -346,7 +346,7 @@ export function initializeBookmarks() {
                 <input type="text" id="bookmarkUrl" placeholder="https://example.com/" autocomplete="off">
                 <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
                     <button id="saveBookmarkBtn">save</button>
-                    <button id="cancelBookmarkBtn" style="background-color:var(--btn-secondary-bg);color:var(--btn-secondary-text);" onmouseover="this.style.backgroundColor='var(--btn-secondary-bg-hover)';" onmouseout="this.style.backgroundColor='var(--btn-secondary-bg)';">cancel</button>
+                    <button id="cancelBookmarkBtn">cancel</button>
                 </div>
             </div>
         `;

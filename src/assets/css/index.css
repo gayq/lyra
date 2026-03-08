@@ -46,7 +46,7 @@ body.games-view:before {
   top: 0;
   left: 0;
   width: 100%;
-  height: 250px;
+  height: 220px;
   background: linear-gradient(to bottom,
       var(--bg-body) 0%,
       var(--bg-body) 20%,
@@ -123,12 +123,12 @@ body.is-resizing .iframe {
   overflow: hidden;
   padding: 10px;
   transition:
-    transform 0.1s ease,
-    opacity 0.1s ease,
+    margin-left 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
     visibility 0s;
   white-space: nowrap;
   width: 190px;
-  will-change: transform, opacity;
+  will-change: margin-left, opacity;
   z-index: 3;
 }
 
@@ -157,14 +157,11 @@ body.browser-view .footer {
 }
 
 body.sidebar-hidden .sidebar {
-  left: 0;
+  margin-left: -190px;
   opacity: 0;
-  position: absolute;
-  top: 0;
-  transform: translateX(-100%);
   transition:
-    transform 0.1s ease,
-    opacity 0.1s ease,
+    margin-left 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
     visibility 0s 0.1s;
   visibility: hidden;
 }
@@ -336,24 +333,6 @@ body.is-picking-split .tab.split-active-left {
   opacity: 0.7;
 }
 
-#toggle-sidebar-btn {
-  align-items: center;
-  border-radius: 50%;
-  color: var(--color-icon);
-  display: flex;
-  font-size: 15px;
-  height: 12px;
-  justify-content: center;
-  padding: 8px;
-  text-decoration: none;
-  width: 12px;
-}
-
-#toggle-sidebar-btn:hover {
-  background-color: var(--hover-bg);
-  color: var(--text-white);
-}
-
 body.browser-view #iframe-container {
   display: flex;
   height: 100%;
@@ -412,17 +391,19 @@ body.browser-view .main-nav {
   color: var(--color-icon);
   display: flex;
   font-size: 15px;
-  height: 12px;
+  height: 15px;
+  width: 15px;
   justify-content: center;
   padding: 8px;
   text-decoration: none;
-  width: 12px;
+  transition: all 0.01s ease;
 }
 
 .nav-controls a:hover,
 .window-controls a:hover {
   background-color: var(--hover-bg);
   color: var(--text-white);
+  transform: scale(1.05);
 }
 
 .nav-controls a.disabled,
@@ -432,9 +413,28 @@ body.browser-view .main-nav {
   pointer-events: none;
 }
 
+#toggle-sidebar-btn {
+  align-items: center;
+  border-radius: 50%;
+  color: var(--color-icon);
+  display: flex;
+  font-size: 15px;
+  height: 15px;
+  width: 15px;
+  justify-content: center;
+  padding: 8px;
+  text-decoration: none;
+  transition: all 0.01s ease;
+}
+
+#toggle-sidebar-btn:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-white);
+}
+
 .icon-btn {
   align-items: center;
-  background-color: var(--bg-surface-4);
+  background-color: var(--bg-surface-3);
   border-radius: 50%;
   color: var(--text-white);
   cursor: pointer;
@@ -442,17 +442,15 @@ body.browser-view .main-nav {
   flex-shrink: 0;
   font-size: 15px;
   height: 22px;
+  width: 22px;
   justify-content: center;
   padding: 10px;
   text-decoration: none;
-  transition:
-    background-color 0.1s ease,
-    transform 0.1s ease;
-  width: 22px;
+  transition: background-color 0.05s ease, transform 0.05s ease;
 }
 
 .icon-btn:hover {
-  background-color: var(--bg-surface-6);
+  background-color: var(--bg-surface-5);
   transform: scale(1.05);
 }
 
@@ -490,52 +488,23 @@ body.browser-view .main-nav {
   font-size: 16px;
   margin-top: 2px;
   padding: 10px 25px;
-  transition:
-    background-color 0.1s ease,
-    color 0.1s ease;
+  transition: all 0.1s ease;
   width: auto;
 }
 
 .prompt-close-btn:hover {
   background-color: var(--btn-secondary-bg-hover);
   color: var(--text-white);
+  transform: scale(1.05);
 }
 
-.auth-action-btn {
-  background-color: var(--btn-primary-bg);
-  border: none;
-  border-radius: 15px;
-  color: var(--btn-primary-text);
-  cursor: pointer;
-  font-weight: 400;
-  padding: 10px;
-  transition:
-    transform 0.1s ease,
-    background-color 0.1s ease;
-  width: 100%;
-}
-
-.auth-action-btn:hover {
-  background-color: var(--btn-primary-bg-hover);
-}
-
-.auth-action-btn:active {
-  transform: scale(0.95);
-}
-
-.auth-secondary-btn {
-  background: var(--btn-secondary-bg);
-  color: var(--text-white);
-  margin-top: 10px;
-}
-
-.auth-secondary-btn:hover {
-  background: var(--btn-secondary-bg-hover);
+.prompt-close-btn:active {
+  transform: scale(1);
 }
 
 .text-icon-btn {
   align-items: center;
-  background-color: var(--bg-surface-4);
+  background-color: var(--bg-surface-3);
   border-radius: 20px;
   box-sizing: content-box;
   color: var(--text-white);
@@ -554,7 +523,7 @@ body.browser-view .main-nav {
 }
 
 .text-icon-btn:hover {
-  background-color: var(--bg-surface-6);
+  background-color: var(--bg-surface-5);
   transform: scale(1.05);
 }
 
@@ -584,7 +553,7 @@ body.browser-view .main-nav {
   outline: none;
   padding: 10px 15px 10px 35px;
   text-align: left;
-  transition: background-color 0.1s ease;
+  transition: background-color 0.05s ease;
   width: 100%;
 }
 
@@ -594,11 +563,13 @@ body.browser-view .main-nav {
 }
 
 .omnibox input[type="text"]::-moz-placeholder {
-  color: var(--input-placeholder-light);
+  font-weight: 300;
+  color: var(--input-placeholder-search);
 }
 
 .omnibox input[type="text"]::placeholder {
-  color: var(--input-placeholder-light);
+  font-weight: 300;
+  color: var(--input-placeholder-search);
 }
 
 #lockIcon {
@@ -776,10 +747,12 @@ body.browser-view .main-nav {
 }
 
 .search-bar input[type="text"]::-moz-placeholder {
+  font-weight: 300;
   color: var(--input-placeholder-search);
 }
 
 .search-bar input[type="text"]::placeholder {
+  font-weight: 300;
   color: var(--input-placeholder-search);
 }
 
@@ -913,7 +886,6 @@ body.browser-view .main-nav {
 
 .popup.new-tab-popup {
   background: transparent;
-  border: 1px solid var(--border-faint);
   border-radius: 10px;
   padding: 0;
   top: 45%;
@@ -1000,12 +972,26 @@ body.browser-view .main-nav {
   cursor: pointer;
   font-size: 16px;
   padding: 10px;
-  transition: background-color 0.1s ease;
+  transition: all 0.05s ease;
   width: 48%;
 }
 
 .popup .input-container button:hover {
   background-color: var(--btn-primary-bg-hover);
+  transform: scale(1.05);
+}
+
+.popup .input-container button:active {
+  transform: scale(1);
+}
+
+#cancelBookmarkBtn {
+  background-color: var(--btn-secondary-bg);
+  color: var(--btn-secondary-text);
+}
+
+#cancelBookmarkBtn:hover {
+  background-color: var(--btn-secondary-bg-hover);
 }
 
 .popup.fade-in-prompt {

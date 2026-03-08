@@ -33,30 +33,18 @@ const CONFIG = {
     cssOrder: ['themes.css', 'index.css', 'settings.css', 'games.css', 'bookmarks.css', 'newtab.css', 'tabs.css', 'notifications.css', 'toast.css', 'watch.css'],
     obfuscation: {
         compact: true,
-        controlFlowFlattening: true,
-        controlFlowFlatteningThreshold: 0.15,
+        controlFlowFlattening: false,
         deadCodeInjection: false,
+        debugProtection: false,
         disableConsoleOutput: true,
         identifierNamesGenerator: 'hexadecimal',
         log: false,
-        debugProtection: false,
         renameGlobals: true,
-        selfDefending: true,
-        stringArray: true,
-        stringArrayEncoding: ['base64'],
-        stringArrayRotate: true,
-        stringArrayShuffle: true,
-        stringArrayThreshold: 1,
-        stringArrayWrappersCount: 1,
-        stringArrayWrappersChained: true,
-        stringArrayWrappersType: 'function',
-        stringArrayCallsTransform: true,
-        stringArrayCallsTransformThreshold: 0.5,
-        splitStrings: true,
-        splitStringsChunkLength: 8,
-        transformObjectKeys: true,
-        numbersToExpressions: false,
-        unicodeEscapeSequence: true
+        selfDefending: false,
+        stringArray: false,
+        splitStrings: false,
+        transformObjectKeys: false,
+        unicodeEscapeSequence: false
     }
 };
 
