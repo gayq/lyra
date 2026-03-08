@@ -116,7 +116,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode zstd gzip
 
-    reverse_proxy /!!/* 127.0.0.1:4000 {
+    reverse_proxy /!!/* /!cover!/* 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
         transport http {
             keepalive 120s

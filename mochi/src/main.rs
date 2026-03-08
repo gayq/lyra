@@ -219,9 +219,14 @@ async fn proxy_handler(
     req_body: Bytes,
 ) -> Response {
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
-    let prefix_pos = path_and_query.find(MOCHI_PREFIX).unwrap_or(0);
-    let target_url_str = &path_and_query[prefix_pos + MOCHI_PREFIX.len()..];
-    
+    let is_cover_request = path_and_query.contains(constants::COVER_PREFIX);
+    let prefix = if is_cover_request {
+        constants::COVER_PREFIX
+    } else {
+        constants::MOCHI_PREFIX
+    };
+    let prefix_pos = path_and_query.find(prefix).unwrap_or(0);
+    let target_url_str = &path_and_query[prefix_pos + prefix.len()..];
     debug!("proxying request to: {}", target_url_str);
 
     if let Some(ws) = ws {
@@ -310,6 +315,13 @@ async fn proxy_handler(
     };
 
     let is_likely_asset = is_likely_static_asset(&target_url_string);
+
+    if method == Method::GET && is_cover_request {
+        return handle_cover_request(
+            &state, &target_url, &target_url_string, target_url_str,
+            &method, &headers,
+        ).await.unwrap_or_else(|e| e);
+    }
 
     if method == Method::GET && is_likely_asset {
         return fetch_and_cache(
@@ -743,6 +755,125 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     let body = Body::from_stream(stream);
     
     Some(((status, headers, body).into_response(), false))
+}
+
+async fn handle_cover_request(
+    state: &Arc<AppState>,
+    target_url: &Url,
+    _target_url_string: &str,
+    target_url_str: &str,
+    method: &Method,
+    headers: &HeaderMap,
+) -> Result<Response, Response> {
+    if let Some(cached) = state.cache.get(target_url_str).await {
+        let mut res_headers = cached.headers.clone();
+        res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
+        let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+        return Ok((status, res_headers, cached.body.clone()).into_response());
+    }
+
+    if let Some(disk_response) = load_from_disk(target_url_str).await {
+        debug!("disk cache hit for cover: {}", target_url_str);
+        let (response, _) = disk_response;
+        return Ok(response);
+    }
+
+    let mut req_builder = state.asset_client.request(method.clone(), target_url.clone());
+    for (k, v) in headers.iter() {
+        let key_str = k.as_str();
+        if !is_blacklisted_header(key_str) && !key_str.starts_with("cf-") && !key_str.starts_with("x-") {
+            req_builder = req_builder.header(k, v);
+        }
+    }
+    
+    req_builder = req_builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+    let origin = target_url.origin().ascii_serialization();
+    req_builder = req_builder.header("Referer", format!("{}/", origin));
+
+    let upstream_res = match req_builder.send().await {
+        Ok(res) => res,
+        Err(e) => return Err((StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response()),
+    };
+
+    let status = upstream_res.status();
+    let mut safe_headers = HeaderMap::new();
+    safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    safe_headers.insert("Cache-Control", HeaderValue::from_static("public, max-age=31536000, immutable"));
+    
+    if !status.is_success() {
+        return Ok((status, safe_headers, Body::from_stream(upstream_res.bytes_stream())).into_response());
+    }
+
+    let mut stream = upstream_res.bytes_stream();
+    let mut accumulator = Vec::new();
+    let mut total_size = 0;
+    while let Some(chunk_res) = stream.next().await {
+        if let Ok(chunk) = chunk_res {
+            total_size += chunk.len();
+            if total_size < 15 * 1024 * 1024 {
+                accumulator.extend_from_slice(&chunk);
+            } else {
+                return Ok((status, safe_headers, Body::empty()).into_response());
+            }
+        } else {
+            return Ok((status, safe_headers, Body::empty()).into_response());
+        }
+    }
+
+    if accumulator.is_empty() {
+        return Ok((status, safe_headers, Body::empty()).into_response());
+    }
+
+    if let Ok(Some(processed_bytes)) = tokio::task::spawn_blocking(move || -> Option<Bytes> {
+        if let Ok(img) = image::load_from_memory(&accumulator) {
+            let resized = img.thumbnail(256, 256);
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            if resized.write_to(&mut cursor, image::ImageFormat::WebP).is_ok() {
+                return Some(Bytes::from(cursor.into_inner()));
+            }
+        }
+        None
+    }).await {
+        safe_headers.insert("content-length", HeaderValue::from(processed_bytes.len()));
+        safe_headers.insert("content-type", HeaderValue::from_static("image/webp"));
+        safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
+
+        let cached = Arc::new(CachedResponse {
+            status: status.as_u16(),
+            headers: safe_headers.clone(),
+            body: processed_bytes.clone(),
+        });
+
+        state.cache.insert(target_url_str.to_string(), cached).await;
+
+        let cache_path = get_cache_path(target_url_str);
+        let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
+        let status_u16 = status.as_u16();
+        let headers_clone = safe_headers.clone();
+        let pb_clone = processed_bytes.clone();
+        
+        tokio::spawn(async move {
+            if let Ok(mut f) = File::create(&temp_path).await {
+                let _ = f.write_all(&status_u16.to_le_bytes()).await;
+                let _ = f.write_all(&(headers_clone.len() as u16).to_le_bytes()).await;
+                for (k, v) in headers_clone.iter() {
+                    let k_bytes = k.as_str().as_bytes();
+                    let _ = f.write_all(&(k_bytes.len() as u16).to_le_bytes()).await;
+                    let _ = f.write_all(k_bytes).await;
+                    let v_bytes = v.as_bytes();
+                    let _ = f.write_all(&(v_bytes.len() as u32).to_le_bytes()).await;
+                    let _ = f.write_all(v_bytes).await;
+                }
+                let _ = f.write_all(&pb_clone).await;
+                let _ = f.sync_all().await;
+                let _ = fs::rename(&temp_path, &cache_path).await;
+            }
+        });
+
+        return Ok((status, safe_headers, processed_bytes).into_response());
+    }
+
+    return Ok((status, safe_headers, Body::empty()).into_response());
 }
 
 async fn fetch_and_cache(

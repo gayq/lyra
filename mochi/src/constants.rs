@@ -1,4 +1,5 @@
 pub const MOCHI_PREFIX: &str = "/!!/";
+pub const COVER_PREFIX: &str = "/!cover!/";
 
 pub const SCRIPT_PART_1: &str = r##"<script>
 (function() {
