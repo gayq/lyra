@@ -1,5 +1,7 @@
 #!/bin/bash
 
+echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
+echo ""
 echo "type 'ok' to continue or 'cancel' to abort."
 
 while true; do
@@ -22,12 +24,12 @@ done
 read -p "enter the domain for this node: " DOMAIN
 
 if [ -z "$DOMAIN" ]; then
-    echo "domain cannot be empty. abortinng."
+    echo "domain cannot be empty. aborting."
     exit 1
 fi
 
 sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https libjemalloc2
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -84,6 +86,61 @@ if ! grep -q "^\* hard nofile" /etc/security/limits.conf; then
   echo "* hard nofile 1048576" | sudo tee -a /etc/security/limits.conf
 fi
 
+if [ ! -d "$HOME/epoxy-tls" ]; then
+    git clone https://github.com/MercuryWorkshop/epoxy-tls.git "$HOME/epoxy-tls"
+fi
+cd "$HOME/epoxy-tls"
+git fetch && git checkout . && git pull
+if ! grep -q "^\[profile.release\]" Cargo.toml; then
+    printf "\n[profile.release]\nlto = \"fat\"\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\nopt-level = 3\n" >> Cargo.toml
+fi
+RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+sudo cp target/release/epoxy-server /usr/local/bin/epoxy-server
+sudo setcap cap_net_bind_service=+ep /usr/local/bin/epoxy-server
+
+sudo mkdir -p /etc/epoxy-server
+sudo tee /etc/epoxy-server/config.toml <<EOF
+[server]
+bind = ["tcp", "0.0.0.0:8080"]
+transport = "websocket"
+resolve_ipv6 = false
+tcp_nodelay = true
+file_raw_mode = false
+use_real_ip_headers = true
+non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
+max_message_size = 1048576
+log_level = "OFF"
+runtime = "multithread"
+stats_endpoint = "/stats"
+[wisp]
+allow_wsproxy = true
+buffer_size = 65536
+prefix = "/w"
+wisp_v2 = true
+extensions = ["udp", "motd"]
+password_extension_required = false
+certificate_extension_required = false
+[stream]
+tcp_nodelay = true
+buffer_size = 524288
+allow_udp = true
+allow_wsproxy_udp = false
+dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
+allow_direct_ip = true
+allow_loopback = true
+allow_multicast = true
+allow_global = true
+allow_non_global = true
+allow_tcp_hosts = []
+block_tcp_hosts = []
+allow_udp_hosts = []
+block_udp_hosts = []
+allow_hosts = []
+block_hosts = []
+allow_ports = []
+block_ports = []
+EOF
+
 cd "$HOME/waves" || { echo "Run this in the waves directory!"; exit 1; }
 export PATH="$HOME/.bun/bin:$PATH"
 
@@ -115,6 +172,19 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
 $DOMAIN {
     encode zstd gzip
+
+    reverse_proxy /w/* 127.0.0.1:8080 {
+        header_up X-Real-IP {remote_host}
+        flush_interval -1
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+            dial_timeout 5s
+            read_buffer 65536
+            write_buffer 65536
+        }
+    }
 
     @proxy_routes {
         path /!!/* /!cover!/*
@@ -161,6 +231,19 @@ module.exports = {
         RUST_LOG: "info",
         MOCHI_PORT: "4000"
       }
+    },
+    {
+      name: "epoxy-server",
+      script: "/usr/local/bin/epoxy-server", 
+      args: ["/etc/epoxy-server/config.toml"], 
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      max_memory_restart: "8G",
+      env: {
+        RUST_LOG: "off",
+        LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
+      }
     }
   ]
 };
@@ -180,4 +263,4 @@ fi
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
-echo "all done! your mochi node is now ready to be used!!!!"
+echo "all done! your waves node is now ready to be used!!!!"
