@@ -18,7 +18,8 @@ const SHELL_CACHE = 'waves-shell-' + CACHE_VERSION;
 const RUNTIME_CACHE = 'waves-runtime-' + CACHE_VERSION;
 const PRECACHE_URLS = [
   '/',
-  '/assets/images/icons/favicon.ico'
+  '/assets/images/icons/favicon.ico',
+  ...'__PRECACHE_ASSETS__'
 ];
 
 const CACHEABLE_STATIC_EXT = /\.(css|js|mjs|woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|svg|wasm)$/i;
@@ -28,6 +29,18 @@ const DOWNLOAD_EXTENSIONS = new Set([
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
   '.iso', '.img', '.bin', '.msix', '.pkg', '.mp3', '.mp4', '.wav', '.flac', '.mkv', '.mov'
 ]);
+
+const MAX_RUNTIME_ENTRIES = 300;
+
+async function trimCache(cacheName, maxEntries) {
+  try {
+    const cache = await caches.open(cacheName);
+    const keys = await cache.keys();
+    if (keys.length > maxEntries) {
+      await Promise.all(keys.slice(0, keys.length - maxEntries).map(k => cache.delete(k)));
+    }
+  } catch (e) { }
+}
 
 let scramjet;
 let uv;
@@ -1037,13 +1050,15 @@ self.addEventListener('activate', event => {
             .map(k => caches.delete(k))
         );
       }),
-      loadAdBlockList()
+      self.registration.navigationPreload ? self.registration.navigationPreload.enable() : Promise.resolve()
     ]).then(() => self.clients.claim())
   );
+  loadAdBlockList();
 });
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+  const preloadResponse = event.preloadResponse || null;
   const url = new URL(request.url);
   const realUrl = resolveRealUrl(url);
 
@@ -1090,10 +1105,12 @@ self.addEventListener("fetch", (event) => {
 
             const mochiResponse = await fetchThroughMochi(request, realUrl);
             if (mochiResponse && mochiResponse.ok) {
-              const proxyResponse = await handleProxyResponse(mochiResponse);
-              const clone = proxyResponse.clone();
-              caches.open(RUNTIME_CACHE).then(c => c.put(request, clone));
-              return proxyResponse;
+              const clone = mochiResponse.clone();
+              caches.open(RUNTIME_CACHE).then(c => {
+                c.put(request, clone);
+                trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+              });
+              return mochiResponse;
             }
           } catch (e) {
           }
@@ -1135,17 +1152,21 @@ self.addEventListener("fetch", (event) => {
         const path = url.pathname;
 
         if (request.destination === 'document' || path === '/' || path.endsWith('.html')) {
-          try {
-            const networkResponse = await fetch(request);
-            if (networkResponse && networkResponse.ok) {
-              const clone = networkResponse.clone();
-              caches.open(SHELL_CACHE).then(cache => cache.put(request, clone));
-              return networkResponse;
-            }
-          } catch (e) {
-          }
           const cached = await caches.match(request);
-          if (cached) return cached;
+          const networkPromise = (preloadResponse || fetch(request)).then(res => {
+            if (res && res.ok) {
+              const clone = res.clone();
+              caches.open(SHELL_CACHE).then(c => c.put(request, clone));
+            }
+            return res;
+          }).catch(() => null);
+
+          if (cached) {
+            networkPromise;
+            return cached;
+          }
+          const networkRes = await networkPromise;
+          if (networkRes) return networkRes;
           return new Response('offline', { status: 503 });
         }
 
@@ -1156,7 +1177,10 @@ self.addEventListener("fetch", (event) => {
           const res = await fetch(request);
           if (res && res.ok) {
             const clone = res.clone();
-            caches.open(RUNTIME_CACHE).then(c => c.put(request, clone));
+            caches.open(RUNTIME_CACHE).then(c => {
+              c.put(request, clone);
+              trimCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+            });
           }
           return res;
         }
@@ -1164,7 +1188,7 @@ self.addEventListener("fetch", (event) => {
         return await fetch(request);
       }
 
-      return new Response("Blocked", { status: 403 });
+      return new Response("no", { status: 403 });
 
     } catch (err) {
       if (realUrl && !realUrl.includes(self.location.host)) {
@@ -1172,7 +1196,7 @@ self.addEventListener("fetch", (event) => {
       }
       const fallback = await caches.match(request);
       if (fallback) return fallback;
-      return new Response("Error", { status: 500 });
+      return new Response("error", { status: 500 });
     }
   })());
 });

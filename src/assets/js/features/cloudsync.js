@@ -573,11 +573,16 @@ export class CloudSync {
     }
 
     async performLogout() {
+        let toastController = null;
+        if (window.showToast) toastController = window.showToast('info', 'logging out...', 'right-from-bracket', 0);
+
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
         } catch (e) {
-            console.warn("server logout failed!", e);
+            console.warn("logout failed!", e);
         }
+
+        if (toastController) toastController.hide();
 
         this.isAuthenticated = false;
         this.user = {};

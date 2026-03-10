@@ -104,7 +104,7 @@ pub async fn upload(
          return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("compression failed".into()) }));
     }
     let compressed_data = compressor.into_inner();
-    let sync_secret = state.sync_secret.clone();
+    let cipher = state.aes_cipher.clone();
     let pool = state.pool.clone();
     let permit = match crate::WRITE_SEMAPHORE.get().expect("semaphore not initialized").acquire().await {
         Ok(p) => p,
@@ -113,12 +113,6 @@ pub async fn upload(
 
     let result = tokio::task::spawn_blocking(move || -> Result<String, &'static str> {
         let _permit = permit;
-        use sha2::{Sha256, Digest};
-        let mut hasher = Sha256::new();
-        hasher.update(sync_secret.as_bytes());
-        let key_bytes = hasher.finalize();
-        let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
-        let cipher = Aes256Gcm::new(key);
         let mut iv = [0u8; IV_LENGTH];
         OsRng.fill_bytes(&mut iv);
         let nonce = Nonce::from_slice(&iv);
@@ -169,7 +163,7 @@ pub async fn download(
     };
 
     let pool = state.pool.clone();
-    let sync_secret = state.sync_secret.clone();
+    let cipher = state.aes_cipher.clone();
 
     let result = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, String), &'static str> {
         let conn = pool.get().map_err(|_| "db pool error")?;
@@ -187,12 +181,6 @@ pub async fn download(
 
                 let iv = &blob[..IV_LENGTH];
                 let ciphertext = &blob[IV_LENGTH..];
-                use sha2::{Sha256, Digest};
-                let mut hasher = Sha256::new();
-                hasher.update(sync_secret.as_bytes());
-                let key_bytes = hasher.finalize();
-                let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
-                let cipher = Aes256Gcm::new(key);
                 let nonce = Nonce::from_slice(iv);
                 let compressed_data = cipher.decrypt(nonce, ciphertext)
                     .map_err(|_| "decryption failed")?;

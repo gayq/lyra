@@ -2,6 +2,9 @@ mod auth;
 mod db;
 mod sync;
 
+use sha2::{Sha256, Digest};
+use aes_gcm::{Aes256Gcm, aead::KeyInit};
+
 use axum::{Router, routing::get};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -37,15 +40,21 @@ async fn main() {
     
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let sync_secret = std::env::var("SYNC_SECRET").expect("SYNC_SECRET must be set");
+    let mut hasher = Sha256::new();
+    hasher.update(sync_secret.as_bytes());
+    let key_bytes = hasher.finalize();
+    let aes_key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let aes_cipher = std::sync::Arc::new(Aes256Gcm::new(aes_key));
     
     let state = Arc::new(auth::AppState {
         jwt_secret,
         sync_secret,
         pool: pool.clone(),
+        aes_cipher,
     });
 
 
-    WRITE_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(2));
+    WRITE_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(5));
 
     let strict_conf = Box::new(
         GovernorConfigBuilder::default()
@@ -58,8 +67,8 @@ async fn main() {
 
     let loose_conf_auth = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(80)
-            .burst_size(300)
+            .per_second(120)
+            .burst_size(500)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
@@ -67,8 +76,8 @@ async fn main() {
 
     let loose_conf_sync = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(120)
-            .burst_size(500)
+            .per_second(200)
+            .burst_size(800)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
             .unwrap(),
@@ -137,5 +146,11 @@ async fn main() {
     let addr = SocketAddr::from(([127, 0, 0, 1], 5000));
     tracing::info!("listening on {}!!", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("cloudsync graceful shutdown initiated");
+        })
+        .await
+        .unwrap();
 }

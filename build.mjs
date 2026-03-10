@@ -103,10 +103,7 @@ const tasks = {
     },
 
     async processJS() {
-        await Promise.all([
-            fs.mkdir(CONFIG.dirs.jsDest, { recursive: true }),
-            fs.mkdir(CONFIG.dirs.swDest, { recursive: true })
-        ]);
+        await fs.mkdir(CONFIG.dirs.jsDest, { recursive: true });
 
         const buildId = crypto.randomBytes(4).toString('hex');
 
@@ -119,9 +116,6 @@ const tasks = {
         const appCode = (await bunBuild.outputs[0].text()).replace("__BUILD_ID__", buildId);
         const serverIp = process.env.IP || "127.0.0.1";
         console.log(`${serverIp}`);
-        let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
-            .replace("__SERVER_IP__", serverIp)
-            .replace("__BUILD_ID__", buildId);
 
         const serserPath = path.join("public", "b", "u", "serser.js");
         if (existsSync(serserPath)) {
@@ -130,17 +124,24 @@ const tasks = {
             await Bun.write(serserPath, serser);
         }
 
-        const [appObf, swObf] = await Promise.all([
-            Promise.resolve(obfuscate(appCode, { ...CONFIG.obfuscation, reservedStrings: ['./b/sw.js'] }).getObfuscatedCode()),
-            Promise.resolve(obfuscate(swCode, CONFIG.obfuscation).getObfuscatedCode())
-        ]);
+        const appObf = obfuscate(appCode, { ...CONFIG.obfuscation, reservedStrings: ['./b/sw.js'] }).getObfuscatedCode();
+        await Bun.write(path.join(CONFIG.dirs.jsDest, 'app.js'), appObf);
 
-        await Promise.all([
-            Bun.write(path.join(CONFIG.dirs.jsDest, 'app.js'), appObf),
-            Bun.write(path.join(CONFIG.dirs.swDest, "sw.js"), swObf)
-        ]);
+        return { buildId, serverIp };
     }
 };
+
+async function buildServiceWorker(buildId, serverIp, precacheAssets) {
+    await fs.mkdir(CONFIG.dirs.swDest, { recursive: true });
+
+    let swCode = (await Bun.file(path.join(CONFIG.dirs.swSrc, "sw.js")).text())
+        .replace("__SERVER_IP__", serverIp)
+        .replace("__BUILD_ID__", buildId)
+        .replace("'__PRECACHE_ASSETS__'", JSON.stringify(precacheAssets));
+
+    const swObf = obfuscate(swCode, CONFIG.obfuscation).getObfuscatedCode();
+    await Bun.write(path.join(CONFIG.dirs.swDest, "sw.js"), swObf);
+}
 
 async function main() {
     console.log("\nstarting build...\n");
@@ -150,20 +151,19 @@ async function main() {
         await fs.rm(CONFIG.dirs.dist, { recursive: true, force: true });
         await fs.mkdir(CONFIG.dirs.dist, { recursive: true });
 
-        await Promise.all([
+        const [, , jsResult] = await Promise.all([
             tasks.processHTML(),
             tasks.processCSS(),
             tasks.processJS()
         ]);
 
         const manifest = {};
-        const filesToHash = {
+        const preSwFilesToHash = {
             'assets/js/index.js': 'assets/js/app.js',
             'assets/css/index.css': 'assets/css/style.css',
-            'b/sw.js': 'b/sw.js'
         };
 
-        for (const [htmlRef, diskPath] of Object.entries(filesToHash)) {
+        for (const [htmlRef, diskPath] of Object.entries(preSwFilesToHash)) {
             const fullPath = path.join(CONFIG.dirs.dist, diskPath);
             if (!existsSync(fullPath)) continue;
 
@@ -173,6 +173,21 @@ async function main() {
 
             await fs.rename(fullPath, newFullPath);
             manifest[htmlRef] = normalizePath(path.relative(CONFIG.dirs.dist, newFullPath));
+        }
+
+        const precacheAssets = Object.values(manifest).map(p => '/' + p);
+        await buildServiceWorker(jsResult.buildId, jsResult.serverIp, precacheAssets);
+
+        {
+            const swDiskPath = 'b/sw.js';
+            const fullPath = path.join(CONFIG.dirs.dist, swDiskPath);
+            if (existsSync(fullPath)) {
+                const hash = await getFileHash(fullPath);
+                const ext = path.extname(fullPath);
+                const newFullPath = path.join(path.dirname(fullPath), `${hash}${ext}`);
+                await fs.rename(fullPath, newFullPath);
+                manifest['b/sw.js'] = normalizePath(path.relative(CONFIG.dirs.dist, newFullPath));
+            }
         }
 
         const htmlGlob = new Glob('**/*.html');

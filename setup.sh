@@ -224,10 +224,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         }
     }
 
-    @proxy_routes {
+    @mochi_routes {
         path /!!/* /!cover!/*
     }
-    reverse_proxy @proxy_routes 127.0.0.1:4000 127.0.0.1:4001 127.0.0.1:4002 {
+    reverse_proxy @mochi_routes 127.0.0.1:4000 127.0.0.1:4001 127.0.0.1:4002 {
         lb_policy least_conn
         fail_duration 10s
         max_fails 4

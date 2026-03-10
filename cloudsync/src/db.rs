@@ -15,12 +15,13 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
                  PRAGMA cache_size = -20000;
                  PRAGMA mmap_size = 268435456;
                  PRAGMA temp_store = MEMORY;
-                 PRAGMA auto_vacuum = INCREMENTAL;"
+                 PRAGMA auto_vacuum = INCREMENTAL;
+                 PRAGMA wal_autocheckpoint = 1000;"
             )
         });
     let pool = Pool::builder()
         .max_size(50)
-        .min_idle(Some(5))
+        .min_idle(Some(10))
         .connection_timeout(std::time::Duration::from_secs(10))
         .build(manager)?;
     let conn = pool.get()?;
