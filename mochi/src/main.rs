@@ -21,6 +21,7 @@ use reqwest::{redirect::Policy, Client};
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use tokio::io::BufWriter;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
@@ -49,6 +50,7 @@ struct AppState {
     asset_client: Client,
     cache: Cache<String, Arc<CachedResponse>>,
     blocklist_matcher: Arc<AhoCorasick>,
+    asset_ext_matcher: Arc<AhoCorasick>,
     caching_inflight: DashMap<String, ()>,
     coalesce: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
     request_permit: Arc<Semaphore>,
@@ -117,7 +119,7 @@ async fn disk_cache_cleanup_task(max_dir_size_bytes: u64, max_age_secs: u64) {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter("mochi=info")
@@ -125,7 +127,7 @@ async fn main() {
 
     let _ = fs::create_dir_all("./cache").await;
     let cache = Cache::builder()
-        .max_capacity(16u64 * 1024 * 1024 * 1024)
+        .max_capacity(2u64 * 1024 * 1024 * 1024)
         .weigher(|_key: &String, val: &Arc<CachedResponse>| -> u32 {
             (val.body.len() as u32).saturating_add(200)
         })
@@ -137,7 +139,7 @@ async fn main() {
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(300))
-        .pool_max_idle_per_host(256)
+        .pool_max_idle_per_host(32)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -152,7 +154,7 @@ async fn main() {
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(300))
-        .pool_max_idle_per_host(256)
+        .pool_max_idle_per_host(16)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -172,11 +174,22 @@ async fn main() {
     
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
 
+    let asset_exts = vec![
+        ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
+        ".glb", ".gltf", ".bin", ".fbx", ".obj",
+        ".swf", ".p8", ".c3p",
+        ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg",
+        ".gif", ".webp", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".ico", ".aac", ".flac", ".m3u8",
+    ];
+    let asset_ext_matcher = Arc::new(AhoCorasick::new(&asset_exts).unwrap());
+
     let state = Arc::new(AppState {
         html_client,
         asset_client,
         cache,
         blocklist_matcher,
+        asset_ext_matcher,
         caching_inflight: DashMap::new(),
         coalesce: DashMap::new(),
         request_permit: Arc::new(Semaphore::new(8000)),
@@ -206,6 +219,10 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
         .tcp_nodelay(true)
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("graceful shutdown initiated");
+        })
         .await
         .unwrap();
 }
@@ -314,7 +331,7 @@ async fn proxy_handler(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid url").into_response(),
     };
 
-    let is_likely_asset = is_likely_static_asset(&target_url_string);
+    let is_likely_asset = is_likely_static_asset_fast(&target_url_string, Some(&state.asset_ext_matcher));
 
     if method == Method::GET && is_cover_request {
         return handle_cover_request(
@@ -824,6 +841,8 @@ async fn handle_cover_request(
         return Ok((status, safe_headers, Body::empty()).into_response());
     }
 
+    let raw_bytes = Bytes::from(accumulator.clone());
+    
     if let Ok(Some(processed_bytes)) = tokio::task::spawn_blocking(move || -> Option<Bytes> {
         if let Ok(img) = image::load_from_memory(&accumulator) {
             let resized = img.thumbnail(256, 256);
@@ -853,7 +872,8 @@ async fn handle_cover_request(
         let pb_clone = processed_bytes.clone();
         
         tokio::spawn(async move {
-            if let Ok(mut f) = File::create(&temp_path).await {
+            if let Ok(f) = File::create(&temp_path).await {
+                let mut f = BufWriter::new(f);
                 let _ = f.write_all(&status_u16.to_le_bytes()).await;
                 let _ = f.write_all(&(headers_clone.len() as u16).to_le_bytes()).await;
                 for (k, v) in headers_clone.iter() {
@@ -865,7 +885,8 @@ async fn handle_cover_request(
                     let _ = f.write_all(v_bytes).await;
                 }
                 let _ = f.write_all(&pb_clone).await;
-                let _ = f.sync_all().await;
+                let _ = f.flush().await;
+                let _ = f.into_inner().sync_all().await;
                 let _ = fs::rename(&temp_path, &cache_path).await;
             }
         });
@@ -873,7 +894,9 @@ async fn handle_cover_request(
         return Ok((status, safe_headers, processed_bytes).into_response());
     }
 
-    return Ok((status, safe_headers, Body::empty()).into_response());
+    safe_headers.insert("content-length", HeaderValue::from(raw_bytes.len()));
+    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS-RAW"));
+    return Ok((status, safe_headers, raw_bytes).into_response());
 }
 
 async fn fetch_and_cache(
@@ -1056,7 +1079,7 @@ async fn fetch_and_cache(
             let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
 
             let mut file = match File::create(&temp_path).await {
-                Ok(f) => Some(f),
+                Ok(f) => Some(BufWriter::new(f)),
                 Err(e) => {
                     warn!("failed to create temp file {}: {}", temp_path, e);
                     None
@@ -1129,8 +1152,11 @@ async fn fetch_and_cache(
                 }
             }
             
-            if !aborted && file.is_some() {
-                 let _ = fs::rename(&temp_path, &cache_path).await;
+            if !aborted {
+                if let Some(mut f) = file.take() {
+                    let _ = f.flush().await;
+                }
+                let _ = fs::rename(&temp_path, &cache_path).await;
 
                  if !is_too_large_for_ram && total_size < RAM_CACHE_LIMIT {
                      let body_bytes = Bytes::from(accumulator);
@@ -1283,24 +1309,34 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
 }
 
 fn is_likely_static_asset(url: &str) -> bool {
-    let exts = [
-        ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
-        ".glb", ".gltf", ".bin", ".fbx", ".obj",
-        ".swf", ".p8", ".c3p",
-        ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg",
-        ".gif", ".webp", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".ico", ".aac", ".flac", ".m3u8",
-    ];
-    
+    is_likely_static_asset_fast(url, None)
+}
+
+fn is_likely_static_asset_fast(url: &str, matcher: Option<&AhoCorasick>) -> bool {
     if url.contains("favicons?") {
         return true;
     }
 
     let url_without_query = url.split('?').next().unwrap_or(url);
-    if exts.iter().any(|ext| url_without_query.ends_with(ext)) {
-        return true;
+
+    if let Some(m) = matcher {
+        if m.is_match(url_without_query) {
+            return true;
+        }
+    } else {
+        let exts = [
+            ".wasm", ".pck", ".unityweb", ".data", ".mem", ".symbols", ".js", ".json", ".xml",
+            ".glb", ".gltf", ".bin", ".fbx", ".obj",
+            ".swf", ".p8", ".c3p",
+            ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg",
+            ".gif", ".webp", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+            ".ico", ".aac", ".flac", ".m3u8",
+        ];
+        if exts.iter().any(|ext| url_without_query.ends_with(ext)) {
+            return true;
+        }
     }
-    
+
     if let Some(idx) = url_without_query.rfind(".part") {
         let suffix = &url_without_query[idx + 5..];
         if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit()) {

@@ -186,7 +186,7 @@ $DOMAIN {
         }
     }
 
-    @proxy_routes {
+    @mochi_routes {
         path /!!/* /!cover!/*
     }
     reverse_proxy @proxy_routes 127.0.0.1:4000 {
