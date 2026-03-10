@@ -48,7 +48,6 @@ async fn main() {
     
     let state = Arc::new(auth::AppState {
         jwt_secret,
-        sync_secret,
         pool: pool.clone(),
         aes_cipher,
     });
@@ -149,7 +148,7 @@ async fn main() {
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("cloudsync graceful shutdown initiated");
+            tracing::info!("graceful shutdown triggered");
         })
         .await
         .unwrap();

@@ -221,7 +221,7 @@ async fn main() {
         .tcp_nodelay(true)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("graceful shutdown initiated");
+            tracing::info!("graceful shutdown triggered");
         })
         .await
         .unwrap();
