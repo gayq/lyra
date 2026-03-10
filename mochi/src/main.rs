@@ -31,7 +31,7 @@ use url::Url;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use tokio::fs::{self, File};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 #[global_allocator]
@@ -53,8 +53,6 @@ struct AppState {
     coalesce: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
     request_permit: Arc<Semaphore>,
     html_rewrite_permit: Arc<Semaphore>,
-    cover_resize_permit: Arc<Semaphore>,
-    cover_coalesce: DashMap<String, broadcast::Sender<Arc<CachedResponse>>>,
 }
 
 const MAX_CACHE_SIZE_BYTES: usize = 512 * 1024 * 1024;
@@ -138,11 +136,8 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .gzip(true)
-        .brotli(true)
-        .deflate(true)
-        .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(2048)
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(256)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -156,11 +151,8 @@ async fn main() {
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .redirect(Policy::default())
-        .gzip(true)
-        .brotli(true)
-        .deflate(true)
-        .pool_idle_timeout(Duration::from_secs(120))
-        .pool_max_idle_per_host(2048)
+        .pool_idle_timeout(Duration::from_secs(300))
+        .pool_max_idle_per_host(256)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
         .timeout(Duration::from_secs(120))
@@ -187,10 +179,8 @@ async fn main() {
         blocklist_matcher,
         caching_inflight: DashMap::new(),
         coalesce: DashMap::new(),
-        request_permit: Arc::new(Semaphore::new(16_000)),
-        html_rewrite_permit: Arc::new(Semaphore::new(12_000)),
-        cover_resize_permit: Arc::new(Semaphore::new(100)),
-        cover_coalesce: DashMap::new(),
+        request_permit: Arc::new(Semaphore::new(8000)),
+        html_rewrite_permit: Arc::new(Semaphore::new(4096)),
     });
 
     let port = std::env::var("MOCHI_PORT").unwrap_or_else(|_| "4000".to_string());
@@ -368,11 +358,9 @@ async fn proxy_handler(
     req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
     req_builder = req_builder.header("Priority", "u=1, i");
 
-    if !is_likely_asset {
-        let origin = target_url.origin().ascii_serialization();
-        req_builder = req_builder.header("Referer", format!("{}/", origin));
-        req_builder = req_builder.header("Origin", origin);
-    }
+    let origin = target_url.origin().ascii_serialization();
+    req_builder = req_builder.header("Referer", format!("{}/", origin));
+    req_builder = req_builder.header("Origin", origin);
 
     if !req_body.is_empty() {
         req_builder = req_builder.body(req_body);
@@ -424,8 +412,11 @@ async fn proxy_handler(
         }
     }
     
-    // reqwest handles decompression and removes content-encoding header automatically.
-    // We don't want to manually re-add it as it may lead to double-decompression errors in the browser.
+    if is_likely_asset {
+        if let Some(enc) = res_headers_ref.get("content-encoding") {
+            safe_headers.insert("content-encoding", enc.clone());
+        }
+    }
 
     fix_game_content_type(&target_url_string, &mut safe_headers);
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
@@ -656,13 +647,7 @@ async fn proxy_handler(
 
         tokio::spawn(async move {
             let mut stream = upstream_res.bytes_stream();
-            
-            let mut accumulator = if let Some(len) = safe_headers_clone.get("content-length").and_then(|l| l.to_str().ok()).and_then(|l| l.parse::<usize>().ok()) {
-                Vec::with_capacity(std::cmp::min(len, MAX_CACHE_SIZE_BYTES))
-            } else {
-                Vec::new()
-            };
-            
+            let mut accumulator = Vec::new();
             let mut total_size = 0usize;
             let mut aborted = false;
 
@@ -725,34 +710,34 @@ fn get_cache_path(url: &str) -> String {
 
 async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     let path = get_cache_path(url);
-    let file = match File::open(&path).await {
+    let mut file = match File::open(&path).await {
         Ok(f) => f,
         Err(_) => return None,
     };
-    
-    let mut reader = BufReader::new(file);
+
+    let _metadata = file.metadata().await.ok()?;
 
     let mut buf_u16 = [0u8; 2];
-    if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
+    if file.read_exact(&mut buf_u16).await.is_err() { return None; }
     let status_code = u16::from_le_bytes(buf_u16);
 
-    if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
+    if file.read_exact(&mut buf_u16).await.is_err() { return None; }
     let header_count = u16::from_le_bytes(buf_u16);
 
     let mut headers = HeaderMap::new();
 
     for _ in 0..header_count {
-        if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
+        if file.read_exact(&mut buf_u16).await.is_err() { return None; }
         let k_len = u16::from_le_bytes(buf_u16) as usize;
         let mut k_buf = vec![0u8; k_len];
-        if reader.read_exact(&mut k_buf).await.is_err() { return None; }
+        if file.read_exact(&mut k_buf).await.is_err() { return None; }
         let key_str = String::from_utf8(k_buf).ok()?;
         
         let mut buf_u32 = [0u8; 4];
-        if reader.read_exact(&mut buf_u32).await.is_err() { return None; }
+        if file.read_exact(&mut buf_u32).await.is_err() { return None; }
         let v_len = u32::from_le_bytes(buf_u32) as usize;
         let mut v_buf = vec![0u8; v_len];
-        if reader.read_exact(&mut v_buf).await.is_err() { return None; }
+        if file.read_exact(&mut v_buf).await.is_err() { return None; }
         
         let Ok(h_name) = axum::http::header::HeaderName::from_bytes(key_str.as_bytes()) else { continue };
         let Ok(h_val) = axum::http::header::HeaderValue::from_bytes(&v_buf) else { continue };
@@ -765,7 +750,8 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
 
     let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
 
-    let stream = ReaderStream::new(reader.into_inner());
+
+    let stream = ReaderStream::new(file);
     let body = Body::from_stream(stream);
     
     Some(((status, headers, body).into_response(), false))
@@ -792,26 +778,6 @@ async fn handle_cover_request(
         return Ok(response);
     }
 
-    if method == &Method::GET {
-        if let Some(entry) = state.cover_coalesce.get(target_url_str) {
-            let mut rx = entry.subscribe();
-            drop(entry);
-            match tokio::time::timeout(Duration::from_secs(15), rx.recv()).await {
-                Ok(Ok(cached)) => {
-                    let mut res_headers = cached.headers.clone();
-                    res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
-                    let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
-                    return Ok((status, res_headers, cached.body.clone()).into_response());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    let (coalesce_tx, _) = broadcast::channel::<Arc<CachedResponse>>(1);
-    let coalesce_tx_clone = coalesce_tx.clone();
-    state.cover_coalesce.insert(target_url_str.to_string(), coalesce_tx);
-
     let mut req_builder = state.asset_client.request(method.clone(), target_url.clone());
     for (k, v) in headers.iter() {
         let key_str = k.as_str();
@@ -821,14 +787,12 @@ async fn handle_cover_request(
     }
     
     req_builder = req_builder.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
-
+    let origin = target_url.origin().ascii_serialization();
+    req_builder = req_builder.header("Referer", format!("{}/", origin));
 
     let upstream_res = match req_builder.send().await {
         Ok(res) => res,
-        Err(e) => {
-            state.cover_coalesce.remove(target_url_str);
-            return Err((StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response());
-        }
+        Err(e) => return Err((StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response()),
     };
 
     let status = upstream_res.status();
@@ -837,22 +801,11 @@ async fn handle_cover_request(
     safe_headers.insert("Cache-Control", HeaderValue::from_static("public, max-age=31536000, immutable"));
     
     if !status.is_success() {
-        state.cover_coalesce.remove(target_url_str);
         return Ok((status, safe_headers, Body::from_stream(upstream_res.bytes_stream())).into_response());
     }
 
-    let content_length = upstream_res.headers().get("content-length")
-        .and_then(|l| l.to_str().ok())
-        .and_then(|l| l.parse::<usize>().ok());
-
     let mut stream = upstream_res.bytes_stream();
-    
-    let mut accumulator = if let Some(len) = content_length {
-        Vec::with_capacity(std::cmp::min(len, 15 * 1024 * 1024))
-    } else {
-        Vec::new()
-    };
-    
+    let mut accumulator = Vec::new();
     let mut total_size = 0;
     while let Some(chunk_res) = stream.next().await {
         if let Ok(chunk) = chunk_res {
@@ -860,27 +813,16 @@ async fn handle_cover_request(
             if total_size < 15 * 1024 * 1024 {
                 accumulator.extend_from_slice(&chunk);
             } else {
-                state.cover_coalesce.remove(target_url_str);
                 return Ok((status, safe_headers, Body::empty()).into_response());
             }
         } else {
-            state.cover_coalesce.remove(target_url_str);
             return Ok((status, safe_headers, Body::empty()).into_response());
         }
     }
 
     if accumulator.is_empty() {
-        state.cover_coalesce.remove(target_url_str);
         return Ok((status, safe_headers, Body::empty()).into_response());
     }
-
-    let _permit = match state.cover_resize_permit.acquire().await {
-        Ok(p) => p,
-        Err(_) => {
-            state.cover_coalesce.remove(target_url_str);
-            return Ok((status, safe_headers, Body::from(accumulator)).into_response()); 
-        }
-    };
 
     if let Ok(Some(processed_bytes)) = tokio::task::spawn_blocking(move || -> Option<Bytes> {
         if let Ok(img) = image::load_from_memory(&accumulator) {
@@ -902,10 +844,8 @@ async fn handle_cover_request(
             body: processed_bytes.clone(),
         });
 
-        state.cache.insert(target_url_str.to_string(), cached.clone()).await;
-        
-        state.cover_coalesce.remove(target_url_str);
-        let _ = coalesce_tx_clone.send(cached);
+        state.cache.insert(target_url_str.to_string(), cached).await;
+
         let cache_path = get_cache_path(target_url_str);
         let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
         let status_u16 = status.as_u16();
@@ -925,6 +865,7 @@ async fn handle_cover_request(
                     let _ = f.write_all(v_bytes).await;
                 }
                 let _ = f.write_all(&pb_clone).await;
+                let _ = f.sync_all().await;
                 let _ = fs::rename(&temp_path, &cache_path).await;
             }
         });
@@ -932,7 +873,6 @@ async fn handle_cover_request(
         return Ok((status, safe_headers, processed_bytes).into_response());
     }
 
-    state.cover_coalesce.remove(target_url_str);
     return Ok((status, safe_headers, Body::empty()).into_response());
 }
 
@@ -1029,8 +969,9 @@ async fn fetch_and_cache(
     req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
     req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
     req_builder = req_builder.header("Priority", "u=1, i");
-    let _origin = target_url.origin().ascii_serialization();
-
+    let origin = target_url.origin().ascii_serialization();
+    req_builder = req_builder.header("Referer", format!("{}/", origin));
+    req_builder = req_builder.header("Origin", &origin);
 
     if !req_body.is_empty() {
         req_builder = req_builder.body(req_body.clone());
@@ -1067,7 +1008,11 @@ async fn fetch_and_cache(
         }
     }
     
-    // reqwest handles decompression and removes content-encoding header automatically.
+    if is_likely_asset {
+        if let Some(enc) = res_headers_ref.get("content-encoding") {
+            safe_headers.insert("content-encoding", enc.clone());
+        }
+    }
     
     if is_likely_asset && status.is_success() {
         let is_unstable = target_url_str.contains("/main/") || target_url_str.contains("/master/");
@@ -1141,12 +1086,7 @@ async fn fetch_and_cache(
             }
 
             let mut stream = upstream_res.bytes_stream();
-            let mut accumulator = if let Some(len) = safe_headers_clone.get("content-length").and_then(|l| l.to_str().ok()).and_then(|l| l.parse::<usize>().ok()) {
-                Vec::with_capacity(std::cmp::min(len, RAM_CACHE_LIMIT))
-            } else {
-                Vec::new()
-            };
-            
+            let mut accumulator = Vec::new();
             let mut total_size = 0;
             let mut aborted = false;
             let mut is_too_large_for_ram = false;
@@ -1389,20 +1329,9 @@ fn get_cdn_cache_control(url: &str) -> &'static str {
 }
 
 fn is_blacklisted_header(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    matches!(lower.as_str(), 
-        "host" | "connection" | "content-length" | "transfer-encoding" | "upgrade" | 
-        "sec-websocket-key" | "sec-websocket-version" | "sec-websocket-extensions" |
-        "sec-fetch-site" | "sec-fetch-mode" | "sec-fetch-dest" | "sec-fetch-user" |
-        "sec-ch-ua" | "sec-ch-ua-mobile" | "sec-ch-ua-platform" | "priority"
-    )
+    matches!(name, "host" | "connection" | "content-length" | "transfer-encoding" | "upgrade" | "sec-websocket-key" | "sec-websocket-version" | "sec-websocket-extensions")
 }
 
 fn is_blacklisted_res_header(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    matches!(lower.as_str(), 
-        "connection" | "content-length" | "transfer-encoding" | "content-encoding" | 
-        "content-security-policy" | "strict-transport-security" | "access-control-allow-origin" | 
-        "x-frame-options" | "x-content-type-options" | "cf-cache-status" | "cf-ray" | "alt-svc"
-    )
+    matches!(name, "connection" | "content-length" | "transfer-encoding" | "content-encoding" | "content-security-policy" | "strict-transport-security" | "access-control-allow-origin" | "x-frame-options" | "x-content-type-options")
 }
