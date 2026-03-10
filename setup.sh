@@ -189,7 +189,7 @@ $DOMAIN {
     @mochi_routes {
         path /!!/* /!cover!/*
     }
-    reverse_proxy @proxy_routes 127.0.0.1:4000 {
+    reverse_proxy @mochi_routes 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
         transport http {
             keepalive 120s
