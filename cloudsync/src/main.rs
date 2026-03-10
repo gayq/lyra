@@ -15,6 +15,8 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+pub static WRITE_SEMAPHORE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -42,29 +44,8 @@ async fn main() {
         pool: pool.clone(),
     });
 
-    let vacuum_pool = pool.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
-        
-        interval.tick().await; 
-        
-        loop {
-            interval.tick().await;
-            tracing::info!("running db vacuum...");
-            
-            let pool_clone = vacuum_pool.clone();
-            let _ = tokio::task::spawn_blocking(move || {
-                if let Ok(conn) = pool_clone.get() {
-                    match conn.execute("VACUUM", []) {
-                        Ok(_) => tracing::info!("db vacuum successful"),
-                        Err(e) => tracing::error!("failed to vacuum db: {}", e),
-                    }
-                } else {
-                    tracing::error!("vacuum task failed to get a db connection");
-                }
-            }).await;
-        }
-    });
+
+    WRITE_SEMAPHORE.get_or_init(|| tokio::sync::Semaphore::new(2));
 
     let strict_conf = Box::new(
         GovernorConfigBuilder::default()

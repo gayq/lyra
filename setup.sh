@@ -204,7 +204,14 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     encode zstd gzip
 
-    reverse_proxy /w/* 127.0.0.1:8080 {
+    @epoxy_routes {
+        path /w/*
+    }
+    reverse_proxy @epoxy_routes 127.0.0.1:8080 127.0.0.1:8081 127.0.0.1:8082 {
+        lb_policy least_conn
+        fail_duration 10s
+        max_fails 4
+        header_up Host {upstream_hostport}
         header_up X-Real-IP {remote_host}
         flush_interval -1
         transport http {
@@ -221,7 +228,9 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         path /!!/* /!cover!/*
     }
     reverse_proxy @proxy_routes 127.0.0.1:4000 127.0.0.1:4001 127.0.0.1:4002 {
-        lb_policy round_robin
+        lb_policy least_conn
+        fail_duration 10s
+        max_fails 4
         header_up Host {upstream_hostport}
         header_up X-Real-IP {remote_host}
         transport http {
@@ -271,6 +280,34 @@ http://127.0.0.1:4001 {
 }
 
 http://127.0.0.1:4002 {
+    reverse_proxy https://2.waves.lat {
+        header_up Host 2.waves.lat
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name 2.waves.lat
+            versions 1.1
+            keepalive 10s
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
+    }
+}
+
+http://127.0.0.1:8081 {
+    reverse_proxy https://1.waves.lat {
+        header_up Host 1.waves.lat
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name 1.waves.lat
+            versions 1.1
+            keepalive 10s
+            dial_timeout 5s
+            response_header_timeout 60s
+        }
+    }
+}
+
+http://127.0.0.1:8082 {
     reverse_proxy https://2.waves.lat {
         header_up Host 2.waves.lat
         transport http {

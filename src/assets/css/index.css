@@ -396,7 +396,7 @@ body.browser-view .main-nav {
   justify-content: center;
   padding: 8px;
   text-decoration: none;
-  transition: all 0.01s ease;
+  transition: all 0.05s ease;
 }
 
 .nav-controls a:hover,
@@ -404,6 +404,11 @@ body.browser-view .main-nav {
   background-color: var(--hover-bg);
   color: var(--text-white);
   transform: scale(1.05);
+}
+
+.nav-controls a:active,
+.window-controls a:active {
+  transform: scale(1);
 }
 
 .nav-controls a.disabled,

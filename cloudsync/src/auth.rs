@@ -271,7 +271,7 @@ pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i6
     let cache = get_token_cache();
     if let Some(entry) = cache.get(&user_id) {
         let (cached_v, cached_at) = *entry;
-        if cached_at.elapsed().as_secs() < 60 {
+        if cached_at.elapsed().as_secs() < 300 {
             if cached_v != token_v {
                 return Err(());
             }

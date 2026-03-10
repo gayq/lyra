@@ -93,17 +93,19 @@
 
 .tab-close {
   position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--color-tab);
   cursor: pointer;
   font-size: 12px;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   opacity: 0;
+  border-radius: 50%;
   transition: all 0.05s ease;
 }
 
@@ -112,13 +114,17 @@
 .tab.split-active-left .tab-close,
 .tab.split-active-right .tab-close {
   opacity: 0.7;
-  max-width: 16px;
-  margin-left: 8px;
 }
 
 .tab-close:hover {
   opacity: 1;
   color: var(--text-white);
+  background-color: var(--hover-bg);
+  transform: scale(1.1);
+}
+
+.tab-close:active {
+  transform: scale(1);
 }
 
 #add-tab-btn {
@@ -143,6 +149,11 @@
 #add-tab-btn:hover {
   background-color: var(--hover-bg);
   color: var(--text-white);
+  transform: scale(1.05);
+}
+
+#add-tab-btn:active {
+  transform: scale(1);
 }
 
 .sidebar-footer {

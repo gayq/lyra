@@ -11,14 +11,15 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
                 "PRAGMA journal_mode = WAL;
                  PRAGMA synchronous = NORMAL;
                  PRAGMA foreign_keys = ON;
-                 PRAGMA busy_timeout = 5000;
+                 PRAGMA busy_timeout = 15000;
                  PRAGMA cache_size = -20000;
                  PRAGMA mmap_size = 268435456;
-                 PRAGMA temp_store = MEMORY;"
+                 PRAGMA temp_store = MEMORY;
+                 PRAGMA auto_vacuum = INCREMENTAL;"
             )
         });
     let pool = Pool::builder()
-        .max_size(400)
+        .max_size(50)
         .min_idle(Some(5))
         .connection_timeout(std::time::Duration::from_secs(10))
         .build(manager)?;
