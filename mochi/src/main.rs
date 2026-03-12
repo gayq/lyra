@@ -463,25 +463,16 @@ async fn proxy_handler(
             }
         };
 
-        let (tx_in, mut rx_in) = mpsc::channel::<Bytes>(512);
-        let (tx_out, rx_out) = mpsc::channel::<Result<Bytes, axum::Error>>(512);
-
-        let mut stream = upstream_res.bytes_stream();
-        tokio::spawn(async move {
-            while let Some(chunk_result) = stream.next().await {
-                if let Ok(chunk) = chunk_result {
-                    if tx_in.send(chunk).await.is_err() { break; }
-                } else { break; }
-            }
-        });
+        let full_body = match upstream_res.bytes().await {
+            Ok(b) => b,
+            Err(_) => return (StatusCode::BAD_GATEWAY, "failed to read upstream body").into_response(),
+        };
 
         let target_url_clone = target_url.clone();
         
-        tokio::task::spawn_blocking(move || {
+        let body_bytes = tokio::task::spawn_blocking(move || {
             let _permit = html_permit;
             let base_url_str = target_url_clone.to_string();
-            let client_disconnected = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let client_disconnected_clone = client_disconnected.clone();
             
             let current_base = Arc::new(RwLock::new(target_url_clone.clone()));
             let base_for_updater = current_base.clone();
@@ -517,6 +508,7 @@ async fn proxy_handler(
             let rw6 = rewrite_url.clone();
             let rw7 = rewrite_url.clone();
 
+            let mut output = Vec::with_capacity(full_body.len() + 2048);
             let mut rewriter = HtmlRewriter::new(
                 Settings {
                     element_content_handlers: vec![
@@ -620,25 +612,17 @@ async fn proxy_handler(
                     ],
                     ..Settings::default()
                 },
-                move |c: &[u8]| {
-                    if !c.is_empty() {
-                        if tx_out.blocking_send(Ok(Bytes::copy_from_slice(c))).is_err() {
-                            client_disconnected_clone.store(true, std::sync::atomic::Ordering::Relaxed);
-                        }
-                    }
+                |c: &[u8]| {
+                    output.extend_from_slice(c);
                 },
             );
 
-            while let Some(chunk) = rx_in.blocking_recv() {
-                if client_disconnected.load(std::sync::atomic::Ordering::Relaxed) { break; }
-                if rewriter.write(&chunk).is_err() { break; }
-            }
-            if !client_disconnected.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = rewriter.end();
-            }
-        });
+            let _ = rewriter.write(&full_body);
+            let _ = rewriter.end();
+            output
+        }).await.unwrap_or_default();
 
-        return (status, safe_headers, Body::from_stream(ReceiverStream::new(rx_out))).into_response();
+        return (status, safe_headers, Body::from(body_bytes)).into_response();
     }
 
     let is_image = content_type.starts_with("image/");
@@ -727,34 +711,35 @@ fn get_cache_path(url: &str) -> String {
 
 async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     let path = get_cache_path(url);
-    let mut file = match File::open(&path).await {
+    let file = match File::open(&path).await {
         Ok(f) => f,
         Err(_) => return None,
     };
 
     let _metadata = file.metadata().await.ok()?;
+    let mut reader = tokio::io::BufReader::new(file);
 
     let mut buf_u16 = [0u8; 2];
-    if file.read_exact(&mut buf_u16).await.is_err() { return None; }
+    if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
     let status_code = u16::from_le_bytes(buf_u16);
 
-    if file.read_exact(&mut buf_u16).await.is_err() { return None; }
+    if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
     let header_count = u16::from_le_bytes(buf_u16);
 
     let mut headers = HeaderMap::new();
 
     for _ in 0..header_count {
-        if file.read_exact(&mut buf_u16).await.is_err() { return None; }
+        if reader.read_exact(&mut buf_u16).await.is_err() { return None; }
         let k_len = u16::from_le_bytes(buf_u16) as usize;
         let mut k_buf = vec![0u8; k_len];
-        if file.read_exact(&mut k_buf).await.is_err() { return None; }
+        if reader.read_exact(&mut k_buf).await.is_err() { return None; }
         let key_str = String::from_utf8(k_buf).ok()?;
         
         let mut buf_u32 = [0u8; 4];
-        if file.read_exact(&mut buf_u32).await.is_err() { return None; }
+        if reader.read_exact(&mut buf_u32).await.is_err() { return None; }
         let v_len = u32::from_le_bytes(buf_u32) as usize;
         let mut v_buf = vec![0u8; v_len];
-        if file.read_exact(&mut v_buf).await.is_err() { return None; }
+        if reader.read_exact(&mut v_buf).await.is_err() { return None; }
         
         let Ok(h_name) = axum::http::header::HeaderName::from_bytes(key_str.as_bytes()) else { continue };
         let Ok(h_val) = axum::http::header::HeaderValue::from_bytes(&v_buf) else { continue };
@@ -768,7 +753,7 @@ async fn load_from_disk(url: &str) -> Option<(Response, bool)> {
     let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
 
 
-    let stream = ReaderStream::new(file);
+    let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
     
     Some(((status, headers, body).into_response(), false))
