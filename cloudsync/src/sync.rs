@@ -9,8 +9,8 @@ use serde::Serialize;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
+    aead::Aead,
+    Nonce,
 };
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -23,8 +23,8 @@ use tokio::io::BufReader;
 use crate::auth::{get_current_user, AppState};
 
 const IV_LENGTH: usize = 12;
-const MAX_JSON_DEPTH: usize = 10;
-const MAX_RAW_SIZE: usize = 10 * 1024 * 1024;
+const MAX_JSON_DEPTH: usize = 120;
+const MAX_RAW_SIZE: usize = 50 * 1024 * 1024;
 
 fn check_json_depth(val: &serde_json::Value, depth: usize) -> bool {
     if depth > MAX_JSON_DEPTH {
@@ -82,10 +82,7 @@ pub async fn upload(
         Ok(u) => u,
         Err(_) => return (StatusCode::UNAUTHORIZED, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("unauthorized".into()) })),
     };
-    if let Some(obj) = payload.as_object() {
-         if obj.len() > 20 {
-             return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("too many root keys".into()) }));
-         }
+    if let Some(_) = payload.as_object() {
     } else {
         return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("invalid json".into()) }));
     }

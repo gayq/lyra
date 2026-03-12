@@ -14,7 +14,7 @@ use time::Duration;
 use std::sync::OnceLock;
 use dashmap::DashMap;
 use std::time::Instant;
-use aes_gcm::{Aes256Gcm, aead::KeyInit};
+use aes_gcm::Aes256Gcm;
 use std::sync::Arc as StdArc;
 
 const COOKIE_NAME: &str = "token";
@@ -26,7 +26,6 @@ fn is_cookie_secure() -> bool {
 #[derive(Clone)]
 pub struct AppState {
     pub jwt_secret: String,
-    pub sync_secret: String,
     pub pool: crate::db::DbPool,
     pub aes_cipher: StdArc<Aes256Gcm>,
 }

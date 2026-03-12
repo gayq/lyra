@@ -72,4 +72,3 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
 
     Ok(pool)
 }
-

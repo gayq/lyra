@@ -753,7 +753,7 @@ export class CloudSync {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(data)
-            }, 15000);
+            }, 60000);
 
             if (res.ok) {
                 const result = await res.json();
@@ -808,7 +808,7 @@ export class CloudSync {
         }
 
         try {
-            const res = await fetchWithTimeout('/api/sync/download', {}, 15000);
+            const res = await fetchWithTimeout('/api/sync/download', {}, 60000);
 
             if (res.status === 429) {
                 if (!silent) this.updateStatus('too many requests', 'error');
