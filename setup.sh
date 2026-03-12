@@ -97,8 +97,17 @@ fi
 RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
 sudo cp target/release/epoxy-server /usr/local/bin/epoxy-server
 sudo setcap cap_net_bind_service=+ep /usr/local/bin/epoxy-server
-
 sudo mkdir -p /etc/epoxy-server
+
+LIST_SOURCE="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/multi.pro.txt"
+AD_BLOCK_DOMAINS=$(curl -s "$LIST_SOURCE" | grep -v "^#" | grep -v "^$" | awk '{printf "\"%s\",", $1}' | sed 's/,$//')
+
+if [ -z "$AD_BLOCK_DOMAINS" ]; then
+    H_DOMAINS='[]'
+else
+    H_DOMAINS="[$AD_BLOCK_DOMAINS]"
+fi
+
 sudo tee /etc/epoxy-server/config.toml <<EOF
 [server]
 bind = ["tcp", "0.0.0.0:8080"]
@@ -136,7 +145,7 @@ block_tcp_hosts = []
 allow_udp_hosts = []
 block_udp_hosts = []
 allow_hosts = []
-block_hosts = []
+block_hosts = $H_DOMAINS
 allow_ports = []
 block_ports = []
 EOF
@@ -186,10 +195,10 @@ $DOMAIN {
         }
     }
 
-    @mochi_routes {
+    @proxy_routes {
         path /!!/* /!cover!/*
     }
-    reverse_proxy @mochi_routes 127.0.0.1:4000 {
+    reverse_proxy @proxy_routes 127.0.0.1:4000 {
         header_up X-Real-IP {remote_host}
         transport http {
             keepalive 120s
