@@ -348,7 +348,7 @@ if command -v ufw && ufw status | grep -q "Status: active"; then
     sudo ufw allow 443/udp
 fi
 
-"$HOME/.bun/bin/pm2" start ecosystem_mochi.config.cjs --update-env
+"$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env
 "$HOME/.bun/bin/pm2" save
 sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
 
