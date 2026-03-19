@@ -37,8 +37,7 @@ sudo apt-get update && sudo apt-get install -y cloudflare-warp
 
 sleep 2
 warp-cli --accept-tos registration new || warp-cli --accept-tos register
-warp-cli --accept-tos mode proxy || warp-cli --accept-tos set-mode proxy
-warp-cli --accept-tos proxy port 40000 || warp-cli --accept-tos set-proxy-port 40000
+warp-cli --accept-tos mode warp || warp-cli --accept-tos set-mode warp
 warp-cli --accept-tos connect
 
 mkdir -p "$HOME/xray" && cd "$HOME/xray"
@@ -72,30 +71,8 @@ cat <<EOF > config.json
     }
   ],
   "outbounds": [
-    {
-      "tag": "warp",
-      "protocol": "socks",
-      "settings": {
-        "servers": [
-          {
-            "address": "127.0.0.1",
-            "port": 40000
-          }
-        ]
-      }
-    },
     { "tag": "direct", "protocol": "freedom" }
-  ],
-  "routing": {
-    "domainStrategy": "AsIs",
-    "rules": [
-      {
-        "type": "field",
-        "inboundTag": ["vless-ws"],
-        "outboundTag": "warp"
-      }
-    ]
-  }
+  ]
 }
 EOF
 
