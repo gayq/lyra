@@ -12,11 +12,11 @@ while true; do
             break
             ;;
         cancel)
-            echo "setup aborted!"
+            echo "setup aborted."
             exit 0
             ;;
         *)
-            echo "please type 'ok' or 'cancel'!"
+            echo "please type 'ok' or 'cancel'."
             ;;
     esac
 done
@@ -98,6 +98,15 @@ RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
 sudo cp target/release/epoxy-server /usr/local/bin/epoxy-server
 sudo setcap cap_net_bind_service=+ep /usr/local/bin/epoxy-server
 
+LIST_SOURCE="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt"
+AD_BLOCK_DOMAINS=$(curl -s "$LIST_SOURCE" | grep -v "^#" | grep -v "^$" | awk '{printf "\"%s\",", $1}' | sed 's/,$//')
+
+if [ -z "$AD_BLOCK_DOMAINS" ]; then
+    H_DOMAINS='[]'
+else
+    H_DOMAINS="[$AD_BLOCK_DOMAINS]"
+fi
+
 sudo mkdir -p /etc/epoxy-server
 sudo tee /etc/epoxy-server/config.toml <<EOF
 [server]
@@ -136,21 +145,19 @@ block_tcp_hosts = []
 allow_udp_hosts = []
 block_udp_hosts = []
 allow_hosts = []
-block_hosts = ["pagead2.googlesyndication.com", "googlesyndication.com", "googleadservices.com", "google-analytics.com", "analytics.google.com", "googletagmanager.com", "googletagservices.com", "googleads.g.doubleclick.net", "tpc.googlesyndication.com", "adservice.google.com", "adservice.google.co.uk", "adservice.google.ca", "adservice.google.de", "adservice.google.fr", "adservice.google.com.au", "adservice.google.co.jp", "adservice.google.co.in", "pagead-googlehosted.l.google.com", "partnerad.l.google.com", "doubleclick.net", "ad.doubleclick.net", "s0.2mdn.net", "2mdn.net", "stats.g.doubleclick.net", "cm.g.doubleclick.net", "pixel.facebook.com", "an.facebook.com", "aax.amazon-adsystem.com", "amazon-adsystem.com", "z-na.amazon-adsystem.com", "aax-eu.amazon-adsystem.com", "fls-na.amazon-adsystem.com", "bat.bing.com", "ads.microsoft.com", "c.bing.com", "c.msn.com", "adnxs.com", "adsrvr.org", "rubiconproject.com", "pubmatic.com", "openx.net", "casalemedia.com", "contextweb.com", "indexww.com", "criteo.com", "criteo.net", "outbrain.com", "taboola.com", "mgid.com", "revcontent.com", "content-ad.net", "adhese.com", "smartadserver.com", "serving-sys.com", "eyeota.net", "krxd.net", "bluekai.com", "exelator.com", "rlcdn.com", "addthis.com", "sharethrough.com", "bidswitch.net", "spotxchange.com", "spotx.tv", "advertising.com", "yieldmo.com", "yieldmanager.com", "yieldoptimizer.com", "scorecardresearch.com", "quantserve.com", "imrworldwide.com", "chartbeat.com", "chartbeat.net", "segment.com", "segment.io", "hotjar.com", "mouseflow.com", "fullstory.com", "crazyegg.com", "luckyorange.com", "inspectlet.com", "clicktale.com", "newrelic.com", "nr-data.net", "mixpanel.com", "amplitude.com", "heap.io", "heapanalytics.com", "optimizely.com", "abtasty.com", "demdex.net", "omtrdc.net", "2o7.net", "sc.omtrdc.net", "everesttech.net", "mookie1.com", "mathtag.com", "popads.net", "popcash.net", "propellerads.com", "adcash.com", "trafficjunky.com", "trafficfactory.biz", "juicyads.com", "exoclick.com", "plugrush.com", "hilltopads.net", "moatads.com", "doubleverify.com", "adsafeprotected.com", "iasds01.com", "peer39.net", "grapeshot.co.uk", "adskeeper.co.uk", "adtelligent.com", "sovrn.com", "conversantmedia.com", "media.net", "media6degrees.com", "adform.net", "adform.com", "smaato.net", "inmobi.com", "unityads.unity3d.com", "mopub.com", "appsflyer.com", "adjust.com", "branch.io", "kochava.com", "supersonicads.com", "vungle.com", "chartboost.com", "adcolony.com", "ironsrc.com", "fyber.com", "tapjoy.com", "zemanta.com", "nativeads.com", "triplelift.com", "teads.tv", "gumgum.com", "vibrantmedia.com", "undertone.com", "kargo.com", "yieldlab.net", "aniview.com", "primis.tech", "seedtag.com", "aps.amazon.com", "assoc-amazon.com", "udc.yahoo.com", "browser.sentry-cdn.com", "consensu.org", "trustarc.com", "cookielaw.org", "onetrust.com", "cdn.taboola.com", "cdn.outbrain.com", "cdn.mgid.com", "static.criteo.net", "static.adsafeprotected.com"]
+block_hosts = $H_DOMAINS
 allow_ports = []
 block_ports = []
 EOF
 
-cd "$HOME/waves" || { echo "Run this in the waves directory!"; exit 1; }
+
+cd "$HOME/waves" || { echo "run this in the waves directory!"; exit 1; }
 export PATH="$HOME/.bun/bin:$PATH"
 
 if [ -d "mochi" ]; then
     cd mochi
     RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
     cd ..
-else
-    echo "Could not find mochi directory! Did you clone the complete waves repository?"
-    exit 1
 fi
 
 sudo mkdir -p /etc/systemd/system/caddy.service.d
