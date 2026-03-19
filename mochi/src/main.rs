@@ -1,5 +1,7 @@
 mod constants;
 
+use base64::Engine as _;
+
 use aho_corasick::AhoCorasick;
 use axum::{
     body::Body,
@@ -243,7 +245,33 @@ async fn proxy_handler(
         constants::MOCHI_PREFIX
     };
     let prefix_pos = path_and_query.find(prefix).unwrap_or(0);
-    let target_url_str = &path_and_query[prefix_pos + prefix.len()..];
+    let raw_target = &path_and_query[prefix_pos + prefix.len()..];
+    
+    let decoded_target_owned = if !raw_target.starts_with("http")
+        && !raw_target.starts_with("ws")
+        && !raw_target.is_empty()
+    {
+        let clean = raw_target.trim_end_matches('/');
+        let (token, remainder) = clean.split_once('/').unwrap_or((clean, ""));
+
+        if let Some(decoded_base) = decode_mochi_url(token) {
+            if remainder.is_empty() {
+                decoded_base
+            } else {
+                match url::Url::parse(&decoded_base) {
+                    Ok(base) => base.join(remainder).map(|u| u.to_string()).unwrap_or_else(|_| {
+                        format!("{}/{}", decoded_base.trim_end_matches('/'), remainder)
+                    }),
+                    Err(_) => format!("{}/{}", decoded_base.trim_end_matches('/'), remainder),
+                }
+            }
+        } else {
+            raw_target.to_string()
+        }
+    } else {
+        raw_target.to_string()
+    };
+    let target_url_str: &str = &decoded_target_owned;
     debug!("proxying request to: {}", target_url_str);
 
     if let Some(ws) = ws {
@@ -449,9 +477,14 @@ async fn proxy_handler(
         && !target_url_str.ends_with(".swf") 
         && !target_url_str.ends_with(".wasm");
     
-    if is_html && status.is_success() && !is_likely_asset {
+    if is_html && status.is_success() && !is_likely_asset && method == Method::GET {
         safe_headers.remove("content-length");
         safe_headers.remove("content-encoding"); 
+
+        let force_refresh = headers.get("cache-control")
+            .and_then(|h| h.to_str().ok())
+            .map(|v| v.contains("no-cache"))
+            .unwrap_or(false);
         
         let html_permit = match tokio::time::timeout(
             Duration::from_secs(5),
@@ -470,7 +503,7 @@ async fn proxy_handler(
 
         let target_url_clone = target_url.clone();
         
-        let body_bytes = tokio::task::spawn_blocking(move || {
+        let body_vec = tokio::task::spawn_blocking(move || {
             let _permit = html_permit;
             let base_url_str = target_url_clone.to_string();
             
@@ -485,16 +518,17 @@ async fn proxy_handler(
                         return None;
                     }
                     if url.starts_with("http://") || url.starts_with("https://") {
-                        return Some(format!("{}{}", MOCHI_PREFIX, url));
+                        return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(url)));
                     }
                     if url.starts_with("//") {
-                        return Some(format!("{}https:{}", MOCHI_PREFIX, url));
+                        let full = format!("https:{}", url);
+                        return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&full)));
                     }
                     
                     if let Ok(lock) = current_base.read() {
                         let base = lock.clone();
                         if let Ok(resolved) = base.join(url) {
-                            return Some(format!("{}{}", MOCHI_PREFIX, resolved.as_str()));
+                            return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(resolved.as_str())));
                         }
                     }
                     None
@@ -538,12 +572,13 @@ async fn proxy_handler(
                                  }
 
                                  let proxy_href = if href.starts_with("http://") || href.starts_with("https://") {
-                                     format!("{}{}", MOCHI_PREFIX, href)
+                                     format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&href))
                                  } else if href.starts_with("//") {
-                                     format!("{}https:{}", MOCHI_PREFIX, href)
+                                     let full = format!("https:{}", href);
+                                     format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&full))
                                  } else {
                                      if let Ok(parsed_base) = target_url_clone_for_base.join(&href) {
-                                         format!("{}{}", MOCHI_PREFIX, parsed_base.as_str())
+                                         format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(parsed_base.as_str()))
                                      } else {
                                          href.to_string()
                                      }
@@ -621,6 +656,56 @@ async fn proxy_handler(
             let _ = rewriter.end();
             output
         }).await.unwrap_or_default();
+
+        let body_bytes = Bytes::from(body_vec);
+
+        if !force_refresh && body_bytes.len() > 0 && body_bytes.len() <= MAX_CACHE_SIZE_BYTES {
+            let status_u16 = status.as_u16();
+            let cache_key = target_url_str.to_string();
+            let safe_headers_for_cache = safe_headers.clone();
+            let cached_body = body_bytes.clone();
+
+            let cached = Arc::new(CachedResponse {
+                status: status_u16,
+                headers: safe_headers_for_cache.clone(),
+                body: cached_body.clone(),
+            });
+
+            state.cache.insert(cache_key.clone(), cached.clone()).await;
+
+            let safe_headers_for_disk = safe_headers_for_cache;
+            let cache_path = get_cache_path(&cache_key);
+            let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
+            let body_for_disk = cached_body.clone();
+
+            tokio::spawn(async move {
+                if let Ok(f) = File::create(&temp_path).await {
+                    let mut f = BufWriter::new(f);
+                    let header_count = safe_headers_for_disk.len() as u16;
+
+                    if f.write_all(&status_u16.to_le_bytes()).await.is_ok()
+                        && f.write_all(&header_count.to_le_bytes()).await.is_ok()
+                    {
+                        for (k, v) in safe_headers_for_disk.iter() {
+                            let k_bytes = k.as_str().as_bytes();
+                            let k_len = k_bytes.len() as u16;
+                            if f.write_all(&k_len.to_le_bytes()).await.is_err() { break; }
+                            if f.write_all(k_bytes).await.is_err() { break; }
+
+                            let v_bytes = v.as_bytes();
+                            let v_len = v_bytes.len() as u32;
+                            if f.write_all(&v_len.to_le_bytes()).await.is_err() { break; }
+                            if f.write_all(v_bytes).await.is_err() { break; }
+                        }
+
+                        let _ = f.write_all(&body_for_disk).await;
+                        let _ = f.flush().await;
+                        let _ = f.into_inner().sync_all().await;
+                        let _ = fs::rename(&temp_path, &cache_path).await;
+                    }
+                }
+            });
+        }
 
         return (status, safe_headers, Body::from(body_bytes)).into_response();
     }
@@ -1355,4 +1440,47 @@ fn is_blacklisted_header(name: &str) -> bool {
 
 fn is_blacklisted_res_header(name: &str) -> bool {
     matches!(name, "connection" | "content-length" | "transfer-encoding" | "content-encoding" | "content-security-policy" | "strict-transport-security" | "access-control-allow-origin" | "x-frame-options" | "x-content-type-options")
+}
+
+const MOCHI_XOR_KEY: &[u8] = b"q7Zx!9pL";
+
+fn decode_mochi_url(encoded: &str) -> Option<String> {
+    let mut b64 = encoded.replace('-', "+").replace('_', "/");
+    while b64.len() % 4 != 0 {
+        b64.push('=');
+    }
+
+    let raw = base64::engine::general_purpose::STANDARD.decode(&b64).ok()?;
+
+    let xored: Vec<u8> = raw
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ MOCHI_XOR_KEY[i % MOCHI_XOR_KEY.len()])
+        .collect();
+
+    let percent_encoded = String::from_utf8(xored).ok()?;
+    let decoded = urlencoding::decode(&percent_encoded).ok()?;
+    let result = decoded.into_owned();
+
+    if result.starts_with("http://") || result.starts_with("https://") {
+        Some(result)
+    } else {
+        None
+    }
+}
+
+fn encode_mochi_url(url: &str) -> String {
+    let encoded = urlencoding::encode(url);
+    let encoded_bytes = encoded.as_bytes();
+    let xored: Vec<u8> = encoded_bytes
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| b ^ MOCHI_XOR_KEY[i % MOCHI_XOR_KEY.len()])
+        .collect();
+    base64::engine::general_purpose::STANDARD
+        .encode(&xored)
+        .replace('+', "-")
+        .replace('/', "_")
+        .trim_end_matches('=')
+        .to_string()
 }

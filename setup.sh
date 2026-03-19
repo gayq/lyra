@@ -12,11 +12,11 @@ while true; do
             break
             ;;
         cancel)
-            echo "setup aborted."
+            echo "setup aborted!"
             exit 0
             ;;
         *)
-            echo "please type 'ok' or 'cancel'."
+            echo "please type 'ok' or 'cancel'!"
             ;;
     esac
 done
@@ -24,12 +24,80 @@ done
 read -p "enter the domain for this node: " DOMAIN
 
 if [ -z "$DOMAIN" ]; then
-    echo "domain cannot be empty. aborting."
+    echo "domain cannot be empty. aborting!"
     exit 1
 fi
 
 sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https libjemalloc2
+sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https libjemalloc2 lsb-release uuid-runtime
+
+curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+sudo apt-get update && sudo apt-get install -y cloudflare-warp
+
+sleep 2
+warp-cli --accept-tos registration new || warp-cli --accept-tos register
+warp-cli --accept-tos mode proxy || warp-cli --accept-tos set-mode proxy
+warp-cli --accept-tos proxy port 40000 || warp-cli --accept-tos set-proxy-port 40000
+warp-cli --accept-tos connect
+
+mkdir -p "$HOME/xray" && cd "$HOME/xray"
+latest_version=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | jq -r .tag_name)
+curl -L -o xray.zip "https://github.com/XTLS/Xray-core/releases/download/${latest_version}/Xray-linux-64.zip"
+unzip -o xray.zip && chmod +x xray
+
+if [ -f "config.json" ]; then
+    UUID=$(cat config.json | grep -oP '(?<="id": ")[^"]+' | head -n 1)
+fi
+if [ -z "$UUID" ]; then
+    UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+fi
+
+cat <<EOF > config.json
+{
+  "inbounds": [
+    {
+      "tag": "vless-ws",
+      "port": 10000,
+      "listen": "127.0.0.1",
+      "protocol": "vless",
+      "settings": {
+        "clients": [{ "id": "$UUID" }],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "wsSettings": { "path": "/r" }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "warp",
+      "protocol": "socks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 40000
+          }
+        ]
+      }
+    },
+    { "tag": "direct", "protocol": "freedom" }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["vless-ws"],
+        "outboundTag": "warp"
+      }
+    ]
+  }
+}
+EOF
 
 if ! command -v bun; then
   curl -fsSL https://bun.sh/install | bash
@@ -141,16 +209,13 @@ allow_ports = []
 block_ports = []
 EOF
 
-cd "$HOME/waves" || { echo "Run this in the waves directory!"; exit 1; }
+cd "$HOME/waves" || { echo "run this in waves directory!"; exit 1; }
 export PATH="$HOME/.bun/bin:$PATH"
 
 if [ -d "mochi" ]; then
     cd mochi
     RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
     cd ..
-else
-    echo "Could not find mochi directory! Did you clone the complete waves repository?"
-    exit 1
 fi
 
 sudo mkdir -p /etc/systemd/system/caddy.service.d
@@ -174,6 +239,19 @@ $DOMAIN {
     encode zstd gzip
 
     reverse_proxy /w/* 127.0.0.1:8080 {
+        header_up X-Real-IP {remote_host}
+        flush_interval -1
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+            dial_timeout 5s
+            read_buffer 65536
+            write_buffer 65536
+        }
+    }
+
+    reverse_proxy /r 127.0.0.1:10000 {
         header_up X-Real-IP {remote_host}
         flush_interval -1
         transport http {
@@ -216,7 +294,7 @@ EOF
 "$HOME/.bun/bin/pm2" stop all
 "$HOME/.bun/bin/pm2" delete all
 
-tee ecosystem_mochi.config.cjs <<EOF
+tee ecosystem.config.cjs <<EOF
 module.exports = {
   apps: [
     {
@@ -244,6 +322,17 @@ module.exports = {
         RUST_LOG: "off",
         LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
       }
+    },
+    {
+      name: "xray",
+      script: "./xray",
+      cwd: "../xray",
+      args: "run -c config.json",
+      interpreter: "none",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      max_memory_restart: "1G"
     }
   ]
 };

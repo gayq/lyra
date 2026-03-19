@@ -55,17 +55,43 @@ pub const SCRIPT_PART_2: &str = r##"";
         }
     } catch(e) {}
 
+    try {
+        if (typeof window.__MOCHI_TARGET__ === 'string' && window.__MOCHI_TARGET__.startsWith('http')) {
+            const t = new URL(window.__MOCHI_TARGET__);
+            const current = new URL(window.location.href);
+            const needsSearch = (!current.search || current.search === '?') && t.search;
+            const needsHash = (!current.hash) && t.hash;
+            if ((needsSearch || needsHash) && history && typeof history.replaceState === 'function') {
+                if (needsSearch) current.search = t.search;
+                if (needsHash) current.hash = t.hash;
+                history.replaceState(null, '', current.toString());
+            }
+        }
+    } catch(e) {}
+
+    const _MK = 'q7Zx!9pL';
+    const __mochiEncode = (url) => {
+        try {
+            const e = encodeURIComponent(url);
+            let x = '';
+            for (let i = 0; i < e.length; i++) {
+                x += String.fromCharCode(e.charCodeAt(i) ^ _MK.charCodeAt(i % _MK.length));
+            }
+            return btoa(x).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') + '/';
+        } catch(e) { return url; }
+    };
+
     const rewrite = (url) => {
         if (!url) return url;
         if (typeof url !== 'string') return url;
         if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("javascript:") || url.includes(window.__MOCHI_PREFIX__)) return url;
-        if (url.startsWith("http")) return window.__MOCHI_BASE__ + url;
-        if (url.startsWith("//")) return window.__MOCHI_BASE__ + "https:" + url;
+        if (url.startsWith("http")) return window.__MOCHI_BASE__ + __mochiEncode(url);
+        if (url.startsWith("//")) return window.__MOCHI_BASE__ + __mochiEncode("https:" + url);
         
         try {
             const resolved = new _U(url, document.baseURI).href;
             if (resolved.includes(window.__MOCHI_PREFIX__)) return resolved;
-            return window.__MOCHI_BASE__ + resolved;
+            return window.__MOCHI_BASE__ + __mochiEncode(resolved);
         } catch (e) {
             return url;
         }
