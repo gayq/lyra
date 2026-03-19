@@ -98,15 +98,6 @@ RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
 sudo cp target/release/epoxy-server /usr/local/bin/epoxy-server
 sudo setcap cap_net_bind_service=+ep /usr/local/bin/epoxy-server
 
-LIST_SOURCE="https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt"
-AD_BLOCK_DOMAINS=$(curl -s "$LIST_SOURCE" | grep -v "^#" | grep -v "^$" | awk '{printf "\"%s\",", $1}' | sed 's/,$//')
-
-if [ -z "$AD_BLOCK_DOMAINS" ]; then
-    H_DOMAINS='[]'
-else
-    H_DOMAINS="[$AD_BLOCK_DOMAINS]"
-fi
-
 sudo mkdir -p /etc/epoxy-server
 sudo tee /etc/epoxy-server/config.toml <<EOF
 [server]
@@ -145,7 +136,7 @@ block_tcp_hosts = []
 allow_udp_hosts = []
 block_udp_hosts = []
 allow_hosts = []
-block_hosts = $H_DOMAINS
+block_hosts = []
 allow_ports = []
 block_ports = []
 EOF
