@@ -1,7 +1,6 @@
 mod constants;
 
 use base64::Engine as _;
-
 use aho_corasick::AhoCorasick;
 use axum::{
     body::Body,
@@ -917,14 +916,15 @@ async fn handle_cover_request(
         if let Ok(img) = image::load_from_memory(&accumulator) {
             let resized = img.thumbnail(256, 256);
             let mut cursor = std::io::Cursor::new(Vec::new());
-            if resized.write_to(&mut cursor, image::ImageFormat::WebP).is_ok() {
+            let encoder = image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, 10, 80);
+            if resized.write_with_encoder(encoder).is_ok() {
                 return Some(Bytes::from(cursor.into_inner()));
             }
         }
         None
     }).await {
         safe_headers.insert("content-length", HeaderValue::from(processed_bytes.len()));
-        safe_headers.insert("content-type", HeaderValue::from_static("image/webp"));
+        safe_headers.insert("content-type", HeaderValue::from_static("image/avif"));
         safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
         let cached = Arc::new(CachedResponse {
@@ -1362,6 +1362,7 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
             "svg" => "image/svg+xml",
             "gif" => "image/gif",
             "webp" => "image/webp",
+            "avif" => "image/avif",
             "mp4" => "video/mp4",
             "webm" => "video/webm",
             "mp3" => "audio/mpeg",
@@ -1399,7 +1400,7 @@ fn is_likely_static_asset_fast(url: &str, matcher: Option<&AhoCorasick>) -> bool
             ".glb", ".gltf", ".bin", ".fbx", ".obj",
             ".swf", ".p8", ".c3p",
             ".atlas", ".fnt", ".png", ".jpg", ".jpeg", ".mp3", ".ogg", ".wav", ".css", ".svg",
-            ".gif", ".webp", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+            ".gif", ".webp", ".avif", ".mp4", ".webm", ".woff", ".woff2", ".ttf", ".otf", ".eot",
             ".ico", ".aac", ".flac", ".m3u8",
         ];
         if exts.iter().any(|ext| url_without_query.ends_with(ext)) {
