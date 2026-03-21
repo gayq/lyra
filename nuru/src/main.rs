@@ -154,18 +154,6 @@ async fn async_init() {
 
 	validate_config_cache().await;
 
-	let cleanup_interval_secs = CONFIG.wisp.resolve_cache_ttl_secs.max(1);
-	tokio::spawn(async move {
-		let mut ticker = tokio::time::interval(std::time::Duration::from_secs(cleanup_interval_secs));
-		loop {
-			ticker.tick().await;
-			let removed = crate::stream::cleanup_expired_resolve_cache();
-			if removed > 0 {
-				trace!("resolve cache cleanup removed {removed} entries");
-			}
-		}
-	});
-
 	info!("listening on {}!!", CONFIG.server.bind.1);
 
 	trace!("CLI: {:#?}", &*CLI);
