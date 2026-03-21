@@ -140,6 +140,16 @@ fn default_resolve_cache_max_entries() -> usize {
 	50_000
 }
 
+#[doc(hidden)]
+fn default_resolve_timeout_ms() -> u64 {
+	6000
+}
+
+#[doc(hidden)]
+fn default_connect_timeout_ms() -> u64 {
+	8000
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WispConfig {
@@ -176,6 +186,10 @@ pub struct WispConfig {
 pub struct StreamConfig {
 	pub tcp_nodelay: bool,
 	pub buffer_size: usize,
+	#[serde(default = "default_resolve_timeout_ms")]
+	pub resolve_timeout_ms: u64,
+	#[serde(default = "default_connect_timeout_ms")]
+	pub connect_timeout_ms: u64,
 	pub allow_udp: bool,
 	pub allow_wsproxy_udp: bool,
 	#[cfg(feature = "twisp")]
@@ -391,6 +405,8 @@ impl Default for StreamConfig {
 		Self {
 			tcp_nodelay: true,
 			buffer_size: 128 * 1024,
+			resolve_timeout_ms: default_resolve_timeout_ms(),
+			connect_timeout_ms: default_connect_timeout_ms(),
 
 			allow_udp: true,
 			allow_wsproxy_udp: false,
