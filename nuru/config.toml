@@ -1,0 +1,44 @@
+[server]
+bind = ["tcp", "0.0.0.0:8080"]
+transport = "websocket"
+resolve_ipv6 = false
+tcp_nodelay = true
+file_raw_mode = false
+use_real_ip_headers = true
+non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
+max_message_size = 2097152
+log_level = "DEBUG"
+runtime = "threadpercore"
+stats_endpoint = "/stats"
+
+[wisp]
+allow_wsproxy = true
+buffer_size = 131072
+prefix = "/w"
+wisp_v2 = true
+extensions = ["udp", "motd"]
+password_extension_required = false
+certificate_extension_required = false
+ping_interval_secs = 25
+resolve_cache_ttl_secs = 45
+resolve_cache_max_entries = 300000
+
+[stream]
+tcp_nodelay = true
+buffer_size = 262144
+allow_udp = true
+allow_wsproxy_udp = false
+dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
+allow_direct_ip = true
+allow_loopback = true
+allow_multicast = true
+allow_global = true
+allow_non_global = true
+allow_tcp_hosts = []
+block_tcp_hosts = []
+allow_udp_hosts = []
+block_udp_hosts = []
+allow_hosts = []
+block_hosts = []
+allow_ports = []
+block_ports = []

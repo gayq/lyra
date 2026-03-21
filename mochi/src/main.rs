@@ -491,7 +491,7 @@ async fn proxy_handler(
         ).await {
             Ok(Ok(permit)) => permit,
             _ => {
-                return (StatusCode::SERVICE_UNAVAILABLE, "server busy, try again").into_response();
+                return (StatusCode::SERVICE_UNAVAILABLE, "server busy, try again later").into_response();
             }
         };
 

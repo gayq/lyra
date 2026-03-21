@@ -1,31 +1,33 @@
 #!/bin/bash
 
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
 echo ""
 echo "type 'ok' to continue or 'cancel' to abort."
 
 while true; do
-    read -p "> " user_input
-    case "$user_input" in
-        ok)
-            echo "starting setup..."
-            break
-            ;;
-        cancel)
-            echo "setup aborted."
-            exit 0
-            ;;
-        *)
-            echo "please type 'ok' or 'cancel'."
-            ;;
-    esac
+  read -p "> " user_input
+  case "$user_input" in
+    ok)
+      echo "starting setup..."
+      break
+      ;;
+    cancel)
+      echo "setup aborted!"
+      exit 0
+      ;;
+    *)
+      echo "please type 'ok' or 'cancel'!"
+      ;;
+  esac
 done
 
 read -p "enter the domain for this node: " DOMAIN
 
 if [ -z "$DOMAIN" ]; then
-    echo "domain cannot be empty. aborting."
-    exit 1
+  echo "domain cannot be empty. aborting!"
+  exit 1
 fi
 
 sudo apt-get update -y
@@ -61,6 +63,9 @@ fi
 
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
+net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 10
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 net.core.somaxconn = 65535
@@ -72,10 +77,25 @@ net.ipv4.ip_local_port_range = 1024 65535
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
 fs.file-max = 2097152
 fs.nr_open = 2097152
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
+net.ipv4.tcp_fastopen = 3
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.tcp_mtu_probing = 1
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_sack = 1
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 6
+net.ipv4.tcp_fin_timeout = 15
 EOF
 sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
 
@@ -86,69 +106,31 @@ if ! grep -q "^\* hard nofile" /etc/security/limits.conf; then
   echo "* hard nofile 1048576" | sudo tee -a /etc/security/limits.conf
 fi
 
-if [ ! -d "$HOME/epoxy-tls" ]; then
-    git clone https://github.com/MercuryWorkshop/epoxy-tls.git "$HOME/epoxy-tls"
+if [ -d "nuru" ]; then
+  cd nuru
+  RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  sudo cp target/release/nuru /usr/local/bin/nuru
+  sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru
+  cd ..
+else
+  echo "nuru directory not found!"
+  exit 1
 fi
-cd "$HOME/epoxy-tls"
-git fetch && git checkout . && git pull
-if ! grep -q "^\[profile.release\]" Cargo.toml; then
-    printf "\n[profile.release]\nlto = \"fat\"\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\nopt-level = 3\n" >> Cargo.toml
+
+sudo mkdir -p /etc/nuru
+if [ ! -f "$PROJECT_ROOT/nuru/config.toml" ]; then
+  echo "nuru config not found at $PROJECT_ROOT/nuru/config.toml !"
+  exit 1
 fi
-RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
-sudo cp target/release/epoxy-server /usr/local/bin/epoxy-server
-sudo setcap cap_net_bind_service=+ep /usr/local/bin/epoxy-server
+sudo cp "$PROJECT_ROOT/nuru/config.toml" /etc/nuru/config.toml
 
-sudo mkdir -p /etc/epoxy-server
-sudo tee /etc/epoxy-server/config.toml <<EOF
-[server]
-bind = ["tcp", "0.0.0.0:8080"]
-transport = "websocket"
-resolve_ipv6 = false
-tcp_nodelay = true
-file_raw_mode = false
-use_real_ip_headers = true
-non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
-max_message_size = 1048576
-log_level = "OFF"
-runtime = "multithread"
-stats_endpoint = "/stats"
-[wisp]
-allow_wsproxy = true
-buffer_size = 65536
-prefix = "/w"
-wisp_v2 = true
-extensions = ["udp", "motd"]
-password_extension_required = false
-certificate_extension_required = false
-[stream]
-tcp_nodelay = true
-buffer_size = 524288
-allow_udp = true
-allow_wsproxy_udp = false
-dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
-allow_direct_ip = true
-allow_loopback = true
-allow_multicast = true
-allow_global = true
-allow_non_global = true
-allow_tcp_hosts = []
-block_tcp_hosts = []
-allow_udp_hosts = []
-block_udp_hosts = []
-allow_hosts = []
-block_hosts = []
-allow_ports = []
-block_ports = []
-EOF
-
-
-cd "$HOME/waves" || { echo "run this in the waves directory!"; exit 1; }
+cd "$PROJECT_ROOT" || { echo "run this in the waves directory!"; exit 1; }
 export PATH="$HOME/.bun/bin:$PATH"
 
 if [ -d "mochi" ]; then
-    cd mochi
-    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
-    cd ..
+  cd mochi
+  RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  cd ..
 fi
 
 sudo mkdir -p /etc/systemd/system/caddy.service.d
@@ -161,53 +143,53 @@ sudo systemctl daemon-reload
 
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
-    email sefiicc@gmail.com
-    
-    servers {
-        protocols h1 h2 h3
-    }
+  email sefiicc@gmail.com
+  
+  servers {
+    protocols h1 h2 h3
+  }
 }
 
 $DOMAIN {
-    encode zstd gzip
+  encode zstd gzip
 
-    reverse_proxy /w/* 127.0.0.1:8080 {
-        header_up X-Real-IP {remote_host}
-        flush_interval -1
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
-            dial_timeout 5s
-            read_buffer 65536
-            write_buffer 65536
-        }
+  reverse_proxy /w/* 127.0.0.1:8080 {
+    header_up X-Real-IP {remote_host}
+    flush_interval -1
+    transport http {
+      keepalive 120s
+      keepalive_idle_conns 4096
+      keepalive_idle_conns_per_host 1024
+      dial_timeout 5s
+      read_buffer 65536
+      write_buffer 65536
     }
+  }
 
-    @proxy_routes {
-        path /!!/* /!cover!/*
+  @mochi_routes {
+    path /!!/* /!cover!/*
+  }
+  reverse_proxy @mochi_routes 127.0.0.1:4000 {
+    header_up X-Real-IP {remote_host}
+    transport http {
+      keepalive 120s
+      keepalive_idle_conns 4096
+      keepalive_idle_conns_per_host 1024
+      dial_timeout 5s
+      response_header_timeout 60s
     }
-    reverse_proxy @proxy_routes 127.0.0.1:4000 {
-        header_up X-Real-IP {remote_host}
-        transport http {
-            keepalive 120s
-            keepalive_idle_conns 4096
-            keepalive_idle_conns_per_host 1024
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
+  }
 
-    handle / {
-        respond "<html><body style=\"background-color: black; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: monospace; font-size: 24px;\">discord.gg/dJvdkPRheV</body></html>" 200 {
-            close
-        }
-        header Content-Type "text/html; charset=utf-8"
+  handle / {
+    respond "<html><body style=\"background-color: black; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: monospace; font-size: 24px;\">discord.gg/dJvdkPRheV</body></html>" 200 {
+      close
     }
+    header Content-Type "text/html; charset=utf-8"
+  }
 }
 
 :80 {
-    redir https://{host}{uri} permanent
+  redir https://{host}{uri} permanent
 }
 EOF
 
@@ -231,9 +213,9 @@ module.exports = {
       }
     },
     {
-      name: "epoxy-server",
-      script: "/usr/local/bin/epoxy-server", 
-      args: ["/etc/epoxy-server/config.toml"], 
+      name: "nuru",
+      script: "/usr/local/bin/nuru", 
+      args: ["/etc/nuru/config.toml"], 
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -252,9 +234,9 @@ sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl restart caddy
 
 if command -v ufw && ufw status | grep -q "Status: active"; then
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-    sudo ufw allow 443/udp
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw allow 443/udp
 fi
 
 "$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env
