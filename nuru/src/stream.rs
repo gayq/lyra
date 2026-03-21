@@ -15,6 +15,7 @@ use hyper_util::rt::TokioIo;
 use log::debug;
 use regex::RegexSet;
 use tokio::net::{TcpStream, UdpSocket};
+use tokio::time::timeout;
 use tokio_websockets::{CloseCode, Message, Payload, WebSocketStream};
 use wisp_mux::{
 	packet::{ConnectPacket, StreamType},
@@ -292,10 +293,12 @@ impl ClientStream {
 			return Ok(resolved);
 		}
 
-		let packet = RESOLVER
-			.resolve(packet.host)
+		let resolve_timeout = Duration::from_millis(CONFIG.stream.resolve_timeout_ms.max(100));
+		let resolved_iter = timeout(resolve_timeout, RESOLVER.resolve(packet.host.clone()))
 			.await
-			.context("failed to resolve hostname")?
+			.context("failed to resolve hostname: timeout")?
+			.context("failed to resolve hostname")?;
+		let packet = resolved_iter
 			.filter(|x| CONFIG.server.resolve_ipv6 || x.is_ipv4())
 			.map(|addr| {
 				if addr.is_loopback() && !CONFIG.stream.allow_loopback {
@@ -332,8 +335,13 @@ impl ClientStream {
 			StreamType::Tcp => {
 				let ipaddr =
 					IpAddr::from_str(&packet.host).context("failed to parse hostname as ipaddr")?;
-				let stream = TcpStream::connect(SocketAddr::new(ipaddr, packet.port))
-					.await
+				let connect_timeout = Duration::from_millis(CONFIG.stream.connect_timeout_ms.max(100));
+				let stream = timeout(
+					connect_timeout,
+					TcpStream::connect(SocketAddr::new(ipaddr, packet.port)),
+				)
+				.await
+				.context("failed to connect to host: timeout")?
 					.with_context(|| format!("failed to connect to host {}", packet.host))?;
 
 				if CONFIG.stream.tcp_nodelay {
@@ -360,7 +368,10 @@ impl ClientStream {
 
 				let stream = UdpSocket::bind(bind_addr).await?;
 
-				stream.connect(SocketAddr::new(ipaddr, packet.port)).await?;
+				let connect_timeout = Duration::from_millis(CONFIG.stream.connect_timeout_ms.max(100));
+				timeout(connect_timeout, stream.connect(SocketAddr::new(ipaddr, packet.port)))
+					.await
+					.context("failed to connect udp socket: timeout")??;
 
 				Ok(ClientStream::Udp(stream))
 			}
