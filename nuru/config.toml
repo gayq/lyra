@@ -6,14 +6,13 @@ tcp_nodelay = true
 file_raw_mode = false
 use_real_ip_headers = true
 non_ws_response = "hii! You should join discord.gg/dJvdkPRheV :3"
-max_message_size = 2097152
-log_level = "DEBUG"
+max_message_size = 16777216
+log_level = "OFF"
 runtime = "threadpercore"
-stats_endpoint = "/stats"
 
 [wisp]
 allow_wsproxy = true
-buffer_size = 131072
+buffer_size = 262144
 prefix = "/w"
 wisp_v2 = true
 extensions = ["udp", "motd"]
@@ -25,7 +24,9 @@ resolve_cache_max_entries = 300000
 
 [stream]
 tcp_nodelay = true
-buffer_size = 262144
+buffer_size = 524288
+resolve_timeout_ms = 5000
+connect_timeout_ms = 7000
 allow_udp = true
 allow_wsproxy_udp = false
 dns_servers = ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4"]
