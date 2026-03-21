@@ -49,20 +49,6 @@ pub fn resolve_cache_stats() -> (usize, u64, u64) {
 	)
 }
 
-pub fn cleanup_expired_resolve_cache() -> usize {
-	let cache_ttl = Duration::from_secs(CONFIG.wisp.resolve_cache_ttl_secs.max(1));
-	let now = Instant::now();
-	let mut removed = 0usize;
-	RESOLVE_CACHE.retain(|_, (created_at, _)| {
-		let keep = now.saturating_duration_since(*created_at) <= cache_ttl;
-		if !keep {
-			removed += 1;
-		}
-		keep
-	});
-	removed
-}
-
 fn stream_type_cache_key(stream_type: StreamType) -> &'static str {
 	match stream_type {
 		StreamType::Tcp => "tcp",
@@ -188,10 +174,13 @@ impl ClientStream {
 		let cache_ttl = Duration::from_secs(CONFIG.wisp.resolve_cache_ttl_secs.max(1));
 		let cache_max_entries = CONFIG.wisp.resolve_cache_max_entries.max(1);
 		let cache_key = resolve_cache_key(&packet);
-		if let Some(entry) = RESOLVE_CACHE.get(&cache_key) {
-			if entry.value().0.elapsed() <= cache_ttl {
+		if let Some((created_at, cached_packet)) = RESOLVE_CACHE
+			.get(&cache_key)
+			.map(|entry| (entry.value().0, entry.value().1.clone()))
+		{
+			if created_at.elapsed() <= cache_ttl {
 				RESOLVE_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
-				return Ok(from_cached(&entry.value().1));
+				return Ok(from_cached(&cached_packet));
 			}
 			RESOLVE_CACHE.remove(&cache_key);
 		}
