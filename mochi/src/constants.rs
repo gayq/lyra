@@ -9,6 +9,74 @@ pub const SCRIPT_PART_1: &str = r##"<script>
             if ((!u || u === "") && !b) return new _U(window.location.href);
             return new _U(u, b);
         };
+        try {
+        const rewriteToMochi = (url) => {
+            if (typeof url !== 'string') return url;
+            if (url.startsWith('blob:') || url.startsWith('data:')) return url;
+            if (url.startsWith('/') && !url.startsWith('/!!/')) {
+                const match = document.cookie.match(/(?:^|; )mochi_base=([^;]*)/);
+                if (match) {
+                    return '/!!/' + match[1] + '/!a!' + url; 
+                }
+            }
+            return url;
+        };
+
+        const origFetch = window.fetch;
+        window.fetch = async function(...args) {
+            args[0] = rewriteToMochi(args[0]);
+            return origFetch.apply(this, args);
+        };
+
+        const origOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            return origOpen.call(this, method, rewriteToMochi(url), ...rest);
+        };
+
+        const origSetAttribute = Element.prototype.setAttribute;
+        Element.prototype.setAttribute = function(name, value) {
+            if (name.toLowerCase() === 'src' || name.toLowerCase() === 'href') {
+                value = rewriteToMochi(value);
+            }
+            return origSetAttribute.call(this, name, value);
+        };
+
+        ['src', 'href'].forEach(prop => {
+            [HTMLScriptElement, HTMLLinkElement, HTMLImageElement, HTMLIFrameElement].forEach(elementClass => {
+                const descriptor = Object.getOwnPropertyDescriptor(elementClass.prototype, prop);
+                if (descriptor && descriptor.set) {
+                    const originalSetter = descriptor.set;
+                    Object.defineProperty(elementClass.prototype, prop, {
+                        get: descriptor.get,
+                        set: function(val) {
+                            originalSetter.call(this, rewriteToMochi(val));
+                        }
+                    });
+                }
+            });
+        });
+        
+        if (navigator.serviceWorker) {
+            Object.defineProperty(navigator, 'serviceWorker', {
+                value: {
+                    register: function() { return new Promise(() => {}); }, 
+                    ready: new Promise(() => {}),
+                    addEventListener: function() {},
+                    removeEventListener: function() {},
+                    getRegistrations: function() { return Promise.resolve([]); }
+                },
+                configurable: true
+            });
+        }
+
+        const originalBeacon = navigator.sendBeacon;
+        if (originalBeacon) {
+            navigator.sendBeacon = function(url, data) {
+                if (typeof url === 'string' && url.includes("cdn-cgi")) return true;
+                return originalBeacon.call(navigator, rewrite(url), data);
+            };
+        }
+    } catch(e) {}
         window.URL.prototype = _U.prototype;
         window.URL.createObjectURL = function(o) { return _U.createObjectURL(o); };
         window.URL.revokeObjectURL = function(u) { return _U.revokeObjectURL(u); };

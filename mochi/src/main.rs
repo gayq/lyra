@@ -64,8 +64,6 @@ const CDN_DOMAINS: &[&str] = &[
     "site-assets.fontawesome.com",
     "ka-f.fontawesome.com",
     "kit.fontawesome.com",
-    "fonts.googleapis.com",
-    "fonts.gstatic.com",
     "cdn.cloudflare.com",
     "ajax.googleapis.com",
     "cdn.jsdelivr.net",
@@ -138,7 +136,7 @@ async fn main() {
     let asset_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::default())
+        .redirect(Policy::none())
         .pool_idle_timeout(Duration::from_secs(300))
         .pool_max_idle_per_host(32)
         .tcp_nodelay(true)
@@ -153,7 +151,7 @@ async fn main() {
     let html_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::default())
+        .redirect(Policy::none())
         .pool_idle_timeout(Duration::from_secs(300))
         .pool_max_idle_per_host(16)
         .tcp_nodelay(true)
@@ -215,6 +213,8 @@ async fn main() {
         .route("/*path", any(proxy_handler))
         .layer(CompressionLayer::new())
         .layer(cors)
+        .route(&format!("{}*key", constants::MOCHI_PREFIX), any(proxy_handler))
+        .fallback(any(proxy_handler))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
@@ -236,7 +236,17 @@ async fn proxy_handler(
     ws: Option<WebSocketUpgrade>,
     req_body: Bytes,
 ) -> Response {
+    let mut valid_token: Option<String> = None;
+    let original_uri = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
+    if original_uri.contains("cdn-cgi/rum") || original_uri.contains("cdn-cgi/speculation") {
+        return (StatusCode::OK, HeaderMap::new(), Body::empty()).into_response();
+    }
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
+
+    if path_and_query.contains("cdn-cgi/rum") || path_and_query.contains("cdn-cgi/speculation") {
+        return (StatusCode::OK, HeaderMap::new(), Body::empty()).into_response();
+    }
+
     let is_cover_request = path_and_query.contains(constants::COVER_PREFIX);
     let prefix = if is_cover_request {
         constants::COVER_PREFIX
@@ -245,27 +255,73 @@ async fn proxy_handler(
     };
     let prefix_pos = path_and_query.find(prefix).unwrap_or(0);
     let raw_target = &path_and_query[prefix_pos + prefix.len()..];
-    
     let decoded_target_owned = if !raw_target.starts_with("http")
         && !raw_target.starts_with("ws")
         && !raw_target.is_empty()
     {
         let clean = raw_target.trim_end_matches('/');
-        let (token, remainder) = clean.split_once('/').unwrap_or((clean, ""));
+        let (token, mut remainder) = clean.split_once('/').unwrap_or((clean, ""));
+
+        if remainder.starts_with("!a!") {
+            remainder = remainder.trim_start_matches("!a!"); 
+        }
 
         if let Some(decoded_base) = decode_mochi_url(token) {
+            valid_token = Some(token.to_string());
+            
+            let mut base_for_join = decoded_base.clone();
+            if (remainder.contains("core.ruffle") || remainder.ends_with(".wasm")) 
+                && !base_for_join.ends_with('/') 
+                && !base_for_join.ends_with(".js") 
+            {
+                base_for_join.push('/');
+            }
+            
             if remainder.is_empty() {
                 decoded_base
             } else {
-                match url::Url::parse(&decoded_base) {
+                match url::Url::parse(&base_for_join) {
                     Ok(base) => base.join(remainder).map(|u| u.to_string()).unwrap_or_else(|_| {
-                        format!("{}/{}", decoded_base.trim_end_matches('/'), remainder)
+                        format!("{}/{}", base_for_join.trim_end_matches('/'), remainder)
                     }),
-                    Err(_) => format!("{}/{}", decoded_base.trim_end_matches('/'), remainder),
+                    Err(_) => format!("{}/{}", base_for_join.trim_end_matches('/'), remainder),
                 }
             }
-        } else {
-            raw_target.to_string()
+       } else {
+            let mut fallback_target = raw_target.to_string();
+
+            if let Some(referer) = headers.get("referer").and_then(|v| v.to_str().ok()) {
+                if let Some(referer_target) = referer.split(prefix).nth(1) {
+                    let referer_clean = referer_target.trim_end_matches('/');
+                    let (ref_token, _) = referer_clean.split_once('/').unwrap_or((referer_clean, ""));
+                    if let Some(ref_decoded_base) = decode_mochi_url(ref_token) {
+                        if let Ok(ref_url) = url::Url::parse(&ref_decoded_base) {
+                            if let Ok(resolved) = ref_url.join(original_uri) {
+                                fallback_target = resolved.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if fallback_target == raw_target {
+                if let Some(cookie_hdr) = headers.get("cookie").and_then(|c| c.to_str().ok()) {
+                    for cookie in cookie_hdr.split(';') {
+                        let cookie = cookie.trim();
+                        if let Some(base_token) = cookie.strip_prefix("mochi_base=") {
+                            if let Some(ref_decoded_base) = decode_mochi_url(base_token) {
+                                if let Ok(ref_url) = Url::parse(&ref_decoded_base) {
+                                    if let Ok(resolved) = ref_url.join(original_uri) {
+                                        fallback_target = resolved.to_string();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            fallback_target
         }
     } else {
         raw_target.to_string()
@@ -410,6 +466,13 @@ async fn proxy_handler(
         req_builder = req_builder.body(req_body);
     }
 
+    if let Some(host) = target_url.host_str() {
+        req_builder = req_builder.header("host", host);
+        let origin = format!("{}://{}", target_url.scheme(), host);
+        req_builder = req_builder.header("origin", origin);
+        req_builder = req_builder.header("referer", target_url.as_str());
+    }
+
     let upstream_res = match req_builder.send().await {
         Ok(res) => res,
         Err(e) => {
@@ -419,6 +482,28 @@ async fn proxy_handler(
 
     let status = upstream_res.status();
     debug!("upstream response status: {} for {}", status, target_url);
+
+    if status.is_redirection() {
+        if let Some(loc) = upstream_res.headers().get("location") {
+            if let Ok(loc_str) = loc.to_str() {
+                let absolute_url = match Url::parse(loc_str) {
+                    Ok(u) => u.to_string(),
+                    Err(_) => target_url.join(loc_str).map(|u| u.to_string()).unwrap_or_else(|_| loc_str.to_string()),
+                };
+                
+                let rewritten_location = format!("{}{}/", constants::MOCHI_PREFIX, encode_mochi_url(&absolute_url));
+                
+                let mut redirect_headers = HeaderMap::new();
+                redirect_headers.insert("location", HeaderValue::from_str(&rewritten_location).unwrap());
+                
+                if let Some(cookie) = upstream_res.headers().get("set-cookie") {
+                    redirect_headers.insert("set-cookie", cookie.clone());
+                }
+                
+                return (status, redirect_headers, Body::empty()).into_response();
+            }
+        }
+    }
 
     if !status.is_success() {
          let mut error_headers = HeaderMap::new();
@@ -479,6 +564,11 @@ async fn proxy_handler(
     if is_html && status.is_success() && !is_likely_asset && method == Method::GET {
         safe_headers.remove("content-length");
         safe_headers.remove("content-encoding"); 
+
+        if let Some(token) = &valid_token {
+            let cookie_val = format!("mochi_base={}; Path=/; SameSite=Lax", token);
+            safe_headers.append("set-cookie", HeaderValue::from_str(&cookie_val).unwrap());
+        }
 
         let force_refresh = headers.get("cache-control")
             .and_then(|h| h.to_str().ok())
@@ -717,9 +807,10 @@ async fn proxy_handler(
     let is_font = content_type.starts_with("font/") || content_type.contains("font");
     let is_wasm = content_type.contains("wasm");
     let should_cache = (is_likely_asset || is_image || is_json || is_favicon_heuristic || is_css || is_js || is_font || is_wasm) 
-        && status.is_success()
+        && status == StatusCode::OK
         && method == Method::GET
-        && !headers.contains_key("upgrade");
+        && !headers.contains_key("upgrade")
+        && !headers.contains_key("range");
 
     if should_cache {
         let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(512);
@@ -984,7 +1075,9 @@ async fn fetch_and_cache(
         .map(|v| v.contains("no-cache"))
         .unwrap_or(false);
 
-    if method == &Method::GET && !force_refresh {
+    let has_range = headers.contains_key("range");
+
+    if method == &Method::GET && !force_refresh && !has_range {
         if let Some(cached) = state.cache.get(target_url_str).await {
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
@@ -994,7 +1087,7 @@ async fn fetch_and_cache(
         }
     }
 
-    if method == &Method::GET && !force_refresh {
+    if method == &Method::GET && !force_refresh && !has_range {
         if let Some(disk_response) = load_from_disk(target_url_str).await {
             debug!("disk cache hit for {}", target_url_str);
             let (mut response, _) = disk_response;
@@ -1003,7 +1096,7 @@ async fn fetch_and_cache(
         }
     }
 
-    if method == &Method::GET {
+    if method == &Method::GET && !has_range {
         if let Some(entry) = state.coalesce.get(target_url_str) {
             let mut rx = entry.subscribe();
             drop(entry);
@@ -1080,6 +1173,28 @@ async fn fetch_and_cache(
     };
 
     let status = upstream_res.status();
+
+    if status.is_redirection() {
+        if let Some(loc) = upstream_res.headers().get("location") {
+            if let Ok(loc_str) = loc.to_str() {
+                let absolute_url = match Url::parse(loc_str) {
+                    Ok(u) => u.to_string(),
+                    Err(_) => target_url.join(loc_str).map(|u| u.to_string()).unwrap_or_else(|_| loc_str.to_string()),
+                };
+                
+                let rewritten_location = format!("{}{}/", constants::MOCHI_PREFIX, encode_mochi_url(&absolute_url));
+                let mut redirect_headers = HeaderMap::new();
+                redirect_headers.insert("location", HeaderValue::from_str(&rewritten_location).unwrap());
+                
+                if let Some(cookie) = upstream_res.headers().get("set-cookie") {
+                    redirect_headers.insert("set-cookie", cookie.clone());
+                }
+                
+                return Ok((status, redirect_headers, Body::empty()).into_response());
+            }
+        }
+    }
+
     let res_headers_ref = upstream_res.headers();
 
     let mut safe_headers = HeaderMap::new();
@@ -1121,7 +1236,10 @@ async fn fetch_and_cache(
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
-    let should_cache = is_likely_asset && status.is_success() && method == &Method::GET;
+    let should_cache = is_likely_asset 
+        && status == StatusCode::OK 
+        && method == &Method::GET 
+        && !has_range;
 
     let actually_cache = if should_cache {
         if state.caching_inflight.contains_key(target_url_str) {
@@ -1368,10 +1486,6 @@ fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {
             "mp3" => "audio/mpeg",
             "ogg" => "audio/ogg",
             "wav" => "audio/wav",
-            "woff" => "font/woff",
-            "woff2" => "font/woff2",
-            "ttf" => "font/ttf",
-            "otf" => "font/otf",
             s if s.starts_with("part") => "application/octet-stream",
             _ => return,  
         };
@@ -1440,7 +1554,7 @@ fn is_blacklisted_header(name: &str) -> bool {
 }
 
 fn is_blacklisted_res_header(name: &str) -> bool {
-    matches!(name, "connection" | "content-length" | "transfer-encoding" | "content-encoding" | "content-security-policy" | "strict-transport-security" | "access-control-allow-origin" | "x-frame-options" | "x-content-type-options")
+    matches!(name, "connection" | "content-length" | "transfer-encoding" | "content-encoding" | "content-security-policy" | "strict-transport-security" | "access-control-allow-origin" | "x-frame-options" | "x-content-type-options" | "speculation-rules" | "report-to" | "nel"| "referrer-policy")
 }
 
 const MOCHI_XOR_KEY: &[u8] = b"q7Zx!9pL";
