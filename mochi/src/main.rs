@@ -705,6 +705,24 @@ async fn proxy_handler(
                             }
                             Ok(())
                         }),
+                        element!("script[type]", |el| {
+                            if let Some(type_val) = el.get_attribute("type") {
+                                if let Some(dash_pos) = type_val.find('-') {
+                                    let prefix = &type_val[..dash_pos];
+                                    if prefix.len() >= 8 && prefix.chars().all(|c| c.is_ascii_hexdigit()) {
+                                        let real_type = &type_val[dash_pos + 1..];
+                                        if real_type == "module" {
+                                            let _ = el.set_attribute("type", "module");
+                                        } else if real_type == "text/javascript" {
+                                            let _ = el.remove_attribute("type");
+                                        } else {
+                                            let _ = el.set_attribute("type", real_type);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(())
+                        }),
                         element!("script[src]", move |el| {
                             if let Some(val) = el.get_attribute("src") {
                                 if let Some(rewritten) = rw2(&val) {
@@ -1613,7 +1631,6 @@ fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
         if quote_char.is_some() && rest.starts_with(quote_char.unwrap()) {
             rest = &rest[1..];
         }
-
         if rest.starts_with(')') {
             rest = &rest[1..];
         }
