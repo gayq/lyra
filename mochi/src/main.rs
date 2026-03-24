@@ -69,6 +69,8 @@ const CDN_DOMAINS: &[&str] = &[
     "cdn.jsdelivr.net",
     "raw.githubusercontent.com",
     "gn-math.dev",
+    "fonts.googleapis.com",
+    "fonts.gstatic.com",
 ];
 
 async fn disk_cache_cleanup_task(max_dir_size_bytes: u64, max_age_secs: u64) {
@@ -136,7 +138,7 @@ async fn main() {
     let asset_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::limited(10))
+        .redirect(Policy::none())
         .pool_idle_timeout(Duration::from_secs(300))
         .pool_max_idle_per_host(32)
         .tcp_nodelay(true)
@@ -151,7 +153,7 @@ async fn main() {
     let html_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::limited(10))
+        .redirect(Policy::none())
         .pool_idle_timeout(Duration::from_secs(300))
         .pool_max_idle_per_host(16)
         .tcp_nodelay(true)
@@ -444,10 +446,20 @@ async fn proxy_handler(
     req_builder = req_builder.header("Sec-Ch-Ua-Mobile", "?0");
     req_builder = req_builder.header("Sec-Ch-Ua-Platform", "\"Windows\"");
     req_builder = req_builder.header("Accept-Language", "en-US,en;q=0.9");
-    req_builder = req_builder.header("Sec-Fetch-Site", "same-origin");
-    req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
-    req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
-    req_builder = req_builder.header("Priority", "u=1, i");
+    let looks_like_html_page = target_url_string.ends_with(".html") || target_url_string.ends_with(".htm");
+    if looks_like_html_page {
+        req_builder = req_builder.header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+        req_builder = req_builder.header("Sec-Fetch-Site", "cross-site");
+        req_builder = req_builder.header("Sec-Fetch-Mode", "navigate");
+        req_builder = req_builder.header("Sec-Fetch-Dest", "document");
+        req_builder = req_builder.header("Sec-Fetch-User", "?1");
+        req_builder = req_builder.header("Upgrade-Insecure-Requests", "1");
+    } else {
+        req_builder = req_builder.header("Sec-Fetch-Site", "same-origin");
+        req_builder = req_builder.header("Sec-Fetch-Mode", "cors");
+        req_builder = req_builder.header("Sec-Fetch-Dest", "empty");
+        req_builder = req_builder.header("Priority", "u=1, i");
+    }
 
     let origin = target_url.origin().ascii_serialization();
     req_builder = req_builder.header("Referer", format!("{}/", origin));
@@ -467,7 +479,22 @@ async fn proxy_handler(
     let upstream_res = match req_builder.send().await {
         Ok(res) => res,
         Err(e) => {
-            return (StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response();
+            if e.is_connect() || e.is_request() {
+                let retry_builder = client.request(method.clone(), target_url.clone())
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Accept", "text/css,*/*;q=0.1")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Origin", target_url.origin().ascii_serialization())
+                    .header("Referer", format!("{}/", target_url.origin().ascii_serialization()));
+                match retry_builder.send().await {
+                    Ok(res) => res,
+                    Err(e2) => {
+                        return (StatusCode::BAD_GATEWAY, format!("upstream error: {}", e2)).into_response();
+                    }
+                }
+            } else {
+                return (StatusCode::BAD_GATEWAY, format!("upstream error: {}", e)).into_response();
+            }
         },
     };
 
@@ -802,6 +829,35 @@ async fn proxy_handler(
         && method == Method::GET
         && !headers.contains_key("upgrade")
         && !headers.contains_key("range");
+
+    if is_css && status.is_success() && method == Method::GET {
+        safe_headers.remove("content-length");
+        let full_body = match upstream_res.bytes().await {
+            Ok(b) => b,
+            Err(_) => return (StatusCode::BAD_GATEWAY, "failed to read upstream css body").into_response(),
+        };
+        let css_str = String::from_utf8_lossy(&full_body);
+        let rewritten_css = rewrite_css_urls(&css_str, &target_url);
+        let rewritten_bytes = Bytes::from(rewritten_css.into_bytes());
+
+        if !should_cache {
+            safe_headers.insert("Cache-Control", HeaderValue::from_static(get_cdn_cache_control(&target_url_string)));
+        } else {
+            let cc = get_cdn_cache_control(&target_url_string);
+            safe_headers.insert("Cache-Control", HeaderValue::from_static(cc));
+        }
+
+        if rewritten_bytes.len() <= MAX_CACHE_SIZE_BYTES {
+            let cached = Arc::new(CachedResponse {
+                status: status.as_u16(),
+                headers: safe_headers.clone(),
+                body: rewritten_bytes.clone(),
+            });
+            state.cache.insert(target_url_str.to_string(), cached).await;
+        }
+
+        return (status, safe_headers, Body::from(rewritten_bytes)).into_response();
+    }
 
     if should_cache {
         let (sender_tx, sender_rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(512);
@@ -1525,6 +1581,72 @@ fn is_likely_static_asset_fast(url: &str, matcher: Option<&AhoCorasick>) -> bool
 
 fn is_cdn_url(url: &str) -> bool {
     CDN_DOMAINS.iter().any(|domain| url.contains(domain))
+}
+
+fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
+    let mut result = String::with_capacity(css.len() + 512);
+    let mut rest = css;
+
+    while let Some(url_pos) = rest.to_lowercase().find("url(") {
+        result.push_str(&rest[..url_pos]);
+        rest = &rest[url_pos + 4..];
+
+        let quote_char = if rest.starts_with('"') {
+            rest = &rest[1..];
+            Some('"')
+        } else if rest.starts_with('\'') {
+            rest = &rest[1..];
+            Some('\'')
+        } else {
+            None
+        };
+
+        let end_pos = if let Some(q) = quote_char {
+            rest.find(q).unwrap_or(rest.len())
+        } else {
+            rest.find(')').unwrap_or(rest.len())
+        };
+
+        let url_val = &rest[..end_pos];
+        rest = &rest[end_pos..];
+
+        if quote_char.is_some() && rest.starts_with(quote_char.unwrap()) {
+            rest = &rest[1..];
+        }
+
+        if rest.starts_with(')') {
+            rest = &rest[1..];
+        }
+
+        let resolved = if url_val.starts_with("http://") || url_val.starts_with("https://") {
+            Some(url_val.to_string())
+        } else if url_val.starts_with("//") {
+            Some(format!("https:{}", url_val))
+        } else if !url_val.is_empty() && !url_val.starts_with("data:") && !url_val.starts_with("#") {
+            base_url.join(url_val).ok().map(|u| u.to_string())
+        } else {
+            None
+        };
+
+        if let Some(abs_url) = resolved {
+            result.push_str("url(");
+            result.push('"');
+            result.push_str(MOCHI_PREFIX);
+            result.push_str(&encode_mochi_url(&abs_url));
+            result.push('/');
+            result.push('"');
+            result.push(')');
+        } else {
+            result.push_str("url(");
+            if let Some(q) = quote_char { result.push(q); }
+            result.push_str(url_val);
+            if let Some(q) = quote_char { result.push(q); }
+            result.push(')');
+        }
+    }
+
+    result.push_str(rest);
+    result
 }
 
 fn get_cdn_cache_control(url: &str) -> &'static str {
