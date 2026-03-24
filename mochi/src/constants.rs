@@ -68,14 +68,6 @@ pub const SCRIPT_PART_1: &str = r##"<script>
                 configurable: true
             });
         }
-
-        const originalBeacon = navigator.sendBeacon;
-        if (originalBeacon) {
-            navigator.sendBeacon = function(url, data) {
-                if (typeof url === 'string' && url.includes("cdn-cgi")) return true;
-                return originalBeacon.call(navigator, rewrite(url), data);
-            };
-        }
     } catch(e) {}
         window.URL.prototype = _U.prototype;
         window.URL.createObjectURL = function(o) { return _U.createObjectURL(o); };

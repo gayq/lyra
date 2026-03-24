@@ -168,7 +168,6 @@ async fn main() {
         "googletagmanager.com",
         "doubleclick.net",
         "adsbygoogle",
-        "cdn-cgi/rum",
     ];
     
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
@@ -238,15 +237,7 @@ async fn proxy_handler(
 ) -> Response {
     let mut valid_token: Option<String> = None;
     let original_uri = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
-    if original_uri.contains("cdn-cgi/rum") || original_uri.contains("cdn-cgi/speculation") {
-        return (StatusCode::OK, HeaderMap::new(), Body::empty()).into_response();
-    }
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
-
-    if path_and_query.contains("cdn-cgi/rum") || path_and_query.contains("cdn-cgi/speculation") {
-        return (StatusCode::OK, HeaderMap::new(), Body::empty()).into_response();
-    }
-
     let is_cover_request = path_and_query.contains(constants::COVER_PREFIX);
     let prefix = if is_cover_request {
         constants::COVER_PREFIX
