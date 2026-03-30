@@ -241,7 +241,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 }
 
-:443 {
+:80 {
     tls {
         on_demand
     }
