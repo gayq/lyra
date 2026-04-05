@@ -22,7 +22,7 @@ a really cool web-proxy
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 
 ## stars
-<a href="https://www.star-history.com/#l4uy/waves&type=date&legend=top-left">
+<a href="https://www.star-history.com/#enniuu/waves&type=date&legend=top-left">
   <img src="https://api.star-history.com/svg?repos=l4uy/waves&type=date&legend=top-left" width="600" />
 </a>
 
