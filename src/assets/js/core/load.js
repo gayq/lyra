@@ -195,8 +195,8 @@ export function initializeLoad() {
         this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
             <label>successfully updated ฅ^>⩊<^ฅ</label>
-            <p>if you don’t see any changes or the site breaks, do Ctrl + Shift + R a few times.</p>
-            <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
+            <p>waves back up for a month on slower servers, updates next school year</p>
+            <button class="prompt-close-btn" id="updateSuccessClose">okay</button>
           `;
       }
       this.closeBtn = document.getElementById("updateSuccessClose");
