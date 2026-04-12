@@ -11,11 +11,6 @@ fi
 set -euo pipefail
 trap 'echo "[setup] error at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-  echo "this script must be run as root or using sudo!"
-  exit 1
-fi
-
 AUTO_YES=0
 for arg in "$@"; do
   case "$arg" in
