@@ -28,6 +28,7 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.24"
 mimalloc = "0.1"
 dashmap = "6"
+sysinfo = "0.32"
 
 [profile.release]
 lto = true

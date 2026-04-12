@@ -1,11 +1,4 @@
-use std::{
-	io::{BufReader, Cursor},
-	net::SocketAddr,
-	path::PathBuf,
-	pin::Pin,
-	str::FromStr,
-	sync::Arc,
-};
+use std::{io::{BufReader, Cursor}, net::SocketAddr, path::PathBuf, pin::Pin, str::FromStr, sync::Arc};
 
 use anyhow::Context;
 #[cfg(not(target_os = "windows"))]

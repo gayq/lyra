@@ -10,20 +10,10 @@ use cfg_if::cfg_if;
 use event_listener::Event;
 use futures_util::{future::Either, FutureExt, SinkExt, StreamExt};
 use log::{debug, trace};
-use tokio::{
-	io::AsyncWriteExt,
-	net::TcpStream,
-	select,
-	task::JoinSet,
-	time::interval,
-};
+use tokio::{io::AsyncWriteExt, net::TcpStream, select, task::JoinSet, time::interval};
 use tokio_util::compat::{FuturesAsyncReadCompatExt, FuturesAsyncWriteCompatExt};
 use uuid::Uuid;
-use wisp_mux::{
-	packet::{CloseReason, ConnectPacket},
-	stream::MuxStream,
-	ServerMux,
-};
+use wisp_mux::{packet::{CloseReason, ConnectPacket}, stream::MuxStream, ServerMux};
 use wispnet::route_wispnet;
 
 use crate::{
@@ -45,8 +35,14 @@ async fn copy_fast(
 	#[cfg(not(feature = "speed-limit"))]
 	{
 		let mut muxio = mux.into_async_rw().compat();
-		let mut tcpio = tcp;
-		tokio::io::copy_bidirectional(&mut muxio, &mut tcpio).await?;
+		let mut tcpio = tokio::io::BufReader::with_capacity(CONFIG.stream.buffer_size, tcp);
+		tokio::io::copy_bidirectional_with_sizes(
+			&mut muxio,
+			&mut tcpio,
+			CONFIG.stream.buffer_size,
+			CONFIG.stream.buffer_size,
+		)
+		.await?;
 		return Ok(());
 	}
 

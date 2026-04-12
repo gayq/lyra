@@ -26,7 +26,7 @@ body.games-view {
   background-color: var(--bg-body);
 }
 
-body.games-view .yay {
+body.games-view .meow {
   overflow-y: auto;
   overscroll-behavior: none;
 }
@@ -118,12 +118,6 @@ body.games-view .games-page {
   gap: 8px;
 }
 
-.game-grid-sentinel {
-  height: 1px;
-  width: 100%;
-  pointer-events: none;
-}
-
 .game-card {
   border-radius: 10px;
   background-color: var(--game-card-bg);
@@ -158,6 +152,7 @@ body.games-view .games-page {
   display: block;
   filter: brightness(var(--game-cover-brightness));
   transition: all 0.05s ease;
+  will-change: transform, filter;
 }
 
 .game-card:hover .game-cover img {
@@ -242,25 +237,6 @@ body.games-view .games-page {
   text-align: center;
   margin: 18px 0 6px;
   display: none;
-}
-
-.game-load-more-btn {
-  margin: 12px auto 0;
-  margin-top: 40px;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 15px;
-  background-color: var(--bg-surface-3);
-  color: var(--color-tab);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.1s ease;
-  display: none;
-}
-
-.game-load-more-btn:hover {
-  color: var(--text-white);
-  background-color: var(--active-bg);
 }
 
 .game-cover.no-cover {

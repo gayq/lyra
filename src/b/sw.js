@@ -1012,8 +1012,28 @@ async function mochiFetch(request, realUrl) {
 }
 
 const MOCHI_TIMEOUT_MS = 15000;
-const PROXY_TIMEOUT_MS = 3000;
+const PROXY_TIMEOUT_MS = 10000;
+const PROXY_NAV_TIMEOUT_MS = 12000;
+const PROXY_SUBRESOURCE_TIMEOUT_MS = 8000;
 const MOCHI_SECONDARY_MS = 12000;
+
+let _lastTransportError = 0;
+let _consecutiveProxyFailures = 0;
+function notifyTransportError() {
+  _consecutiveProxyFailures++;
+  const now = Date.now();
+  if (now - _lastTransportError < 3000) return;
+  _lastTransportError = now;
+  self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then(clients => {
+    for (const client of clients) {
+      client.postMessage({ type: 'transport-error', failures: _consecutiveProxyFailures });
+    }
+  });
+}
+
+function resetProxyHealth() {
+  _consecutiveProxyFailures = 0;
+}
 
 async function tryWithTimeout(promise, ms) {
   let timer;
@@ -1034,7 +1054,7 @@ function timeoutFallbackResponse(request, url) {
   const dest = request.destination;
   const isScript = dest === 'script' || (url.pathname || '').toLowerCase().endsWith('.js') || (url.pathname || '').toLowerCase().endsWith('.mjs');
   if (isScript) {
-    return new Response('/* upstream timeout */', {
+    return new Response('/* upstream timeout! */', {
       status: 200,
       headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
     });
@@ -1432,19 +1452,33 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (scramjet.route(event)) {
+          const timeoutMs = isNavigate ? PROXY_NAV_TIMEOUT_MS : PROXY_SUBRESOURCE_TIMEOUT_MS;
           try {
-            const proxyP = tryWithTimeout(scramjet.fetch(event), PROXY_TIMEOUT_MS);
-            const mochiP = realUrl && realUrl.startsWith('http')
-              ? tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS)
-              : Promise.resolve(null);
+            let response = null;
+            const proxyP = scramjet.fetch(event).catch(e => { throw e; });
+            const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
 
-            let response = await proxyP;
-            if (!response && realUrl && realUrl.startsWith('http')) {
-              response = await mochiP;
+            if (isNavigate && realUrl && realUrl.startsWith('http')) {
+              const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+              response = await timedProxyP;
+              if (response && response.ok) resetProxyHealth();
+              if (!response || (response.status >= 502 && response.status <= 504)) {
+                if (!response) notifyTransportError();
+                response = await mochiP;
+              }
+            } else {
+              response = await timedProxyP;
+              if (response && response.ok) resetProxyHealth();
+              if (!response && realUrl && realUrl.startsWith('http')) {
+                notifyTransportError();
+                response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+              }
             }
+
             if (response) return patchHtml(response);
             return timeoutFallbackResponse(request, url);
           } catch (e) {
+            notifyTransportError();
             if (realUrl && realUrl.startsWith('http')) {
               const m = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
               if (m) return patchHtml(m);
@@ -1456,19 +1490,33 @@ self.addEventListener("fetch", (event) => {
 
       if (isUltraviolet) {
         if (uv.route(event)) {
+          const timeoutMs = isNavigate ? PROXY_NAV_TIMEOUT_MS : PROXY_SUBRESOURCE_TIMEOUT_MS;
           try {
-            const proxyP = tryWithTimeout(uv.fetch(event), PROXY_TIMEOUT_MS);
-            const mochiP = realUrl && realUrl.startsWith('http')
-              ? tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS)
-              : Promise.resolve(null);
+            let response = null;
+            const proxyP = uv.fetch(event).catch(e => { throw e; });
+            const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
 
-            let response = await proxyP;
-            if (!response && realUrl && realUrl.startsWith('http')) {
-              response = await mochiP;
+            if (isNavigate && realUrl && realUrl.startsWith('http')) {
+              const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+              response = await timedProxyP;
+              if (response && response.ok) resetProxyHealth();
+              if (!response || (response.status >= 502 && response.status <= 504)) {
+                if (!response) notifyTransportError();
+                response = await mochiP;
+              }
+            } else {
+              response = await timedProxyP;
+              if (response && response.ok) resetProxyHealth();
+              if (!response && realUrl && realUrl.startsWith('http')) {
+                notifyTransportError();
+                response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+              }
             }
+
             if (response) return patchHtml(response);
             return timeoutFallbackResponse(request, url);
           } catch (e) {
+            notifyTransportError();
             if (realUrl && realUrl.startsWith('http')) {
               const m = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
               if (m) return patchHtml(m);
@@ -1512,22 +1560,32 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (CACHEABLE_STATIC_EXT.test(path) || path.startsWith('/assets/') || path.startsWith('/bmux/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path.startsWith('/s/')) {
-          const cachePromise = caches.match(request);
-          const networkPromise = fetch(request).then(res => {
-            if (res && res.ok) {
-              const clone = res.clone();
-              caches.open(RUNTIME_CACHE).then(c => {
-                c.put(request, clone);
-                capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
-              });
-            }
-            return res;
-          }).catch(() => null);
+          const isHashed = /[-_.][a-f0-9]{6,16}\.\w+$/i.test(path);
 
-          const cached = await cachePromise;
-          if (cached) return cached;
-          
-          const res = await networkPromise;
+          const cached = await caches.match(request);
+          if (cached) {
+            if (!isHashed) {
+              fetch(request).then(res => {
+                if (res && res.ok) {
+                  caches.open(RUNTIME_CACHE).then(c => {
+                    c.put(request, res);
+                    capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+                  });
+                }
+              }).catch(() => {});
+            }
+            return cached;
+          }
+
+          const res = await fetch(request).catch(() => null);
+          if (res && res.ok) {
+            const clone = res.clone();
+            caches.open(RUNTIME_CACHE).then(c => {
+              c.put(request, clone);
+              capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+            });
+            return res;
+          }
           if (res) return res;
         }
 

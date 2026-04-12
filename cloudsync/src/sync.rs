@@ -1,17 +1,10 @@
-use axum::{
-    extract::{State, Json},
-    http::StatusCode,
-    response::IntoResponse,
-};
+use axum::{extract::{State, Json}, http::StatusCode, response::IntoResponse};
 use tower_cookies::Cookies;
 use rusqlite::params;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
-use aes_gcm::{
-    aead::Aead,
-    Nonce,
-};
+use aes_gcm::{aead::Aead, Nonce};
 use rand::rngs::OsRng;
 use rand::RngCore;
 use async_compression::Level;
@@ -26,6 +19,7 @@ const IV_LENGTH: usize = 12;
 const MAX_JSON_DEPTH: usize = 120;
 const MAX_RAW_SIZE: usize = 80 * 1024 * 1024;
 const MAX_BLOB_SIZE: usize = 80 * 1024 * 1024;
+const MAX_DECOMPRESSED_SIZE: usize = 80 * 1024 * 1024;
 
 fn check_json_depth(val: &serde_json::Value, depth: usize) -> bool {
     if depth > MAX_JSON_DEPTH {
@@ -90,7 +84,8 @@ pub async fn upload(
     if !check_json_depth(&payload, 0) {
         return (StatusCode::BAD_REQUEST, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("json too deeply nested".into()) }));
     }
-    let json_bytes = serde_json::to_vec(&payload).unwrap();
+    let json_str = payload.to_string();
+    let json_bytes = json_str.as_bytes();
     if json_bytes.len() > MAX_RAW_SIZE {
         return (StatusCode::PAYLOAD_TOO_LARGE, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("payload too large".into()) }));
     }
@@ -196,6 +191,9 @@ pub async fn download(
             let mut json_bytes = Vec::new();
             if let Err(_) = decoder.read_to_end(&mut json_bytes).await {
                 return (StatusCode::INTERNAL_SERVER_ERROR, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("decompression failed".into()) }));
+            }
+            if json_bytes.len() > MAX_DECOMPRESSED_SIZE {
+                return (StatusCode::PAYLOAD_TOO_LARGE, Json(SyncResponse { success: false, data: None, updated_at: None, error: Some("payload too large".into()) }));
             }
             let json_data: serde_json::Value = match serde_json::from_slice(&json_bytes) {
                 Ok(j) => j,

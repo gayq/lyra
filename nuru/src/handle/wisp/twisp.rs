@@ -1,8 +1,4 @@
-use std::{
-	collections::HashMap,
-	os::fd::{AsRawFd, RawFd},
-	sync::Arc,
-};
+use std::{collections::HashMap, os::fd::{AsRawFd, RawFd}, sync::Arc};
 
 use async_trait::async_trait;
 use bytes::{Buf, Bytes};

@@ -86,13 +86,11 @@ pub async fn generate_stats() -> anyhow::Result<String> {
 	#[cfg(target_os = "windows")]
 	let memory = MemoryStats {};
 
-	let clients_snapshot: Vec<_> = CLIENTS
-		.iter()
-		.map(|client| (client.key().clone(), client.value().0.clone(), client.value().1.clone()))
-		.collect();
-
-	let mut clients = HashMap::with_capacity(clients_snapshot.len());
-	for (id, stream_map, client_type) in clients_snapshot {
+	let mut clients = HashMap::with_capacity(CLIENTS.len());
+	for client in CLIENTS.iter() {
+		let id = client.key().clone();
+		let stream_map = client.value().0.clone();
+		let client_type = client.value().1.clone();
 		clients.insert(
 			id,
 			ClientStats {

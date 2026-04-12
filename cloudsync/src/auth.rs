@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    http::{StatusCode},
-    response::{IntoResponse, Json},
-};
+use axum::{extract::State, http::StatusCode, response::{IntoResponse, Json}};
 use tower_cookies::{Cookies, Cookie};
 use tower_cookies::cookie::SameSite;
 use bcrypt::{hash, verify};
@@ -259,7 +255,8 @@ fn get_token_cache() -> &'static DashMap<i64, (i64, Instant)> {
 }
 
 pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i64, String), ()> {
-    let token = cookies.get(COOKIE_NAME).map(|c| c.value().to_string()).ok_or(())?;
+    let token_cookie = cookies.get(COOKIE_NAME).ok_or(())?;
+    let token = token_cookie.value();
     
     let token_data = decode::<Claims>(
         &token,

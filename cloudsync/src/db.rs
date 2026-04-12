@@ -1,31 +1,34 @@
-use r2d2_sqlite::SqliteConnectionManager;
 use r2d2::Pool;
-
+use r2d2_sqlite::SqliteConnectionManager;
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
-pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
-    let manager = SqliteConnectionManager::file(".db")
-        .with_init(|conn| {
-            conn.execute_batch(
-                "PRAGMA journal_mode = WAL;
+pub fn init_pool(
+    pool_max: u32,
+    pool_min_idle: u32,
+    cache_size_kb: i64,
+) -> Result<DbPool, Box<dyn std::error::Error>> {
+    let manager = SqliteConnectionManager::file(".db").with_init(move |conn| {
+        conn.execute_batch(&format!(
+            "PRAGMA journal_mode = WAL;
                  PRAGMA synchronous = NORMAL;
                  PRAGMA foreign_keys = ON;
                  PRAGMA busy_timeout = 15000;
-                 PRAGMA cache_size = -20000;
+                 PRAGMA cache_size = -{};
                  PRAGMA mmap_size = 268435456;
                  PRAGMA temp_store = MEMORY;
                  PRAGMA auto_vacuum = INCREMENTAL;
-                 PRAGMA wal_autocheckpoint = 1000;"
-            )
-        });
+                 PRAGMA wal_autocheckpoint = 1000;",
+            cache_size_kb
+        ))
+    });
     let pool = Pool::builder()
-        .max_size(50)
-        .min_idle(Some(10))
+        .max_size(pool_max)
+        .min_idle(Some(pool_min_idle))
         .connection_timeout(std::time::Duration::from_secs(10))
         .build(manager)?;
     let conn = pool.get()?;
-    
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,13 +39,11 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
         )",
         [],
     )?;
-    
+
     {
         let mut stmt = conn.prepare("PRAGMA table_info(users)")?;
-        let rows = stmt.query_map([], |row| {
-            row.get::<_, String>(1)
-        })?;
-        
+        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+
         let mut has_token_version = false;
         for name in rows {
             if let Ok(n) = name {
@@ -52,9 +53,12 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
                 }
             }
         }
-        
+
         if !has_token_version {
-            let _ = conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1", []);
+            let _ = conn.execute(
+                "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1",
+                [],
+            );
         }
     }
 
@@ -67,8 +71,11 @@ pub fn init_pool() -> Result<DbPool, Box<dyn std::error::Error>> {
         )",
         [],
     )?;
-    
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)", [])?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+        [],
+    )?;
 
     Ok(pool)
 }
