@@ -11,6 +11,11 @@ fi
 set -euo pipefail
 trap 'echo "[setup] error at line $LINENO: $BASH_COMMAND" >&2' ERR
 
+if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+  echo "this script must be run as root or using sudo!"
+  exit 1
+fi
+
 AUTO_YES=0
 for arg in "$@"; do
   case "$arg" in
@@ -237,7 +242,7 @@ PUBLIC_IP="$(curl -s4 --max-time 8 ifconfig.me || true)"
 [ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}' || true)"
 
 if [ -z "$PUBLIC_IP" ]; then
-  echo "couldn't detect public IP!"
+  echo "couldn't detect public ip!"
   exit 1
 fi
 
