@@ -1,11 +1,9 @@
 use std::str::FromStr;
 
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use log::debug;
-use tokio::{
-	io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-	select,
-};
+use tokio::{io::{AsyncBufReadExt, AsyncWriteExt, BufReader}, select};
 use tokio_websockets::CloseCode;
 use uuid::Uuid;
 use wisp_mux::packet::{CloseReason, ConnectPacket, StreamType};
@@ -30,19 +28,16 @@ pub async fn handle_wsproxy(
 		return Ok(());
 	}
 
-	let Some(vec) = path
-		.split('/')
-		.next_back()
-		.map(|x| x.split(':').collect::<Vec<_>>())
-	else {
+	let Some(last_segment) = path.rsplit('/').next() else {
 		let _ = ws.close(CloseCode::POLICY_VIOLATION, "invalid path").await;
 		return Ok(());
 	};
-	let Some(host) = vec.first().map(ToString::to_string) else {
+	let Some((host, port_str)) = last_segment.split_once(':') else {
 		let _ = ws.close(CloseCode::POLICY_VIOLATION, "invalid host").await;
 		return Ok(());
 	};
-	let Some(port) = vec.get(1).and_then(|x| FromStr::from_str(x).ok()) else {
+	let host = host.to_string();
+	let Some(port) = FromStr::from_str(port_str).ok() else {
 		let _ = ws.close(CloseCode::POLICY_VIOLATION, "invalid port").await;
 		return Ok(());
 	};
@@ -134,7 +129,7 @@ pub async fn handle_wsproxy(
 
 	match stream {
 		ClientStream::Tcp(stream) => {
-			let mut stream = BufReader::new(stream);
+			let mut stream = BufReader::with_capacity(CONFIG.stream.buffer_size, stream);
 			let ret: anyhow::Result<()> = async {
 				loop {
 					select! {
@@ -142,6 +137,7 @@ pub async fn handle_wsproxy(
 							match x.transpose()? {
 								Some(WebSocketFrame::Data(data)) => {
 									stream.write_all(&data).await?;
+									stream.flush().await?;
 								}
 								Some(WebSocketFrame::Close) => {
 									stream.shutdown().await?;
@@ -156,8 +152,9 @@ pub async fn handle_wsproxy(
 							if len == 0 {
 								break Ok(());
 							}
-							ws.write(x.to_vec()).await?;
+							let chunk = Bytes::copy_from_slice(&x[..len]);
 							stream.consume(len);
+							ws.write(chunk).await?;
 						}
 					}
 				}
@@ -187,7 +184,9 @@ pub async fn handle_wsproxy(
 							}
 						}
 						size = stream.recv(&mut data) => {
-							ws.write(data[..size?].to_vec()).await?;
+							let size = size?;
+							let chunk = Bytes::copy_from_slice(&data[..size]);
+							ws.write(chunk).await?;
 						}
 					}
 				}

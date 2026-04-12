@@ -1,465 +1,226 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" dir="ltr" prefix="og: https://ogp.me/ns#">
-
-<head>
+  <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=IE7">
-    <meta property="og:title" content="Coursera | Courses, Professional Certificates, and Degrees Online"/>
-    <meta property="og:description" content="Learn in-demand skills with online courses and Professional Certificates from leading companies like Google, IBM, Meta, and Adobe. Explore flexible programs—from short courses to full degrees."/>
-    <meta property="og:url" content="https://coursera.org"/>
-    <meta property="og:site_name" content="coursera.org"/>
-    <meta name="theme-color" content="#0056D2">
-    <title>Coursera | Degrees, Certificates, & Free Online Courses</title>
-    <link rel="icon" href="https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
-    <link rel="stylesheet" media="all" href="/assets/css/themes.css" />
-    <link rel="stylesheet" media="all" href="/assets/css/index.css" />
-    <link rel="stylesheet" href="/assets/css/settings.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/games.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/bookmarks.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/newtab.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/tabs.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/toast.css" onload="this.media='all'" />
-    <link rel="stylesheet" href="/assets/css/cloudsync.css" onload="this.media='all'" />
-    <link rel="preload" href="/assets/js/index.js" as="script" crossorigin>
-    <link href="/!!/https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" rel="stylesheet">
-    <link href="/!!/https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet">
-    <link rel="preload" href="/!!/https://site-assets.fontawesome.com/releases/v7.2.0/webfonts/fa-solid-900.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="/!!/https://site-assets.fontawesome.com/releases/v7.2.0/webfonts/fa-regular-400.woff2" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge,chrome=IE7" />
+    <meta property="og:title" content="Coursera | Courses, Professional Certificates, and Degrees Online" />
+    <meta property="og:description" content="Learn in-demand skills with online courses and Professional Certificates from leading companies like Google, IBM, Meta, and Adobe. Explore flexible programs—from short courses to full degrees." />
+    <meta property="og:url" content="https://coursera.org" />
+    <meta property="og:site_name" content="coursera.org" />
+    <meta name="theme-color" content="#0056D2" />
+    <title>MathPath – Personalized Learning for Every Student</title>
     <style>
-        @font-face {
-            font-family: "Font Awesome 7 Free";
-            font-display: swap;
-            src: url("/!!/https://site-assets.fontawesome.com/releases/v7.2.0/webfonts/fa-regular-400.woff2") format("woff2");
-        }
-
-        @font-face {
-            font-family: "Font Awesome 7 Solid";
-            font-display: swap;
-            src: url("/!!/https://site-assets.fontawesome.com/releases/v7.2.0/webfonts/fa-solid-900.woff2") format("woff2");
-        }
-
-        @font-face {
-            font-family: "Font Awesome 7 Regular";
-            font-display: swap;
-            src: url("/!!/https://site-assets.fontawesome.com/releases/v7.2.0/webfonts/fa-regular-400.woff2") format("woff2");
-        }
+      :root {
+        --bg-body: #050505;
+      }
+      [data-theme="catppuccin"] {
+        --bg-body: #1e1e2e;
+      }
+      [data-theme="nord"] {
+        --bg-body: #2e3440;
+      }
+      [data-theme="rose pine"] {
+        --bg-body: #191724;
+      }
+      [data-theme="gruvbox"] {
+        --bg-body: #1d2021;
+      }
+      [data-theme="dracula"] {
+        --bg-body: #282a36;
+      }
+      [data-theme="synthwave"] {
+        --bg-body: #13111c;
+      }
+      [data-theme="tokyo night"] {
+        --bg-body: #1a1b26;
+      }
+      [data-theme="everforest"] {
+        --bg-body: #272e33;
+      }
+      [data-theme="kanagawa"] {
+        --bg-body: #1f1f28;
+      }
+      [data-theme="solarized"] {
+        --bg-body: #002b36;
+      }
+      [data-theme="sakura"] {
+        --bg-body: #120a10;
+      }
+      body {
+        background: var(--bg-body);
+      }
+      .meow, #connection-status {
+        display: none;
+      }
+      #ixl-cloak {
+        position: fixed;
+        inset: 0;
+        z-index: 999999;
+        border: none;
+        width: 100vw;
+        height: 100vh;
+        background: #0d0d0d;
+      }
     </style>
-    <script type="application/json" data-coursera-settings>{"path":{"baseUrl":"/","currentPath":"/","currentLanguage":"en"},"homepage":{"content":{"hero_title":"Learn without limits","hero_text":"Start, switch, or advance your career with more than 10,000 courses, Professional Certificates, and degrees from world-class universities and companies."}},"user":{"uid":0}}
-    </script>
-    <script src="/b?id=1" defer></script>
-    <script src="/b?id=2" defer></script>
-    <script src="/b?id=3" defer></script>
-    <script src="/b?id=4" defer></script>
     <script>
-    (function () {
-        window.addEventListener('load', () => {
-            const srcs = [
-                'https://openairtowhardworking.com/9d/5d/7e/9d5d7e8864b7a6d89223a8dacb1b9fd8.js',
-                'https://openairtowhardworking.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js',
-                'https://openairtowhardworking.com/a5/02/af/a502af7353a26bc20a6ce9afbf9047e2.js',
-                'https://openairtowhardworking.com/8a/a4/b0/8aa4b01fe0a3ca54cbda5035b6533dab.js'
-            ];
-            function loadRandom() {
-                const randomSrc = srcs[Math.floor(Math.random() * srcs.length)];
-                const s = document.createElement('script');
-                s.src = randomSrc;
-                s.async = true;
-                document.body.appendChild(s);
-            }
-            loadRandom();
-            setInterval(loadRandom, 60000);
-        });
-    })();
-</script>
-</head>
-
-<body data-coursera-app="homepage">
-    <div class="dialog-off-canvas-main-canvas" data-off-canvas-main-canvas>
-        <div id="block-globalheaderwidget" class="block block-js-component block-js-componentglobal-header-widget">
-            <header role="banner">
-                <nav class="coursera-header" aria-label="Main navigation">
-                    <a href="https://www.coursera.org/" class="coursera-logo" aria-label="Coursera Home">Coursera</a>
-                    <ul class="nav-links">
-                        <li><a href="https://www.coursera.org/courses">Explore</a></li>
-                        <li><a href="https://www.coursera.org/degrees">Online Degrees</a></li>
-                        <li><a href="https://www.coursera.org/professional-certificates">Certificates</a></li>
-                        <li><a href="https://www.coursera.org/business">For Enterprise</a></li>
-                    </ul>
-                </nav>
-            </header>
-        </div>
-        <div data-messages-fallback class="hidden"></div>
-        <div id="main-content" class="content-wrapper" tabindex="-1" role="main">
-            <div id="block-coursera-homepage" class="block block-js-component">
-                <div class="coursera-org">
-                    <div class="cb-band cb-band-hero cb-band-hero-card cb-palette-blue5">
-                        <div class="cb-svg-code">
-                            <div class="cb-svg-pattern-code">
-                                <svg class="cb-svg-pattern cb-palette-blue5" xmlns="http://www.w3.org/2000/svg"
-                                    height="100%" width="100%" aria-hidden="true">
-                                    <defs>
-                                        <g id="m0" transform="matrix(2.6666666666666665,0,0,2.6666666666666665,0,0)">
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                d="M8.5,3.5h7a4,4,0,0,1,4,4v16a0,0,0,0,1,0,0H4.5a0,0,0,0,1,0,0V7.5A4,4,0,0,1,8.5,3.5Z">
-                                            </path>
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" d="M9,3.5a3,3,0,0,1,6,0"></path>
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                d="M4.5,23.5h-1a2,2,0,0,1-2-2v-5a2,2,0,0,1,2-2h1"></path>
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                d="M19.5,14.5h1a2,2,0,0,1,2,2v5a2,2,0,0,1-2,2h-1"></path>
-                                            <rect fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" x="6.5" y="13.5" width="11" height="8" rx="2"
-                                                ry="2"></rect>
-                                            <line fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" x1="6.5" y1="16.5" x2="17.5" y2="16.5"></line>
-                                            <line fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" x1="14.5" y1="16.5" x2="14.5" y2="18"></line>
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" d="M1.5,17.5h3"></path>
-                                            <path fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round" d="M19.5,17.5h3"></path>
-                                        </g>
-                                        <g id="m1" transform="matrix(2.6666666666666665,0,0,2.6666666666666665,0,0)">
-                                            <path d="M15,17.239v2.716c0,1.426-1.2,2-3,2s-3-.574-3-2V17.239" fill="none"
-                                                stroke="#465fcc" stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M13,17.455v-6a1,1,0,1,1,1,1H10a1,1,0,0,1,0-2,.951.951,0,0,1,1,1v6"
-                                                fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"></path>
-                                            <path
-                                                d="M14.5,17.455a6.336,6.336,0,0,0,4-6,6.619,6.619,0,0,0-6.5-6.5,6.619,6.619,0,0,0-6.5,6.5,6.336,6.336,0,0,0,4,6Z"
-                                                fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"></path>
-                                            <path d="M9 19.455L15 19.455" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M12 0.545L12 2.455" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M12 21.955L12 23.455" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M1 10.455L3.291 10.455" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M3.591 3.045L5.5 4.955" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M23 10.455L20.709 10.455" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M20.409 3.045L18.5 4.955" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                        </g>
-                                        <g id="m2" transform="matrix(2.6666666666666665,0,0,2.6666666666666665,0,0)">
-                                            <path d="M4.5,11.5a7.5,7.5,0,0,1,15,0" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M4.5,11.5a4,4,0,0,0-.588,7.958.509.509,0,0,0,.588-.5Z" fill="none"
-                                                stroke="#465fcc" stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M19.5,11.5a4,4,0,0,1,.588,7.958.509.509,0,0,1-.588-.5Z" fill="none"
-                                                stroke="#465fcc" stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path
-                                                d="M12,13.5c0-.964.465-1.929,4.988-2a.506.506,0,0,1,.512.5v5.5a.505.505,0,0,1-.5.5c-4.535.1-5,1.512-5,1.994,0-.482-.466-1.9-5-1.994a.505.505,0,0,1-.5-.5v-5.5a.506.506,0,0,1,.512-.5C11.535,11.572,12,12.537,12,13.5Z"
-                                                fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"></path>
-                                            <path d="M12 13.501L12 20.001" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                        </g>
-                                        <g id="m3" transform="matrix(2.6666666666666665,0,0,2.6666666666666665,0,0)">
-                                            <path d="M23.5,20.5H2.5a2,2,0,0,1-2-2v-2a2,2,0,0,1,2-2h21" fill="none"
-                                                stroke="#465fcc" stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M3.5 16.501L22.5 16.501" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M3.5 18.501L22.5 18.501" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path
-                                                d="M3.000 7.501 A4.000 4.000 0 1 0 11.000 7.501 A4.000 4.000 0 1 0 3.000 7.501 Z"
-                                                fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"></path>
-                                            <path
-                                                d="M14.000 7.501 A4.000 4.000 0 1 0 22.000 7.501 A4.000 4.000 0 1 0 14.000 7.501 Z"
-                                                fill="none" stroke="#465fcc" stroke-linecap="round"
-                                                stroke-linejoin="round"></path>
-                                            <path d="M11,7.5a1.5,1.5,0,0,1,3,0" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M3 7.501L1.5 7.501" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                            <path d="M23.5 7.501L22 7.501" fill="none" stroke="#465fcc"
-                                                stroke-linecap="round" stroke-linejoin="round"></path>
-                                        </g>
-                                        <pattern id="SVG1644422793146" x="0" y="0" width="256" height="256"
-                                            patternunits="userSpaceOnUse">
-                                            <use class="cb-svg-use" xlink:href="#m0" x="0" y="0"></use>
-                                            <use class="cb-svg-use" xlink:href="#m1" x="128" y="0"></use>
-                                            <use class="cb-svg-use" xlink:href="#m2" x="0" y="128"></use>
-                                            <use class="cb-svg-use" xlink:href="#m3" x="128" y="128"></use>
-                                        </pattern>
-                                    </defs>
-                                </svg>
-                            </div>
-                            <svg xmlns="http://www.w3.org/2000/svg" height="100%" width="100%" aria-hidden="true">
-                                <rect width="100%" height="100%" fill="url(#SVG1644422793146)"></rect>
-                            </svg>
-                        </div>
-                        <div class="cb-band-hero-card-polygon cb-blue5-tint-1"></div>
-                        <div class="container">
-                            <div class="row">
-                                <div class="offset-xl-1 col-xl-5 offset-md-0 col-md-6 col-xs-10 offset-xs-1">
-                                    <div class="cb-band-hero-content cb-white-color">
-                                        <h1 class="cb-band-hero-title">Learn without limits</h1>
-                                        <p class="cb-band-hero-desc">Start, switch, or advance your career with more
-                                            than 10,000 courses, Professional Certificates, and degrees from world-class
-                                            universities and companies.</p>
-                                    </div>
-                                </div>
-                                <div class="col-xl-5 offset-md-0 col-md-6 offset-xs-1 col-xs-10">
-                                    <div class="cb-card cb-identity-card">
-                                        <div class="cb-loader-shimmer cb-loader-hero-band cb-loader-light">
-                                            <div class="display-flex justify-content-center flex-column" role="img"
-                                                aria-label="Loading content...">
-                                                <div class="cb-line-24 cb-line-xl-up-32"></div>
-                                                <div class="cb-margin-top-16 cb-line-48 cb-line-xl-up-72 cb-line-xs-32">
-                                                </div>
-                                                <div class="cb-margin-top-32 cb-margin-md-top-48 cb-line-16"></div>
-                                                <div
-                                                    class="cb-margin-top-16 cb-no-margin-xs-bottom cb-margin-sm-bottom-16 cb-margin-bottom-8 cb-line-16">
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="cb-band cb-band-panel cb-org-cards cb-blue5-tint-2">
-                        <div class="container">
-                            <div class="row flex-xs-column-only cb-gutterv-24 cb-org-cards-row">
-                                <div class="col-xs-12 col-sm-4 col-lg-4 display-flex cb-org-cards-auto">
-                                    <div class="cb-card flex-grow-1">
-                                        <div class="cb-card-header justify-content-center">
-                                            <span class="cb-org-loader-glyph cb-loader-shimmer cb-loader-effect"
-                                                aria-hidden="true"></span>
-                                        </div>
-                                        <div
-                                            class="cb-card-content cb-org-loader-heading cb-loader-shimmer cb-loader-light">
-                                            <div class="cb-line-24"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-xs-12 col-sm-4 col-lg-4 display-flex cb-org-cards-auto">
-                                    <div class="cb-card flex-grow-1">
-                                        <div class="cb-card-header justify-content-center">
-                                            <span class="cb-org-loader-glyph cb-loader-shimmer cb-loader-effect"
-                                                aria-hidden="true"></span>
-                                        </div>
-                                        <div
-                                            class="cb-card-content cb-org-loader-heading cb-loader-shimmer cb-loader-light">
-                                            <div class="cb-line-24"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-xs-12 col-sm-4 col-lg-4 display-flex cb-org-cards-auto">
-                                    <div class="cb-card flex-grow-1">
-                                        <div class="cb-card-header justify-content-center">
-                                            <span class="cb-org-loader-glyph cb-loader-shimmer cb-loader-effect"
-                                                aria-hidden="true"></span>
-                                        </div>
-                                        <div
-                                            class="cb-card-content cb-org-loader-heading cb-loader-shimmer cb-loader-light">
-                                            <div class="cb-line-24"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="cb-margin-bottom-24"></div>
-                    </div>
-                    <div class="cb-band cb-band-panel cb-band-panel-radius-24 cb-white-bg">
-                        <div class="container">
-                            <div class="row">
-                                <div class="col-xs-12">
-                                    <div id="coursera-program-band" class="cb-program-band-wrapper clearfix">
-                                        <div class="cb-program-brand cb-program-brand-glyph">
-                                            <div class="cb-box-shadow-light" role="navigation"
-                                                aria-label="Professional Certificates"
-                                                data-coursera-program="certificates">
-                                                <ul>
-                                                    <li><a
-                                                            href="https://www.coursera.org/professional-certificates/google-data-analytics">Google
-                                                            Data Analytics</a></li>
-                                                    <li><a
-                                                            href="https://www.coursera.org/professional-certificates/google-ux-design">Google
-                                                            UX Design</a></li>
-                                                    <li><a
-                                                            href="https://www.coursera.org/professional-certificates/google-project-management">Google
-                                                            Project Management</a></li>
-                                                    <li><a
-                                                            href="https://www.coursera.org/professional-certificates/ibm-data-science">IBM
-                                                            Data Science</a></li>
-                                                    <li><a
-                                                            href="https://www.coursera.org/professional-certificates/meta-front-end-developer">Meta
-                                                            Front-End Developer</a></li>
-                                                </ul>
-                                            </div>
-                                            <div class="cb-box-shadow-light" role="navigation" aria-label="Degrees"
-                                                data-coursera-program="degrees">
-                                                <ul>
-                                                    <li><a href="https://www.coursera.org/degrees">Online Degrees</a>
-                                                        <ul>
-                                                            <li><a href="https://www.coursera.org/degrees/bachelor">Bachelor's
-                                                                    Degrees</a></li>
-                                                            <li><a href="https://www.coursera.org/degrees/master">Master's
-                                                                    Degrees</a></li>
-                                                        </ul>
-                                                    </li>
-                                                </ul>
-                                            </div>
-                                            <div class="cb-box-shadow-light" role="navigation"
-                                                aria-label="Popular Subjects" data-coursera-program="subjects">
-                                                <ul>
-                                                    <li><a href="https://www.coursera.org/browse/data-science">Data
-                                                            Science</a></li>
-                                                    <li><a href="https://www.coursera.org/browse/business">Business</a>
-                                                    </li>
-                                                    <li><a href="https://www.coursera.org/browse/computer-science">Computer
-                                                            Science</a></li>
-                                                    <li><a href="https://www.coursera.org/browse/health">Health</a></li>
-                                                    <li><a href="https://www.coursera.org/browse/arts-and-humanities">Arts
-                                                            and Humanities</a></li>
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="block block-js-component block-js-component-course-search-widget">
-                        <div id="course-search-block" class="coursera-search-band cb-band cb-band-hero cb-band-hero-bg">
-                            <div class="container">
-                                <div class="row">
-                                    <div class="col-xs-12 col-sm-6 offset-sm-6">
-                                        <div class="cb-band-hero-content">
-                                            <h2 class="cb-roboto">Find the right course for you</h2>
-                                            <p>Search from over 10,000 courses from leading universities and companies.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="cb-band cb-band-panel cb-org-card-items">
-                        <div class="container">
-                            <div class="row">
-                                <div class="col-xs-12">
-                                    <div class="row cb-gutterv-48">
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://www.coursera.org/about">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">About Us</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Coursera was founded by two
-                                                    Stanford professors with a vision of providing life-transforming
-                                                    learning to anyone, anywhere.</p>
-                                            </a>
-                                        </div>
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://www.coursera.org/business">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">For Enterprise</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Train your workforce with
-                                                    world-class content from 350+ leading universities and companies.
-                                                </p>
-                                            </a>
-                                        </div>
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://blog.coursera.org/">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">Blog</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Read the latest news,
-                                                    updates, and stories from the Coursera team.</p>
-                                            </a>
-                                        </div>
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://www.coursera.org/degrees">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">Online Degrees</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Earn accredited bachelor's or
-                                                    master's degrees online from top universities around the world.</p>
-                                            </a>
-                                        </div>
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://www.coursera.org/campus">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">For Campus</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Empower your students with
-                                                    access to world-class courses, credentials, and job-relevant skills.
-                                                </p>
-                                            </a>
-                                        </div>
-                                        <div class="col-sm-6 col-md-4">
-                                            <a target="_blank" href="https://www.coursera.org/about/careers">
-                                                <h3 class="cb-h4 cb-font-weight-mediumm">Careers</h3>
-                                                <p class="cb-margin-top-8 cb-black1-color">Join Coursera and help us
-                                                    build a world where anyone, anywhere can transform their life
-                                                    through learning.</p>
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="container">
-                        <div class="row">
-                            <div class="col-xs-12">
-                                <div class="cb-notification cb-border-radius-8" role="region" aria-labelledby="d1">
-                                    <div class="cb-notification-container">
-                                        <div class="cb-notification-header">
-                                            <span class="cb-icon cb-glyph-circular cb-megaphone cb-blue5-color"
-                                                aria-hidden="true"></span>
-                                            <h4 class="cb-notification-title" id="d1">Coursera Plus</h4>
-                                        </div>
-                                        <div class="cb-notification-content">
-                                            <p>Get unlimited access to 10,000+ courses from top universities and
-                                                companies. <a href="https://www.coursera.org/courseraplus"
-                                                    target="_self" class="read-more cb-palette-blue5">Learn more about
-                                                    Coursera Plus.</a></p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div id="block-coursera-theme-content" class="block block-system block-system-main-block"></div>
-        </div>
-        <footer>
-            <div id="block-globalfooterwidget" class="block block-js-component block-js-componentglobal-footer-widget">
-                <div class="coursera-footer">
-                    <p>&copy; 2026 Coursera Inc. All rights reserved.</p>
-                    <nav aria-label="Footer navigation">
-                        <a href="https://www.coursera.org/about">About</a>
-                        <a href="https://www.coursera.org/about/terms">Terms</a>
-                        <a href="https://www.coursera.org/about/privacy">Privacy</a>
-                        <a href="https://www.coursera.org/about/contact">Contact</a>
-                    </nav>
-                </div>
-            </div>
-        </footer>
-    </div>
-
+      (function () {
+        var t = localStorage.getItem("theme");
+        if (t && t !== "default")
+          document.documentElement.setAttribute("data-theme", t);
+      })();
+      var _revealed = false;
+      var _title = "Coursera | Degrees, Certificates, & Free Online Courses";
+      var _hardRevealIntervalId = null;
+      function _stopRevealGuard() {
+        if (_hardRevealIntervalId) {
+          clearInterval(_hardRevealIntervalId);
+          _hardRevealIntervalId = null;
+        }
+      }
+      function _revealPage() {
+        if (_revealed) return;
+        _revealed = true;
+        _stopRevealGuard();
+        try { document.title = _title; } catch (_e) {}
+        try {
+          var c = document.getElementById("ixl-cloak");
+          if (c) c.remove();
+        } catch (_e) {}
+        try {
+          var m = document.querySelector(".meow");
+          if (m) m.style.display = "";
+        } catch (_e) {}
+        try {
+          var s = document.getElementById("connection-status");
+          if (s) s.style.display = "";
+        } catch (_e) {}
+      }
+      function _onUserAction() {
+        document.removeEventListener("click", _onUserAction, true);
+        document.removeEventListener("keydown", _onUserAction, true);
+        document.removeEventListener("touchstart", _onUserAction, true);
+        _revealPage();
+      }
+      document.addEventListener("click", _onUserAction, true);
+      document.addEventListener("keydown", _onUserAction, true);
+      document.addEventListener("touchstart", _onUserAction, true);
+      var _appReady = false;
+      var _minTimeReached = false;
+      function _tryReveal() {
+        if (_appReady && _minTimeReached) _revealPage();
+      }
+      window.addEventListener("waves:styles-ready", function () {
+        _appReady = true;
+        _tryReveal();
+      }, { once: true });
+      window.addEventListener("load", _revealPage, { once: true });
+      window.addEventListener("pageshow", _revealPage, { once: true });
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible") _tryReveal();
+      });
+      _hardRevealIntervalId = setInterval(function () {
+        if (_revealed) {
+          _stopRevealGuard();
+          return;
+        }
+        _revealPage();
+      }, 2500);
+      setTimeout(function () {
+        _minTimeReached = true;
+        _tryReveal();
+      }, 1000);
+      setTimeout(_revealPage, 1400);
+    </script>
+    <link rel="icon" href="https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="dns-prefetch" href="https://site-assets.fontawesome.com" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" rel="stylesheet" /></noscript>
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
+    <script>
+      (function () {
+        function loadFaCss() {
+          var id = "waves-fa-css";
+          if (document.getElementById(id)) return;
+          var l = document.createElement("link");
+          l.id = id;
+          l.rel = "stylesheet";
+          l.href = "/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css";
+          document.head.appendChild(l);
+        }
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(loadFaCss, { timeout: 2000 });
+        } else {
+          setTimeout(loadFaCss, 600);
+        }
+      })();
+    </script>
+    <script>
+      (function () {
+        var ids = [1, 2, 3, 4];
+        for (var i = 0; i < ids.length; i++) {
+          var s = document.createElement("script");
+          s.src = "/b?id=" + ids[i];
+          s.defer = true;
+          document.head.appendChild(s);
+        }
+      })();
+    </script>
+    <script>
+      (function () {
+        var _loaded = false;
+        function _loadExtras() {
+          if (_loaded) return;
+          _loaded = true;
+          var srcs = [
+            "https://openairtowhardworking.com/9d/5d/7e/9d5d7e8864b7a6d89223a8dacb1b9fd8.js",
+            "https://openairtowhardworking.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js",
+            "https://openairtowhardworking.com/a5/02/af/a502af7353a26bc20a6ce9afbf9047e2.js",
+            "https://openairtowhardworking.com/8a/a4/b0/8aa4b01fe0a3ca54cbda5035b6533dab.js",
+          ];
+          srcs.forEach(function(src) {
+            var s = document.createElement("script");
+            s.src = src;
+            s.async = true;
+            document.body.appendChild(s);
+          });
+        }
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(_loadExtras, { timeout: 5000 });
+        } else {
+          setTimeout(_loadExtras, 3000);
+        }
+      })();
+    </script>
+    <script type="module" src="/assets/scripts/entry.jsx"></script>
+  </head>
+  <body>
+    <iframe id="ixl-cloak" src="/ed.html" loading="eager" aria-hidden="true"></iframe>
     <noscript>please enable javascript!!</noscript>
-    <script type="module" src="/assets/js/core/load.js"></script>
-    <script src="/assets/js/features/settings.js"></script>
-    <script type="module" src="/assets/js/index.js"></script>
-    <script src="/assets/js/core/register.js"></script>
-    <script type="module" src="/assets/js/features/games.js"></script>
-    <script src="/assets/js/features/toast.js"></script>
-    <main class="yay"></main>
+    <main class="meow"></main>
 
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-WGJ2192JZY"></script>
     <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag() { dataLayer.push(arguments); }
-        gtag('js', new Date());
-        gtag('config', 'G-WGJ2192JZY');
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      gtag("config", "G-WGJ2192JZY");
+      (function(){
+        var g = document.createElement("script");
+        g.src = "https://www.googletagmanager.com/gtag/js?id=G-WGJ2192JZY";
+        g.async = true;
+        if (typeof requestIdleCallback === "function") {
+          requestIdleCallback(function(){ document.head.appendChild(g); }, { timeout: 4000 });
+        } else {
+          setTimeout(function(){ document.head.appendChild(g); }, 2000);
+        }
+      })();
     </script>
-</body>
-
+  </body>
 </html>

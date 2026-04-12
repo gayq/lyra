@@ -1,6 +1,6 @@
 [package]
 name = "nuru"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 [dependencies]
@@ -44,6 +44,8 @@ uuid = { version = "1.10.0", features = ["v4"] }
 wisp-mux = { git = "https://github.com/MercuryWorkshop/epoxy-tls", branch = "multiplexed", features = ["tokio-websockets", "certificate"] }
 socket2 = "0.6.3"
 crossbeam-queue = "0.3.12"
+sysinfo = "0.32"
+moka = { version = "0.12", features = ["sync"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats", "use_std"] }

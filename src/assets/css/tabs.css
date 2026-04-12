@@ -75,10 +75,10 @@
   font-size: 13px;
   flex-grow: 1;
   mask-image: linear-gradient(to right,
-      black calc(100% - 16px),
+    black calc(100% - 44px),
       transparent 100%);
   -webkit-mask-image: linear-gradient(to right,
-      black calc(100% - 16px),
+    black calc(100% - 44px),
       transparent 100%);
   transition:
     mask-image 0.1s ease,

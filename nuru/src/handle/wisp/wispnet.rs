@@ -1,6 +1,4 @@
-use std::{
-	sync::atomic::{AtomicU32, Ordering},
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -21,11 +19,7 @@ use wisp_mux::{
 	ClientMux, Role, WispError, WispV2Handshake,
 };
 
-use crate::{
-	route::{WispResult, WispStreamWrite},
-	stream::ClientStream,
-	CLIENTS,
-};
+use crate::{route::{WispResult, WispStreamWrite}, stream::ClientStream, CLIENTS};
 
 struct WispnetClient {
 	mux: ClientMux<WispStreamWrite>,

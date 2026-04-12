@@ -12,9 +12,7 @@ use hyper_util::rt::TokioIo;
 use log::{debug, error, trace};
 use tokio_util::codec::{FramedRead, FramedWrite, LengthDelimitedCodec};
 use tokio_websockets::Limits;
-use wisp_mux::ws::{
-	TokioWebsocketsTransport, TransportExt, WebSocketSplitRead, WebSocketSplitWrite,
-};
+use wisp_mux::ws::{TokioWebsocketsTransport, TransportExt, WebSocketSplitRead, WebSocketSplitWrite};
 
 use crate::{
 	config::SocketTransport,

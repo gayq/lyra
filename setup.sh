@@ -1,60 +1,180 @@
 #!/bin/bash
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "${BASH_VERSION:-}" ]; then
+  if command -v bash >/dev/null 2>&1; then
+    exec bash "$0" "$@"
+  fi
+  echo "bash is required!"
+  exit 1
+fi
 
-echo "the setup proccess is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
-echo ""
-echo "type 'ok' to continue or 'cancel' to abort."
+set -euo pipefail
+trap 'echo "[setup] error at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-while true; do
-    read -p "> " user_input
-    case "$user_input" in
-        ok)
-            echo "starting setup..."
-            break
-            ;;
-        cancel)
-            echo "setup aborted!"
-            exit 0
-            ;;
-        *)
-            echo "please type 'ok' or 'cancel'!"
-            ;;
-    esac
+AUTO_YES=0
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes|--non-interactive)
+      AUTO_YES=1
+      ;;
+  esac
 done
 
-sudo ip link delete veth0-global 2>/dev/null
-sudo modprobe nf_conntrack
-sudo apt-get update -y
-sudo apt-get install -y unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io libjemalloc2
+log() {
+  echo "[setup] $*"
+}
 
-if ! command -v bun; then
+retry() {
+  local attempts="$1"
+  shift
+  local n=1
+  until "$@"; do
+    if [ "$n" -ge "$attempts" ]; then
+      return 1
+    fi
+    n=$((n + 1))
+    sleep 2
+  done
+}
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "$cmd is required but was not found!"
+    exit 1
+  fi
+}
+
+case "$(uname -s)" in
+  Linux) ;;
+  *)
+    echo "this setup needs apt + systemd!"
+    echo "detected os: $(uname -s)"
+    exit 1
+    ;;
+esac
+
+if [ ! -f /etc/os-release ]; then
+  echo "can't detect distro (/etc/os-release missing)!"
+  exit 1
+fi
+
+. /etc/os-release
+if [ "${ID:-}" != "debian" ] && [ "${ID:-}" != "ubuntu" ] && [[ "${ID_LIKE:-}" != *debian* ]]; then
+  echo "unsupported distro for this setup: ${PRETTY_NAME:-unknown}!"
+  exit 1
+fi
+
+require_cmd apt-get
+require_cmd systemctl
+
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+  sudo() { "$@"; }
+elif ! command -v sudo >/dev/null 2>&1; then
+  echo "sudo is required when not root!"
+  exit 1
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
+export DEBIAN_FRONTEND=noninteractive
+
+echo "the setup process is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
+echo ""
+if [ "$AUTO_YES" -eq 1 ]; then
+  echo "non-interactive mode enabled, starting setup..."
+elif [ ! -t 0 ]; then
+  echo "stdin is not interactive. re-run with --yes for unattended setup!"
+  exit 1
+else
+  echo "type 'ok' to continue or 'cancel' to abort!"
+  while true; do
+    read -r -p "> " user_input
+    case "$user_input" in
+      ok)
+        echo "starting setup..."
+        break
+        ;;
+      cancel)
+        echo "setup aborted!"
+        exit 0
+        ;;
+      *)
+        echo "please type 'ok' or 'cancel'!"
+        ;;
+    esac
+  done
+fi
+
+if command -v ip >/dev/null 2>&1; then
+    sudo ip link delete veth0-global 2>/dev/null || true
+fi
+if command -v modprobe >/dev/null 2>&1; then
+    sudo modprobe nf_conntrack || true
+fi
+retry 3 sudo apt-get update -y
+retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io libjemalloc2 ca-certificates curl gnupg lsb-release openssl
+
+if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash
   export PATH="$HOME/.bun/bin:$PATH"
 fi
 
-if ! $HOME/.bun/bin/bun pm -g ls | grep -q "pm2@"; then
-  $HOME/.bun/bin/bun add -g pm2
+if ! command -v bun >/dev/null 2>&1; then
+  echo "bun install failed!"
+  exit 1
+fi
+require_cmd bun
+
+BUN_BIN="$(command -v bun)"
+
+if ! "$BUN_BIN" pm -g ls | grep -q "pm2@"; then
+  "$BUN_BIN" add -g pm2
 else
-  $HOME/.bun/bin/bun update -g pm2
+  "$BUN_BIN" update -g pm2
 fi
 
-if ! command -v cargo; then
+PM2_BIN="$(command -v pm2 || true)"
+if [ -z "$PM2_BIN" ] && [ -x "$HOME/.bun/bin/pm2" ]; then
+  PM2_BIN="$HOME/.bun/bin/pm2"
+fi
+if [ -z "$PM2_BIN" ]; then
+  echo "pm2 install failed!"
+  exit 1
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
-if ! dpkg-query -l | grep -q caddy; then
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "cargo install failed!"
+  exit 1
+fi
+require_cmd cargo
+
+CARGO_BIN="$(command -v cargo)"
+
+if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok installed"; then
+  sudo mkdir -p /usr/share/keyrings /etc/apt/sources.list.d
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-  sudo apt-get update -y
-  sudo apt-get install -y caddy
+  retry 3 sudo apt-get update -y
+  retry 3 sudo apt-get install -y caddy
 fi
 
-if ! command -v node; then
+if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  sudo apt-get install -y nodejs
+  retry 3 sudo apt-get install -y nodejs
 fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "node install failed!"
+  exit 1
+fi
+require_cmd node
 
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
@@ -103,17 +223,23 @@ fi
 
 if [ -d "nuru" ]; then
     cd nuru
-    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
     sudo cp target/release/nuru /usr/local/bin/nuru
-    sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru
+  sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
     cd ..
 else
     echo "nuru directory not found!"
     exit 1
 fi
 
-PUBLIC_IP=$(curl -s4 ifconfig.me)
-[ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(dig +short txt ch whoami.cloudflare @1.0.0.1 | tr -d '"')
+PUBLIC_IP="$(curl -s4 --max-time 8 ifconfig.me || true)"
+[ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(dig +short txt ch whoami.cloudflare @1.0.0.1 2>/dev/null | tr -d '"' || true)"
+[ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}' || true)"
+
+if [ -z "$PUBLIC_IP" ]; then
+  echo "couldn't detect public IP!"
+  exit 1
+fi
 
 sudo tee /etc/turnserver.conf <<EOF
 listening-port=3478
@@ -139,29 +265,41 @@ sudo systemctl unmask coturn
 sudo systemctl enable coturn
 sudo systemctl restart coturn
 
-if ! systemctl is-active coturn; then
+if ! systemctl is-active --quiet coturn; then
     sudo turnserver -c /etc/turnserver.conf -o -v -z &
 fi
 
-cd "$PROJECT_ROOT" || { echo "run this in the waves directory!"; exit 1; }
+sudo systemctl enable docker >/dev/null 2>&1 || true
+sudo systemctl start docker >/dev/null 2>&1 || true
+if ! sudo docker info >/dev/null 2>&1; then
+  echo "docker daemon is not ready!"
+  exit 1
+fi
+require_cmd docker
+require_cmd caddy
+
 export PATH="$HOME/.bun/bin:$PATH"
 export IP="$PUBLIC_IP"
 
-bun install
+if [ -f bun.lock ] || [ -f bun.lockb ]; then
+  "$BUN_BIN" install --frozen-lockfile || "$BUN_BIN" install
+else
+  "$BUN_BIN" install
+fi
 
 if [ -d "mochi" ]; then
     cd mochi
-    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
     cd ..
 fi
 
 if [ -d "cloudsync" ]; then
     cd cloudsync
-    RUSTFLAGS="-C target-cpu=native" "$HOME/.cargo/bin/cargo" build --release
+  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
     cd ..
 fi
 
-sudo docker pull ghcr.io/techarohq/anubis:latest
+retry 3 sudo docker pull ghcr.io/techarohq/anubis:latest
 
 if sudo docker ps -a | grep -q "anubis"; then
     sudo docker stop anubis 2>/dev/null || true
@@ -195,18 +333,6 @@ bots:
       Referer: "(?i).*\\.b-cdn\\.net.*"
     action: ALLOW
   - import: (data)/meta/default-config.yaml
-
-thresholds:
-  - name: allow-good-bots
-    expression: weight < 0
-    action: ALLOW
-  - name: challenge-browsers
-    expression: weight >= 0
-    action: CHALLENGE
-    challenge:
-      algorithm: fast
-      difficulty: 2
-      report_as: 2
 EOF
 
 sudo docker run -d --name anubis \
@@ -218,7 +344,7 @@ sudo docker run -d --name anubis \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
     ghcr.io/techarohq/anubis:latest
 
-bun run build
+"$BUN_BIN" run build
 
 sudo mkdir -p /etc/nuru /etc/systemd/system/caddy.service.d
 
@@ -251,7 +377,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @nuru_routes {
         path /w/*
     }
-    reverse_proxy @nuru_routes 127.0.0.1:8080 127.0.0.1:8081 127.0.0.1:8082 {
+    reverse_proxy @nuru_routes 127.0.0.1:8080 {
         lb_policy least_conn
         fail_duration 10s
         max_fails 4
@@ -271,7 +397,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @mochi_routes {
         path /!!/* /!cover!/*
     }
-    reverse_proxy @mochi_routes 127.0.0.1:4000 127.0.0.1:4001 127.0.0.1:4002 {
+    reverse_proxy @mochi_routes 127.0.0.1:4000 {
         lb_policy least_conn
         fail_duration 10s
         max_fails 4
@@ -309,82 +435,26 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 }
 
-http://127.0.0.1:4001 {
-    reverse_proxy https://1.waves.lat {
-        header_up Host 1.waves.lat
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name 1.waves.lat
-            versions 1.1
-            keepalive 10s
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
-}
-
-http://127.0.0.1:4002 {
-    reverse_proxy https://2.waves.lat {
-        header_up Host 2.waves.lat
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name 2.waves.lat
-            versions 1.1
-            keepalive 10s
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
-}
-
-http://127.0.0.1:8081 {
-    reverse_proxy https://1.waves.lat {
-        header_up Host 1.waves.lat
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name 1.waves.lat
-            versions 1.1
-            keepalive 10s
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
-}
-
-http://127.0.0.1:8082 {
-    reverse_proxy https://2.waves.lat {
-        header_up Host 2.waves.lat
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name 2.waves.lat
-            versions 1.1
-            keepalive 10s
-            dial_timeout 5s
-            response_header_timeout 60s
-        }
-    }
-}
-
 :80 {
     redir https://{host}{uri} permanent
 }
 EOF
 
-if [ ! -f "$PROJECT_ROOT/nuru/config.toml" ]; then
-    echo "nuru config not found at $PROJECT_ROOT/nuru/config.toml !"
+if [ ! -f "$ROOT/nuru/config.toml" ]; then
+    echo "nuru config not found at $ROOT/nuru/config.toml !"
     exit 1
 fi
-sudo cp "$PROJECT_ROOT/nuru/config.toml" /etc/nuru/config.toml
+sudo cp "$ROOT/nuru/config.toml" /etc/nuru/config.toml
 
-"$HOME/.bun/bin/pm2" stop all
-"$HOME/.bun/bin/pm2" delete all
+"$PM2_BIN" stop all >/dev/null 2>&1 || true
+"$PM2_BIN" delete all >/dev/null 2>&1 || true
 
 tee ecosystem.config.cjs <<EOF
 module.exports = {
   apps: [
     {
       name: "ask",
-      script: "bun",
+      script: "$BUN_BIN",
       args: "run ask.js",
       exec_mode: "fork",
       instances: 1,
@@ -449,9 +519,10 @@ EOF
 
 sudo caddy fmt --overwrite /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl enable caddy >/dev/null 2>&1 || true
 sudo systemctl restart caddy
 
-if command -v ufw && ufw status | grep -q "Status: active"; then
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     sudo ufw allow 80/tcp
     sudo ufw allow 443/tcp
     sudo ufw allow 443/udp
@@ -496,12 +567,17 @@ fi
 
 if [ -f "cloudsync/.db" ]; then
     chmod 600 cloudsync/.db
-    chmod 600 cloudsync/.db-shm 2>/dev/null
-    chmod 600 cloudsync/.db-wal 2>/dev/null
+  chmod 600 cloudsync/.db-shm 2>/dev/null || true
+  chmod 600 cloudsync/.db-wal 2>/dev/null || true
 fi
 
-"$HOME/.bun/bin/pm2" start ecosystem.config.cjs --update-env
-"$HOME/.bun/bin/pm2" save
-sudo env PATH=$PATH:$HOME/.bun/bin "$HOME/.bun/bin/pm2" startup systemd -u "$USER" --hp "$HOME"
+"$PM2_BIN" start ecosystem.config.cjs --update-env
+"$PM2_BIN" save
+sudo env PATH="$PATH:$HOME/.bun/bin" "$PM2_BIN" startup systemd -u "$USER" --hp "$HOME" || true
+
+if ! "$PM2_BIN" list | grep -Eq "ask|waves|mochi|cloudsync|nuru"; then
+  echo "pm2 processes did not start correctly!"
+  exit 1
+fi
 
 echo "all done! your waves instance is now all setup and ready to be used!!!!"

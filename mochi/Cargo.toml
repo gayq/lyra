@@ -1,6 +1,6 @@
 [package]
 name = "mochi"
-version = "0.2.6"
+version = "0.3.2"
 edition = "2021"
 
 [dependencies]
@@ -24,13 +24,5 @@ tower-http = { version = "0.5", features = ["compression-full", "cors"] }
 futures = "0.3"
 dashmap = "6"
 uuid = { version = "1.8", features = ["v4"] }
-image = { version = "0.25.9", features = ["avif"] }
-[profile.dev.package."*"]
-opt-level = 3
-
-[profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "ico"] }
+sysinfo = "0.32"

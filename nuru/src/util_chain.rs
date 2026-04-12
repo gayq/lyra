@@ -1,10 +1,6 @@
 #![allow(clippy::pedantic, clippy::all)]
 
-use std::{
-	fmt, io,
-	pin::Pin,
-	task::{Context, Poll},
-};
+use std::{fmt, io, pin::Pin, task::{Context, Poll}};
 
 use futures_util::ready;
 use pin_project_lite::pin_project;

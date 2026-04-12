@@ -1,5 +1,3 @@
-//! taken from https://github.com/denoland/fastwebsockets/blob/main/src/upgrade.rs
-
 use anyhow::{bail, Context, Result};
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bytes::Bytes;
