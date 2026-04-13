@@ -499,7 +499,7 @@ export default function SettingsMenu() {
                 </a>{" "}
                 or open an issue on our{" "}
                 <a
-                  href="https://github.com/l4uy/Waves"
+                  href="https://github.com/enniuu/Waves"
                   target="_blank"
                   class="hover-link"
                 >

@@ -489,6 +489,7 @@ export function initializeLoad(): void {
     },
     showWarningPrompt() {
       if (!this.shareEl) return false;
+      if (document.getElementById("ixl-cloak")) return false;
       if (!this.overlay) this.overlay = document.getElementById("overlay");
       if (!this.overlay) return false;
 

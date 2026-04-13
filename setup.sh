@@ -245,7 +245,7 @@ sudo tee /etc/turnserver.conf <<EOF
 listening-port=3478
 fingerprint
 lt-cred-mech
-user=luy:l4uy
+user=enniuu:enni
 realm=waves.lat
 external-ip=$PUBLIC_IP
 min-port=49152
@@ -254,6 +254,12 @@ no-stale-nonce
 total-quota=0
 log-file=/var/log/turnserver.log
 EOF
+if [ -f /etc/turnserver.conf ]; then
+  echo "[setup] /etc/turnserver.conf applied."
+else
+  echo "[setup] error: /etc/turnserver.conf not found!"
+  exit 1
+fi
 
 if [ ! -f /etc/default/coturn ]; then
     echo "TURNSERVER_ENABLED=1" | sudo tee /etc/default/coturn
@@ -307,7 +313,6 @@ if sudo docker ps -a | grep -q "anubis"; then
 fi
 
 cat <<'EOF' | sudo tee /etc/anubis-policy.yaml
-default_difficulty: 2
 bots:
   - name: pass-bunny-via
     headers_regex:
@@ -335,11 +340,18 @@ bots:
     action: ALLOW
   - import: (data)/meta/default-config.yaml
 EOF
+if [ -f /etc/anubis-policy.yaml ]; then
+  echo "[setup] /etc/anubis-policy.yaml applied!"
+else
+  echo "[setup] error: /etc/anubis-policy.yaml not found!"
+  exit 1
+fi
 
 sudo docker run -d --name anubis \
     --network="host" \
     --restart unless-stopped \
     -e TARGET="http://127.0.0.1:3000" \
+    -e DIFFICULTY=2 \
     -e OG_PASSTHROUGH="true" \
     -e POLICY_FNAME=/botPolicies.yaml \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
@@ -440,12 +452,24 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     redir https://{host}{uri} permanent
 }
 EOF
+if [ -f /etc/caddy/Caddyfile ]; then
+  echo "[setup] /etc/caddy/Caddyfile applied!"
+else
+  echo "[setup] error: /etc/caddy/Caddyfile not found!"
+  exit 1
+fi
 
 if [ ! -f "$ROOT/nuru/config.toml" ]; then
     echo "nuru config not found at $ROOT/nuru/config.toml !"
     exit 1
 fi
 sudo cp "$ROOT/nuru/config.toml" /etc/nuru/config.toml
+if [ -f /etc/nuru/config.toml ]; then
+  echo "[setup] /etc/nuru/config.toml applied!"
+else
+  echo "[setup] error: /etc/nuru/config.toml not found!"
+  exit 1
+fi
 
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
@@ -560,6 +584,12 @@ if [ -d "cloudsync" ]; then
     echo "JWT_SECRET=$JWT_SECRET" > cloudsync/.env
     echo "SYNC_SECRET=$SYNC_SECRET" >> cloudsync/.env
     chmod 600 cloudsync/.env
+    if [ -f cloudsync/.env ]; then
+      echo "[setup] cloudsync/.env applied!"
+    else
+      echo "[setup] error: cloudsync/.env not found!"
+      exit 1
+    fi
 fi
 
 if [ ! -f "cloudsync/.db" ]; then
