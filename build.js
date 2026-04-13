@@ -83,7 +83,7 @@ export default function wavesPlugin() {
         }).getObfuscatedCode();
 
         code = code
-          .replace(/(['"`])\.\/b\/sw\.js\1/g, `$1./${swHash}.js$1`)
+          .replace(/(['"`])\.\/b\/sw\.js\1/g, `$1./${swFileName}$1`)
           .replace(/(['"`])\/b\/sw\.js\1/g, `$1/${swFileName}$1`);
 
         await fs.writeFile(filePath, code);
