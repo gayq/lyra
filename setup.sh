@@ -339,7 +339,7 @@ sudo docker run -d --name anubis \
     --network="host" \
     --restart unless-stopped \
     -e TARGET="http://127.0.0.1:3000" \
-    -e LEVEL="2" \
+    -e DIFFICULTY="2" \
     -e OG_PASSTHROUGH="true" \
     -e POLICY_FNAME=/botPolicies.yaml \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
