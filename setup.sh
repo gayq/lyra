@@ -307,6 +307,7 @@ if sudo docker ps -a | grep -q "anubis"; then
 fi
 
 cat <<'EOF' | sudo tee /etc/anubis-policy.yaml
+default_difficulty: 2
 bots:
   - name: pass-bunny-via
     headers_regex:
@@ -339,7 +340,6 @@ sudo docker run -d --name anubis \
     --network="host" \
     --restart unless-stopped \
     -e TARGET="http://127.0.0.1:3000" \
-    -e DIFFICULTY="2" \
     -e OG_PASSTHROUGH="true" \
     -e POLICY_FNAME=/botPolicies.yaml \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
