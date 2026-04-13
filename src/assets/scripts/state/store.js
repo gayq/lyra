@@ -509,7 +509,7 @@ export const store = {
     if (!_searchInputNav) _searchInputNav = document.getElementById("searchInputt");
     if (_searchInputNav) {
       _searchInputNav.placeholder = activeTab?.isLoading
-        ? "fetching url..."
+        ? "fetching url... (˶˃ ᵕ ˂˶)"
         : "search or enter url (˶>⩊<˶)";
     }
   },
