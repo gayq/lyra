@@ -161,9 +161,10 @@ CARGO_BIN="$(command -v cargo)"
 
 if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok installed"; then
   sudo mkdir -p /usr/share/keyrings /etc/apt/sources.list.d
-  retry 3 curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" -o /tmp/caddy.key
+  sudo rm -f /tmp/caddy.key /tmp/caddy-stable.list
+  retry 3 sudo curl -fL "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" -o /tmp/caddy.key
   sudo gpg --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy.key
-  retry 3 curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" -o /tmp/caddy-stable.list
+  retry 3 sudo curl -fL "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" -o /tmp/caddy-stable.list
   sudo mv /tmp/caddy-stable.list /etc/apt/sources.list.d/caddy-stable.list
   retry 3 sudo apt-get update -y
   retry 3 sudo apt-get install -y caddy
