@@ -93,6 +93,9 @@ pub async fn handle_cover_request(
         "Cache-Control",
         HeaderValue::from_static("public, max-age=31536000, immutable"),
     );
+    if let Some(ct) = upstream_res.headers().get("content-type") {
+        safe_headers.insert("content-type", ct.clone());
+    }
 
     if !status.is_success() {
         return Ok((
@@ -125,39 +128,27 @@ pub async fn handle_cover_request(
 
     let raw_bytes = Bytes::from(accumulator.clone());
 
-    if let Ok(Some(processed_bytes)) = tokio::task::spawn_blocking(move || -> Option<Bytes> {
-        let img = image::load_from_memory(&accumulator).ok()?;
-        let resized = img.thumbnail(200, 200);
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 75);
-        resized.write_with_encoder(encoder).ok()?;
-        Some(Bytes::from(cursor.into_inner()))
-    })
-    .await
-    {
-        safe_headers.insert("content-length", HeaderValue::from(processed_bytes.len()));
-        safe_headers.insert("content-type", HeaderValue::from_static("image/jpeg"));
-        safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
-
-        let cached = Arc::new(CachedResponse {
-            status: status.as_u16(),
-            headers: safe_headers.clone(),
-            body: processed_bytes.clone(),
-        });
-        state.cache.insert(target_url_str.to_string(), cached).await;
-
-        let cache_key = target_url_str.to_string();
-        let headers_for_disk = safe_headers.clone();
-        let body_for_disk = processed_bytes.clone();
-        let status_u16 = status.as_u16();
-        tokio::spawn(async move {
-            write_to_disk(&cache_key, status_u16, &headers_for_disk, &body_for_disk).await;
-        });
-
-        return Ok((status, safe_headers, processed_bytes).into_response());
+    if !safe_headers.contains_key("content-type") {
+        safe_headers.insert("content-type", HeaderValue::from_static("application/octet-stream"));
     }
-
+    
     safe_headers.insert("content-length", HeaderValue::from(raw_bytes.len()));
-    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS-RAW"));
+    safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
+
+    let cached = Arc::new(CachedResponse {
+        status: status.as_u16(),
+        headers: safe_headers.clone(),
+        body: raw_bytes.clone(),
+    });
+    state.cache.insert(target_url_str.to_string(), cached).await;
+
+    let cache_key = target_url_str.to_string();
+    let headers_for_disk = safe_headers.clone();
+    let body_for_disk = raw_bytes.clone();
+    let status_u16 = status.as_u16();
+    tokio::spawn(async move {
+        write_to_disk(&cache_key, status_u16, &headers_for_disk, &body_for_disk).await;
+    });
+
     Ok((status, safe_headers, raw_bytes).into_response())
 }

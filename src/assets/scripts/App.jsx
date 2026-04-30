@@ -10,7 +10,6 @@ const loadGamesPage = () => import("./components/GamesPage.jsx");
 const GamesPage = lazy(loadGamesPage);
 const NewTabModal = lazy(() => import("./components/NewTabModal.jsx"));
 const SettingsMenu = lazy(() => import("./components/SettingsMenu.jsx"));
-const FallAnimation = lazy(() => import("./components/FallAnimation.jsx"));
 
 export default function App() {
   useEffect(() => {
@@ -59,9 +58,6 @@ export default function App() {
         <SettingsMenu />
       </Suspense>
       <div id="overlay" class="overlay" />
-      <Suspense fallback={null}>
-        <FallAnimation />
-      </Suspense>
       <IconPreloader />
     </>
   );

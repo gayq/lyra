@@ -20,7 +20,7 @@ fn detect() -> SystemSpecs {
         .unwrap_or(2);
 
     log::info!(
-        "detected system: {}mb ram, {} cores",
+        "detected system: {}MB RAM, {} cores",
         total_ram_mb,
         cpu_cores
     );

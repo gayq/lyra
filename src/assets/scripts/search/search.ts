@@ -132,18 +132,32 @@ export async function handleSearch(
     const isProxyUrl =
       finalUrlToLoad.startsWith("/b/s/") || finalUrlToLoad.startsWith("/b/u/");
     if (isProxyUrl && (window as any).WavesApp?.waitForTransport) {
+      let transportReady = false;
       try {
         await (window as any).WavesApp.waitForTransport(10000);
+        transportReady = true;
       } catch (e: unknown) {
-        console.error(
-          "transport not ready, cannot navigate:",
+        console.warn(
+          "transport not ready on first attempt, triggering recovery...",
           (e as Error).message,
         );
-        return;
+        if ((window as any).wavesConnection?.recoverOnWake) {
+          try {
+            await (window as any).wavesConnection.recoverOnWake();
+            await (window as any).WavesApp.waitForTransport(8000);
+            transportReady = true;
+          } catch (retryErr: unknown) {
+            console.error(
+              "transport not ready after recovery, cannot navigate:",
+              (retryErr as Error).message,
+            );
+          }
+        }
       }
+      navigateIframeTo(activeTab.iframe, finalUrlToLoad);
+    } else {
+      navigateIframeTo(activeTab.iframe, finalUrlToLoad);
     }
-
-    navigateIframeTo(activeTab.iframe, finalUrlToLoad);
   }
 }
 

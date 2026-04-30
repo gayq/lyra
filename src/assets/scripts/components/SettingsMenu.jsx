@@ -91,9 +91,6 @@ export default function SettingsMenu() {
   const [preventClosing, setPreventClosing] = useState(
     () => localStorage.getItem("preventClosing") !== "false",
   );
-  const [fallEnabled, setFallEnabled] = useState(
-    () => localStorage.getItem("fallEnabled") !== "false",
-  );
   const [focusCloaking, setFocusCloaking] = useState(
     () => localStorage.getItem("focusCloaking") !== "false",
   );
@@ -174,9 +171,23 @@ export default function SettingsMenu() {
     save(key, value);
 
     if (key === "theme") {
-      if (value === "default")
-        document.documentElement.removeAttribute("data-theme");
-      else document.documentElement.setAttribute("data-theme", value);
+      const applyTheme = () => {
+        if (value === "default")
+          document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.setAttribute("data-theme", value);
+      };
+
+      if (!document.startViewTransition) {
+        applyTheme();
+      } else {
+        document.documentElement.classList.add("theme-transitioning");
+        const transition = document.startViewTransition(() => {
+          applyTheme();
+        });
+        transition.finished.then(() => {
+          document.documentElement.classList.remove("theme-transitioning");
+        });
+      }
     } else if (key === "gameSource") {
       document.dispatchEvent(
         new CustomEvent("gameSourceUpdated", { detail: value }),
@@ -210,10 +221,7 @@ export default function SettingsMenu() {
     setter(value);
     save(key, String(value));
 
-    if (key === "fallEnabled") {
-      const fc = document.getElementById("fall-container");
-      if (fc) fc.style.display = value ? "" : "none";
-    } else if (key === "focusCloaking") {
+    if (key === "focusCloaking") {
       document.dispatchEvent(
         new CustomEvent("focusCloakingUpdated", { detail: value }),
       );
@@ -395,15 +403,6 @@ export default function SettingsMenu() {
                 onChange={(v) => handleSetting("theme", v, setTheme)}
               />
             </div>
-            <div class="settings-item">
-              <label>falling things</label>
-              <p>toggle the falling things on top of the screen.</p>
-              <Toggle
-                id="fall-toggle"
-                checked={fallEnabled}
-                onChange={(v) => handleToggle("fallEnabled", v, setFallEnabled)}
-              />
-            </div>
           </div>
 
           <div
@@ -499,7 +498,7 @@ export default function SettingsMenu() {
                 </a>{" "}
                 or open an issue on our{" "}
                 <a
-                  href="https://github.com/enniuu/Waves"
+                  href="https://github.com/l4uy/Waves"
                   target="_blank"
                   class="hover-link"
                 >

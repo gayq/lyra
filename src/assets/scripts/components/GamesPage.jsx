@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, } from "preact/hooks";
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "preact/hooks";
 import { memo } from "preact/compat";
 import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/games.ts";
 import { showHomeView } from "../state/store.js";
@@ -6,6 +6,7 @@ import { attachSearchLight } from "../core/load.js";
 
 const FADE_DURATION = 60;
 const SKELETON_KEYS = Array.from({ length: 12 }, (_, i) => `skeleton-${i}`);
+const RENDER_BATCH = 40;
 
 const GameCard = memo(function GameCard({ game, onPlay }) {
   const [loaded, setLoaded] = useState(false);
@@ -20,7 +21,6 @@ const GameCard = memo(function GameCard({ game, onPlay }) {
           <img
             loading="lazy"
             decoding="async"
-            alt={game.name}
             src={game.coverUrl}
             onLoad={() => setLoaded(true)}
             onError={() => {
@@ -76,14 +76,15 @@ export default function GamesPage() {
     const target = scrollTargetRef.current;
     const bar = searchBarRef.current;
     if (!target || !bar) return;
+    const readTop = () => (target === window ? window.scrollY : target.scrollTop);
+    bar.classList.toggle("is-sticky", readTop() > 10);
 
     let scrollRaf = null;
     const onScroll = () => {
       if (scrollRaf) return;
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = null;
-        const top = target === window ? window.scrollY : target.scrollTop;
-        bar.classList.toggle("is-sticky", top > 10);
+        bar.classList.toggle("is-sticky", readTop() > 10);
       });
     };
     target.addEventListener("scroll", onScroll, { passive: true });
@@ -250,6 +251,24 @@ export default function GamesPage() {
     );
   }, [allGames, query]);
 
+  const [renderCount, setRenderCount] = useState(RENDER_BATCH);
+
+  useEffect(() => {
+    setRenderCount(RENDER_BATCH);
+  }, [filteredGames]);
+  useEffect(() => {
+    if (!visible || !loaded || renderCount >= filteredGames.length) return;
+    const id = requestAnimationFrame(() => {
+      setRenderCount((c) => Math.min(c + RENDER_BATCH, filteredGames.length));
+    });
+    return () => cancelAnimationFrame(id);
+  }, [visible, loaded, renderCount, filteredGames.length]);
+
+  const visibleGames = useMemo(
+    () => filteredGames.slice(0, renderCount),
+    [filteredGames, renderCount],
+  );
+
   const placeholder = loaded
     ? `search through ${allGames.length} games... ٩(^ᗜ^ )و ´-`
     : "fetching games...";
@@ -286,7 +305,7 @@ export default function GamesPage() {
         >
           {!loaded
             ? SKELETON_KEYS.map((key) => <SkeletonCard key={key} />)
-            : filteredGames.map((game) => (
+            : visibleGames.map((game) => (
                 <GameCard
                   key={game.id || game.gameUrl}
                   game={game}

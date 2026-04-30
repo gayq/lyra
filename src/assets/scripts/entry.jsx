@@ -2,6 +2,7 @@ import { render } from "preact";
 import App from "./App.jsx";
 import { store } from "./state/store.js";
 import { initUiSignals } from "./core/uiSignals";
+import { initClickParticles } from "./core/particles.ts";
 
 import "../css/themes.css";
 import "../css/index.css";
@@ -51,6 +52,7 @@ function scheduleIdleLoad(callback) {
 
 document.addEventListener("DOMContentLoaded", () => {
   initUiSignals();
+  initClickParticles();
   store.setupWindowWavesApp();
 
   document.addEventListener(

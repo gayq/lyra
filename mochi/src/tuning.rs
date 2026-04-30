@@ -34,7 +34,7 @@ pub fn detect() -> MochiTuning {
         .unwrap_or(10_000);
 
     tracing::info!(
-        "detected system: {}mb ram, {} cores, {}mb disk",
+        "detected system: {}MB RAM, {} cores, {}MB disk",
         ram_mb,
         cores,
         disk_mb

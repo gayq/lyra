@@ -11,7 +11,9 @@
   color: var(--text-primary);
   text-align: center;
   display: none;
-  transition: all 0.1s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.1s ease;
   height: 430px;
   max-height: 80vh;
   flex-direction: column;
@@ -56,9 +58,11 @@
   color: var(--text-primary);
   border: 2px solid #4141411a;
   border-radius: 15px;
-  font-size: 18px;
+  font-size: 14px;
   outline: none;
-  transition: all 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    border-color 0.1s ease;
 }
 
 #settings-menu select:focus {
@@ -121,7 +125,7 @@
   max-width: 255px;
   margin-bottom: 15px;
   user-select: none;
-  transition: all 0.05s ease;
+  transition: background-color 0.05s ease;
 }
 
 .transport-selected,
@@ -140,7 +144,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: all 0.05s ease;
+  transition: background-color 0.05s ease;
 }
 
 .transport-selected:hover,
@@ -198,7 +202,10 @@
   text-align: left;
   overflow: hidden;
   margin-top: -5px;
-  transition: all 0.12s ease;
+  transition:
+    max-height 0.12s ease,
+    opacity 0.12s ease,
+    margin-top 0.12s ease;
   opacity: 0;
   z-index: 10;
   padding: 3px 0;
@@ -256,7 +263,9 @@
   font-size: 0.8em;
   border-radius: 15px;
   outline: none;
-  transition: all 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    border-color 0.1s ease;
 }
 
 #wisp-server:hover,

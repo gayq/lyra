@@ -188,19 +188,27 @@ export function navigateIframeTo(iframe: HTMLIFrameElement, url: string): void {
 
   const isProxyUrl = url.startsWith("/b/s/") || url.startsWith("/b/u/");
   if (isProxyUrl && window.WavesApp?.waitForTransport) {
-    (window.WavesApp.waitForTransport as (timeout: number) => Promise<void>)(
-      8000,
-    )
-      .then(() => {
-        iframe.src = url;
-      })
-      .catch((e: Error) => {
-        console.error(
-          "navigateIframeTo: transport not ready, navigating anyway:",
-          e.message,
+    (async () => {
+      try {
+        await (window.WavesApp.waitForTransport as (timeout: number) => Promise<void>)(8000);
+      } catch (e: unknown) {
+        console.warn(
+          "navigateIframeTo: transport not ready, attempting recovery...",
+          (e as Error).message,
         );
-        iframe.src = url;
-      });
+        const conn = (window as unknown as Record<string, unknown>)["wavesConnection"] as
+          { recoverOnWake?: () => Promise<void> } | undefined;
+        if (conn?.recoverOnWake) {
+          try {
+            await conn.recoverOnWake();
+            await (window.WavesApp.waitForTransport as (timeout: number) => Promise<void>)(6000);
+          } catch {
+            console.warn("navigateIframeTo: recovery failed, navigating anyway");
+          }
+        }
+      }
+      iframe.src = url;
+    })();
   } else {
     iframe.src = url;
   }

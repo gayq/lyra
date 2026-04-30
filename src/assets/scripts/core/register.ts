@@ -69,6 +69,8 @@ class WavesConnectionManager {
   healthCheckInterval: ReturnType<typeof setInterval> | null;
   isInitialLoad: boolean;
   _transportReadyPromise: ResolvablePromise;
+  _retryCount: number;
+  _isRecovering: boolean;
 
   constructor() {
     this.state = STATES.IDLE;
@@ -78,12 +80,20 @@ class WavesConnectionManager {
     this.healthCheckInterval = null;
     this.isInitialLoad = true;
     this._transportReadyPromise = createResolvablePromise();
+    this._retryCount = 0;
+    this._isRecovering = false;
 
     (window as unknown as Record<string, unknown>)["WavesApp"] =
       (window as unknown as Record<string, unknown>)["WavesApp"] ?? {};
     window.WavesApp.transportReady = this._transportReadyPromise;
 
     window.WavesApp.waitForTransport = (timeoutMs = 10000) => {
+      if (
+        this._transportReadyPromise._settled &&
+        this.state !== STATES.CONNECTED
+      ) {
+        this._resetTransportReady();
+      }
       return Promise.race([
         this._transportReadyPromise,
         new Promise<void>((_, reject) =>
@@ -217,7 +227,12 @@ class WavesConnectionManager {
   async _verifyTransport(): Promise<boolean> {
     if (!this.bareMuxConnection) return false;
     try {
-      const name = await this.bareMuxConnection.getTransport();
+      const name = await Promise.race([
+        this.bareMuxConnection.getTransport(),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error("transport verify timed out")), 4000),
+        ),
+      ]);
       return !!(name && name.length > 0);
     } catch (e) {
       console.warn("transport verification failed:", e);
@@ -282,13 +297,17 @@ class WavesConnectionManager {
       const registration = await navigator.serviceWorker.register("./b/sw.js", {
         scope,
       });
-      if (registration.installing) {
-        const sw = registration.installing;
+      const pendingSw = registration.installing || registration.waiting;
+      if (pendingSw && pendingSw.state !== "activated") {
         await new Promise<void>((resolve) => {
-          sw.addEventListener("statechange", (e) => {
-            if ((e.target as ServiceWorker | null)?.state === "activated")
+          const onStateChange = (e: Event) => {
+            if ((e.target as ServiceWorker | null)?.state === "activated") {
+              pendingSw.removeEventListener("statechange", onStateChange);
               resolve();
-          });
+            }
+          };
+          pendingSw.addEventListener("statechange", onStateChange);
+          setTimeout(resolve, 8000);
         });
       }
 
@@ -315,6 +334,7 @@ class WavesConnectionManager {
 
       this.updateStatus(`successfully connected!`, "success");
       this.setState(STATES.CONNECTED);
+      this._retryCount = 0;
       this.isInitialLoad = false;
 
       const el = document.querySelector(".transport-selected");
@@ -332,16 +352,18 @@ class WavesConnectionManager {
     }
   }
 
-  async handleConnectionFailure(retryCount: number = 0): Promise<void> {
+  async handleConnectionFailure(): Promise<void> {
     this.setState(STATES.RECONNECTING);
-    if (retryCount < 8) {
-      const delay = Math.min(Math.pow(2, retryCount) * 500, 30000);
-      this.updateStatus(`retrying in ${delay}ms...`, "info");
+    if (this._retryCount < 10) {
+      const delay = Math.min(Math.pow(2, this._retryCount) * 500, 15000);
+      this._retryCount++;
+      this.updateStatus(`retrying in ${delay / 1000}s... (attempt ${this._retryCount}/10)`, "info");
       await new Promise<void>((res) => setTimeout(res, delay));
       await this.initializeApp(true);
     } else {
       this.updateStatus("connection failed after multiple retries.", "error");
       this.setState(STATES.FAILED);
+      this._retryCount = 0;
     }
   }
 
@@ -352,6 +374,7 @@ class WavesConnectionManager {
       if (document.hidden) return;
       if (
         isChecking ||
+        this._isRecovering ||
         this.state === STATES.CONNECTING ||
         this.state === STATES.RECONNECTING
       )
@@ -385,7 +408,57 @@ class WavesConnectionManager {
       } finally {
         isChecking = false;
       }
-    }, 15000);
+    }, 8000);
+  }
+
+  async recoverOnWake(): Promise<void> {
+    if (
+      this._isRecovering ||
+      this.state === STATES.CONNECTING ||
+      this.state === STATES.RECONNECTING
+    )
+      return;
+
+    if (this.state === STATES.IDLE) return;
+
+    if (!navigator.onLine) return;
+
+    this._isRecovering = true;
+    try {
+      await this.ensureWispServerConnection(this.currentWispUrl, 3000);
+
+      const alive = await this._verifyTransport();
+      if (alive) {
+        if (!this._transportReadyPromise._settled) {
+          this._resolveTransportReady();
+        }
+        if (this.state !== STATES.CONNECTED) {
+          this.setState(STATES.CONNECTED);
+          this.updateStatus("successfully connected!", "success");
+        }
+        return;
+      }
+
+      console.warn("wake recovery: transport dead, re-applying...");
+      this._resetTransportReady();
+      const recovered = await this._reapplyTransport();
+      if (recovered) {
+        console.log("wake recovery: transport recovered via re-apply");
+        this.setState(STATES.CONNECTED);
+        return;
+      }
+
+      console.warn("wake recovery: full re-init required");
+      this._retryCount = 0;
+      await this.initializeApp(true);
+    } catch (err) {
+      console.warn("wake recovery: wisp unreachable, full re-init", err);
+      this._retryCount = 0;
+      this._resetTransportReady();
+      await this.initializeApp(true);
+    } finally {
+      this._isRecovering = false;
+    }
   }
 
   setupEventListeners(): void {
@@ -413,17 +486,27 @@ class WavesConnectionManager {
     };
 
     window.addEventListener("online", () => {
+      this._retryCount = 0;
       if (
         this.state !== STATES.CONNECTED &&
         this.state !== STATES.CONNECTING &&
         this.state !== STATES.RECONNECTING
       ) {
         this.initializeApp();
+      } else if (this.state === STATES.CONNECTED) {
+        void this.recoverOnWake();
       }
     });
-    window.addEventListener("offline", () =>
-      this.updateStatus("network offline.", "error"),
-    );
+    window.addEventListener("offline", () => {
+      this.updateStatus("network offline.", "error");
+      this.setState(STATES.FAILED);
+      this._resetTransportReady();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        setTimeout(() => void this.recoverOnWake(), 300);
+      }
+    });
 
     if (navigator.serviceWorker) {
       navigator.serviceWorker.addEventListener(

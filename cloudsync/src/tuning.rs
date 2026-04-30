@@ -17,7 +17,7 @@ pub fn detect() -> CloudSyncTuning {
         .unwrap_or(2);
 
     tracing::info!(
-        "detected system: {}mb ram, {} cores",
+        "detected system: {}MB RAM, {} cores",
         ram_mb,
         cores
     );

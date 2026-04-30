@@ -5,7 +5,7 @@ export default function Footer() {
         <a>--</a>
       </div>
       <div id="share">
-        <a>share the site with your friends!</a>
+        <a>:3</a>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { memo } from "preact/compat";
+import { memo, createPortal } from "preact/compat";
 import { useEffect, useRef, useState, useCallback } from "preact/hooks";
 import { DEFAULT_BOOKMARKS } from "../core/config.js";
 import { canonicalize, getProxyUrl } from "../core/utils.js";
@@ -279,13 +279,14 @@ export default function Bookmarks() {
           </li>
         </ul>
       </div>
-      {showPrompt && (
+      {showPrompt && createPortal(
         <BookmarkPrompt
           nameRef={nameRef}
           urlRef={urlRef}
           onSave={handleSave}
           onCancel={closePrompt}
-        />
+        />,
+        document.body
       )}
     </div>
   );
@@ -359,7 +360,7 @@ function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }) {
           type="text"
           id="bookmarkName"
           ref={nameRef}
-          placeholder="my cool website"
+          placeholder="my cool site"
           autocomplete="off"
         />
         <label style="margin-top:15px;">bookmark url</label>

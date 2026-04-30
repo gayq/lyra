@@ -1,4 +1,4 @@
-﻿body,
+body,
 button,
 input,
 textarea,
@@ -15,20 +15,28 @@ select {
     pointer-events: none;
 }
 
-@view-transition {
-    navigation: auto;
+html {
+    height: 100%;
+    overflow: hidden;
 }
 
 body {
     background-color: var(--bg-body);
     color: var(--text-primary);
     display: flex;
-    height: 100vh;
+    height: 100%;
     margin: 0;
     overflow: hidden;
     padding: 0;
     position: relative;
     text-transform: lowercase;
+}
+
+@media (min-width: 1600px) {
+    body { zoom: 1.1; }
+}
+@media (min-width: 1920px) {
+    body { zoom: 1.15; }
 }
 
 body.games-view:before {
@@ -116,7 +124,7 @@ body.is-resizing .iframe {
 .sidebar,
 .meow {
     flex-direction: column;
-    height: 100vh;
+    height: 100%;
     position: relative;
 }
 
@@ -125,7 +133,6 @@ body.browser-view #bookmarks-container,
 body.browser-view #top-left-stuff,
 body.browser-view #top-right-stuff,
 body.browser-view #stuff,
-body.browser-view #fall-container,
 body.browser-view #share,
 body.browser-view #oneko,
 body.browser-view .footer {
@@ -340,6 +347,7 @@ body.browser-view .meow {
     flex-direction: column;
     flex-grow: 1;
     min-width: 0;
+    align-items: center;
 }
 
 body.browser-view:before {
@@ -361,6 +369,8 @@ body.browser-view:before {
     padding: 8px;
     position: relative;
     z-index: 1;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .main-nav:before {
@@ -396,7 +406,9 @@ body.browser-view .main-nav {
     justify-content: center;
     padding: 8px;
     text-decoration: none;
-    transition: all 0.05s ease;
+    transition:
+        background-color 0.05s ease,
+        color 0.05s ease;
 }
 
 .nav-controls a:hover,
@@ -429,7 +441,7 @@ body.browser-view .main-nav {
     justify-content: center;
     padding: 8px;
     text-decoration: none;
-    transition: all 0.01s ease;
+    transition: background-color 0.01s ease;
 }
 
 #toggle-sidebar-btn:hover {
@@ -454,7 +466,6 @@ body.browser-view .main-nav {
     transition:
         background-color 0.05s ease,
         transform 0.05s ease;
-    view-transition-name: main-header;
 }
 
 .icon-btn:hover {
@@ -557,7 +568,7 @@ body.browser-view .main-nav {
     border-radius: 20px;
     box-sizing: border-box;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 12px;
     outline: none;
     padding: 10px 15px 10px 35px;
     text-align: left;
@@ -622,6 +633,7 @@ body.browser-view .main-nav {
 
 #brand {
     color: var(--brand-color);
+    font-family: "Sniglet";
     cursor: default;
     cursor: pointer;
     font-size: 15px;
@@ -691,19 +703,18 @@ body.browser-view .main-nav {
 }
 
 .main-container {
-    left: 50%;
-    margin-top: 34vh;
     position: relative;
     text-align: center;
-    transform: translate(-50%, -50%);
     width: 90%;
+    max-width: 640px;
     z-index: 5;
+    margin-top: 23.5vh;
 }
 
 .title {
     color: var(--text-white);
-    display: inline-block;
     font-family: "Sniglet";
+    display: inline-block;
     font-size: 54px;
     margin-bottom: 7px;
     text-align: center;
@@ -717,6 +728,7 @@ body.browser-view .main-nav {
     position: relative;
     width: 520px;
     z-index: 8;
+    margin-bottom: 70px;
 }
 
 .search-bar input[type="text"] {
@@ -947,7 +959,7 @@ body.browser-view .main-nav {
     border: 1px solid var(--input-border);
     border-radius: 15px;
     color: var(--input-text-light);
-    font-size: 15px;
+    font-size: 14px;
     margin-bottom: 5px;
     outline: none;
     padding: 12px;
@@ -1096,5 +1108,45 @@ body.browser-view .main-nav {
 
     80% {
         background-position: -224px 0px;
+    }
+}
+
+html.theme-transitioning * {
+    transition: none !important;
+}
+
+::view-transition,
+::view-transition-group(*),
+::view-transition-image-pair(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+    pointer-events: none !important;
+}
+
+html.theme-transitioning::view-transition-group(root) {
+    animation-duration: 0.8s;
+}
+
+html.theme-transitioning::view-transition-old(root),
+html.theme-transitioning::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}
+
+html.theme-transitioning::view-transition-old(root) {
+    z-index: 1;
+}
+
+html.theme-transitioning::view-transition-new(root) {
+    z-index: 9999;
+    animation: circle-reveal 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes circle-reveal {
+    from {
+        clip-path: circle(0px at top left);
+    }
+    to {
+        clip-path: circle(150vmax at top left);
     }
 }

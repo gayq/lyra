@@ -419,8 +419,8 @@ const TURN_SCRIPT = `
         if (!config.iceServers || config.iceServers.length === 0) {
             config.iceServers = [{
                 urls: "turn:__SERVER_IP__:3478",
-                username: "enniuu",
-                credential: "enni"
+                username: "luy",
+                credential: "l4uy"
             }];
         }
 

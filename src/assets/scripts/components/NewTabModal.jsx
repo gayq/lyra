@@ -113,13 +113,14 @@ function loadNewTabGameData(allGames) {
       .then((data) =>
         data
           .map((zone) => {
-            const isExternal = zone.url.startsWith("http");
+            const isExternal = zone.url ? zone.url.startsWith("http") : false;
+            const finalUrl = zone.url ? zone.url.replace("{HTML_URL}", SOURCE_CONFIG.gnMath.html) : `https://gn-math.dev/?id=${zone.id}`;
             return {
               id: zone.id,
               name: zone.name,
               gameUrl: isExternal
                 ? zone.url
-                : `https://gn-math.dev/?id=${zone.id}`,
+                : finalUrl,
               isExternal,
               coverUrl: zone.cover
                 ? `/!!/${zone.cover.replace("{COVER_URL}", SOURCE_CONFIG.gnMath.covers)}`

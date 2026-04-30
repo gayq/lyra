@@ -13,7 +13,7 @@ export interface GameEntry {
 
 interface SourceConfig {
   selenite: { games: string; assets: string };
-  "gn-math": { zones: string; covers: string };
+  "gn-math": { zones: string; covers: string; html: string };
   velara: { games: string; assets: string };
   edurocks: { games: string; assets: string };
 }
@@ -58,6 +58,7 @@ const SOURCE_CONFIG: SourceConfig = {
   "gn-math": {
     zones: "/!!/https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json",
     covers: "https://cdn.jsdelivr.net/gh/freebuisness/covers@main",
+    html: "https://cdn.jsdelivr.net/gh/freebuisness/html@main",
   },
   velara: {
     games: "/!!/https://velara.cc/data/games.json",
@@ -206,13 +207,14 @@ function mapGnMathGames(data: unknown): GameEntry[] {
   const zones = Array.isArray(data) ? (data as GnMathZone[]) : [];
   return zones
     .map((zone) => {
-      const isExternal = zone.url.startsWith("http");
+      const isExternal = zone.url ? zone.url.startsWith("http") : false;
+      const finalUrl = zone.url ? zone.url.replace("{HTML_URL}", SOURCE_CONFIG["gn-math"].html) : `https://gn-math.dev/?id=${zone.id}`;
       return {
         id: zone.id,
         name: zone.name,
         author: zone.author,
         coverUrl: `/!cover!/${zone.cover.replace("{COVER_URL}", SOURCE_CONFIG["gn-math"].covers)}`,
-        gameUrl: isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`,
+        gameUrl: isExternal ? zone.url : finalUrl,
         isExternal,
         featured: zone.featured ?? false,
         sourceKey: "gn-math",

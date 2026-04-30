@@ -9,7 +9,7 @@
   margin: 0 auto;
   position: relative;
   opacity: 0;
-  transition: opacity 80ms ease;
+  transition: opacity 60ms ease;
 }
 
 .games-page.is-visible {
@@ -45,8 +45,9 @@ body.games-view #arrow-pointer {
   margin: 0 auto;
   z-index: 1003;
   display: none;
-  padding: 0 12px;
+  padding: 12px;
   box-sizing: border-box;
+  pointer-events: none;
 }
 
 body.games-view .games-topbar {
@@ -58,6 +59,7 @@ body.games-view .games-topbar {
   position: relative;
   display: flex;
   align-items: center;
+  pointer-events: auto;
   justify-content: center;
   margin-top: -35px;
   width: 100%;
@@ -108,7 +110,7 @@ body.games-view .games-page {
 }
 
 .game-grid-container {
-  margin-top: -10px;
+  margin-top: -80px;
   padding: 18px;
 }
 
@@ -152,7 +154,6 @@ body.games-view .games-page {
   display: block;
   filter: brightness(var(--game-cover-brightness));
   transition: all 0.05s ease;
-  will-change: transform, filter;
 }
 
 .game-card:hover .game-cover img {
