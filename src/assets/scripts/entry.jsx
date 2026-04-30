@@ -78,7 +78,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   requestAnimationFrame(() => {
-    window.dispatchEvent(new Event("waves:styles-ready"));
+    window.dispatchEvent(new Event("styles-ready"));
 
     void import("../css/settings.css");
     void import("../css/games.css");

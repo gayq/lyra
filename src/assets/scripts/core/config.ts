@@ -6,7 +6,7 @@ export interface Bookmark {
 
 export const DEFAULT_BOOKMARKS: Bookmark[] = [
   { name: "ao3", url: "https://archiveofourown.org/", icon: "/!cover!/https://archiveofourown.org/favicon.ico" },
-  { name: "movies", url: "https://cineby.sc/", icon: "fa-light fa-film" },
+  { name: "movies", url: "https://dulo.tv", icon: "fa-light fa-film" },
   { name: "music", url: "https://soundcloud.com/", icon: "fa-light fa-music" },
   { name: "tiktok", url: "https://www.tiktok.com/" },
   { name: "discord", url: "https://discord.com/login/", icon: "/!cover!/https://discord.com/assets/favicon.ico" },

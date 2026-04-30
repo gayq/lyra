@@ -114,7 +114,9 @@ if command -v modprobe >/dev/null 2>&1; then
     sudo modprobe nf_conntrack || true
 fi
 retry 3 sudo apt-get update -y
-retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io libjemalloc2 ca-certificates curl gnupg lsb-release openssl
+if ! retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl; then
+  sudo apt-get --fix-broken install -y -o Dpkg::Options::="--force-overwrite"
+fi
 
 if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash
@@ -277,8 +279,11 @@ fi
 
 sudo systemctl enable docker >/dev/null 2>&1 || true
 sudo systemctl start docker >/dev/null 2>&1 || true
-if ! sudo docker info >/dev/null 2>&1; then
-  echo "docker daemon is not ready!"
+
+sleep 3
+
+if ! retry 5 sudo docker info >/dev/null 2>&1; then
+  echo "docker daemon failed to start!"
   exit 1
 fi
 require_cmd docker
