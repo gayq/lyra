@@ -144,8 +144,26 @@
     <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
     <script>
       (function () {
+        function encodeMochiUrl(url) {
+          var key = "q7Zx!9pL";
+          var percent = encodeURIComponent(String(url));
+          var bytes = typeof TextEncoder !== "undefined"
+            ? new TextEncoder().encode(percent)
+            : new Uint8Array(percent.split("").map(function (c) { return c.charCodeAt(0) & 255; }));
+          var keyBytes = typeof TextEncoder !== "undefined"
+            ? new TextEncoder().encode(key)
+            : new Uint8Array(key.split("").map(function (c) { return c.charCodeAt(0) & 255; }));
+          var out = new Uint8Array(bytes.length);
+          for (var i = 0; i < bytes.length; i++) out[i] = bytes[i] ^ keyBytes[i % keyBytes.length];
+          var bin = "";
+          for (var j = 0; j < out.length; j += 0x8000) {
+            bin += String.fromCharCode.apply(null, out.subarray(j, j + 0x8000));
+          }
+          return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+        }
+
         var faUrl = "https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css";
-        var proxied = "/!!/" + encodeURIComponent(faUrl) + "/";
+        var proxied = "/!!/" + encodeMochiUrl(faUrl) + "/";
         var link = document.createElement("link");
         link.rel = "stylesheet";
         link.href = proxied;
@@ -156,7 +174,7 @@
         document.head.appendChild(link);
       })();
     </script>
-    <noscript><link href="/!!/https%3A%2F%2Fsite-assets.fontawesome.com%2Freleases%2Fv7.2.0%2Fcss%2Fall.css/" rel="stylesheet" /></noscript>
+    <noscript><link href="/!!/GUMuCFIcQw1UBRxdE38DJQVSdxlSShU4Ahk8F09NETsURDUVRBcTIxwSaD5TXBwpEEQ_CwQLNjpGGWhWERxCChJEKV0TfxEgHRk5C1I/" rel="stylesheet" /></noscript>
     <script defer src="/b?id=1"></script>
     <script defer src="/b?id=2"></script>
     <script defer src="/b?id=3"></script>
