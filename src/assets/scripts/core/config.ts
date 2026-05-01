@@ -1,3 +1,5 @@
+import { encodeMochiUrl } from "./utils.js";
+
 export interface Bookmark {
   name: string;
   url: string;
@@ -5,11 +7,11 @@ export interface Bookmark {
 }
 
 export const DEFAULT_BOOKMARKS: Bookmark[] = [
-  { name: "ao3", url: "https://archiveofourown.org/", icon: "/!cover!/https://archiveofourown.org/favicon.ico" },
+  { name: "ao3", url: "https://archiveofourown.org/", icon: `/!cover!/${encodeMochiUrl("https://archiveofourown.org/favicon.ico")}/` },
   { name: "movies", url: "https://dulo.tv", icon: "fa-light fa-film" },
   { name: "music", url: "https://soundcloud.com/", icon: "fa-light fa-music" },
   { name: "tiktok", url: "https://www.tiktok.com/" },
-  { name: "discord", url: "https://discord.com/login/", icon: "/!cover!/https://discord.com/assets/favicon.ico" },
+  { name: "discord", url: "https://discord.com/login/", icon: `/!cover!/${encodeMochiUrl("https://discord.com/assets/favicon.ico")}/` },
 ];
 
 export const SEARCH_ENGINES = {

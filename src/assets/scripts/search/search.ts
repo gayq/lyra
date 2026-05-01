@@ -2,7 +2,7 @@ import { BANGS, SEARCH_ENGINES } from "../core/config.js";
 import { useEffect } from "preact/hooks";
 import { showBrowserView } from "../state/store.js";
 import { navigateIframeTo, updateHistoryUI } from "../core/iframe.js";
-import { getProxyUrl } from "../core/utils.js";
+import { getProxyUrl, encodeMochiUrl } from "../core/utils.js";
 
 interface TabLike {
   iframe: HTMLIFrameElement;
@@ -95,7 +95,7 @@ async function getUrl(url: string): Promise<string> {
     );
   } else if (selectedBackend === "scramjet") {
     await (window as any).scramjetReady;
-    return "/b/s/" + url;
+    return "/b/s/r/" + url;
   }
   return url;
 }

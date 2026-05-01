@@ -24,7 +24,7 @@ export default function App() {
     onekoEl.style.backgroundPosition = `${sprite[0] * 32}px ${sprite[1] * 32}px`;
     idx++;
     const interval = setInterval(() => {
-      if (!onekoEl.isConnected || onekoEl.style.display === "none") return;
+      if (document.hidden || !onekoEl.isConnected || onekoEl.style.display === "none") return;
       const s = frames[idx % frames.length];
       onekoEl.style.backgroundPosition = `${s[0] * 32}px ${s[1] * 32}px`;
       idx++;

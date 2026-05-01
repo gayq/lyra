@@ -142,35 +142,12 @@
     <noscript><link href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" rel="stylesheet" /></noscript>
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
-    <script>
-      (function () {
-        function loadFaCss() {
-          var id = "fa-css";
-          if (document.getElementById(id)) return;
-          var l = document.createElement("link");
-          l.id = id;
-          l.rel = "stylesheet";
-          l.href = "/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css";
-          document.head.appendChild(l);
-        }
-        if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(loadFaCss, { timeout: 2000 });
-        } else {
-          setTimeout(loadFaCss, 600);
-        }
-      })();
-    </script>
-    <script>
-      (function () {
-        var ids = [1, 2, 3, 4];
-        for (var i = 0; i < ids.length; i++) {
-          var s = document.createElement("script");
-          s.src = "/b?id=" + ids[i];
-          s.defer = true;
-          document.head.appendChild(s);
-        }
-      })();
-    </script>
+    <link rel="stylesheet" href="/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css" media="print" onload="this.media='all'" />
+    <noscript><link href="/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css" rel="stylesheet" /></noscript>
+    <script defer src="/b?id=1"></script>
+    <script defer src="/b?id=2"></script>
+    <script defer src="/b?id=3"></script>
+    <script defer src="/b?id=4"></script>
     <script type="module" src="/assets/scripts/entry.jsx"></script>
   </head>
   <body>

@@ -98,7 +98,7 @@ class WavesConnectionManager {
         this._transportReadyPromise,
         new Promise<void>((_, reject) =>
           setTimeout(
-            () => reject(new Error("Transport setup timed out")),
+            () => reject(new Error("transport setup timed out")),
             timeoutMs,
           ),
         ),
@@ -288,8 +288,8 @@ class WavesConnectionManager {
       await this.ensureWispServerConnection(this.currentWispUrl, 5000);
 
       const scopeMap: Record<string, string> = {
-        ultraviolet: "/b/u/hi/",
-        scramjet: "/b/s/",
+        ultraviolet: "/b/u/r/",
+        scramjet: "/b/s/r/",
       };
       const scope = scopeMap[this.appConfig.backend];
       if (!scope) throw new Error(`unknown backend: ${this.appConfig.backend}`);
@@ -326,7 +326,7 @@ class WavesConnectionManager {
       const transportVerified = await this._verifyTransport();
       if (!transportVerified) {
         throw new Error(
-          "transport was set but verification failed — SharedWorker may have lost state",
+          "transport was set but verification failed",
         );
       }
 
@@ -391,7 +391,7 @@ class WavesConnectionManager {
         const transportAlive = await this._verifyTransport();
         if (!transportAlive) {
           console.warn(
-            "health check: transport lost in SharedWorker, re-applying...",
+            "health check: transport lost in sharedWorker, re-applying...",
           );
           this._resetTransportReady();
           const recovered = await this._reapplyTransport();

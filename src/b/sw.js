@@ -6,9 +6,9 @@ if (typeof crossOriginIsolated === 'undefined' && navigator.userAgent.includes('
 }
 
 const scope = self.registration.scope;
-const isScramjet = scope.endsWith('/b/s/');
-const isUltraviolet = scope.endsWith('/b/u/hi/');
-const UV_PREFIX = '/b/u/hi/';
+const isScramjet = scope.endsWith('/b/s/r/');
+const isUltraviolet = scope.endsWith('/b/u/r/');
+const UV_PREFIX = '/b/u/r/';
 const STATIC_ASSET_REGEX = /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
 const MOCHI_PREFIX = '/!!/';
 const CACHE_VERSION = '__BUILD_ID__';
@@ -429,6 +429,54 @@ const TURN_SCRIPT = `
 })();
 </script>
 `;
+
+const TURN_SCRIPT_RELAY_ONLY = `
+<script>
+(function() {
+    const OriginalRTCPeerConnection = window.RTCPeerConnection;
+    if (!OriginalRTCPeerConnection) return;
+    function WrappedRtc(config, constraints) {
+        const c = config ? Object.assign({}, config) : {};
+        c.iceTransportPolicy = "relay";
+        return constraints !== undefined
+            ? new OriginalRTCPeerConnection(c, constraints)
+            : new OriginalRTCPeerConnection(c);
+    }
+    WrappedRtc.prototype = OriginalRTCPeerConnection.prototype;
+    try { Object.defineProperty(WrappedRtc, "name", { value: "RTCPeerConnection" }); } catch (e) {}
+    window.RTCPeerConnection = WrappedRtc;
+})();
+</script>
+`;
+
+function upstreamHostname(realUrlStr) {
+  try {
+    return new URL(realUrlStr).hostname.toLowerCase();
+  } catch (e) {
+    return '';
+  }
+}
+
+function isDiscordRelayOnlyHost(hostname) {
+  const h = (hostname || '').replace(/^www\./, '').toLowerCase();
+  const suffixes = [
+    'discord.com',
+    'discord.gg',
+    'discord.media',
+    'discordapp.com',
+    'discordapp.net',
+    'discordstatus.com'
+  ];
+  if (!h) return false;
+  return suffixes.some((s) => h === s || h.endsWith('.' + s));
+}
+
+function buildHtmlInjectPatches(upstreamUrlStr) {
+  const host = upstreamHostname(upstreamUrlStr || '');
+  const turnScript =
+    isDiscordRelayOnlyHost(host) ? TURN_SCRIPT_RELAY_ONLY : TURN_SCRIPT;
+  return turnScript + SPA_PATCH + SOUNDCLOUD_PATCH + META_SCRIPT;
+}
 
 const mochiBase = () => {
   if (self.__MOCHI_BASE__ && self.__MOCHI_BASE__.startsWith('http')) return self.__MOCHI_BASE__.replace(/\/+$/, '') + '/!!/';
@@ -1080,7 +1128,7 @@ function fixHtmlHeaders(source) {
   return headers;
 }
 
-async function patchHtml(response) {
+async function patchHtml(response, upstreamUrlStr) {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html') || !response.body) return response;
 
@@ -1092,7 +1140,7 @@ async function patchHtml(response) {
     const originalBody = await clonedResponse.text();
     if (originalBody.length > MAX_HTML_INJECT_BYTES) return response;
 
-    const scripts = TURN_SCRIPT + SPA_PATCH + SOUNDCLOUD_PATCH + META_SCRIPT;
+    const scripts = buildHtmlInjectPatches(upstreamUrlStr);
     let newBodyStr;
     const lowerBody = originalBody.toLowerCase();
     const headStartIdx = lowerBody.indexOf('<head');
@@ -1475,13 +1523,13 @@ self.addEventListener("fetch", (event) => {
               }
             }
 
-            if (response) return patchHtml(response);
+            if (response) return patchHtml(response, realUrl);
             return timeoutFallbackResponse(request, url);
           } catch (e) {
             notifyTransportError();
             if (realUrl && realUrl.startsWith('http')) {
               const m = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
-              if (m) return patchHtml(m);
+              if (m) return patchHtml(m, realUrl);
             }
             return timeoutFallbackResponse(request, url);
           }
@@ -1513,13 +1561,13 @@ self.addEventListener("fetch", (event) => {
               }
             }
 
-            if (response) return patchHtml(response);
+            if (response) return patchHtml(response, realUrl);
             return timeoutFallbackResponse(request, url);
           } catch (e) {
             notifyTransportError();
             if (realUrl && realUrl.startsWith('http')) {
               const m = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
-              if (m) return patchHtml(m);
+              if (m) return patchHtml(m, realUrl);
             }
             return timeoutFallbackResponse(request, url);
           }
@@ -1597,7 +1645,7 @@ self.addEventListener("fetch", (event) => {
     } catch (err) {
       if (realUrl && !realUrl.includes(self.location.host)) {
         const mf = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_TIMEOUT_MS);
-        if (mf) return mf;
+        if (mf) return patchHtml(mf, realUrl);
       }
       const fallback = await caches.match(request);
       if (fallback) return fallback;

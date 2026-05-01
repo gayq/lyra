@@ -1,3 +1,5 @@
+import { encodeMochiUrl } from "../core/utils.js";
+
 export interface GameEntry {
   id: string | number;
   name: string;
@@ -52,20 +54,20 @@ interface GnMathZone {
 
 const SOURCE_CONFIG: SourceConfig = {
   selenite: {
-    games: "/!!/https://selenite.cc/resources/games.json",
+    games: "/!!/" + encodeMochiUrl("https://selenite.cc/resources/games.json") + "/",
     assets: "https://selenite.cc/resources/semag/",
   },
   "gn-math": {
-    zones: "/!!/https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json",
+    zones: "/!!/" + encodeMochiUrl("https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json") + "/",
     covers: "https://cdn.jsdelivr.net/gh/freebuisness/covers@main",
     html: "https://cdn.jsdelivr.net/gh/freebuisness/html@main",
   },
   velara: {
-    games: "/!!/https://velara.cc/data/games.json",
+    games: "/!!/" + encodeMochiUrl("https://velara.cc/data/games.json") + "/",
     assets: "https://velara.cc",
   },
   edurocks: {
-    games: "/!!/https://www.edurocks.org/gxxes.json",
+    games: "/!!/" + encodeMochiUrl("https://www.edurocks.org/gxxes.json") + "/",
     assets: "https://www.edurocks.org",
   },
 };
@@ -138,7 +140,7 @@ function mapSeleniteGames(data: unknown): GameEntry[] {
       return {
         id: game.name,
         name: game.name,
-        coverUrl: finalCover ? `/!cover!/${finalCover}` : "",
+        coverUrl: finalCover ? `/!cover!/${encodeMochiUrl(finalCover)}/` : "",
         gameUrl: finalUrl,
         isExternal: false,
         featured: false,
@@ -165,10 +167,11 @@ function mapVelaraGames(data: unknown): GameEntry[] {
       if (finalUrl && !finalUrl.startsWith("http")) {
         finalUrl = SOURCE_CONFIG.velara.assets + (finalUrl.startsWith("/") ? "" : "/") + finalUrl;
       }
+      const finalCover = `${SOURCE_CONFIG.velara.assets}/${game.image ?? ""}`;
       return {
         id: game.title,
         name: game.title,
-        coverUrl: `/!cover!/${SOURCE_CONFIG.velara.assets}/${game.image ?? ""}`,
+        coverUrl: `/!cover!/${encodeMochiUrl(finalCover)}/`,
         gameUrl: finalUrl,
         isExternal: !game.location && !!game.grdmca,
         featured: false,
@@ -192,7 +195,7 @@ function mapEdurocksGames(data: unknown): GameEntry[] {
       return {
         id: game.id ?? game.legacyId ?? game.name,
         name: game.name,
-        coverUrl: `/!cover!/${finalCover}`,
+        coverUrl: `/!cover!/${encodeMochiUrl(finalCover)}/`,
         gameUrl: finalUrl,
         isExternal: false,
         featured: false,
@@ -209,11 +212,12 @@ function mapGnMathGames(data: unknown): GameEntry[] {
     .map((zone) => {
       const isExternal = zone.url ? zone.url.startsWith("http") : false;
       const finalUrl = zone.url ? zone.url.replace("{HTML_URL}", SOURCE_CONFIG["gn-math"].html) : `https://gn-math.dev/?id=${zone.id}`;
+      const finalCover = zone.cover.replace("{COVER_URL}", SOURCE_CONFIG["gn-math"].covers);
       return {
         id: zone.id,
         name: zone.name,
         author: zone.author,
-        coverUrl: `/!cover!/${zone.cover.replace("{COVER_URL}", SOURCE_CONFIG["gn-math"].covers)}`,
+        coverUrl: `/!cover!/${encodeMochiUrl(finalCover)}/`,
         gameUrl: isExternal ? zone.url : finalUrl,
         isExternal,
         featured: zone.featured ?? false,

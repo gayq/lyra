@@ -64,7 +64,7 @@ try {
       "ScramjetController"
     ] as new (config: unknown) => { init(): Promise<void> };
     const scramjet = new ScramjetControllerRef({
-      prefix: "/b/s/",
+      prefix: "/b/s/r/",
       files: {
         wasm: "/b/s/jetty.wasm.wasm",
         all: "/b/s/jetty.all.js",

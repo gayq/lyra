@@ -96,7 +96,7 @@ export function decodeUrl(encodedUrl: string): string {
       const uvConfig = (
         window as unknown as Record<string, Record<string, unknown>>
       )["__uv$config"];
-      const prefix = (uvConfig?.["prefix"] as string | undefined) ?? "/b/u/hi/";
+      const prefix = (uvConfig?.["prefix"] as string | undefined) ?? "/b/u/r/";
       const decodeFn =
         (uvConfig?.["decodeUrl"] as ((s: string) => string) | undefined) ??
         decodeURIComponent;
@@ -106,7 +106,7 @@ export function decodeUrl(encodedUrl: string): string {
         return decodeFn(encodedPart) + urlObject.search + urlObject.hash;
       }
     } else if (selectedBackend === "scramjet") {
-      const prefix = "/b/s/";
+      const prefix = "/b/s/r/";
       try {
         const urlObject = new URL(encodedUrl, window.location.origin);
         if (urlObject.pathname.startsWith(prefix)) {

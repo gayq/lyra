@@ -305,9 +305,9 @@ export default function GamesPage() {
         >
           {!loaded
             ? SKELETON_KEYS.map((key) => <SkeletonCard key={key} />)
-            : visibleGames.map((game) => (
+            : visibleGames.map((game, idx) => (
                 <GameCard
-                  key={game.id || game.gameUrl}
+                  key={`${game.id || game.gameUrl}-${idx}`}
                   game={game}
                   onPlay={handlePlay}
                 />
