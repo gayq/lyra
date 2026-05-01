@@ -162,16 +162,49 @@
           return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
         }
 
+        function toProxy(url) {
+          return "/!!/" + encodeMochiUrl(url) + "/";
+        }
+
+        function absolutize(base, maybeRelative) {
+          try {
+            return new URL(maybeRelative, base).toString();
+          } catch (_e) {
+            return maybeRelative;
+          }
+        }
+
+        function rewriteCssUrls(cssText, cssSourceUrl) {
+          return cssText.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/g, function (full, quote, rawUrl) {
+            if (!rawUrl) return full;
+            if (rawUrl.indexOf("data:") === 0) return full;
+            if (rawUrl.indexOf("blob:") === 0) return full;
+            if (rawUrl.indexOf("about:") === 0) return full;
+            var absolute = absolutize(cssSourceUrl, rawUrl);
+            return "url(\"" + toProxy(absolute) + "\")";
+          });
+        }
+
         var faUrl = "https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css";
-        var proxied = "/!!/" + encodeMochiUrl(faUrl) + "/";
-        var link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = proxied;
-        link.media = "print";
-        link.onload = function () {
-          this.media = "all";
-        };
-        document.head.appendChild(link);
+        var proxied = toProxy(faUrl);
+
+        fetch(proxied)
+          .then(function (res) {
+            if (!res.ok) throw new Error("fontawesome css fetch failed: " + res.status);
+            return res.text();
+          })
+          .then(function (cssText) {
+            var style = document.createElement("style");
+            style.setAttribute("data-fa-proxy", "mochi");
+            style.textContent = rewriteCssUrls(cssText, faUrl);
+            document.head.appendChild(style);
+          })
+          .catch(function () {
+            var link = document.createElement("link");
+            link.rel = "stylesheet";
+            link.href = proxied;
+            document.head.appendChild(link);
+          });
       })();
     </script>
     <noscript><link href="/!!/GUMuCFIcQw1UBRxdE38DJQVSdxlSShU4Ahk8F09NETsURDUVRBcTIxwSaD5TXBwpEEQ_CwQLNjpGGWhWERxCChJEKV0TfxEgHRk5C1I/" rel="stylesheet" /></noscript>
