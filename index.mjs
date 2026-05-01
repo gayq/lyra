@@ -410,9 +410,27 @@ app.get("/api/stuff", (_req, res) => {
   });
 });
 
+function getBuiltModuleEntryPath() {
+  if (NODE_ENV !== "production") return null;
+  try {
+    const html = fs.readFileSync(path.join(srcPath, "index.html"), "utf-8");
+    const m = html.match(
+      /<script\s+[^>]*type=["']module["'][^>]*\ssrc=["']([^"']+)["'][^>]*>/i,
+    );
+    return m?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+const builtModuleEntryPath = getBuiltModuleEntryPath();
 const EARLY_HINTS_LINKS = [
   "</assets/fonts/Lexend-Regular.woff2>; rel=preload; as=font; crossorigin",
-  "</assets/scripts/entry.jsx>; rel=modulepreload",
+  ...(NODE_ENV === "development"
+    ? ["</assets/scripts/entry.jsx>; rel=modulepreload"]
+    : builtModuleEntryPath
+      ? [`<${builtModuleEntryPath}>; rel=modulepreload`]
+      : []),
   "</b?id=1>; rel=preload; as=script",
   "</b?id=2>; rel=preload; as=script",
   "<https://fonts.googleapis.com>; rel=preconnect",

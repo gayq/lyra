@@ -1,6 +1,10 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import meow from "./build.js";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   plugins: [
@@ -23,9 +27,9 @@ export default defineConfig({
     assetsInlineLimit: 8192,
     rollupOptions: {
       input: {
-        main: "index.html",
-        "404": "404.html",
-        ed: "ed.html",
+        main: resolve(__dirname, "src/index.html"),
+        "404": resolve(__dirname, "src/404.html"),
+        ed: resolve(__dirname, "src/ed.html"),
       },
       output: {
         manualChunks(id) {
