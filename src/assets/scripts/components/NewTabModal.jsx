@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "preact/hooks";
-import { store } from "../state/store.js";
+import { store, useStore } from "../state/store.js";
 
 const SOURCE_CONFIG = {
   selenite: {
@@ -152,6 +152,11 @@ export default function NewTabModal() {
   const inputRef = useRef(null);
   const lastVisibleRef = useRef(false);
 
+  const tabs = useStore((s) => s.tabs) || [];
+  const activeTabId = useStore((s) => s.activeTabId);
+  const splitPair = useStore((s) => s.splitPair) || { left: null, right: null };
+  const isPickingSplitTab = useStore((s) => s.isPickingSplitTab);
+
   useEffect(() => {
     const modal = document.getElementById("new-tab-modal");
     if (!modal) return;
@@ -167,15 +172,24 @@ export default function NewTabModal() {
         el.value = "";
       }
       setQuery("");
-      if (store.isPickingSplitTab) setMode("splitSelect");
-      else {
-        setMode("newTab");
-        loadNewTabGameData(store.allGames);
-      }
     });
     observer.observe(modal, { attributes: true, attributeFilter: ["class"] });
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    setQuery("");
+    if (inputRef.current) inputRef.current.value = "";
+
+    if (isPickingSplitTab) {
+      setMode("splitSelect");
+    } else {
+      setMode("newTab");
+      if (visible) {
+        loadNewTabGameData(store.allGames);
+      }
+    }
+  }, [isPickingSplitTab, visible]);
 
   const hide = () => {
     const modal = document.getElementById("new-tab-modal");
@@ -244,14 +258,18 @@ export default function NewTabModal() {
       .filter((g) => (g.name || "").toLowerCase().includes(lowerQuery))
       .slice(0, 4);
   }, [query, lowerQuery]);
+  
   const filteredTabs = useMemo(() => {
     if (mode !== "splitSelect") return [];
-    return store.tabs.filter(
+    return tabs.filter(
       (t) =>
-        t.id !== store.splitPair.left &&
+        t.id !== activeTabId && 
+        t.id !== splitPair.left && 
+        t.id !== splitPair.right && 
         (t.title || "").toLowerCase().includes(lowerQuery),
     );
-  }, [mode, lowerQuery]);
+  }, [mode, lowerQuery, tabs, activeTabId, splitPair]);
+  
   const hasResults = mode === "newTab" ? !!query : filteredTabs.length > 0;
 
   const handleKeyUp = (e) => {

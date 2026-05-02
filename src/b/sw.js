@@ -29,42 +29,17 @@ const PRECACHE_URLS = [
 const CACHEABLE_STATIC_EXT =
   /\.(css|js|mjs|woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|svg|wasm)$/i;
 const DOWNLOAD_EXTENSIONS = new Set([
-  ".zip",
-  ".rar",
-  ".7z",
-  ".tar",
-  ".gz",
-  ".tgz",
-  ".bz2",
-  ".xz",
-  ".exe",
-  ".msi",
-  ".apk",
-  ".dmg",
-  ".deb",
-  ".rpm",
-  ".pdf",
-  ".doc",
-  ".docx",
-  ".xls",
-  ".xlsx",
-  ".ppt",
-  ".pptx",
-  ".iso",
-  ".img",
-  ".bin",
-  ".msix",
-  ".pkg",
-  ".mp3",
-  ".mp4",
-  ".wav",
-  ".flac",
-  ".mkv",
-  ".mov",
+  ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".exe",
+  ".msi", ".apk", ".dmg", ".deb", ".rpm", ".pdf", ".doc", ".docx",
+  ".xls", ".xlsx", ".ppt", ".pptx", ".iso", ".img", ".bin", ".msix",
+  ".pkg", ".mp3", ".mp4", ".wav", ".flac", ".mkv", ".mov",
 ]);
 
 const MAX_RUNTIME_ENTRIES = 300;
 const _inflight = new Map();
+const _activePrefetches = new Map();
+const _prefetchTimes = new Map();
+const PREFETCH_VALIDITY_MS = 30000;
 
 async function coalescedFetch(key, fetchFn) {
   if (_inflight.has(key)) return _inflight.get(key);
@@ -538,7 +513,7 @@ const HOVER_PREFETCH_SCRIPT = `
   if (!("serviceWorker" in navigator)) return;
   var isScramjet = ${isScramjet ? "true" : "false"};
   var isUltraviolet = ${isUltraviolet ? "true" : "false"};
-  var DEBOUNCE_MS = 45;
+  var DEBOUNCE_MS = 25;
   var maxUrls = 40;
   var sent = Object.create(null);
   var count = 0;
@@ -1289,6 +1264,18 @@ function prefetchNavCacheKeyRequest(reqUrl) {
   }
 }
 
+function trackPrefetchUrl(urlStr) {
+  try {
+    const urlKey = prefetchNavCacheKeyRequest(urlStr).url;
+    if (_activePrefetches.has(urlKey)) return false;
+    const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
+    if (age < PREFETCH_VALIDITY_MS) return false;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 async function matchPrefetchedNavHtml(request) {
   const key = prefetchNavCacheKeyRequest(request.url);
   try {
@@ -1306,19 +1293,6 @@ async function matchPrefetchedNavHtml(request) {
   } catch (e) {
     return null;
   }
-}
-
-const _prefetchSeen = new Set();
-const PREFETCH_SEEN_CAP = 96;
-
-function trackPrefetchUrl(urlStr) {
-  if (_prefetchSeen.has(urlStr)) return false;
-  _prefetchSeen.add(urlStr);
-  while (_prefetchSeen.size > PREFETCH_SEEN_CAP) {
-    const first = _prefetchSeen.values().next().value;
-    _prefetchSeen.delete(first);
-  }
-  return true;
 }
 
 async function prefetchProxiedNavFromClient(urlStr) {
@@ -1373,114 +1347,119 @@ async function handlePrefetchProxyRequest(event) {
   if (adBlocked(adTarget(request.url), false)) {
     return new Response(null, { status: 204 });
   }
-  const realUrl = unwrapUrl(url);
-  try {
-    if (isScramjet) {
-      if (!scramjetConfigLoaded) {
-        if (!scramjetConfigPromise) {
-          scramjetConfigPromise = scramjet.loadConfig().then(() => {
-            scramjetConfigLoaded = true;
-          });
-        }
-        await scramjetConfigPromise;
-      }
-      if (
-        url.pathname.startsWith("/b/s/jetty.") &&
-        !url.pathname.endsWith(".wasm")
-      ) {
-        const plain = new Request(request.url, { method: "GET" });
-        return fetch(plain);
-      }
-      if (!scramjet.route(event)) {
-        return new Response(null, { status: 204 });
-      }
-      const timeoutMs = PROXY_NAV_TIMEOUT_MS;
-      const proxyP = scramjet.fetch(event).catch(() => null);
-      const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
-      let response = null;
-      if (realUrl && realUrl.startsWith("http")) {
-        const mochiP = tryWithTimeout(
-          mochiFetch(request, realUrl),
-          MOCHI_SECONDARY_MS,
-        );
-        response = await timedProxyP;
-        if (response && response.ok) resetProxyHealth();
-        if (!response || (response.status >= 502 && response.status <= 504)) {
-          response = await mochiP;
-        }
-      } else {
-        response = await timedProxyP;
-        if (response && response.ok) resetProxyHealth();
-        if (!response && realUrl && realUrl.startsWith("http")) {
-          response = await tryWithTimeout(
-            mochiFetch(request, realUrl),
-            MOCHI_SECONDARY_MS,
-          );
-        }
-      }
-      if (response && response.ok) {
-        const patched = await patchHtml(response, realUrl);
-        try {
-          const cacheKey = prefetchNavCacheKeyRequest(request.url);
-          const cache = await caches.open(PREFETCH_NAV_CACHE);
-          await cache.put(cacheKey, patched.clone());
-          capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
-          console.log(
-            "stored in prefetch nav cache:",
-            request.url,
-          );
-        } catch (e) {}
-        return patched;
-      }
-      return response || new Response(null, { status: 204 });
-    }
 
-    if (isUltraviolet) {
-      if (!uv.route(event)) {
-        return new Response(null, { status: 204 });
-      }
-      const timeoutMs = PROXY_NAV_TIMEOUT_MS;
-      const proxyP = uv.fetch(event).catch(() => null);
-      const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
-      let response = null;
-      if (realUrl && realUrl.startsWith("http")) {
-        const mochiP = tryWithTimeout(
-          mochiFetch(request, realUrl),
-          MOCHI_SECONDARY_MS,
-        );
-        response = await timedProxyP;
-        if (response && response.ok) resetProxyHealth();
-        if (!response || (response.status >= 502 && response.status <= 504)) {
-          response = await mochiP;
-        }
-      } else {
-        response = await timedProxyP;
-        if (response && response.ok) resetProxyHealth();
-        if (!response && realUrl && realUrl.startsWith("http")) {
-          response = await tryWithTimeout(
-            mochiFetch(request, realUrl),
-            MOCHI_SECONDARY_MS,
-          );
-        }
-      }
-      if (response && response.ok) {
-        const patched = await patchHtml(response, realUrl);
-        try {
-          const cacheKey = prefetchNavCacheKeyRequest(request.url);
-          const cache = await caches.open(PREFETCH_NAV_CACHE);
-          await cache.put(cacheKey, patched.clone());
-          capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
-          console.log(
-            "stored in prefetch nav cache:",
-            request.url,
-          );
-        } catch (e) {}
-        return patched;
-      }
-      return response || new Response(null, { status: 204 });
+  const urlKey = prefetchNavCacheKeyRequest(request.url).url;
+
+  if (_activePrefetches.has(urlKey)) {
+    try {
+      const res = await _activePrefetches.get(urlKey);
+      return res ? res.clone() : new Response(null, { status: 204 });
+    } catch(e) {
+      return new Response(null, { status: 204 });
     }
-  } catch (e) {}
-  return new Response(null, { status: 204 });
+  }
+
+  const realUrl = unwrapUrl(url);
+
+  const doFetch = async () => {
+    try {
+      if (isScramjet) {
+        if (!scramjetConfigLoaded) {
+          if (!scramjetConfigPromise) {
+            scramjetConfigPromise = scramjet.loadConfig().then(() => { scramjetConfigLoaded = true; });
+          }
+          await scramjetConfigPromise;
+        }
+        if (url.pathname.startsWith("/b/s/jetty.") && !url.pathname.endsWith(".wasm")) {
+          return await fetch(new Request(request.url, { method: "GET" }));
+        }
+        if (!scramjet.route(event)) return new Response(null, { status: 204 });
+
+        const timeoutMs = PROXY_NAV_TIMEOUT_MS;
+        const proxyP = scramjet.fetch(event).catch(() => null);
+        const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
+        let response = null;
+
+        if (realUrl && realUrl.startsWith("http")) {
+          const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+          response = await timedProxyP;
+          if (response && response.ok) resetProxyHealth();
+          if (!response || (response.status >= 502 && response.status <= 504)) {
+            response = await mochiP;
+          }
+        } else {
+          response = await timedProxyP;
+          if (response && response.ok) resetProxyHealth();
+          if (!response && realUrl && realUrl.startsWith("http")) {
+            response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+          }
+        }
+
+        if (response && response.ok) {
+          const patched = await patchHtml(response, realUrl);
+          try {
+            const cacheKey = prefetchNavCacheKeyRequest(request.url);
+            const cache = await caches.open(PREFETCH_NAV_CACHE);
+            await cache.put(cacheKey, patched.clone());
+            _prefetchTimes.set(urlKey, Date.now());
+            capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+          } catch (e) {}
+          return patched;
+        }
+        return response || new Response(null, { status: 204 });
+      }
+
+      if (isUltraviolet) {
+        if (!uv.route(event)) return new Response(null, { status: 204 });
+
+        const timeoutMs = PROXY_NAV_TIMEOUT_MS;
+        const proxyP = uv.fetch(event).catch(() => null);
+        const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
+        let response = null;
+
+        if (realUrl && realUrl.startsWith("http")) {
+          const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+          response = await timedProxyP;
+          if (response && response.ok) resetProxyHealth();
+          if (!response || (response.status >= 502 && response.status <= 504)) {
+            response = await mochiP;
+          }
+        } else {
+          response = await timedProxyP;
+          if (response && response.ok) resetProxyHealth();
+          if (!response && realUrl && realUrl.startsWith("http")) {
+            response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
+          }
+        }
+
+        if (response && response.ok) {
+          const patched = await patchHtml(response, realUrl);
+          try {
+            const cacheKey = prefetchNavCacheKeyRequest(request.url);
+            const cache = await caches.open(PREFETCH_NAV_CACHE);
+            await cache.put(cacheKey, patched.clone());
+            _prefetchTimes.set(urlKey, Date.now());
+            capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+          } catch (e) {}
+          return patched;
+        }
+        return response || new Response(null, { status: 204 });
+      }
+    } catch (e) {}
+    return new Response(null, { status: 204 });
+  };
+
+  const prefetchPromise = doFetch();
+  _activePrefetches.set(urlKey, prefetchPromise);
+
+  try {
+    const res = await prefetchPromise;
+    return res ? res.clone() : new Response(null, { status: 204 });
+  } catch (e) {
+    return new Response(null, { status: 204 });
+  } finally {
+    _activePrefetches.delete(urlKey);
+  }
 }
 
 let _lastTransportError = 0;
@@ -1744,36 +1723,13 @@ const _adXorDec = (s) => {
 };
 
 const ADBLOCK_KEYWORDS = [
-  "/ads/",
-  "/adserver/",
-  "/adtracking/",
-  "-ad-track.",
-  "/analytics.js",
-  "/tracking.js",
-  "/pixel.js",
-  "/gpt.js",
-  "/prebid.js",
-  "/ads.min.js",
-  "/ad-script.js",
-  "/tracker.js",
-  "/beacon.js",
-  "/events.js",
-  "/gtm.js",
-  "/fbevents.js",
-  "/insight.min.js",
-  "/beacon.min.js",
-  "banner_ad",
-  "google_ads",
-  "/pagead/",
-  "/ad/g/cors",
-  "pagead2.googlesyndication.com",
-  "doubleclick.net",
-  "adsystem.com",
-  "yandex.ru/metrika",
-  "vk.com/rtrg",
-  "clarity.ms",
-  "tracking/pixel",
-  "/track/event",
+  "/ads/", "/adserver/", "/adtracking/", "-ad-track.", "/analytics.js",
+  "/tracking.js", "/pixel.js", "/gpt.js", "/prebid.js", "/ads.min.js",
+  "/ad-script.js", "/tracker.js", "/beacon.js", "/events.js", "/gtm.js",
+  "/fbevents.js", "/insight.min.js", "/beacon.min.js", "banner_ad",
+  "google_ads", "/pagead/", "/ad/g/cors", "pagead2.googlesyndication.com",
+  "doubleclick.net", "adsystem.com", "yandex.ru/metrika", "vk.com/rtrg",
+  "clarity.ms", "tracking/pixel", "/track/event",
 ];
 
 const ADBLOCK_SKIP = ["archiveofourown.org"];
@@ -1973,27 +1929,9 @@ self.addEventListener("fetch", (event) => {
             accept.startsWith("font/") ||
             STATIC_ASSET_REGEX.test(url.pathname) ||
             [
-              ".css",
-              ".wasm",
-              ".mp4",
-              ".m3u8",
-              ".webm",
-              ".mp3",
-              ".wav",
-              ".ogg",
-              ".aac",
-              ".flac",
-              ".png",
-              ".jpg",
-              ".jpeg",
-              ".gif",
-              ".webp",
-              ".svg",
-              ".ico",
-              ".woff",
-              ".woff2",
-              ".ttf",
-              ".otf",
+              ".css", ".wasm", ".mp4", ".m3u8", ".webm", ".mp3", ".wav",
+              ".ogg", ".aac", ".flac", ".png", ".jpg", ".jpeg", ".gif",
+              ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".otf",
               ".eot",
             ].includes(ext);
 
@@ -2061,8 +1999,22 @@ self.addEventListener("fetch", (event) => {
           if (scramjet.route(event)) {
             if (isNavigate && request.method === "GET") {
               try {
-                const prefHit = await matchPrefetchedNavHtml(request);
-                if (prefHit) return prefHit;
+                const urlKey = prefetchNavCacheKeyRequest(request.url).url;
+                
+                if (_activePrefetches.has(urlKey)) {
+                  try {
+                    const prefRes = await _activePrefetches.get(urlKey);
+                    if (prefRes && prefRes.ok) return prefRes.clone();
+                  } catch(e) {}
+                }
+
+                const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
+                if (age < PREFETCH_VALIDITY_MS) {
+                    const prefHit = await matchPrefetchedNavHtml(request);
+                    if (prefHit) return prefHit.clone();
+                } else if (_prefetchTimes.has(urlKey)) {
+                    _prefetchTimes.delete(urlKey);
+                }
               } catch (e) {}
             }
             const timeoutMs = isNavigate
@@ -2121,8 +2073,22 @@ self.addEventListener("fetch", (event) => {
           if (uv.route(event)) {
             if (isNavigate && request.method === "GET") {
               try {
-                const prefHit = await matchPrefetchedNavHtml(request);
-                if (prefHit) return prefHit;
+                const urlKey = prefetchNavCacheKeyRequest(request.url).url;
+
+                if (_activePrefetches.has(urlKey)) {
+                  try {
+                    const prefRes = await _activePrefetches.get(urlKey);
+                    if (prefRes && prefRes.ok) return prefRes.clone();
+                  } catch(e) {}
+                }
+
+                const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
+                if (age < PREFETCH_VALIDITY_MS) {
+                    const prefHit = await matchPrefetchedNavHtml(request);
+                    if (prefHit) return prefHit.clone();
+                } else if (_prefetchTimes.has(urlKey)) {
+                    _prefetchTimes.delete(urlKey);
+                }
               } catch (e) {}
             }
             const timeoutMs = isNavigate
