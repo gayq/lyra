@@ -71,6 +71,7 @@ class WavesConnectionManager {
   _transportReadyPromise: ResolvablePromise;
   _retryCount: number;
   _isRecovering: boolean;
+  _tabWasHiddenWhileConnected: boolean;
 
   constructor() {
     this.state = STATES.IDLE;
@@ -82,17 +83,27 @@ class WavesConnectionManager {
     this._transportReadyPromise = createResolvablePromise();
     this._retryCount = 0;
     this._isRecovering = false;
+    this._tabWasHiddenWhileConnected = false;
 
     (window as unknown as Record<string, unknown>)["WavesApp"] =
       (window as unknown as Record<string, unknown>)["WavesApp"] ?? {};
     window.WavesApp.transportReady = this._transportReadyPromise;
 
-    window.WavesApp.waitForTransport = (timeoutMs = 10000) => {
+    window.WavesApp.waitForTransport = async (timeoutMs = 10000) => {
       if (
         this._transportReadyPromise._settled &&
         this.state !== STATES.CONNECTED
       ) {
         this._resetTransportReady();
+      } else if (
+        this._transportReadyPromise._settled &&
+        this.state === STATES.CONNECTED
+      ) {
+        const verified = await this._verifyTransport();
+        if (!verified) {
+          this._resetTransportReady();
+          await this.recoverOnWake({ forceReapply: true });
+        }
       }
       return Promise.race([
         this._transportReadyPromise,
@@ -169,7 +180,7 @@ class WavesConnectionManager {
       this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
     } catch (e) {
       this.updateStatus(
-        "Could not access localStorage. Using defaults.",
+        "could not access localStorage. Using defaults.",
         "error",
       );
     }
@@ -411,7 +422,9 @@ class WavesConnectionManager {
     }, 8000);
   }
 
-  async recoverOnWake(): Promise<void> {
+  async recoverOnWake(
+    options?: { forceReapply?: boolean },
+  ): Promise<void> {
     if (
       this._isRecovering ||
       this.state === STATES.CONNECTING ||
@@ -423,9 +436,29 @@ class WavesConnectionManager {
 
     if (!navigator.onLine) return;
 
+    const forceReapply = options?.forceReapply === true;
+
     this._isRecovering = true;
     try {
       await this.ensureWispServerConnection(this.currentWispUrl, 3000);
+
+      if (
+        forceReapply &&
+        this.state === STATES.CONNECTED &&
+        this.bareMuxConnection
+      ) {
+        this._resetTransportReady();
+        const reapplied = await this._reapplyTransport();
+        if (reapplied) {
+          this.setState(STATES.CONNECTED);
+          this.updateStatus("successfully connected!", "success");
+          return;
+        }
+        console.warn("wake recovery: re-apply failed after resume, full re-init");
+        this._retryCount = 0;
+        await this.initializeApp(true);
+        return;
+      }
 
       const alive = await this._verifyTransport();
       if (alive) {
@@ -462,6 +495,27 @@ class WavesConnectionManager {
   }
 
   setupEventListeners(): void {
+    window.addEventListener("message", (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return;
+      const data = ev.data as { type?: string; url?: string } | null;
+      if (!data || data.type !== "waves-prefetch-bridge") return;
+      if (typeof data.url !== "string") return;
+      try {
+        const u = new URL(data.url);
+        if (u.origin !== window.location.origin) return;
+        if (!u.pathname.startsWith("/b/s/") && !u.pathname.startsWith("/b/u/"))
+          return;
+      } catch {
+        return;
+      }
+      const ctrl = navigator.serviceWorker.controller;
+      if (!ctrl) return;
+      try {
+        ctrl.postMessage({ type: "waves-prefetch", url: data.url });
+      } catch {
+      }
+    });
+
     const applyLiveChanges = async (
       updateFn: () => Promise<void>,
     ): Promise<void> => {
@@ -494,7 +548,8 @@ class WavesConnectionManager {
       ) {
         this.initializeApp();
       } else if (this.state === STATES.CONNECTED) {
-        void this.recoverOnWake();
+        this._resetTransportReady();
+        void this.recoverOnWake({ forceReapply: true });
       }
     });
     window.addEventListener("offline", () => {
@@ -503,9 +558,29 @@ class WavesConnectionManager {
       this._resetTransportReady();
     });
     document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
-        setTimeout(() => void this.recoverOnWake(), 300);
+      if (document.hidden) {
+        this._tabWasHiddenWhileConnected = this.state === STATES.CONNECTED;
+      } else {
+        const resumeFromHidden = this._tabWasHiddenWhileConnected;
+        this._tabWasHiddenWhileConnected = false;
+        if (resumeFromHidden && this.state === STATES.CONNECTED) {
+          this._resetTransportReady();
+        }
+        setTimeout(
+          () =>
+            void this.recoverOnWake(
+              resumeFromHidden ? { forceReapply: true } : undefined,
+            ),
+          0,
+        );
       }
+    });
+
+    window.addEventListener("pageshow", (ev: PageTransitionEvent) => {
+      if (!ev.persisted) return;
+      if (this.state !== STATES.CONNECTED) return;
+      this._resetTransportReady();
+      void this.recoverOnWake({ forceReapply: true });
     });
 
     if (navigator.serviceWorker) {

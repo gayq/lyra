@@ -2,7 +2,7 @@ import { BANGS, SEARCH_ENGINES } from "../core/config.js";
 import { useEffect } from "preact/hooks";
 import { showBrowserView } from "../state/store.js";
 import { navigateIframeTo, updateHistoryUI } from "../core/iframe.js";
-import { getProxyUrl, encodeMochiUrl } from "../core/utils.js";
+import { getProxyUrl } from "../core/utils.js";
 
 interface TabLike {
   iframe: HTMLIFrameElement;

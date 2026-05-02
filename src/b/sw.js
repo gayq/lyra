@@ -18,6 +18,8 @@ const MOCHI_PREFIX = "/!!/";
 const CACHE_VERSION = "__BUILD_ID__";
 const SHELL_CACHE = "waves-shell-" + CACHE_VERSION;
 const RUNTIME_CACHE = "waves-runtime-" + CACHE_VERSION;
+const PREFETCH_NAV_CACHE = "waves-prefetch-nav-" + CACHE_VERSION;
+const MAX_PREFETCH_NAV_ENTRIES = 48;
 const PRECACHE_URLS = [
   "/",
   "/assets/images/icons/favicon.ico",
@@ -182,6 +184,9 @@ self.addEventListener("message", (event) => {
       metaFlush = broadcastMeta();
       event.waitUntil(metaFlush);
     }
+  }
+  if (data && data.type === "waves-prefetch" && typeof data.url === "string") {
+    event.waitUntil(prefetchProxiedNavFromClient(data.url));
   }
 });
 
@@ -527,12 +532,149 @@ function isDiscordRelayOnlyHost(hostname) {
   return suffixes.some((s) => h === s || h.endsWith("." + s));
 }
 
+const HOVER_PREFETCH_SCRIPT = `
+<script>
+(function(){
+  if (!("serviceWorker" in navigator)) return;
+  var isScramjet = ${isScramjet ? "true" : "false"};
+  var isUltraviolet = ${isUltraviolet ? "true" : "false"};
+  var DEBOUNCE_MS = 45;
+  var maxUrls = 40;
+  var sent = Object.create(null);
+  var count = 0;
+  var t = null;
+  var swControllerRef = null;
+  function keyHref(h) {
+    try { return String(h || "").split("#")[0]; } catch (e) { return ""; }
+  }
+  function onProxiedSite() {
+    try {
+      var p = location.pathname || "";
+      return p.indexOf("/b/s/") === 0 || p.indexOf("/b/u/") === 0;
+    } catch (e) { return false; }
+  }
+  function proxiedResultUrl(abs) {
+    try {
+      var u = new URL(abs, location.href);
+      if (u.origin === location.origin) {
+        var p = u.pathname || "";
+        if (p.indexOf("/b/s/r/") === 0) return keyHref(u.href);
+        if (p.indexOf("/b/u/") === 0 && p.length > 10) return keyHref(u.href);
+        return null;
+      }
+      if (!onProxiedSite()) return null;
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+      var raw = keyHref(u.href);
+      if (isScramjet) {
+        return keyHref(location.origin + "/b/s/r/" + raw);
+      }
+      if (isUltraviolet && window.__uv$config && typeof window.__uv$config.encodeUrl === "function") {
+        var pref = window.__uv$config.prefix || "/b/u/r/";
+        return keyHref(location.origin + pref + window.__uv$config.encodeUrl(raw));
+      }
+      return null;
+    } catch (e) { return null; }
+  }
+  function anchorFromEvent(ev) {
+    var t = ev.target;
+    if (t && t.closest) {
+      var a = t.closest("a[href]");
+      if (a) return a;
+    }
+    var path = ev.composedPath && ev.composedPath();
+    if (path) {
+      for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (!n || n.nodeType !== 1) continue;
+        if (n.tagName === "A" && n.getAttribute("href")) return n;
+      }
+    }
+    return null;
+  }
+  function postToSw(worker, url) {
+    if (!worker || typeof worker.postMessage !== "function") return false;
+    try {
+      worker.postMessage({ type: "waves-prefetch", url: url });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  async function postPrefetch(url) {
+    if (!url || sent[url]) return;
+    if (count >= maxUrls) return;
+    var c = null;
+    try { c = navigator.serviceWorker.controller; } catch (e) {}
+    if (!c) c = swControllerRef;
+    if (!c) {
+      try {
+        var reg = await navigator.serviceWorker.ready;
+        c =
+          reg.active ||
+          reg.waiting ||
+          reg.installing ||
+          navigator.serviceWorker.controller;
+        if (c) swControllerRef = c;
+      } catch (e) {}
+    } else {
+      swControllerRef = c;
+    }
+    if (c && postToSw(c, url)) {
+      sent[url] = 1;
+      count++;
+      console.log("requesting prefetch:", url);
+      return;
+    }
+    try {
+      if (window.top && window.top !== window) {
+        window.top.postMessage(
+          { type: "waves-prefetch-bridge", url: url },
+          location.origin
+        );
+        sent[url] = 1;
+        count++;
+        console.log("bridge prefetch to top window:", url);
+        return;
+      }
+    } catch (e) {}
+    console.warn(
+      "cannot reach sw (no controller, no top bridge):",
+      url
+    );
+  }
+  try {
+    console.log("hover listener installed:", location.href);
+  } catch (e) {}
+  function queuePrefetchFromPointer(ev) {
+    var el = anchorFromEvent(ev);
+    if (!el) return null;
+    var raw = el.getAttribute("href");
+    if (!raw || raw.indexOf("javascript:") === 0 || raw === "#") return null;
+    var abs;
+    try { abs = new URL(raw, location.href).href; } catch (e) { return null; }
+    return proxiedResultUrl(abs);
+  }
+  document.addEventListener("pointerover", function (ev) {
+    var prefetchUrl = queuePrefetchFromPointer(ev);
+    if (!prefetchUrl) return;
+    clearTimeout(t);
+    t = setTimeout(function () { void postPrefetch(prefetchUrl); }, DEBOUNCE_MS);
+  }, true);
+  document.addEventListener("pointerdown", function (ev) {
+    var prefetchUrl = queuePrefetchFromPointer(ev);
+    if (!prefetchUrl) return;
+    void postPrefetch(prefetchUrl);
+  }, true);
+})();
+</script>
+`;
+
 function buildHtmlInjectPatches(upstreamUrlStr) {
   const host = upstreamHostname(upstreamUrlStr || "");
   const turnScript = isDiscordRelayOnlyHost(host)
     ? TURN_SCRIPT_RELAY_ONLY
     : TURN_SCRIPT;
-  return turnScript + SPA_PATCH + SOUNDCLOUD_PATCH + META_SCRIPT;
+  return turnScript + SPA_PATCH + SOUNDCLOUD_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
 }
 
 const mochiBase = () => {
@@ -1135,6 +1277,211 @@ const PROXY_TIMEOUT_MS = 10000;
 const PROXY_NAV_TIMEOUT_MS = 12000;
 const PROXY_SUBRESOURCE_TIMEOUT_MS = 8000;
 const MOCHI_SECONDARY_MS = 12000;
+const WAVES_PREFETCH_HEADER = "X-Waves-Prefetch";
+
+function prefetchNavCacheKeyRequest(reqUrl) {
+  try {
+    const u = new URL(reqUrl);
+    u.hash = "";
+    return new Request(u.href, { method: "GET" });
+  } catch (e) {
+    return new Request(String(reqUrl).split("#")[0], { method: "GET" });
+  }
+}
+
+async function matchPrefetchedNavHtml(request) {
+  const key = prefetchNavCacheKeyRequest(request.url);
+  try {
+    const cache = await caches.open(PREFETCH_NAV_CACHE);
+    let hit = await cache.match(key, { ignoreVary: true });
+    if (hit) return hit;
+    hit = await cache.match(key);
+    if (hit) return hit;
+  } catch (e) {}
+  try {
+    const cache = await caches.open(RUNTIME_CACHE);
+    let hit = await cache.match(key, { ignoreVary: true });
+    if (hit) return hit;
+    return await cache.match(key);
+  } catch (e) {
+    return null;
+  }
+}
+
+const _prefetchSeen = new Set();
+const PREFETCH_SEEN_CAP = 96;
+
+function trackPrefetchUrl(urlStr) {
+  if (_prefetchSeen.has(urlStr)) return false;
+  _prefetchSeen.add(urlStr);
+  while (_prefetchSeen.size > PREFETCH_SEEN_CAP) {
+    const first = _prefetchSeen.values().next().value;
+    _prefetchSeen.delete(first);
+  }
+  return true;
+}
+
+async function prefetchProxiedNavFromClient(urlStr) {
+  let u;
+  try {
+    u = new URL(urlStr);
+  } catch (e) {
+    return;
+  }
+  if (u.origin !== self.location.origin) return;
+  const p = u.pathname;
+  if (!p.startsWith("/b/s/") && !p.startsWith("/b/u/")) return;
+  if (adBlocked(adTarget(urlStr), false)) {
+    return;
+  }
+  if (!trackPrefetchUrl(urlStr)) {
+    return;
+  }
+  console.log("starting prefetch for", urlStr);
+  const req = new Request(urlStr, {
+    method: "GET",
+    headers: { [WAVES_PREFETCH_HEADER]: "1" },
+    credentials: "same-origin",
+  });
+  try {
+    const res = await fetch(req);
+    if (res && res.ok) {
+      console.log(
+        "prefetched and finished ok:",
+        urlStr,
+        "status=" + res.status,
+      );
+    } else {
+      console.warn(
+        "prefetch finished without usable response:",
+        urlStr,
+        res ? "status=" + res.status : "no response",
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "prefetch failed:",
+      urlStr,
+      e && e.message ? e.message : e,
+    );
+  }
+}
+
+async function handlePrefetchProxyRequest(event) {
+  const { request } = event;
+  const url = new URL(request.url);
+  if (adBlocked(adTarget(request.url), false)) {
+    return new Response(null, { status: 204 });
+  }
+  const realUrl = unwrapUrl(url);
+  try {
+    if (isScramjet) {
+      if (!scramjetConfigLoaded) {
+        if (!scramjetConfigPromise) {
+          scramjetConfigPromise = scramjet.loadConfig().then(() => {
+            scramjetConfigLoaded = true;
+          });
+        }
+        await scramjetConfigPromise;
+      }
+      if (
+        url.pathname.startsWith("/b/s/jetty.") &&
+        !url.pathname.endsWith(".wasm")
+      ) {
+        const plain = new Request(request.url, { method: "GET" });
+        return fetch(plain);
+      }
+      if (!scramjet.route(event)) {
+        return new Response(null, { status: 204 });
+      }
+      const timeoutMs = PROXY_NAV_TIMEOUT_MS;
+      const proxyP = scramjet.fetch(event).catch(() => null);
+      const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
+      let response = null;
+      if (realUrl && realUrl.startsWith("http")) {
+        const mochiP = tryWithTimeout(
+          mochiFetch(request, realUrl),
+          MOCHI_SECONDARY_MS,
+        );
+        response = await timedProxyP;
+        if (response && response.ok) resetProxyHealth();
+        if (!response || (response.status >= 502 && response.status <= 504)) {
+          response = await mochiP;
+        }
+      } else {
+        response = await timedProxyP;
+        if (response && response.ok) resetProxyHealth();
+        if (!response && realUrl && realUrl.startsWith("http")) {
+          response = await tryWithTimeout(
+            mochiFetch(request, realUrl),
+            MOCHI_SECONDARY_MS,
+          );
+        }
+      }
+      if (response && response.ok) {
+        const patched = await patchHtml(response, realUrl);
+        try {
+          const cacheKey = prefetchNavCacheKeyRequest(request.url);
+          const cache = await caches.open(PREFETCH_NAV_CACHE);
+          await cache.put(cacheKey, patched.clone());
+          capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+          console.log(
+            "stored in prefetch nav cache:",
+            request.url,
+          );
+        } catch (e) {}
+        return patched;
+      }
+      return response || new Response(null, { status: 204 });
+    }
+
+    if (isUltraviolet) {
+      if (!uv.route(event)) {
+        return new Response(null, { status: 204 });
+      }
+      const timeoutMs = PROXY_NAV_TIMEOUT_MS;
+      const proxyP = uv.fetch(event).catch(() => null);
+      const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
+      let response = null;
+      if (realUrl && realUrl.startsWith("http")) {
+        const mochiP = tryWithTimeout(
+          mochiFetch(request, realUrl),
+          MOCHI_SECONDARY_MS,
+        );
+        response = await timedProxyP;
+        if (response && response.ok) resetProxyHealth();
+        if (!response || (response.status >= 502 && response.status <= 504)) {
+          response = await mochiP;
+        }
+      } else {
+        response = await timedProxyP;
+        if (response && response.ok) resetProxyHealth();
+        if (!response && realUrl && realUrl.startsWith("http")) {
+          response = await tryWithTimeout(
+            mochiFetch(request, realUrl),
+            MOCHI_SECONDARY_MS,
+          );
+        }
+      }
+      if (response && response.ok) {
+        const patched = await patchHtml(response, realUrl);
+        try {
+          const cacheKey = prefetchNavCacheKeyRequest(request.url);
+          const cache = await caches.open(PREFETCH_NAV_CACHE);
+          await cache.put(cacheKey, patched.clone());
+          capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+          console.log(
+            "stored in prefetch nav cache:",
+            request.url,
+          );
+        } catch (e) {}
+        return patched;
+      }
+      return response || new Response(null, { status: 204 });
+    }
+  } catch (e) {}
+  return new Response(null, { status: 204 });
+}
 
 let _lastTransportError = 0;
 let _consecutiveProxyFailures = 0;
@@ -1268,7 +1615,8 @@ self.addEventListener("activate", (event) => {
               (k) =>
                 k.startsWith("waves-") &&
                 k !== SHELL_CACHE &&
-                k !== RUNTIME_CACHE,
+                k !== RUNTIME_CACHE &&
+                k !== PREFETCH_NAV_CACHE,
             )
             .map((k) => caches.delete(k)),
         );
@@ -1525,13 +1873,21 @@ function adBlocked(candidate, isNavigate) {
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+  if (request.headers.get(WAVES_PREFETCH_HEADER) === "1") {
+    event.respondWith(handlePrefetchProxyRequest(event));
+    return;
+  }
+
+  const dest = request.destination;
   const isNavigate =
-    request.mode === "navigate" || request.destination === "document";
+    request.mode === "navigate" ||
+    dest === "document" ||
+    dest === "iframe" ||
+    dest === "frame";
 
   const url = new URL(request.url);
 
   if (adBlocked(adTarget(request.url), isNavigate)) {
-    const dest = request.destination;
     const accept = request.headers.get("Accept") || "";
 
     let body = ":3";
@@ -1703,6 +2059,12 @@ self.addEventListener("fetch", (event) => {
           }
 
           if (scramjet.route(event)) {
+            if (isNavigate && request.method === "GET") {
+              try {
+                const prefHit = await matchPrefetchedNavHtml(request);
+                if (prefHit) return prefHit;
+              } catch (e) {}
+            }
             const timeoutMs = isNavigate
               ? PROXY_NAV_TIMEOUT_MS
               : PROXY_SUBRESOURCE_TIMEOUT_MS;
@@ -1757,6 +2119,12 @@ self.addEventListener("fetch", (event) => {
 
         if (isUltraviolet) {
           if (uv.route(event)) {
+            if (isNavigate && request.method === "GET") {
+              try {
+                const prefHit = await matchPrefetchedNavHtml(request);
+                if (prefHit) return prefHit;
+              } catch (e) {}
+            }
             const timeoutMs = isNavigate
               ? PROXY_NAV_TIMEOUT_MS
               : PROXY_SUBRESOURCE_TIMEOUT_MS;
