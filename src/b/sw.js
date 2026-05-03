@@ -7,26 +7,24 @@ if (
     writable: false,
   });
 }
-
 const scope = self.registration.scope;
 const isScramjet = scope.endsWith("/b/s/r/");
 const isUltraviolet = scope.endsWith("/b/u/r/");
 const UV_PREFIX = "/b/u/r/";
-const STATIC_ASSET_REGEX =
+const STATIC_REGEX =
   /\.(png|jpg|jpeg|gif|ico|webp|bmp|tiff|svg|mp3|wav|ogg|mp4|webm|woff|woff2|ttf|otf|eot)(\?.*)?$/i;
 const MOCHI_PREFIX = "/!!/";
 const CACHE_VERSION = "__BUILD_ID__";
 const SHELL_CACHE = "waves-shell-" + CACHE_VERSION;
 const RUNTIME_CACHE = "waves-runtime-" + CACHE_VERSION;
-const PREFETCH_NAV_CACHE = "waves-prefetch-nav-" + CACHE_VERSION;
-const MAX_PREFETCH_NAV_ENTRIES = 48;
-const PRECACHE_URLS = [
+const PREFETCH_CACHE = "waves-prefetch-nav-" + CACHE_VERSION;
+const MAX_PREFETCH_ENTRIES = 48;
+const PRECACHE = [
   "/",
   "/assets/images/icons/favicon.ico",
   ..."__PRECACHE_ASSETS__",
 ];
-
-const CACHEABLE_STATIC_EXT =
+const CACHEABLE_EXT =
   /\.(css|js|mjs|woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|svg|wasm)$/i;
 const DOWNLOAD_EXTENSIONS = new Set([
   ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".exe",
@@ -34,24 +32,92 @@ const DOWNLOAD_EXTENSIONS = new Set([
   ".xls", ".xlsx", ".ppt", ".pptx", ".iso", ".img", ".bin", ".msix",
   ".pkg", ".mp3", ".mp4", ".wav", ".flac", ".mkv", ".mov",
 ]);
-
-const MAX_RUNTIME_ENTRIES = 300;
+const LARGE_EXTENSIONS = new Set([
+  ".flac", ".wav", ".aiff", ".alac", ".wma", ".ape", ".dsd",
+  ".m4a", ".aac", ".ogg", ".opus", ".wv", ".tta", ".tak",
+  ".mkv", ".mp4", ".webm", ".avi", ".mov", "wmv",
+  ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
+]);
+const LARGE_SIZE_THRESHOLD = 50 * 1024 * 1024;
+const LARGE_CACHE = "waves-large-files-" + CACHE_VERSION;
+const MAX_LARGE_CACHE_ENTRIES = 20;
+const LARGE_TIMEOUT_MS = 60000;
+const COMPRESSIBLE = new Set([
+  ".flac", ".wav", ".aiff", ".m4a", ".aac", ".ogg", ".opus",
+  ".mp3", ".wma", ".txt", ".json", ".xml", ".html", ".css", ".js",
+  ".svg", ".woff", ".woff2", ".ttf", ".otf",
+]);
+const MAX_RUNTIME = 300;
 const _inflight = new Map();
 const _activePrefetches = new Map();
 const _prefetchTimes = new Map();
 const _prefetchedResponses = new Map();
-const PREFETCH_VALIDITY_MS = 30000;
-const MAX_MEM_PREFETCH = 10;
-
+const PREFETCH_VALIDITY = 30000;
+const MAX_MEM = 10;
+const _preloadedLarge = new Map();
+const MAX_PRELOADED = 5;
+const _bandwidthHistory = [];
+const BANDWIDTH_SIZE = 10;
+const DEFAULT_CHUNK = 2 * 1024 * 1024;
+const MIN_CHUNK = 512 * 1024;
+const MAX_CHUNK = 10 * 1024 * 1024
+const _preconnected = new Set();
+const MAX_PRECONNECTED = 10;
 async function coalescedFetch(key, fetchFn) {
   if (_inflight.has(key)) return _inflight.get(key);
   const p = fetchFn().finally(() => _inflight.delete(key));
   _inflight.set(key, p);
   return p;
 }
-
+function estimateBandwidth(bytes, timeMs) {
+  if (timeMs <= 0) return DEFAULT_CHUNK;
+  const bps = (bytes * 8) / (timeMs / 1000);
+  _bandwidthHistory.push(bps);
+  if (_bandwidthHistory.length > BANDWIDTH_SIZE) {
+    _bandwidthHistory.shift();
+  }
+  const avgBps = _bandwidthHistory.reduce((a, b) => a + b, 0) / _bandwidthHistory.length;
+  const targetTimeMs = 2000;
+  const adaptiveChunkSize = Math.min(
+    MAX_CHUNK,
+    Math.max(
+      MIN_CHUNK,
+      Math.floor((avgBps * targetTimeMs) / 8)
+    )
+  );
+  return adaptiveChunkSize;
+}
+function getAdaptiveChunkSize() {
+  if (_bandwidthHistory.length === 0) return DEFAULT_CHUNK;
+  const avgBps = _bandwidthHistory.reduce((a, b) => a + b, 0) / _bandwidthHistory.length;
+  const targetTimeMs = 2000;
+  return Math.min(
+    MAX_CHUNK,
+    Math.max(
+      MIN_CHUNK,
+      Math.floor((avgBps * targetTimeMs) / 8)
+    )
+  );
+}
+function preconnectToOrigin(origin) {
+  if (!origin || _preconnected.has(origin)) return;
+  if (_preconnected.size >= MAX_PRECONNECTED) {
+    const oldest = _preconnected.keys().next().value;
+    _preconnected.delete(oldest);
+  }
+  _preconnected.add(origin);
+  self.clients.matchAll({ type: "window" }).then(clients => {
+    for (const client of clients) {
+      try {
+        client.postMessage({
+          type: "waves-preconnect",
+          origin: origin
+        });
+      } catch (e) {}
+    }
+  }).catch(() => {});
+}
 let isTrimming = false;
-
 async function capCache(cacheName, maxEntries) {
   if (isTrimming) return;
   isTrimming = true;
@@ -68,15 +134,12 @@ async function capCache(cacheName, maxEntries) {
     isTrimming = false;
   }
 }
-
 let scramjet;
 let uv;
 let scramjetConfigLoaded = false;
 let scramjetConfigPromise = null;
-
 let metaPending = null;
 let metaFlush = null;
-
 async function broadcastMeta() {
   await new Promise((r) => setTimeout(r, 0));
   while (metaPending) {
@@ -96,7 +159,6 @@ async function broadcastMeta() {
   }
   metaFlush = null;
 }
-
 self.__MOCHI_BASE__ = self.__MOCHI_BASE__ || self.MOCHI_BASE || null;
 self.addEventListener("message", (event) => {
   const data = event?.data;
@@ -111,7 +173,6 @@ self.addEventListener("message", (event) => {
   if (data && data.type === "open-new-tab" && data.url) {
     const sanitizedUrl = typeof data.url === "string" ? data.url : null;
     if (!sanitizedUrl) return;
-
     const payload = {
       type: "open-new-tab",
       url: sanitizedUrl,
@@ -122,7 +183,6 @@ self.addEventListener("message", (event) => {
       isTopFrame: !!data.isTopFrame,
       cause: data.cause || null,
     };
-
     event.waitUntil(
       (async () => {
         const clients = await self.clients.matchAll({
@@ -149,13 +209,11 @@ self.addEventListener("message", (event) => {
       collectedAt: Date.now(),
       encoded: !!data.encoded,
     };
-
     const sourceId =
       event.source && "id" in event.source ? event.source.id : null;
     if (event.source && typeof event.source.postMessage === "function") {
       event.source.postMessage(payload);
     }
-
     metaPending = { payload, sourceId };
     if (!metaFlush) {
       metaFlush = broadcastMeta();
@@ -166,7 +224,6 @@ self.addEventListener("message", (event) => {
     event.waitUntil(prefetchProxiedNavFromClient(data.url));
   }
 });
-
 if (isScramjet) {
   importScripts("/b/s/jetty.all.js");
   const { ScramjetServiceWorker } = $scramjetLoadWorker();
@@ -175,7 +232,6 @@ if (isScramjet) {
   importScripts("/b/u/bunbun.js", "/b/u/concon.js", "/b/u/serser.js");
   uv = new UVServiceWorker();
 }
-
 const SPA_PATCH = `
 <script>
 (function(){
@@ -213,7 +269,6 @@ const SPA_PATCH = `
 })();
 </script>
 `;
-
 const SOUNDCLOUD_PATCH = `
 <script>
 (function(){
@@ -221,10 +276,8 @@ const SOUNDCLOUD_PATCH = `
   const UV_PREFIX='${UV_PREFIX}';
   const isScramjet=${isScramjet ? "true" : "false"};
   const isUltraviolet=${isUltraviolet ? "true" : "false"};
-
   const _MK2='q7Zx!9pL';
   const _xorDec=(s)=>{let o='';for(let i=0;i<s.length;i++){o+=String.fromCharCode(s.charCodeAt(i)^_MK2.charCodeAt(i%_MK2.length));}return o;};
-
   const decUrl=(href)=>{
     if(!href) return href;
     try{
@@ -232,7 +285,6 @@ const SOUNDCLOUD_PATCH = `
       if(u.pathname.startsWith(MOCHI_PREFIX)){
         let encodedPart = u.pathname.slice(MOCHI_PREFIX.length);
         if (encodedPart.endsWith('/')) encodedPart = encodedPart.slice(0, -1);
-
         try {
             let p = encodedPart.replace(/-/g, '+').replace(/_/g, '/');
             while (p.length % 4) { p += '='; }
@@ -243,7 +295,6 @@ const SOUNDCLOUD_PATCH = `
                 return result + u.search + u.hash;
             }
         } catch(e) {}
-
         if (encodedPart.startsWith('http://') || encodedPart.startsWith('https://')) {
             return encodedPart + u.search + u.hash;
         }
@@ -267,7 +318,6 @@ const SOUNDCLOUD_PATCH = `
       return href;
     }
   };
-
   const initSoundcloudPatch=()=>{
     try{
       const onSoundcloud=()=>{
@@ -288,15 +338,12 @@ const SOUNDCLOUD_PATCH = `
           return false;
         }catch(e){ return false; }
       };
-
       if(!onSoundcloud()) return;
-
       const closeSelector='button.modal__closeButton, .modal.auth-modal button[title="Close"]';
       const authOverlaySelector='#app .sign-in-up-form, #app .connect-form-title-ui-evo, main.vertically-centered-ui-evo';
       const floatingShellSelector='.modalWhiteout, .g-z-index-modal-background, .g-z-index-overlay, .g-backdrop-filter-grayscale';
       const authIframeSelector='iframe[src*="secure.soundcloud.com/web-auth"], iframe[scramjet-attr-src*="secure.soundcloud.com/web-auth"], iframe[src*="embedded_in_iframe=true"], iframe[scramjet-attr-src*="embedded_in_iframe=true"]';
       const promotionBannerSelector='div.banner.m-promotion, .banner.m-promotion.primary, .banner.l-inner-fullwidth.primary';
-
       const hideOrRemoveModal=(fromButton)=>{
         try{
           const modal=fromButton ? fromButton.closest('.modal.auth-modal, .modal') : null;
@@ -307,7 +354,6 @@ const SOUNDCLOUD_PATCH = `
           if(modal.parentNode) modal.parentNode.removeChild(modal);
         }catch(err){}
       };
-
       const resetPageLock=()=>{
         try{
           const pageNodes=[document.documentElement, document.body];
@@ -320,7 +366,6 @@ const SOUNDCLOUD_PATCH = `
           }
         }catch(err){}
       };
-
       const removeFloatingShells=()=>{
         try{
           const shells=document.querySelectorAll(floatingShellSelector);
@@ -337,7 +382,6 @@ const SOUNDCLOUD_PATCH = `
           }
         }catch(err){}
       };
-
       const removeEmptyAppShell=()=>{
         try{
           const app=document.getElementById('app');
@@ -358,7 +402,6 @@ const SOUNDCLOUD_PATCH = `
           }
         }catch(err){}
       };
-
       const removeAuthOverlay=()=>{
         try{
           const hit=document.querySelector(authOverlaySelector);
@@ -372,7 +415,6 @@ const SOUNDCLOUD_PATCH = `
           if(root.parentNode) root.parentNode.removeChild(root);
         }catch(err){}
       };
-
       const removeAuthIframes=()=>{
         try{
           const frames=document.querySelectorAll(authIframeSelector);
@@ -385,7 +427,6 @@ const SOUNDCLOUD_PATCH = `
           }
         }catch(err){}
       };
-
       const removePromotionBanners=()=>{
         try{
           const banners=document.querySelectorAll(promotionBannerSelector);
@@ -402,7 +443,6 @@ const SOUNDCLOUD_PATCH = `
           });
         }catch(err){}
       };
-
       const closeNow=()=>{
         try{
           const buttons=document.querySelectorAll(closeSelector);
@@ -423,29 +463,23 @@ const SOUNDCLOUD_PATCH = `
           resetPageLock();
         }catch(err){}
       };
-
       closeNow();
       const observer=new MutationObserver(()=>closeNow());
       observer.observe(document.documentElement || document, { childList:true, subtree:true });
       setInterval(closeNow, 150);
     }catch(e){}
   };
-
   initSoundcloudPatch();
 })();
 </script>
 `;
-
 const TURN_SCRIPT = `
 <script>
 (function() {
     const OriginalRTCPeerConnection = window.RTCPeerConnection;
-
     window.RTCPeerConnection = function(config) {
         config = config || {};
-
         config.iceTransportPolicy = "relay";
-
         if (config.iceServers) {
             config.iceServers = config.iceServers.filter(server => {
                 if (!server || !server.urls) return false;
@@ -453,7 +487,6 @@ const TURN_SCRIPT = `
                 return urls.every(url => url.startsWith("turn:"));
             });
         }
-
         if (!config.iceServers || config.iceServers.length === 0) {
             config.iceServers = [{
                 urls: "turn:${self.location.hostname}:3478",
@@ -461,13 +494,11 @@ const TURN_SCRIPT = `
                 credential: "enni"
             }];
         }
-
         return new OriginalRTCPeerConnection(config);
     };
 })();
 </script>
 `;
-
 const TURN_SCRIPT_RELAY = `
 <script>
 (function() {
@@ -498,7 +529,6 @@ const TURN_SCRIPT_RELAY = `
 })();
 </script>
 `;
-
 function upstreamHostname(realUrlStr) {
   try {
     return new URL(realUrlStr).hostname.toLowerCase();
@@ -506,7 +536,6 @@ function upstreamHostname(realUrlStr) {
     return "";
   }
 }
-
 function isDiscordRelayOnlyHost(hostname) {
   const h = (hostname || "").replace(/^www\./, "").toLowerCase();
   const suffixes = [
@@ -520,7 +549,6 @@ function isDiscordRelayOnlyHost(hostname) {
   if (!h) return false;
   return suffixes.some((s) => h === s || h.endsWith("." + s));
 }
-
 const HOVER_PREFETCH_SCRIPT = `
 <script>
 (function(){
@@ -657,7 +685,6 @@ const HOVER_PREFETCH_SCRIPT = `
 })();
 </script>
 `;
-
 function buildHtmlInjectPatches(upstreamUrlStr) {
   const host = upstreamHostname(upstreamUrlStr || "");
   const turnScript = isDiscordRelayOnlyHost(host)
@@ -665,7 +692,6 @@ function buildHtmlInjectPatches(upstreamUrlStr) {
     : TURN_SCRIPT;
   return turnScript + SPA_PATCH + SOUNDCLOUD_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
 }
-
 const mochiBase = () => {
   if (self.__MOCHI_BASE__ && self.__MOCHI_BASE__.startsWith("http"))
     return self.__MOCHI_BASE__.replace(/\/+$/, "") + "/!!/";
@@ -676,7 +702,6 @@ const mochiBase = () => {
   const devBase = `${loc.protocol}//${loc.hostname}:4000${MOCHI_PREFIX}`;
   return originBase || devBase;
 };
-
 const META_SCRIPT = `
 <script>
 (function(){
@@ -684,9 +709,7 @@ const META_SCRIPT = `
   const UV_PREFIX='${UV_PREFIX}';
   const isScramjet=${isScramjet ? "true" : "false"};
   const isUltraviolet=${isUltraviolet ? "true" : "false"};
-
   const isTopFrame=(function(){try{return window.top===window;}catch(e){return false;}})();
-
   const mEncode = (str) => {
       if(!str) return '';
       const key = "wb!";
@@ -699,10 +722,8 @@ const META_SCRIPT = `
           return btoa(x);
       } catch(e) { return str; }
   };
-
   const _MK2='q7Zx!9pL';
   const _xorDec=(s)=>{let o='';for(let i=0;i<s.length;i++){o+=String.fromCharCode(s.charCodeAt(i)^_MK2.charCodeAt(i%_MK2.length));}return o;};
-
   const decUrl=(href)=>{
     if(!href) return href;
     try{
@@ -710,7 +731,6 @@ const META_SCRIPT = `
       if(u.pathname.startsWith(MOCHI_PREFIX)){
         let encodedPart = u.pathname.slice(MOCHI_PREFIX.length);
         if (encodedPart.endsWith('/')) encodedPart = encodedPart.slice(0, -1);
-
         try {
             let p = encodedPart.replace(/-/g, '+').replace(/_/g, '/');
             while (p.length % 4) { p += '='; }
@@ -721,7 +741,6 @@ const META_SCRIPT = `
                 return result + u.search + u.hash;
             }
         } catch(e) {}
-
         if (encodedPart.startsWith('http://') || encodedPart.startsWith('https://')) {
             return encodedPart + u.search + u.hash;
         }
@@ -745,7 +764,6 @@ const META_SCRIPT = `
       return href;
     }
   };
-
   const pickIcon=()=>{
     try{
       const links=[...document.querySelectorAll('link[rel~="icon"], link[rel*="icon"]')];
@@ -758,7 +776,6 @@ const META_SCRIPT = `
       return null;
     }catch(e){ return null; }
   };
-
   const tabId=(function(){
       try {
           if (window.name && !isNaN(parseInt(window.name, 10))) {
@@ -767,13 +784,10 @@ const META_SCRIPT = `
           return window.frameElement && window.frameElement.dataset ? window.frameElement.dataset.tabId || null : null;
       } catch(e) { return null; }
   })();
-
   let swControllerRef=null;
-
   let lastUrl=null;
   let lastTitle=null;
   let lastFavicon=null;
-
   const pageTitle=()=>{
     try{
       const titleSources=[
@@ -802,7 +816,6 @@ const META_SCRIPT = `
       return '';
     }catch(e){ return ''; }
   };
-
   const sendMeta=async ()=>{
     if(!isTopFrame && !tabId) return;
     if(!('serviceWorker' in navigator)) return;
@@ -823,12 +836,10 @@ const META_SCRIPT = `
       const title=pageTitle();
       const rawFavicon=pickIcon();
       const decodedFavicon=rawFavicon ? decUrl(rawFavicon) : null;
-
       if (lastUrl === url && lastTitle === title && lastFavicon === rawFavicon) return;
       lastUrl=url;
       lastTitle=title;
       lastFavicon=rawFavicon;
-
       controller.postMessage({
         type:'page-meta',
         url: mEncode(url),
@@ -842,14 +853,11 @@ const META_SCRIPT = `
       });
     }catch(e){}
   };
-
   const runMeta=()=>{ void sendMeta(); };
-
   let domRafScheduled=false;
   const rAF=typeof requestAnimationFrame==='function'
     ? requestAnimationFrame
     : function(cb){ return setTimeout(cb,16); };
-
   const metaDom=()=>{
     if(domRafScheduled) return;
     domRafScheduled=true;
@@ -858,11 +866,9 @@ const META_SCRIPT = `
       runMeta();
     });
   };
-
   const micro=typeof queueMicrotask==='function'
     ? function(fn){ queueMicrotask(fn); }
     : function(fn){ Promise.resolve().then(fn); };
-
   const metaNav=()=>{
     micro(()=>{ runMeta(); });
     rAF(()=>{
@@ -870,7 +876,6 @@ const META_SCRIPT = `
       rAF(()=>{ runMeta(); });
     });
   };
-
   const hookHistory=()=>{
     try{
       const push=history.pushState;
@@ -887,7 +892,6 @@ const META_SCRIPT = `
       };
     }catch(e){}
   };
-
   const bindTitle=(el)=>{
     try{
       if(!el||el._wavesObserved) return;
@@ -896,7 +900,6 @@ const META_SCRIPT = `
       o.observe(el,{childList:true,subtree:true,characterData:true});
     }catch(e){}
   };
-
   const headHit=(mutations)=>{
     try{
       for(let i=0;i<mutations.length;i++){
@@ -933,7 +936,6 @@ const META_SCRIPT = `
     }catch(e){}
     return false;
   };
-
   const watchHead=()=>{
     try{
       bindTitle(document.querySelector('title'));
@@ -948,7 +950,6 @@ const META_SCRIPT = `
       headObs.observe(head,{childList:true,subtree:true,attributes:true,attributeFilter:['content','property','name','href','rel']});
     }catch(e){}
   };
-
   const start=()=>{
     if (!isScramjet && !isUltraviolet) {
         hookHistory();
@@ -963,25 +964,20 @@ const META_SCRIPT = `
     watchHead();
     metaNav();
   };
-
   window.addEventListener('popstate', metaNav);
   window.addEventListener('hashchange', metaNav);
   window.addEventListener('load', metaNav);
-
   start();
-
   let burstCount = 0;
   const burst = setInterval(() => {
     metaNav();
     burstCount++;
     if(burstCount > 16) clearInterval(burst);
   }, 72);
-
   setInterval(()=>{
     if(document.visibilityState!=='visible') return;
     metaDom();
   }, 450);
-
   const httpOk=(candidate)=>{
     if(!candidate) return false;
     try{
@@ -991,7 +987,6 @@ const META_SCRIPT = `
       return false;
     }
   };
-
   const openTab=(rawUrl,cause)=>{
     if(!rawUrl) return false;
     let absoluteUrl;
@@ -1000,7 +995,6 @@ const META_SCRIPT = `
     }catch(e){
       absoluteUrl=rawUrl;
     }
-
     if(absoluteUrl.startsWith(self.location.origin) && !absoluteUrl.includes(MOCHI_PREFIX) && !absoluteUrl.includes('/b/s/') && !absoluteUrl.includes('/b/u/')) {
       try{
         const baseReal = decUrl(window.location.href) || window.location.href;
@@ -1008,10 +1002,8 @@ const META_SCRIPT = `
         absoluteUrl = realResolved;
       }catch(e){}
     }
-
     const decoded=decUrl(absoluteUrl)||absoluteUrl;
     if(!httpOk(decoded)) return false;
-
     const payload={
       type:'open-new-tab',
       url:absoluteUrl,
@@ -1021,22 +1013,18 @@ const META_SCRIPT = `
       isTopFrame:isTopFrame,
       cause:cause||null
     };
-
     let posted=false;
-
     const swPost=(controller)=>{
       if(controller && typeof controller.postMessage==='function'){
         try{controller.postMessage(payload);posted=true;}catch(e){}
       }
     };
-
     try{
       if(window.top && window.top!==window && typeof window.top.postMessage==='function'){
         window.top.postMessage(payload,'*');
         posted=true;
       }
     }catch(e){}
-
     if(!posted){
       try{
         if(navigator.serviceWorker){
@@ -1051,10 +1039,8 @@ const META_SCRIPT = `
         }
       }catch(e){}
     }
-
     return posted;
   };
-
   const hookOpen=()=>{
     try{
       const originalOpen=window.open;
@@ -1071,7 +1057,6 @@ const META_SCRIPT = `
       window.open.__wavesIntercepted=true;
     }catch(e){}
   };
-
   const pathFind=(e, predicate)=>{
     try{
       const path=e.composedPath?e.composedPath():[];
@@ -1086,7 +1071,6 @@ const META_SCRIPT = `
     }catch(err){}
     return null;
   };
-
   const hookClicks=()=>{
     const handler=(e)=>{
       try{
@@ -1094,17 +1078,13 @@ const META_SCRIPT = `
         if(!anchor) return;
         const href=anchor.href||anchor.getAttribute('href');
         if(!href) return;
-
         const targetAttr=anchor.getAttribute('target');
         const target=(targetAttr||'').toLowerCase();
         const hasExplicitTarget=anchor.hasAttribute('target');
         const isNewTabTarget=hasExplicitTarget && !(target===''||target==='_self'||target==='_top'||target==='_parent');
-
         const modifierRequested = e.ctrlKey || e.metaKey || e.button===1;
         const shouldIntercept = isNewTabTarget || modifierRequested;
-
         if(!shouldIntercept) return;
-
         const cause = isNewTabTarget ? 'anchor-target-blank' : 'anchor-modifier';
         const posted=openTab(href,cause);
         if(posted){
@@ -1116,7 +1096,6 @@ const META_SCRIPT = `
     document.addEventListener('click',handler,true);
     document.addEventListener('auxclick',handler,true);
   };
-
   const hookForms=()=>{
     const handler=(e)=>{
       try{
@@ -1134,14 +1113,12 @@ const META_SCRIPT = `
     };
     document.addEventListener('submit',handler,true);
   };
-
   hookOpen();
   hookClicks();
   hookForms();
 })();
 </script>
 `;
-
 const faviconLike = (candidate) => {
   if (!candidate) return false;
   try {
@@ -1155,11 +1132,9 @@ const faviconLike = (candidate) => {
     return false;
   }
 };
-
 function unwrapUrl(url) {
   if (!url) return null;
   if (url.pathname.startsWith(MOCHI_PREFIX)) return null;
-
   if (url.origin !== self.location.origin) {
     try {
       return new URL(url.href).href;
@@ -1167,7 +1142,6 @@ function unwrapUrl(url) {
       return null;
     }
   }
-
   if (isScramjet && url.pathname.startsWith("/b/s/")) {
     const raw = url.pathname.slice(5) + url.search;
     const httpIndex = raw.indexOf("http");
@@ -1185,7 +1159,6 @@ function unwrapUrl(url) {
       }
     }
   }
-
   if (
     isUltraviolet &&
     self.__uv$config &&
@@ -1197,14 +1170,12 @@ function unwrapUrl(url) {
       try {
         const decoded = self.__uv$config.decodeUrl(encoded);
         if (!decoded) return null;
-
         if (decoded.includes(self.location.host)) {
           const decodedObj = new URL(decoded);
           if (decodedObj.origin === self.location.origin) {
             return null;
           }
         }
-
         return new URL(decoded + url.search, "http://somthing").href.replace(
           "http://somthing",
           "",
@@ -1212,10 +1183,8 @@ function unwrapUrl(url) {
       } catch (e) {}
     }
   }
-
   return null;
 }
-
 function urlExt(targetUrl) {
   try {
     const parsed = new URL(targetUrl);
@@ -1228,13 +1197,44 @@ function urlExt(targetUrl) {
     return lastDot !== -1 ? path.substring(lastDot).toLowerCase() : "";
   }
 }
-
-async function mochiFetch(request, realUrl) {
+function isLargeFile(url, request) {
+  try {
+    const ext = urlExt(url);
+    const isLargeExt = LARGE_EXTENSIONS.has(ext);
+    const dest = request?.destination || "";
+    const isMedia = dest === "audio" || dest === "video";
+    const accept = request?.headers?.get("Accept") || "";
+    const isAudioAccept = accept.includes("audio/") || accept.includes("video/");
+    return isLargeExt || isMedia || isAudioAccept;
+  } catch (e) {
+    return false;
+  }
+}
+function isRangeRequest(request) {
+  try {
+    const rangeHeader = request.headers.get("Range");
+    return rangeHeader && rangeHeader.startsWith("bytes=");
+  } catch (e) {
+    return false;
+  }
+}
+async function fetchLargeFileStreaming(request, realUrl, timeoutMs = LARGE_TIMEOUT_MS) {
   const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.delete("origin");
-  headers.delete("referer");
-
+  const acceptEncoding = request.headers.get("Accept-Encoding") || "";
+  if (!acceptEncoding.includes("gzip") && !acceptEncoding.includes("br")) {
+    headers.set("Accept-Encoding", "gzip, br, deflate");
+  }
+  const rangeHeader = request.headers.get("Range");
+  if (rangeHeader) {
+    headers.set("Range", rangeHeader);
+  }
+  headers.set("Priority", "u=4");
+  try {
+    const urlObj = new URL(realUrl);
+    headers.set("X-DNS-Prefetch-Control", "on");
+    const origin = `${urlObj.protocol}//${urlObj.host}`;
+    preconnectToOrigin(origin);
+  } catch (e) {}
   const init = {
     method: request.method,
     headers,
@@ -1242,32 +1242,181 @@ async function mochiFetch(request, realUrl) {
     cache: "no-store",
     credentials: "include",
   };
-
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
       init.body = request.clone().body;
     } catch (e) {}
   }
-
   const base = mochiBase();
   const normalized = base.endsWith("/") ? base : base + "/";
   const target = realUrl.startsWith("http")
     ? `${normalized}${realUrl}`
     : `${MOCHI_PREFIX}${realUrl}`;
-
+  const startTime = Date.now();
+  try {
+    const response = await coalescedFetch(target, () => 
+      tryWithTimeout(fetch(target, init), timeoutMs)
+    );
+    if (!response) return null;
+    const contentLength = response.headers.get("Content-Length");
+    if (contentLength && rangeHeader) {
+      const endTime = Date.now();
+      const bytes = parseInt(contentLength, 10);
+      const duration = endTime - startTime;
+      estimateBandwidth(bytes, duration);
+    }
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set("Accept-Ranges", "bytes");
+    newHeaders.set("Cache-Control", "public, max-age=3600, s-maxage=86400, immutable, stale-while-revalidate=86400");
+    newHeaders.set("Keep-Alive", "timeout=60, max=100");
+    if (!rangeHeader && contentLength) {
+      newHeaders.set("Content-Length", contentLength);
+    } else {
+      newHeaders.delete("Content-Length");
+    }
+    const etag = response.headers.get("ETag");
+    if (etag) {
+      newHeaders.set("ETag", etag);
+    }
+    const lastModified = response.headers.get("Last-Modified");
+    if (lastModified) {
+      newHeaders.set("Last-Modified", lastModified);
+    }
+    newHeaders.set("Vary", "Accept-Encoding, Range");
+    try {
+      const urlObj = new URL(realUrl);
+      newHeaders.set("Link", `<${urlObj.origin}>; rel=preconnect`);
+    } catch (e) {}
+    newHeaders.set("Access-Control-Allow-Origin", "*");
+    newHeaders.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    newHeaders.set("Access-Control-Allow-Headers", "Range, Accept-Encoding, If-Range, If-Match, If-None-Match");
+    newHeaders.set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag, Cache-Control, Last-Modified");
+    if (contentLength) {
+      sendProgressUpdate(realUrl, parseInt(contentLength, 10), response.status).catch(() => {});
+    }
+    if (rangeHeader && response.ok) {
+      preloadNextChunk(realUrl, rangeHeader, timeoutMs).catch(() => {});
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: newHeaders,
+    });
+  } catch (e) {
+    return null;
+  }
+}
+async function sendProgressUpdate(url, totalBytes, status) {
+  try {
+    const clients = await self.clients.matchAll({ type: "window" });
+    for (const client of clients) {
+      try {
+        client.postMessage({
+          type: "waves-file-progress",
+          url: url,
+          totalBytes: totalBytes,
+          status: status
+        });
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
+async function preloadNextChunk(realUrl, currentRange, timeoutMs) {
+  try {
+    const match = currentRange.match(/bytes=(\d+)-(\d+)?/);
+    if (!match) return;
+    const start = parseInt(match[1], 10);
+    const end = match[2] ? parseInt(match[2], 10) : start + 1048576;
+    const chunkSize = end - start + 1;
+    const adaptiveSize = getAdaptiveChunkSize();
+    const preloadPromises = [];
+    for (let i = 1; i <= 2; i++) {
+      const nextStart = end + (i - 1) * adaptiveSize + 1;
+      const nextEnd = nextStart + adaptiveSize - 1;
+      const nextRange = `bytes=${nextStart}-${nextEnd}`;
+      const preloadKey = `${realUrl}:${nextRange}`;
+      if (_preloadedLarge.has(preloadKey)) continue;
+      if (_preloadedLarge.size >= MAX_PRELOADED) {
+        const oldest = _preloadedLarge.keys().next().value;
+        _preloadedLarge.delete(oldest);
+      }
+      _preloadedLarge.set(preloadKey, Date.now());
+      preloadPromises.push(
+        fetchChunkWithRetry(realUrl, nextRange, timeoutMs, i).catch(() => {})
+      );
+    }
+    await Promise.allSettled(preloadPromises);
+  } catch (e) {}
+}
+async function fetchChunkWithRetry(realUrl, range, timeoutMs, attempt = 1) {
+  const maxRetries = 3;
+  const baseDelay = 1000;
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const headers = new Headers();
+      headers.set("Range", range);
+      headers.set("Accept-Encoding", "gzip, br, deflate");
+      headers.set("Priority", attempt === 1 ? "u=3" : "u=2");
+      const base = mochiBase();
+      const normalized = base.endsWith("/") ? base : base + "/";
+      const target = realUrl.startsWith("http")
+        ? `${normalized}${realUrl}`
+        : `${MOCHI_PREFIX}${realUrl}`;
+      const init = {
+        method: "GET",
+        headers,
+        redirect: "follow",
+        cache: "no-store",
+        credentials: "include",
+      };
+      const response = await tryWithTimeout(fetch(target, init), timeoutMs);
+      if (response && response.ok) return response;
+      if (i < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    } catch (e) {
+      if (i < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  return null;
+}
+async function mochiFetch(request, realUrl) {
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.delete("origin");
+  headers.delete("referer");
+  const init = {
+    method: request.method,
+    headers,
+    redirect: "follow",
+    cache: "no-store",
+    credentials: "include",
+  };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    try {
+      init.body = request.clone().body;
+    } catch (e) {}
+  }
+  const base = mochiBase();
+  const normalized = base.endsWith("/") ? base : base + "/";
+  const target = realUrl.startsWith("http")
+    ? `${normalized}${realUrl}`
+    : `${MOCHI_PREFIX}${realUrl}`;
   if (init.method === "GET" || init.method === "HEAD") {
     return coalescedFetch(target, () => fetch(target, init));
   }
   return fetch(target, init);
 }
-
 const MOCHI_TIMEOUT_MS = 15000;
 const PROXY_TIMEOUT_MS = 10000;
 const PROXY_NAV_TIMEOUT_MS = 12000;
 const PROXY_SUBRESOURCE_TIMEOUT_MS = 8000;
 const MOCHI_SECONDARY_MS = 12000;
 const WAVES_PREFETCH_HEADER = "X-Waves-Prefetch";
-
 function prefetchNavCacheKeyRequest(reqUrl) {
   try {
     const u = new URL(reqUrl);
@@ -1277,23 +1426,21 @@ function prefetchNavCacheKeyRequest(reqUrl) {
     return new Request(String(reqUrl).split("#")[0], { method: "GET" });
   }
 }
-
 function trackPrefetchUrl(urlStr) {
   try {
     const urlKey = prefetchNavCacheKeyRequest(urlStr).url;
     if (_activePrefetches.has(urlKey)) return false;
     const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
-    if (age < PREFETCH_VALIDITY_MS) return false;
+    if (age < PREFETCH_VALIDITY) return false;
     return true;
   } catch (e) {
     return false;
   }
 }
-
 async function matchPrefetchedNavHtml(request) {
   const key = prefetchNavCacheKeyRequest(request.url);
   try {
-    const cache = await caches.open(PREFETCH_NAV_CACHE);
+    const cache = await caches.open(PREFETCH_CACHE);
     let hit = await cache.match(key, { ignoreVary: true });
     if (hit) return hit;
     hit = await cache.match(key);
@@ -1308,7 +1455,6 @@ async function matchPrefetchedNavHtml(request) {
     return null;
   }
 }
-
 async function prefetchProxiedNavFromClient(urlStr) {
   let u;
   try {
@@ -1361,16 +1507,13 @@ async function prefetchProxiedNavFromClient(urlStr) {
     );
   }
 }
-
 async function handlePrefetchProxyRequest(event) {
   const { request } = event;
   const url = new URL(request.url);
   if (adBlocked(adTarget(request.url), false)) {
     return new Response(null, { status: 204 });
   }
-
   const urlKey = prefetchNavCacheKeyRequest(request.url).url;
-
   if (_activePrefetches.has(urlKey)) {
     try {
       const res = await _activePrefetches.get(urlKey);
@@ -1379,9 +1522,7 @@ async function handlePrefetchProxyRequest(event) {
       return new Response(null, { status: 204 });
     }
   }
-
   const realUrl = unwrapUrl(url);
-
   const doFetch = async () => {
     try {
       if (isScramjet) {
@@ -1395,12 +1536,10 @@ async function handlePrefetchProxyRequest(event) {
           return await fetch(new Request(request.url, { method: "GET" }));
         }
         if (!scramjet.route(event)) return new Response(null, { status: 204 });
-
         const timeoutMs = PROXY_NAV_TIMEOUT_MS;
         const proxyP = scramjet.fetch(event).catch(() => null);
         const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
         let response = null;
-
         if (realUrl && realUrl.startsWith("http")) {
           const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
           response = await timedProxyP;
@@ -1415,29 +1554,25 @@ async function handlePrefetchProxyRequest(event) {
             response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
           }
         }
-
         if (response && response.ok) {
           const patched = await patchHtml(response, realUrl);
           try {
             const cacheKey = prefetchNavCacheKeyRequest(request.url);
-            const cache = await caches.open(PREFETCH_NAV_CACHE);
+            const cache = await caches.open(PREFETCH_CACHE);
             await cache.put(cacheKey, patched.clone());
             _prefetchTimes.set(urlKey, Date.now());
-            capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+            capCache(PREFETCH_CACHE, MAX_PREFETCH_ENTRIES);
           } catch (e) {}
           return patched;
         }
         return response || new Response(null, { status: 204 });
       }
-
       if (isUltraviolet) {
         if (!uv.route(event)) return new Response(null, { status: 204 });
-
         const timeoutMs = PROXY_NAV_TIMEOUT_MS;
         const proxyP = uv.fetch(event).catch(() => null);
         const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
         let response = null;
-
         if (realUrl && realUrl.startsWith("http")) {
           const mochiP = tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
           response = await timedProxyP;
@@ -1452,15 +1587,14 @@ async function handlePrefetchProxyRequest(event) {
             response = await tryWithTimeout(mochiFetch(request, realUrl), MOCHI_SECONDARY_MS);
           }
         }
-
         if (response && response.ok) {
           const patched = await patchHtml(response, realUrl);
           try {
             const cacheKey = prefetchNavCacheKeyRequest(request.url);
-            const cache = await caches.open(PREFETCH_NAV_CACHE);
+            const cache = await caches.open(PREFETCH_CACHE);
             await cache.put(cacheKey, patched.clone());
             _prefetchTimes.set(urlKey, Date.now());
-            capCache(PREFETCH_NAV_CACHE, MAX_PREFETCH_NAV_ENTRIES);
+            capCache(PREFETCH_CACHE, MAX_PREFETCH_ENTRIES);
           } catch (e) {}
           return patched;
         }
@@ -1469,16 +1603,14 @@ async function handlePrefetchProxyRequest(event) {
     } catch (e) {}
     return new Response(null, { status: 204 });
   };
-
   const prefetchPromise = doFetch();
   _activePrefetches.set(urlKey, prefetchPromise);
-
   try {
     const res = await prefetchPromise;
     if (res && res.ok) {
       try {
         _prefetchedResponses.set(urlKey, res.clone());
-        if (_prefetchedResponses.size > MAX_MEM_PREFETCH) {
+        if (_prefetchedResponses.size > MAX_MEM) {
           const oldest = _prefetchedResponses.keys().next().value;
           _prefetchedResponses.delete(oldest);
         }
@@ -1494,7 +1626,6 @@ async function handlePrefetchProxyRequest(event) {
     _activePrefetches.delete(urlKey);
   }
 }
-
 async function warmSubresources(htmlText, navRealUrl) {
   try {
     if (!htmlText || htmlText.length < 50) return;
@@ -1536,7 +1667,7 @@ async function warmSubresources(htmlText, navRealUrl) {
             if (resp && resp.ok) {
               const c = await caches.open(RUNTIME_CACHE);
               await c.put(req, resp.clone());
-              capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+              capCache(RUNTIME_CACHE, MAX_RUNTIME);
             }
           } catch (e) {}
         })());
@@ -1548,7 +1679,6 @@ async function warmSubresources(htmlText, navRealUrl) {
     }
   } catch (e) {}
 }
-
 let _lastTransportError = 0;
 let _consecutiveProxyFailures = 0;
 function notifyTransportError() {
@@ -1567,11 +1697,9 @@ function notifyTransportError() {
       }
     });
 }
-
 function resetProxyHealth() {
   _consecutiveProxyFailures = 0;
 }
-
 async function tryWithTimeout(promise, ms) {
   let timer;
   const timeoutP = new Promise((_, rej) => {
@@ -1586,7 +1714,6 @@ async function tryWithTimeout(promise, ms) {
     return null;
   }
 }
-
 function timeoutFallbackResponse(request, url) {
   const dest = request.destination;
   const isScript =
@@ -1604,9 +1731,7 @@ function timeoutFallbackResponse(request, url) {
     statusText: "gateway timeout",
   });
 }
-
 const MAX_HTML_INJECT_BYTES = 4_500_000;
-
 function fixHtmlHeaders(source) {
   const headers = new Headers(source);
   headers.delete("content-encoding");
@@ -1622,23 +1747,18 @@ function fixHtmlHeaders(source) {
   }
   return headers;
 }
-
 async function patchHtml(response, upstreamUrlStr) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/html") || !response.body) return response;
-
   try {
     const lenHdr = response.headers.get("content-length");
     if (lenHdr && parseInt(lenHdr, 10) > MAX_HTML_INJECT_BYTES) return response;
-
     const clonedResponse = response.clone();
     const originalBody = await clonedResponse.text();
     if (originalBody.length > MAX_HTML_INJECT_BYTES) return response;
-
     const scripts = buildHtmlInjectPatches(upstreamUrlStr);
     let newBodyStr;
     const headStartIdx = originalBody.search(/<head/i);
-
     if (headStartIdx !== -1) {
       const headEndIdx = originalBody.indexOf(">", headStartIdx) + 1;
       newBodyStr =
@@ -1648,7 +1768,6 @@ async function patchHtml(response, upstreamUrlStr) {
     } else {
       newBodyStr = scripts + originalBody;
     }
-
     return new Response(newBodyStr, {
       status: response.status,
       statusText: response.statusText,
@@ -1658,18 +1777,16 @@ async function patchHtml(response, upstreamUrlStr) {
     return response;
   }
 }
-
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL_CACHE)
       .then((cache) => {
-        return cache.addAll(PRECACHE_URLS).catch(() => {});
+        return cache.addAll(PRECACHE).catch(() => {});
       })
       .then(() => self.skipWaiting()),
   );
 });
-
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
@@ -1681,7 +1798,8 @@ self.addEventListener("activate", (event) => {
                 k.startsWith("waves-") &&
                 k !== SHELL_CACHE &&
                 k !== RUNTIME_CACHE &&
-                k !== PREFETCH_NAV_CACHE,
+                k !== PREFETCH_CACHE &&
+                k !== LARGE_CACHE,
             )
             .map((k) => caches.delete(k)),
         );
@@ -1692,30 +1810,25 @@ self.addEventListener("activate", (event) => {
     ]).then(() => self.clients.claim()),
   );
 });
-
 const ADBLOCK_LISTS = [
   "/!!/https://raw.githubusercontent.com/hagezi/dns-blocklists/main/domains/pro.txt",
   "/!!/https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0&mimetype=plaintext",
   "/!!/https://s3.amazonaws.com/lists.disconnect.me/simple_ad.txt",
   "/!!/https://s3.amazonaws.com/lists.disconnect.me/simple_tracking.txt",
 ];
-
 let adblockDomains = new Set();
 let isAdblockReady = false;
 let adblockInitPromise = null;
-
 async function loadAdLists() {
   try {
     const listCache = await caches.open("waves-adblock-v1");
     const newDomains = new Set(["doubleclick.net", "google-analytics.com"]);
-
     await Promise.all(
       ADBLOCK_LISTS.map(async (url) => {
         try {
           let text = "";
           let cached = await listCache.match(url);
           let shouldFetch = !cached;
-
           if (cached && !shouldFetch) {
             const dateStr = cached.headers.get("date");
             const age = dateStr
@@ -1723,7 +1836,6 @@ async function loadAdLists() {
               : Infinity;
             if (age > 86400000) shouldFetch = true;
           }
-
           if (shouldFetch) {
             const ctrl = new AbortController();
             const timeoutId = setTimeout(() => ctrl.abort(), 3000);
@@ -1752,22 +1864,16 @@ async function loadAdLists() {
           } else {
             text = await cached.text();
           }
-
           if (!text) return;
-
           let start = 0;
           let end = text.indexOf("\n");
-
           while (end !== -1) {
             let line = text.substring(start, end).trim();
             start = end + 1;
             end = text.indexOf("\n", start);
-
             if (!line || line[0] === "#") continue;
-
             const hashIdx = line.indexOf("#");
             if (hashIdx !== -1) line = line.substring(0, hashIdx).trim();
-
             if (line.startsWith("0.0.0.0 ")) {
               const domain = line.substring(8).trim();
               if (domain && domain !== "0.0.0.0") newDomains.add(domain);
@@ -1781,12 +1887,10 @@ async function loadAdLists() {
         } catch (err) {}
       }),
     );
-
     adblockDomains = newDomains;
     isAdblockReady = true;
   } catch (globalErr) {}
 }
-
 function readyAds() {
   if (isAdblockReady) return Promise.resolve();
   if (!adblockInitPromise) {
@@ -1794,9 +1898,7 @@ function readyAds() {
   }
   return adblockInitPromise;
 }
-
 readyAds();
-
 const _AD_MK2 = "q7Zx!9pL";
 const _adXorDec = (s) => {
   let o = "";
@@ -1807,7 +1909,6 @@ const _adXorDec = (s) => {
   }
   return o;
 };
-
 const ADBLOCK_KEYWORDS = [
   "/ads/", "/adserver/", "/adtracking/", "-ad-track.", "/analytics.js",
   "/tracking.js", "/pixel.js", "/gpt.js", "/prebid.js", "/ads.min.js",
@@ -1817,9 +1918,7 @@ const ADBLOCK_KEYWORDS = [
   "doubleclick.net", "adsystem.com", "yandex.ru/metrika", "vk.com/rtrg",
   "clarity.ms", "tracking/pixel", "/track/event",
 ];
-
 const ADBLOCK_SKIP = ["archiveofourown.org"];
-
 function adblockSkip(hostname) {
   const h = (hostname || "").toLowerCase();
   for (let i = 0; i < ADBLOCK_SKIP.length; i++) {
@@ -1828,12 +1927,10 @@ function adblockSkip(hostname) {
   }
   return false;
 }
-
 function adTarget(requestUrl) {
   try {
     const u = new URL(requestUrl);
     if (u.origin !== self.location.origin) return u.href;
-
     if (u.pathname.startsWith(MOCHI_PREFIX)) {
       let encodedPart = u.pathname.slice(MOCHI_PREFIX.length);
       if (encodedPart.endsWith("/")) encodedPart = encodedPart.slice(0, -1);
@@ -1849,7 +1946,6 @@ function adTarget(requestUrl) {
       } catch (e) {}
       if (encodedPart.startsWith("http")) return encodedPart;
     }
-
     if (
       typeof isScramjet !== "undefined" &&
       isScramjet &&
@@ -1866,7 +1962,6 @@ function adTarget(requestUrl) {
         }
       }
     }
-
     if (
       typeof isUltraviolet !== "undefined" &&
       isUltraviolet &&
@@ -1883,21 +1978,17 @@ function adTarget(requestUrl) {
   } catch (e) {}
   return requestUrl;
 }
-
 function adBlocked(candidate, isNavigate) {
   if (!isAdblockReady) return false;
   if (!candidate) return false;
   try {
     const candidateUrl = new URL(candidate);
     const host = candidateUrl.hostname.toLowerCase();
-
     let parts = host.split(".");
     for (let i = 0; i < parts.length - 1; i++) {
       if (adblockDomains.has(parts.slice(i).join("."))) return true;
     }
-
     if (host === self.location.hostname) return false;
-
     if (!isNavigate && !adblockSkip(host)) {
       const pathInfo = (
         candidateUrl.pathname + candidateUrl.search
@@ -1906,35 +1997,28 @@ function adBlocked(candidate, isNavigate) {
         if (pathInfo.includes(kw)) return true;
       }
     }
-
     return false;
   } catch (e) {
     return false;
   }
 }
-
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.headers.get(WAVES_PREFETCH_HEADER) === "1") {
     event.respondWith(handlePrefetchProxyRequest(event));
     return;
   }
-
   const dest = request.destination;
   const isNavigate =
     request.mode === "navigate" ||
     dest === "document" ||
     dest === "iframe" ||
     dest === "frame";
-
   const url = new URL(request.url);
-
   if (adBlocked(adTarget(request.url), isNavigate)) {
     const accept = request.headers.get("Accept") || "";
-
     let body = ":3";
     let contentType = "text/plain";
-
     if (dest === "script" || url.pathname.endsWith(".js")) {
       body =
         'window.ga=function(){return":3"};window.ga.q=[":3"];window.dataLayer=[":3"];window.dataLayer.push=function(){return":3"};window.fbq=function(){return":3"};window.googletag={cmd:{push:function(){return":3"}}};window._paq=[":3"];window._paq.push=function(){return":3"};';
@@ -1954,7 +2038,6 @@ self.addEventListener("fetch", (event) => {
       body = '{"status": ":3", "message": ":3"}';
       contentType = "application/json";
     }
-
     return event.respondWith(
       new Response(body, {
         status: 200,
@@ -1966,13 +2049,53 @@ self.addEventListener("fetch", (event) => {
       }),
     );
   }
-
   const realUrl = unwrapUrl(url);
-
   if (url.pathname.startsWith(MOCHI_PREFIX)) {
     return;
   }
-
+  if (realUrl && realUrl.startsWith("http") && isLargeFile(realUrl, request)) {
+    return event.respondWith(
+      (async () => {
+        try {
+          if (!isRangeRequest(request)) {
+            const cache = await caches.open(LARGE_CACHE);
+            const cached = await cache.match(request);
+            if (cached) {
+              fetchLargeFileStreaming(request, realUrl, LARGE_TIMEOUT_MS)
+                .then(fresh => {
+                  if (fresh && fresh.ok) {
+                    cache.put(request, fresh.clone());
+                    capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+                  }
+                })
+                .catch(() => {});
+              return cached;
+            }
+          }
+          const response = await fetchLargeFileStreaming(request, realUrl, LARGE_TIMEOUT_MS);
+          if (response && response.ok) {
+            if (!isRangeRequest(request)) {
+              const cache = await caches.open(LARGE_CACHE);
+              cache.put(request, response.clone()).catch(() => {});
+              capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+            }
+            return response;
+          }
+          const fallback = await tryWithTimeout(
+            mochiFetch(request, realUrl),
+            LARGE_TIMEOUT_MS,
+          );
+          return fallback || new Response("gateway timeout", { status: 504 });
+        } catch (e) {
+          const fallback = await tryWithTimeout(
+            mochiFetch(request, realUrl),
+            LARGE_TIMEOUT_MS,
+          );
+          return fallback || new Response("gateway timeout", { status: 504 });
+        }
+      })(),
+    );
+  }
   if (realUrl && realUrl.includes("/!!/")) {
     const parts = realUrl.split("/!!/");
     const target = parts.pop();
@@ -1988,7 +2111,6 @@ self.addEventListener("fetch", (event) => {
       );
     }
   }
-
   event.respondWith(
     (async () => {
       try {
@@ -1997,12 +2119,10 @@ self.addEventListener("fetch", (event) => {
           typeof event.preloadResponse.then === "function"
             ? event.preloadResponse.catch(() => null)
             : Promise.resolve(null);
-
         if (realUrl && realUrl.startsWith("http")) {
           const ext = urlExt(realUrl);
           const dest = request.destination;
           const accept = request.headers.get("Accept") || "";
-
           const isCacheableAsset =
             dest === "video" ||
             dest === "audio" ||
@@ -2013,18 +2133,16 @@ self.addEventListener("fetch", (event) => {
             accept.startsWith("video/") ||
             accept.startsWith("audio/") ||
             accept.startsWith("font/") ||
-            STATIC_ASSET_REGEX.test(url.pathname) ||
+            STATIC_REGEX.test(url.pathname) ||
             [
               ".css", ".wasm", ".mp4", ".m3u8", ".webm", ".mp3", ".wav",
               ".ogg", ".aac", ".flac", ".png", ".jpg", ".jpeg", ".gif",
               ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".otf",
               ".eot",
             ].includes(ext);
-
           const preferProxyOverMochi =
             (isScramjet || isUltraviolet) &&
             (dest === "script" || ext === ".js" || ext === ".mjs");
-
           if (
             isCacheableAsset &&
             !realUrl.includes(self.location.host) &&
@@ -2035,7 +2153,6 @@ self.addEventListener("fetch", (event) => {
               mochiFetch(request, realUrl),
               MOCHI_TIMEOUT_MS,
             );
-
             try {
               const cached = await cacheMatch;
               if (cached) {
@@ -2044,27 +2161,25 @@ self.addEventListener("fetch", (event) => {
                     if (fresh && fresh.ok) {
                       caches.open(RUNTIME_CACHE).then((c) => {
                         c.put(request, fresh);
-                        capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+                        capCache(RUNTIME_CACHE, MAX_RUNTIME);
                       });
                     }
                   })
                   .catch(() => {});
                 return cached;
               }
-
               const mochiResponse = await networkFetch;
               if (mochiResponse && mochiResponse.ok) {
                 const clone = mochiResponse.clone();
                 caches.open(RUNTIME_CACHE).then((c) => {
                   c.put(request, clone);
-                  capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+                  capCache(RUNTIME_CACHE, MAX_RUNTIME);
                 });
                 return mochiResponse;
               }
             } catch (e) {}
           }
         }
-
         if (isScramjet) {
           if (!scramjetConfigLoaded) {
             if (!scramjetConfigPromise) {
@@ -2074,34 +2189,29 @@ self.addEventListener("fetch", (event) => {
             }
             await scramjetConfigPromise;
           }
-
           if (
             url.pathname.startsWith("/b/s/jetty.") &&
             !url.pathname.endsWith(".wasm")
           ) {
             return fetch(request);
           }
-
           if (scramjet.route(event)) {
             if (isNavigate && request.method === "GET") {
               try {
                 const urlKey = prefetchNavCacheKeyRequest(request.url).url;
-                
                 if (_activePrefetches.has(urlKey)) {
                   try {
                     const prefRes = await _activePrefetches.get(urlKey);
                     if (prefRes && prefRes.ok) return prefRes.clone();
                   } catch(e) {}
                 }
-
                 if (_prefetchedResponses.has(urlKey)) {
                   const memHit = _prefetchedResponses.get(urlKey);
                   _prefetchedResponses.delete(urlKey);
                   try { if (memHit && memHit.ok) return memHit.clone(); } catch(e) {}
                 }
-
                 const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
-                if (age < PREFETCH_VALIDITY_MS) {
+                if (age < PREFETCH_VALIDITY) {
                     const prefHit = await matchPrefetchedNavHtml(request);
                     if (prefHit) return prefHit.clone();
                 } else if (_prefetchTimes.has(urlKey)) {
@@ -2118,7 +2228,6 @@ self.addEventListener("fetch", (event) => {
                 throw e;
               });
               const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
-
               if (isNavigate && realUrl && realUrl.startsWith("http")) {
                 const mochiP = tryWithTimeout(
                   mochiFetch(request, realUrl),
@@ -2144,7 +2253,6 @@ self.addEventListener("fetch", (event) => {
                   );
                 }
               }
-
               if (response) return patchHtml(response, realUrl);
               return timeoutFallbackResponse(request, url);
             } catch (e) {
@@ -2160,28 +2268,24 @@ self.addEventListener("fetch", (event) => {
             }
           }
         }
-
         if (isUltraviolet) {
           if (uv.route(event)) {
             if (isNavigate && request.method === "GET") {
               try {
                 const urlKey = prefetchNavCacheKeyRequest(request.url).url;
-
                 if (_activePrefetches.has(urlKey)) {
                   try {
                     const prefRes = await _activePrefetches.get(urlKey);
                     if (prefRes && prefRes.ok) return prefRes.clone();
                   } catch(e) {}
                 }
-
                 if (_prefetchedResponses.has(urlKey)) {
                   const memHit = _prefetchedResponses.get(urlKey);
                   _prefetchedResponses.delete(urlKey);
                   try { if (memHit && memHit.ok) return memHit.clone(); } catch(e) {}
                 }
-
                 const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
-                if (age < PREFETCH_VALIDITY_MS) {
+                if (age < PREFETCH_VALIDITY) {
                     const prefHit = await matchPrefetchedNavHtml(request);
                     if (prefHit) return prefHit.clone();
                 } else if (_prefetchTimes.has(urlKey)) {
@@ -2198,7 +2302,6 @@ self.addEventListener("fetch", (event) => {
                 throw e;
               });
               const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
-
               if (isNavigate && realUrl && realUrl.startsWith("http")) {
                 const mochiP = tryWithTimeout(
                   mochiFetch(request, realUrl),
@@ -2224,7 +2327,6 @@ self.addEventListener("fetch", (event) => {
                   );
                 }
               }
-
               if (response) return patchHtml(response, realUrl);
               return timeoutFallbackResponse(request, url);
             } catch (e) {
@@ -2240,10 +2342,8 @@ self.addEventListener("fetch", (event) => {
             }
           }
         }
-
         if (url.origin === self.location.origin && request.method === "GET") {
           const path = url.pathname;
-
           if (
             request.destination === "document" ||
             path === "/" ||
@@ -2260,7 +2360,6 @@ self.addEventListener("fetch", (event) => {
             } catch (e) {
               networkRes = await fetch(request).catch(() => null);
             }
-
             if (networkRes && networkRes.ok) {
               const clone = networkRes.clone();
               caches
@@ -2271,17 +2370,13 @@ self.addEventListener("fetch", (event) => {
             if (networkRes && networkRes.status === 304) {
               return networkRes;
             }
-
             const cached = await caches.match(request);
             if (cached) return cached;
-
             if (networkRes) return networkRes;
-
             return new Response("offline", { status: 503 });
           }
-
           if (
-            CACHEABLE_STATIC_EXT.test(path) ||
+            CACHEABLE_EXT.test(path) ||
             path.startsWith("/assets/") ||
             path.startsWith("/bmux/") ||
             path.startsWith("/epoxy/") ||
@@ -2289,7 +2384,6 @@ self.addEventListener("fetch", (event) => {
             path.startsWith("/s/")
           ) {
             const isHashed = /[-_.][a-f0-9]{6,16}\.\w+$/i.test(path);
-
             const cached = await caches.match(request);
             if (cached) {
               if (!isHashed) {
@@ -2298,7 +2392,7 @@ self.addEventListener("fetch", (event) => {
                     if (res && res.ok) {
                       caches.open(RUNTIME_CACHE).then((c) => {
                         c.put(request, res);
-                        capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+                        capCache(RUNTIME_CACHE, MAX_RUNTIME);
                       });
                     }
                   })
@@ -2306,22 +2400,19 @@ self.addEventListener("fetch", (event) => {
               }
               return cached;
             }
-
             const res = await fetch(request).catch(() => null);
             if (res && res.ok) {
               const clone = res.clone();
               caches.open(RUNTIME_CACHE).then((c) => {
                 c.put(request, clone);
-                capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+                capCache(RUNTIME_CACHE, MAX_RUNTIME);
               });
               return res;
             }
             if (res) return res;
           }
-
           return await fetch(request);
         }
-
         return new Response(":3", { status: 403 });
       } catch (err) {
         if (realUrl && !realUrl.includes(self.location.host)) {
