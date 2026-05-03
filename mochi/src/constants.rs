@@ -4,7 +4,7 @@ pub const COVER_PREFIX: &str = "/!cover!/";
 pub const SCRIPT_PART_1: &str = r##"<script>
 (function() {
     try {
-        const _U = window.URL;
+        var _U = window.URL;
         window.URL = function(u, b) {
             if ((!u || u === "") && !b) return new _U(window.location.href);
             return new _U(u, b);
@@ -169,6 +169,19 @@ pub const SCRIPT_PART_2: &str = r##"";
         return originalOpen.call(this, method, rewrite(url), ...args)
     };
     
+    const isDirectWsHost = (hostname) => {
+        const h = String(hostname || "").toLowerCase().replace(/^www\./, "");
+        if (!h) return false;
+        const directHosts = [
+            "discord.com",
+            "discord.gg",
+            "discord.media",
+            "discordapp.com",
+            "discordapp.net"
+        ];
+        return directHosts.some((suffix) => h === suffix || h.endsWith("." + suffix));
+    };
+
     const originalWS = window.WebSocket;
     window.WebSocket = function(url, protocols) {
         if (!url) return new originalWS(url, protocols);
@@ -177,8 +190,14 @@ pub const SCRIPT_PART_2: &str = r##"";
             try {
                 target = new URL(url, window.__MOCHI_TARGET__).href
             } catch (e) {}
-            target = target.replace("http", "ws")
+            target = target.replace(/^http/, "ws")
         }
+        try {
+            const targetHost = new URL(target, window.__MOCHI_TARGET__).hostname;
+            if (isDirectWsHost(targetHost)) {
+                return new originalWS(target, protocols);
+            }
+        } catch (e) {}
         const proxyUrl = (window.location.protocol === "https:" ? "wss://" : "ws://") + window.location.host + window.__MOCHI_PREFIX__ + "ws/" + encodeURIComponent(target);
         const ws = new originalWS(proxyUrl, protocols);
         ws.binaryType = "arraybuffer";

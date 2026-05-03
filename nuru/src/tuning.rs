@@ -33,27 +33,27 @@ fn detect() -> SystemSpecs {
 
 pub fn wisp_buffer_size() -> u32 {
     let ram = get_specs().total_ram_mb;
-    if ram < 4096 {
-        32768
-    } else if ram < 8192 {
+    if ram < 2048 {
         65536
-    } else if ram < 16384 {
+    } else if ram < 4096 {
         131072
-    } else {
+    } else if ram < 8192 {
         262144
+    } else {
+        524288
     }
 }
 
 pub fn stream_buffer_size() -> usize {
     let ram = get_specs().total_ram_mb;
-    if ram < 4096 {
+    if ram < 2048 {
         131072
-    } else if ram < 8192 {
+    } else if ram < 4096 {
         262144
-    } else if ram < 16384 {
+    } else if ram < 8192 {
         524288
     } else {
-        786432
+        1048576
     }
 }
 

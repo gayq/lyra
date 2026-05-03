@@ -326,14 +326,14 @@ export const store = {
       }
 
       if (activeTab.iframe.contentWindow) {
-        try {
-          setTimeout(() => {
+        requestAnimationFrame(() => {
+          try {
             activeTab.iframe.contentWindow.scrollTo(
               activeTab.scrollX,
               activeTab.scrollY,
             );
-          }, 0);
-        } catch (e) {}
+          } catch (e) {}
+        });
       }
     } else {
       document.body.classList.remove("browser-view");
@@ -406,8 +406,6 @@ export const store = {
     } else {
       this.updateIframeView();
     }
-
-    this.notify();
   },
 
   updateIframeView() {
@@ -453,21 +451,16 @@ export const store = {
         (isSplitViewActive || isPicking) && tab.id === this.activeTabId;
       if (isActiveFocus) tab.wrapper.classList.add("active-focus");
 
-      if (isSplitViewActive || isPicking) {
-        tab.wrapper.style.boxShadow = isActiveFocus
-          ? "0 0 0 1px #ffffff80"
-          : "none";
-      } else {
-        tab.wrapper.style.boxShadow = "";
-      }
+      tab.wrapper.classList.toggle("split-focus-shadow", isActiveFocus && (isSplitViewActive || isPicking));
 
       if (isSplitLeft) leftIframe = tab.wrapper;
       if (isSplitRight) rightIframe = tab.wrapper;
 
       if (!isSplitViewActive && !isPicking) {
-        tab.wrapper.style.width = null;
-        tab.wrapper.style.flexBasis = null;
-        tab.wrapper.style.flexGrow = null;
+        const w = tab.wrapper;
+        if (w.style.width) w.style.width = null;
+        if (w.style.flexBasis) w.style.flexBasis = null;
+        if (w.style.flexGrow) w.style.flexGrow = null;
       }
     });
 
@@ -850,6 +843,7 @@ export const store = {
       document.removeEventListener("mouseup", onMouseUp);
     };
 
+    let cursorRaf = null;
     container.addEventListener("mousemove", (e) => {
       if (document.body.classList.contains("is-resizing")) return;
       if (!document.body.classList.contains("split-view")) {
@@ -857,18 +851,23 @@ export const store = {
         cachedLeftIframe = null;
         return;
       }
-      const leftIframe = getLeftIframe();
-      if (!leftIframe) {
-        container.style.cursor = "default";
-        return;
-      }
-      const leftIframeRect = leftIframe.getBoundingClientRect();
-      const handleGripLeft = leftIframeRect.right - handleWidth / 2;
-      const handleGripRight = leftIframeRect.right + handleWidth / 2;
-      container.style.cursor =
-        e.clientX >= handleGripLeft && e.clientX <= handleGripRight
-          ? "col-resize"
-          : "default";
+      if (cursorRaf) return;
+      const clientX = e.clientX;
+      cursorRaf = requestAnimationFrame(() => {
+        cursorRaf = null;
+        const leftIframe = getLeftIframe();
+        if (!leftIframe) {
+          container.style.cursor = "default";
+          return;
+        }
+        const leftIframeRect = leftIframe.getBoundingClientRect();
+        const handleGripLeft = leftIframeRect.right - handleWidth / 2;
+        const handleGripRight = leftIframeRect.right + handleWidth / 2;
+        container.style.cursor =
+          clientX >= handleGripLeft && clientX <= handleGripRight
+            ? "col-resize"
+            : "default";
+      });
     });
 
     container.addEventListener("mousedown", (e) => {

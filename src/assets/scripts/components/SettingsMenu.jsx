@@ -49,10 +49,12 @@ function Selector({ label, value, options, onChange }) {
 function Toggle({ id, checked, onChange }) {
   const onToggle = (e) => {
     const el = e.currentTarget;
+    const isChecked = el.checked;
     el.classList.remove("animate-on", "animate-off");
-    void el.offsetWidth;
-    el.classList.add(el.checked ? "animate-on" : "animate-off");
-    onChange(el.checked);
+    requestAnimationFrame(() => {
+      el.classList.add(isChecked ? "animate-on" : "animate-off");
+    });
+    onChange(isChecked);
   };
 
   return (

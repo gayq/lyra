@@ -71,6 +71,7 @@ class WavesConnectionManager {
   _transportReadyPromise: ResolvablePromise;
   _retryCount: number;
   _isRecovering: boolean;
+  /** True after the tab was hidden while we had a live CONNECTED session (sleep / background). */
   _tabWasHiddenWhileConnected: boolean;
 
   constructor() {
@@ -180,7 +181,7 @@ class WavesConnectionManager {
       this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
     } catch (e) {
       this.updateStatus(
-        "could not access localStorage. Using defaults.",
+        "Could not access localStorage. Using defaults.",
         "error",
       );
     }
@@ -513,6 +514,7 @@ class WavesConnectionManager {
       try {
         ctrl.postMessage({ type: "waves-prefetch", url: data.url });
       } catch {
+        /* ignore */
       }
     });
 

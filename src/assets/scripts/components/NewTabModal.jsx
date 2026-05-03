@@ -1,22 +1,23 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "preact/hooks";
 import { store, useStore } from "../state/store.js";
+import { encodeMochiUrl } from "../core/utils.js";
 
 const SOURCE_CONFIG = {
   selenite: {
-    games: "https://selenite.cc/resources/games.json",
+    games: "/!!/" + encodeMochiUrl("https://selenite.cc/resources/games.json") + "/",
     assets: "https://selenite.cc/resources/semag/",
   },
   gnMath: {
-    zones: "https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json",
+    zones: "/!!/" + encodeMochiUrl("https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json") + "/",
     html: "https://cdn.jsdelivr.net/gh/freebuisness/html@main",
     covers: "https://cdn.jsdelivr.net/gh/freebuisness/covers@main",
   },
   edurocks: {
-    games: "https://www.edurocks.org/gxxes.json",
+    games: "/!!/" + encodeMochiUrl("https://www.edurocks.org/gxxes.json") + "/",
     assets: "https://edurocks.org",
   },
   velara: {
-    games: "https://velara.cc/data/games.json",
+    games: "/!!/" + encodeMochiUrl("https://velara.cc/data/games.json") + "/",
     assets: "https://velara.cc",
   },
 };
@@ -31,7 +32,7 @@ function loadNewTabGameData(allGames) {
   })();
   let fetchPromise;
   if (source === "velara") {
-    fetchPromise = fetch(`/!!/${SOURCE_CONFIG.velara.games}`)
+    fetchPromise = fetch(SOURCE_CONFIG.velara.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((data) =>
         data
@@ -56,13 +57,13 @@ function loadNewTabGameData(allGames) {
               gameUrl: finalUrl,
               isExternal: !game.location && !!game.grdmca,
               coverUrl: game.image
-                ? `/!!/${SOURCE_CONFIG.velara.assets}/${game.image}`
+                ? `/!cover!/${encodeMochiUrl(`${SOURCE_CONFIG.velara.assets}/${game.image}`)}/`
                 : null,
             };
           }),
       );
   } else if (source === "selenite") {
-    fetchPromise = fetch(`/!!/${SOURCE_CONFIG.selenite.games}`)
+    fetchPromise = fetch(SOURCE_CONFIG.selenite.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((data) =>
         (Array.isArray(data) ? data : [])
@@ -78,12 +79,12 @@ function loadNewTabGameData(allGames) {
               name: game.name,
               gameUrl: finalUrl,
               isExternal: false,
-              coverUrl: finalCover ? `/!!/${finalCover}` : null,
+              coverUrl: finalCover ? `/!cover!/${encodeMochiUrl(finalCover)}/` : null,
             };
           }),
       );
   } else if (source === "edurocks") {
-    fetchPromise = fetch(`/!!/${SOURCE_CONFIG.edurocks.games}`)
+    fetchPromise = fetch(SOURCE_CONFIG.edurocks.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((data) =>
         data
@@ -102,13 +103,13 @@ function loadNewTabGameData(allGames) {
               name: game.name,
               gameUrl: finalUrl,
               isExternal: false,
-              coverUrl: finalCover ? `/!!/${finalCover}` : null,
+              coverUrl: finalCover ? `/!cover!/${encodeMochiUrl(finalCover)}/` : null,
             };
           })
           .filter((g) => !g.name.includes("[!]")),
       );
   } else {
-    fetchPromise = fetch(`/!!/${SOURCE_CONFIG.gnMath.zones}`)
+    fetchPromise = fetch(SOURCE_CONFIG.gnMath.zones)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((data) =>
         data
@@ -123,7 +124,7 @@ function loadNewTabGameData(allGames) {
                 : finalUrl,
               isExternal,
               coverUrl: zone.cover
-                ? `/!!/${zone.cover.replace("{COVER_URL}", SOURCE_CONFIG.gnMath.covers)}`
+                ? `/!cover!/${encodeMochiUrl(zone.cover.replace("{COVER_URL}", SOURCE_CONFIG.gnMath.covers))}/`
                 : null,
             };
           })

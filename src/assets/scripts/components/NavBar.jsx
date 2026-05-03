@@ -7,35 +7,75 @@ let loadingTimeoutId = null;
 
 function injectEruda(iframe) {
   if (!iframe?.contentDocument || !iframe?.contentWindow) return;
-  if (iframe.contentDocument.getElementById("eruda")) {
+
+  const doc = iframe.contentDocument;
+  const win = iframe.contentWindow;
+
+  if (doc.getElementById("eruda")) {
     try {
-      iframe.contentWindow.eruda?.init();
-      iframe.contentWindow.eruda?.show();
+      win.eruda?.init();
+      win.eruda?.show();
     } catch (e) {}
     return;
   }
-  loadingTimeoutId = setTimeout(() => {
-    const s = iframe.contentDocument.getElementById("eruda");
-    if (s) s.remove();
-  }, 15000);
-  const script = iframe.contentDocument.createElement("script");
-  script.id = "eruda";
-  script.src = "/!!/https://cdn.jsdelivr.net/npm/eruda";
-  script.async = true;
-  script.onload = () => {
-    clearTimeout(loadingTimeoutId);
-    setTimeout(() => {
-      try {
-        iframe.contentWindow.eruda?.init();
-        iframe.contentWindow.eruda?.show();
-      } catch (e) {}
-    }, 0);
-  };
-  script.onerror = () => {
-    clearTimeout(loadingTimeoutId);
-    script.remove();
-  };
-  iframe.contentDocument.head.appendChild(script);
+
+  function doInject() {
+    try {
+      if (doc.getElementById("eruda")) {
+        try {
+          win.eruda?.init();
+          win.eruda?.show();
+        } catch (e) {}
+        return;
+      }
+
+      if (loadingTimeoutId) clearTimeout(loadingTimeoutId);
+      loadingTimeoutId = setTimeout(() => {
+        try {
+          const s = doc.getElementById("eruda");
+          if (s) s.remove();
+        } catch (e) {}
+      }, 15000);
+
+      const script = doc.createElement("script");
+      script.id = "eruda";
+      script.src = "/!!/https://cdn.jsdelivr.net/npm/eruda";
+      script.async = true;
+      script.onload = () => {
+        clearTimeout(loadingTimeoutId);
+        setTimeout(() => {
+          try {
+            win.eruda?.init();
+            win.eruda?.show();
+          } catch (e) {}
+        }, 0);
+      };
+      script.onerror = () => {
+        clearTimeout(loadingTimeoutId);
+        try {
+          script.remove();
+        } catch (e) {}
+      };
+
+      let target = doc.head;
+      if (!target) {
+        target = doc.documentElement || doc.body;
+      }
+      if (!target) {
+        console.warn("eruda: no injection target found in iframe document");
+        return;
+      }
+      target.appendChild(script);
+    } catch (err) {
+      console.error("eruda injection failed:", err);
+    }
+  }
+
+  if (doc.readyState === "loading") {
+    doc.addEventListener("DOMContentLoaded", doInject, { once: true });
+  } else {
+    doInject();
+  }
 }
 
 function toggleEruda() {

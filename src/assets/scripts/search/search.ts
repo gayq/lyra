@@ -154,10 +154,8 @@ export async function handleSearch(
           }
         }
       }
-      navigateIframeTo(activeTab.iframe, finalUrlToLoad);
-    } else {
-      navigateIframeTo(activeTab.iframe, finalUrlToLoad);
     }
+    navigateIframeTo(activeTab.iframe, finalUrlToLoad);
   }
 }
 

@@ -44,62 +44,56 @@ pub fn is_likely_static_asset(url: &str) -> bool {
     is_likely_static_asset_fast(url, None)
 }
 
-pub fn is_likely_static_asset_fast(url: &str, matcher: Option<&AhoCorasick>) -> bool {
+pub fn is_likely_static_asset_fast(url: &str, _matcher: Option<&AhoCorasick>) -> bool {
     if url.contains("favicons?") {
         return true;
     }
     let url_without_query = url.split('?').next().unwrap_or(url);
-    if let Some(m) = matcher {
-        if m.is_match(url_without_query) {
-            return true;
-        }
-    } else {
-        let exts = [
-            ".wasm",
-            ".pck",
-            ".unityweb",
-            ".data",
-            ".mem",
-            ".symbols",
-            ".js",
-            ".json",
-            ".xml",
-            ".glb",
-            ".gltf",
-            ".bin",
-            ".fbx",
-            ".obj",
-            ".swf",
-            ".p8",
-            ".c3p",
-            ".atlas",
-            ".fnt",
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".mp3",
-            ".ogg",
-            ".wav",
-            ".css",
-            ".svg",
-            ".gif",
-            ".webp",
-            ".avif",
-            ".mp4",
-            ".webm",
-            ".woff",
-            ".woff2",
-            ".ttf",
-            ".otf",
-            ".eot",
-            ".ico",
-            ".aac",
-            ".flac",
-            ".m3u8",
-        ];
-        if exts.iter().any(|ext| url_without_query.ends_with(ext)) {
-            return true;
-        }
+    let exts = [
+        ".wasm",
+        ".pck",
+        ".unityweb",
+        ".data",
+        ".mem",
+        ".symbols",
+        ".js",
+        ".json",
+        ".xml",
+        ".glb",
+        ".gltf",
+        ".bin",
+        ".fbx",
+        ".obj",
+        ".swf",
+        ".p8",
+        ".c3p",
+        ".atlas",
+        ".fnt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".mp3",
+        ".ogg",
+        ".wav",
+        ".css",
+        ".svg",
+        ".gif",
+        ".webp",
+        ".avif",
+        ".mp4",
+        ".webm",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".ico",
+        ".aac",
+        ".flac",
+        ".m3u8",
+    ];
+    if exts.iter().any(|ext| url_without_query.ends_with(ext)) {
+        return true;
     }
     if let Some(idx) = url_without_query.rfind(".part") {
         let suffix = &url_without_query[idx + 5..];

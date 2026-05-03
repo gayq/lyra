@@ -51,15 +51,32 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
     let rw7 = rewrite_url.clone();
 
     let base_url_for_head = base_url_owned.clone();
+    let base_url_for_html = base_url_owned.clone();
+
+    let script_injected = Rc::new(RefCell::new(false));
+    let script_injected_for_head = script_injected.clone();
+    let script_injected_for_html = script_injected.clone();
 
     let mut output = Vec::with_capacity(body.len() + 2048);
     let mut rewriter = HtmlRewriter::new(
         Settings {
             element_content_handlers: vec![
+                element!("html", move |el| {
+                    if !*script_injected_for_html.borrow() {
+                        let full_script =
+                            format!("{}{}{}", SCRIPT_PART_1, base_url_for_html, SCRIPT_PART_2);
+                        let _ = el.prepend(&full_script, ContentType::Html);
+                        *script_injected_for_html.borrow_mut() = true;
+                    }
+                    Ok(())
+                }),
                 element!("head", move |el| {
-                    let full_script =
-                        format!("{}{}{}", SCRIPT_PART_1, base_url_for_head, SCRIPT_PART_2);
-                    let _ = el.prepend(&full_script, ContentType::Html);
+                    if !*script_injected_for_head.borrow() {
+                        let full_script =
+                            format!("{}{}{}", SCRIPT_PART_1, base_url_for_head, SCRIPT_PART_2);
+                        let _ = el.prepend(&full_script, ContentType::Html);
+                        *script_injected_for_head.borrow_mut() = true;
+                    }
                     if base_url_for_head.contains("gn-math.dev") {
                         let gnmath_inject = r#"<style>
                             .zone-header { display: none !important; }
@@ -187,6 +204,15 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
 
     let _ = rewriter.write(body);
     let _ = rewriter.end();
+
+    if !*script_injected.borrow() {
+        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_owned, SCRIPT_PART_2);
+        let mut new_output = Vec::with_capacity(full_script.len() + output.len());
+        new_output.extend_from_slice(full_script.as_bytes());
+        new_output.extend_from_slice(&output);
+        return new_output;
+    }
+
     output
 }
 

@@ -39,10 +39,10 @@ body {
     body { zoom: 1.15; }
 }
 
-body.games-view:before {
+body.games-view .games-topbar::before {
     content: "";
-    position: fixed;
-    top: 0;
+    position: absolute;
+    top: -51px;
     left: 0;
     width: 100%;
     height: 220px;
@@ -56,11 +56,11 @@ body.games-view:before {
     );
     opacity: 0;
     transition: opacity 0.1s ease;
-    z-index: 50;
+    z-index: -1; 
     pointer-events: none;
 }
 
-body.games-view.has-scroll-shadow:before {
+body.games-view.has-scroll-shadow .games-topbar::before {
     opacity: 1;
 }
 
@@ -199,7 +199,6 @@ body.is-picking-split #iframe-container .iframe.active-focus,
 body.split-view #iframe-container .iframe.active-focus {
     border: 1px solid var(--split-focus-border);
 }
-
 body.is-picking-split #iframe-container .iframe.active,
 body.split-view #iframe-container .iframe.active {
     display: none;
@@ -207,13 +206,13 @@ body.split-view #iframe-container .iframe.active {
 
 body.is-picking-split #iframe-container .iframe.active-split-left,
 body.split-view #iframe-container .iframe.active-split-left {
-    animation: splitIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     display: block;
     order: 1;
 }
 
 body.split-view #iframe-container .iframe.active-split-right {
-    animation: splitIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     display: block;
     order: 3;
 }
@@ -283,7 +282,7 @@ body.split-view #iframe-container .iframe.active-split-right {
 }
 
 body.split-view #iframe-resize-divider {
-    animation: splitIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
     background-color: var(--split-divider-bg);
     cursor: ew-resize;
     flex-shrink: 0;
@@ -507,7 +506,7 @@ body.browser-view .main-nav {
     font-size: 16px;
     margin-top: 2px;
     padding: 10px 25px;
-    transition: all 0.1s ease;
+    transition: background-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
     width: auto;
 }
 
@@ -848,6 +847,7 @@ body.browser-view .main-nav {
     width: 100%;
     will-change: opacity;
     z-index: 999998;
+    contain: layout style;
 }
 
 #overlay.show {
@@ -877,9 +877,11 @@ body.browser-view .main-nav {
     max-width: 350px;
     max-height: 80vh;
     overflow-y: auto;
-    transition: all 0.1s ease;
+    transition: opacity 0.1s ease;
     z-index: 999999;
     flex-direction: column;
+    contain: layout style paint;
+    will-change: transform, opacity;
 }
 
 .popup.is-visible {
@@ -975,7 +977,7 @@ body.browser-view .main-nav {
     cursor: pointer;
     font-size: 16px;
     padding: 10px;
-    transition: all 0.05s ease;
+    transition: background-color 0.05s ease, transform 0.05s ease;
     width: 48%;
 }
 
@@ -1054,7 +1056,7 @@ body.browser-view .main-nav {
 .iframe-loading {
     align-items: center;
     background-color: var(--bg-body-translucent);
-    border-radius: 6px;
+    border-radius: 2px;
     display: none;
     flex-direction: column;
     gap: 16px;

@@ -35,7 +35,7 @@ async fn copy_fast(
 	#[cfg(not(feature = "speed-limit"))]
 	{
 		let mut muxio = mux.into_async_rw().compat();
-		let mut tcpio = tokio::io::BufReader::with_capacity(CONFIG.stream.buffer_size, tcp);
+		let mut tcpio = tcp;
 		tokio::io::copy_bidirectional_with_sizes(
 			&mut muxio,
 			&mut tcpio,
@@ -371,6 +371,7 @@ pub async fn handle_wisp(stream: WispResult, is_v2: bool, id: String) -> anyhow:
 	let ping_interval_secs = CONFIG.wisp.ping_interval_secs.max(1);
 	set.spawn(async move {
 		let mut interval = interval(Duration::from_secs(ping_interval_secs));
+		interval.tick().await;
 		let send_ping = || async {
 			let mut locked = ping_mux.lock_ws().await?;
 			if let Either::Left(ws) = &mut *locked {
@@ -383,12 +384,15 @@ pub async fn handle_wisp(stream: WispResult, is_v2: bool, id: String) -> anyhow:
 			anyhow::Ok(())
 		};
 
-		while (send_ping)().await.is_ok() {
-			trace!("[{ping_id}] sent ping");
+		loop {
 			select! {
 				_ = interval.tick() => (),
 				() = ping_event.listen() => break,
 			};
+			if (send_ping)().await.is_err() {
+				break;
+			}
+			trace!("[{ping_id}] sent ping");
 		}
 	});
 

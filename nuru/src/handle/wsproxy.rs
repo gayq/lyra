@@ -137,7 +137,6 @@ pub async fn handle_wsproxy(
 							match x.transpose()? {
 								Some(WebSocketFrame::Data(data)) => {
 									stream.write_all(&data).await?;
-									stream.flush().await?;
 								}
 								Some(WebSocketFrame::Close) => {
 									stream.shutdown().await?;

@@ -28,7 +28,6 @@ const CONFIG = {
 
 export default function wavesPlugin() {
   const buildId = crypto.randomBytes(4).toString("hex");
-  const serverIp = process.env.IP || "127.0.0.1";
   let distDir;
   let swSrcPath;
 
@@ -55,7 +54,6 @@ export default function wavesPlugin() {
 
       let swCode = await fs.readFile(swSrcPath, "utf8");
       swCode = swCode
-        .replace(/__SERVER_IP__/g, serverIp)
         .replace(/__BUILD_ID__/g, buildId)
         .replace("'__PRECACHE_ASSETS__'", JSON.stringify(precacheAssets));
 
@@ -89,17 +87,6 @@ export default function wavesPlugin() {
         await fs.writeFile(filePath, code);
       }
 
-      const serserAbsPath = path.resolve("public", "b", "u", "serser.js");
-      if (existsSync(serserAbsPath)) {
-        const serser = await fs.readFile(serserAbsPath, "utf8");
-        if (serser.includes("__SERVER_IP__")) {
-          await fs.writeFile(
-            serserAbsPath,
-            serser.replace(/__SERVER_IP__/g, serverIp),
-          );
-        }
-      }
-
       const compressJobs = [];
 
       async function scanDir(dir) {
@@ -128,7 +115,6 @@ export default function wavesPlugin() {
       await Promise.all(compressJobs);
 
       console.log(`\nbuild id:  ${buildId}`);
-      console.log(`server ip: ${serverIp}`);
       console.log(`sw:        /${swFileName}`);
       console.log(`precache:  ${precacheAssets.length} asset(s)`);
     },

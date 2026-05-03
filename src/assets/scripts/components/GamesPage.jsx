@@ -4,7 +4,7 @@ import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/
 import { showHomeView } from "../state/store.js";
 import { attachSearchLight } from "../core/load.js";
 
-const FADE_DURATION = 60;
+const FADE_DURATION = 30;
 const SKELETON_KEYS = Array.from({ length: 12 }, (_, i) => `skeleton-${i}`);
 const RENDER_BATCH = 40;
 
@@ -153,10 +153,10 @@ export default function GamesPage() {
     showHomeView();
     document.body.classList.add("games-view");
     setVisible(true);
+    setActive(true);
     localStorage.setItem("wavesUserOpenedGameMenu", "true");
 
     requestAnimationFrame(() => {
-      setActive(true);
       const target = scrollTargetRef.current;
       if (target) {
         if (target === window) window.scrollTo(0, savedScrollRef.current);

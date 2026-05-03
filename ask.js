@@ -4,16 +4,6 @@ import { unlinkSync } from 'fs';
 const LOG_DIR = process.cwd();
 const LOG_FILE = join(LOG_DIR, 'ban_log.jsonl');
 const STORAGE_FILE = join(LOG_DIR, 'approved_domains.json');
-const RES_YES = new Response('yes!!', { status: 200 });
-const RES_NO = new Response('no!!', { status: 410 });
-const RES_MISSING = new Response('missing domain', { status: 400 });
-const RES_INVALID = new Response('invalid domain', { status: 400 });
-const RES_RATE_DOMAIN = new Response('domain rate limited', { status: 429 });
-const RES_BANNED = new Response('domain temporarily banned', { status: 429 });
-const RES_UNAVAIL = new Response('temporarily unavailable :(', { status: 503 });
-const RES_ERR = new Response('error', { status: 500 });
-
-function res(r) { return r.clone(); }
 
 const approvedDomains = new Map();
 const APPROVED_TTL = 24 * 60 * 60 * 1000;
@@ -23,9 +13,7 @@ async function loadApprovedDomains() {
     const data = await Bun.file(STORAGE_FILE).json();
     const now = Date.now();
     for (const [domain, expiry] of Object.entries(data)) {
-      if (expiry > now) {
-        approvedDomains.set(domain, expiry);
-      }
+      if (expiry > now) approvedDomains.set(domain, expiry);
     }
     console.log(`loaded ${approvedDomains.size} approved domains`);
   } catch {
@@ -49,14 +37,6 @@ async function flushSave() {
   }
 }
 
-function isApproved(domain) {
-  const expiry = approvedDomains.get(domain);
-  if (!expiry) return false;
-  if (Date.now() < expiry) return true;
-  approvedDomains.delete(domain);
-  return false;
-}
-
 function approveDomain(domain) {
   approvedDomains.set(domain, Date.now() + APPROVED_TTL);
   scheduleSave();
@@ -64,14 +44,6 @@ function approveDomain(domain) {
 
 const deniedDomains = new Map();
 const DENIED_TTL = 60 * 60 * 1000;
-
-function isDenied(domain) {
-  const expiry = deniedDomains.get(domain);
-  if (!expiry) return false;
-  if (Date.now() < expiry) return true;
-  deniedDomains.delete(domain);
-  return false;
-}
 
 function denyDomain(domain) {
   deniedDomains.set(domain, Date.now() + DENIED_TTL);
@@ -105,35 +77,25 @@ const DOMAIN_WINDOW = 5 * 60 * 1000;
 const DOMAIN_MAX_REQUESTS = 10;
 const DOMAIN_BAN_DURATION = 30 * 60 * 1000;
 
-function isDomainBanned(domain) {
-  const state = domainState.get(domain);
-  return state ? state.bannedUntil > Date.now() : false;
-}
-
 function checkDomainRateLimit(domain) {
   const now = Date.now();
   let state = domainState.get(domain);
   if (!state) {
-    state = { count: 1, windowStart: now, bannedUntil: 0 };
-    domainState.set(domain, state);
-    return false;
+    domainState.set(domain, { count: 1, windowStart: now, bannedUntil: 0 });
+    return 0;
   }
-
+  if (state.bannedUntil > now) return 2;
   if (now - state.windowStart > DOMAIN_WINDOW) {
     state.count = 1;
     state.windowStart = now;
-    return false;
+    return 0;
   }
-
-  state.count++;
-
-  if (state.count > DOMAIN_MAX_REQUESTS) {
+  if (++state.count > DOMAIN_MAX_REQUESTS) {
     state.bannedUntil = now + DOMAIN_BAN_DURATION;
     logAbuse(domain, 'DOMAIN_BANNED', `${state.count} requests in ${DOMAIN_WINDOW / 1000}s`);
-    return true;
+    return 1;
   }
-
-  return false;
+  return 0;
 }
 
 let globalRequestCount = 0;
@@ -145,23 +107,17 @@ const LOCKDOWN_DURATION = 5 * 60_000;
 
 function checkGlobalRateLimit() {
   const now = Date.now();
-
   if (now < lockdownUntil) return true;
-
   if (now - globalWindowStart > GLOBAL_WINDOW) {
     globalRequestCount = 1;
     globalWindowStart = now;
     return false;
   }
-
-  globalRequestCount++;
-
-  if (globalRequestCount > GLOBAL_MAX) {
+  if (++globalRequestCount > GLOBAL_MAX) {
     lockdownUntil = now + LOCKDOWN_DURATION;
     logAbuse('SYSTEM', 'GLOBAL_LOCKDOWN', `${globalRequestCount} req/min exceeded limit`);
     return true;
   }
-
   return false;
 }
 
@@ -171,20 +127,66 @@ function logAbuse(subject, event, detail) {
   console.log(`[abuse] ${event}: ${subject} - ${detail}`);
 }
 
-const VALID_DOMAIN_RE = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
-const IP_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
-
 function isValidDomain(domain) {
   const len = domain.length;
   if (len === 0 || len > 253) return false;
-  if (domain.charCodeAt(0) === 46 || domain.charCodeAt(0) === 45) return false;
-  if (domain.charCodeAt(len - 1) === 46 || domain.charCodeAt(len - 1) === 45) return false;
-  if (!domain.includes('.')) return false;
-  if (domain.includes('..') || domain.includes(':')) return false;
+  const first = domain.charCodeAt(0);
+  const last = domain.charCodeAt(len - 1);
+  if (first === 46 || first === 45 || last === 46 || last === 45) return false;
+  let hasDot = false;
+  let prevDot = false;
+  for (let i = 0; i < len; i++) {
+    const c = domain.charCodeAt(i);
+    if (c === 46) {
+      if (prevDot) return false;
+      hasDot = true;
+      prevDot = true;
+    } else {
+      prevDot = false;
+      if (c === 45) continue;
+      if (c >= 48 && c <= 57) continue;
+      if (c >= 97 && c <= 122) continue;
+      return false;
+    }
+  }
+  if (!hasDot) return false;
   if (domain === 'localhost' || domain.endsWith('.localhost')) return false;
-  if (IP_RE.test(domain)) return false;
-  if (!VALID_DOMAIN_RE.test(domain)) return false;
+  let digitRun = 0;
+  let dots = 0;
+  let allDigitsAndDots = true;
+  for (let i = 0; i < len; i++) {
+    const c = domain.charCodeAt(i);
+    if (c === 46) {
+      if (digitRun === 0 || digitRun > 3) { allDigitsAndDots = false; break; }
+      digitRun = 0;
+      dots++;
+    } else if (c >= 48 && c <= 57) {
+      digitRun++;
+    } else {
+      allDigitsAndDots = false;
+      break;
+    }
+  }
+  if (allDigitsAndDots && dots === 3 && digitRun > 0 && digitRun <= 3) return false;
   return true;
+}
+
+function extractDomain(url) {
+  let idx = url.indexOf('domain=');
+  if (idx !== -1) {
+    const start = idx + 7;
+    const end = url.indexOf('&', start);
+    const raw = end === -1 ? url.slice(start) : url.slice(start, end);
+    return raw.indexOf('%') === -1 ? raw.toLowerCase() : decodeURIComponent(raw).toLowerCase();
+  }
+  idx = url.indexOf('server_name=');
+  if (idx !== -1) {
+    const start = idx + 12;
+    const end = url.indexOf('&', start);
+    const raw = end === -1 ? url.slice(start) : url.slice(start, end);
+    return raw.indexOf('%') === -1 ? raw.toLowerCase() : decodeURIComponent(raw).toLowerCase();
+  }
+  return '';
 }
 
 function cleanOldLogs() {
@@ -196,35 +198,14 @@ function cleanOldLogs() {
   } catch {}
 }
 
-function extractDomain(url) {
-  const qIdx = url.indexOf('?');
-  if (qIdx === -1) return '';
-  const qs = url.slice(qIdx + 1);
-  const params = qs.split('&');
-  for (let i = 0; i < params.length; i++) {
-    const eq = params[i].indexOf('=');
-    if (eq === -1) continue;
-    const key = params[i].slice(0, eq);
-    if (key === 'domain' || key === 'server_name') {
-      return decodeURIComponent(params[i].slice(eq + 1)).toLowerCase();
-    }
-  }
-  return '';
-}
-
-const LOCAL_IPS = new Set(['127.0.0.1', 'localhost', '::1', 'unknown']);
-
 setInterval(() => {
   const now = Date.now();
-
   for (const [d, expiry] of approvedDomains) {
     if (now > expiry) approvedDomains.delete(d);
   }
-
   for (const [d, expiry] of deniedDomains) {
     if (now > expiry) deniedDomains.delete(d);
   }
-
   for (const [d, state] of domainState) {
     if (state.bannedUntil < now && (now - state.windowStart) > 2 * 60 * 60 * 1000) {
       domainState.delete(d);
@@ -241,61 +222,41 @@ console.log(`tls server listening on ${PORT}!!`);
 Bun.serve({
   port: PORT,
   fetch(req) {
-    try {
-      const domain = extractDomain(req.url);
+    const domain = extractDomain(req.url);
 
-      if (!domain) {
-        return res(RES_MISSING);
-      }
+    if (!domain) return new Response('missing domain', { status: 400 });
 
-      if (isApproved(domain)) {
-        return res(RES_YES);
-      }
-
-      if (isDenied(domain)) {
-        return res(RES_NO);
-      }
-
-      if (!isValidDomain(domain)) {
-        denyDomain(domain);
-        return res(RES_INVALID);
-      }
-
-      if (isBlockedSuffix(domain)) {
-        denyDomain(domain);
-        return res(RES_NO);
-      }
-
-      const ip = req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-
-      if (LOCAL_IPS.has(ip)) {
-        approveDomain(domain);
-        return res(RES_YES);
-      }
-
-      if (Date.now() < lockdownUntil) {
-        logAbuse(ip, 'LOCKDOWN_REJECT', domain);
-        return res(RES_UNAVAIL);
-      }
-
-      if (checkGlobalRateLimit()) {
-        return res(RES_UNAVAIL);
-      }
-
-      if (isDomainBanned(domain)) {
-        return res(RES_BANNED);
-      }
-
-      if (checkDomainRateLimit(domain)) {
-        return res(RES_RATE_DOMAIN);
-      }
-
-      approveDomain(domain);
-      return res(RES_YES);
-
-    } catch (err) {
-      console.error(`request error: ${err.message}`);
-      return res(RES_ERR);
+    const approvedExpiry = approvedDomains.get(domain);
+    if (approvedExpiry) {
+      if (Date.now() < approvedExpiry) return new Response('yes!!', { status: 200 });
+      approvedDomains.delete(domain);
     }
+
+    const deniedExpiry = deniedDomains.get(domain);
+    if (deniedExpiry) {
+      if (Date.now() < deniedExpiry) return new Response('no!!', { status: 410 });
+      deniedDomains.delete(domain);
+    }
+
+    if (!isValidDomain(domain)) {
+      denyDomain(domain);
+      return new Response('invalid domain', { status: 400 });
+    }
+
+    if (isBlockedSuffix(domain)) {
+      denyDomain(domain);
+      return new Response('no!!', { status: 410 });
+    }
+
+    if (Date.now() < lockdownUntil) return new Response('temporarily unavailable :(', { status: 503 });
+
+    if (checkGlobalRateLimit()) return new Response('temporarily unavailable :(', { status: 503 });
+
+    const rl = checkDomainRateLimit(domain);
+    if (rl === 2) return new Response('domain temporarily banned', { status: 429 });
+    if (rl === 1) return new Response('domain rate limited', { status: 429 });
+
+    approveDomain(domain);
+    return new Response('yes!!', { status: 200 });
   },
 });

@@ -204,7 +204,7 @@ pub async fn proxy_handler(
             let real_target = if target_url_str.starts_with("ws/") {
                 let remaining = &target_url_str[3..];
                 if remaining.starts_with("http") {
-                    remaining.replace("http", "ws")
+                    remaining.replace("http://", "ws://").replace("https://", "wss://")
                 } else if remaining.starts_with("wss://") {
                     remaining.to_string()
                 } else {
@@ -223,7 +223,7 @@ pub async fn proxy_handler(
                 }
             } else {
                 if target_url_str.starts_with("http") {
-                    target_url_str.replace("http", "ws")
+                    target_url_str.replace("http://", "ws://").replace("https://", "wss://")
                 } else {
                     format!("wss://{}", target_url_str)
                 }
@@ -446,7 +446,12 @@ pub async fn proxy_handler(
         .unwrap_or("application/octet-stream")
         .to_string();
 
-    let is_html = content_type.contains("text/html")
+    let content_type_lower = content_type.to_ascii_lowercase();
+    let is_html = (content_type_lower.contains("text/html")
+        || (content_type == "application/octet-stream"
+            && (target_url_str.ends_with(".html") || target_url_str.ends_with(".htm")))
+        || (content_type == "text/plain"
+            && (target_url_str.ends_with(".html") || target_url_str.ends_with(".htm"))))
         && !target_url_str.ends_with(".swf")
         && !target_url_str.ends_with(".wasm");
 

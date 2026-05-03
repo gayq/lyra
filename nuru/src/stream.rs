@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use crate::{route::WispStreamWrite, CONFIG, RESOLVER};
 use anyhow::Context;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bytes::BytesMut;
@@ -14,16 +15,16 @@ use futures_util::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use log::debug;
+use moka::sync::Cache as MokaCache;
 use regex::RegexSet;
 use socket2::SockRef;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 use tokio_websockets::{CloseCode, Message, Payload, WebSocketStream};
-use wisp_mux::{packet::{ConnectPacket, StreamType}, stream::MuxStream};
-
-use moka::sync::Cache as MokaCache;
-
-use crate::{route::WispStreamWrite, CONFIG, RESOLVER};
+use wisp_mux::{
+    packet::{ConnectPacket, StreamType},
+    stream::MuxStream,
+};
 
 #[derive(Clone)]
 enum CachedResolvedPacket {
@@ -77,11 +78,12 @@ fn stream_type_cache_key(stream_type: StreamType) -> &'static str {
 }
 
 fn resolve_cache_key(packet: &ConnectPacket) -> String {
+    use std::fmt::Write;
     let stream = stream_type_cache_key(packet.stream_type);
     let mut key = String::with_capacity(stream.len() + packet.host.len() + 8);
     key.push_str(stream);
     key.push('|');
-    key.push_str(&packet.port.to_string());
+    let _ = write!(key, "{}", packet.port);
     key.push('|');
     key.push_str(&packet.host);
     key

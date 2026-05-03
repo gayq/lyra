@@ -9,7 +9,8 @@
   margin: 0 auto;
   position: relative;
   opacity: 0;
-  transition: opacity 60ms ease;
+  transition: opacity 30ms ease;
+  will-change: opacity;
 }
 
 .games-page.is-visible {
@@ -43,7 +44,7 @@ body.games-view #arrow-pointer {
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  z-index: 1003;
+  z-index: 1004;
   display: none;
   padding: 12px;
   box-sizing: border-box;
@@ -153,7 +154,7 @@ body.games-view .games-page {
   object-fit: cover;
   display: block;
   filter: brightness(var(--game-cover-brightness));
-  transition: all 0.05s ease;
+  transition: filter 0.05s ease, transform 0.05s ease;
 }
 
 .game-card:hover .game-cover img {

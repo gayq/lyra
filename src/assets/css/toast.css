@@ -4,6 +4,7 @@
   right: 20px;
   z-index: 2147483647;
   width: 300px;
+  contain: layout style;
 }
 
 .toast {
@@ -23,12 +24,15 @@
   align-items: center;
   overflow: hidden;
   transform-origin: bottom center;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
 
 .toast.is-hiding {
-  transform: translateY(20px) !important;
-  opacity: 0 !important;
-  transition-timing-function: ease-in;
+  pointer-events: none !important;
 }
 
 .toast.success,
@@ -63,7 +67,7 @@
   border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
-  transition: all 0.05s ease;
+  transition: background-color 0.05s ease;
 }
 
 .toast-btn:hover {

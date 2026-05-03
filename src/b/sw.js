@@ -39,7 +39,9 @@ const MAX_RUNTIME_ENTRIES = 300;
 const _inflight = new Map();
 const _activePrefetches = new Map();
 const _prefetchTimes = new Map();
+const _prefetchedResponses = new Map();
 const PREFETCH_VALIDITY_MS = 30000;
+const MAX_MEM_PREFETCH = 10;
 
 async function coalescedFetch(key, fetchFn) {
   if (_inflight.has(key)) return _inflight.get(key);
@@ -454,9 +456,9 @@ const TURN_SCRIPT = `
 
         if (!config.iceServers || config.iceServers.length === 0) {
             config.iceServers = [{
-                urls: "turn:__SERVER_IP__:3478",
-                username: "luy",
-                credential: "l4uy"
+                urls: "turn:${self.location.hostname}:3478",
+                username: "enniuu",
+                credential: "enni"
             }];
         }
 
@@ -466,14 +468,26 @@ const TURN_SCRIPT = `
 </script>
 `;
 
-const TURN_SCRIPT_RELAY_ONLY = `
+const TURN_SCRIPT_RELAY = `
 <script>
 (function() {
     const OriginalRTCPeerConnection = window.RTCPeerConnection;
     if (!OriginalRTCPeerConnection) return;
+    const customTurn = {
+        urls: "turn:${self.location.hostname}:3478",
+        username: "enniuu",
+        credential: "enni"
+    };
     function WrappedRtc(config, constraints) {
         const c = config ? Object.assign({}, config) : {};
         c.iceTransportPolicy = "relay";
+        if (!c.iceServers) c.iceServers = [];
+        c.iceServers = c.iceServers.filter(function(server) {
+            if (!server || !server.urls) return false;
+            var urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+            return urls.some(function(url) { return url.startsWith("turn:") || url.startsWith("turns:"); });
+        });
+        c.iceServers.push(customTurn);
         return constraints !== undefined
             ? new OriginalRTCPeerConnection(c, constraints)
             : new OriginalRTCPeerConnection(c);
@@ -647,7 +661,7 @@ const HOVER_PREFETCH_SCRIPT = `
 function buildHtmlInjectPatches(upstreamUrlStr) {
   const host = upstreamHostname(upstreamUrlStr || "");
   const turnScript = isDiscordRelayOnlyHost(host)
-    ? TURN_SCRIPT_RELAY_ONLY
+    ? TURN_SCRIPT_RELAY
     : TURN_SCRIPT;
   return turnScript + SPA_PATCH + SOUNDCLOUD_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
 }
@@ -1312,13 +1326,20 @@ async function prefetchProxiedNavFromClient(urlStr) {
     return;
   }
   console.log("starting prefetch for", urlStr);
-  const req = new Request(urlStr, {
-    method: "GET",
-    headers: { [WAVES_PREFETCH_HEADER]: "1" },
-    credentials: "same-origin",
-  });
+  const req = new Request(urlStr, { method: "GET" });
+  const event = {
+    request: req,
+    type: "fetch",
+    respondWith: () => {},
+    waitUntil: () => {},
+    preventDefault: () => {},
+    preloadResponse: Promise.resolve(null),
+    clientId: "",
+    resultingClientId: "",
+    replacesClientId: "",
+  };
   try {
-    const res = await fetch(req);
+    const res = await handlePrefetchProxyRequest(event);
     if (res && res.ok) {
       console.log(
         "prefetched and finished ok:",
@@ -1454,12 +1475,78 @@ async function handlePrefetchProxyRequest(event) {
 
   try {
     const res = await prefetchPromise;
+    if (res && res.ok) {
+      try {
+        _prefetchedResponses.set(urlKey, res.clone());
+        if (_prefetchedResponses.size > MAX_MEM_PREFETCH) {
+          const oldest = _prefetchedResponses.keys().next().value;
+          _prefetchedResponses.delete(oldest);
+        }
+      } catch (e) {}
+      try {
+        res.clone().text().then(html => warmSubresources(html, realUrl)).catch(() => {});
+      } catch (e) {}
+    }
     return res ? res.clone() : new Response(null, { status: 204 });
   } catch (e) {
     return new Response(null, { status: 204 });
   } finally {
     _activePrefetches.delete(urlKey);
   }
+}
+
+async function warmSubresources(htmlText, navRealUrl) {
+  try {
+    if (!htmlText || htmlText.length < 50) return;
+    const urls = [];
+    const linkRe = /<link\b[^>]*>/gi;
+    let m;
+    while ((m = linkRe.exec(htmlText)) !== null && urls.length < 8) {
+      const tag = m[0];
+      const relM = tag.match(/\brel\s*=\s*["']([^"']+)["']/i);
+      if (!relM) continue;
+      const rel = relM[1].toLowerCase();
+      if (rel !== "stylesheet" && rel !== "preload" && rel !== "modulepreload") continue;
+      if (rel === "preload" || rel === "modulepreload") {
+        const asM = tag.match(/\bas\s*=\s*["']([^"']+)["']/i);
+        if (asM && (asM[1] === "script" || asM[1] === "worker")) continue;
+      }
+      const hrefM = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+      if (!hrefM) continue;
+      const href = hrefM[1];
+      if (!href || href.startsWith("data:") || href.startsWith("blob:")) continue;
+      try { urls.push(new URL(href, self.location.origin).href); } catch (e) {}
+    }
+    if (urls.length === 0) return;
+    const jobs = [];
+    for (const proxyUrl of urls) {
+      try {
+        const u = new URL(proxyUrl);
+        if (u.origin !== self.location.origin) continue;
+        const rUrl = unwrapUrl(u);
+        if (!rUrl || !rUrl.startsWith("http")) continue;
+        const ext = urlExt(rUrl);
+        if (ext === ".js" || ext === ".mjs") continue;
+        jobs.push((async () => {
+          try {
+            const req = new Request(proxyUrl, { method: "GET" });
+            const cached = await caches.match(req);
+            if (cached) return;
+            const resp = await tryWithTimeout(mochiFetch(req, rUrl), 8000);
+            if (resp && resp.ok) {
+              const c = await caches.open(RUNTIME_CACHE);
+              await c.put(req, resp.clone());
+              capCache(RUNTIME_CACHE, MAX_RUNTIME_ENTRIES);
+            }
+          } catch (e) {}
+        })());
+      } catch (e) {}
+    }
+    if (jobs.length > 0) {
+      console.log("warming", jobs.length, "subresources for prefetched nav");
+      await Promise.allSettled(jobs);
+    }
+  } catch (e) {}
 }
 
 let _lastTransportError = 0;
@@ -1550,8 +1637,7 @@ async function patchHtml(response, upstreamUrlStr) {
 
     const scripts = buildHtmlInjectPatches(upstreamUrlStr);
     let newBodyStr;
-    const lowerBody = originalBody.toLowerCase();
-    const headStartIdx = lowerBody.indexOf("<head");
+    const headStartIdx = originalBody.search(/<head/i);
 
     if (headStartIdx !== -1) {
       const headEndIdx = originalBody.indexOf(">", headStartIdx) + 1;
@@ -2008,6 +2094,12 @@ self.addEventListener("fetch", (event) => {
                   } catch(e) {}
                 }
 
+                if (_prefetchedResponses.has(urlKey)) {
+                  const memHit = _prefetchedResponses.get(urlKey);
+                  _prefetchedResponses.delete(urlKey);
+                  try { if (memHit && memHit.ok) return memHit.clone(); } catch(e) {}
+                }
+
                 const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;
                 if (age < PREFETCH_VALIDITY_MS) {
                     const prefHit = await matchPrefetchedNavHtml(request);
@@ -2080,6 +2172,12 @@ self.addEventListener("fetch", (event) => {
                     const prefRes = await _activePrefetches.get(urlKey);
                     if (prefRes && prefRes.ok) return prefRes.clone();
                   } catch(e) {}
+                }
+
+                if (_prefetchedResponses.has(urlKey)) {
+                  const memHit = _prefetchedResponses.get(urlKey);
+                  _prefetchedResponses.delete(urlKey);
+                  try { if (memHit && memHit.ok) return memHit.clone(); } catch(e) {}
                 }
 
                 const age = _prefetchTimes.has(urlKey) ? (Date.now() - _prefetchTimes.get(urlKey)) : Infinity;

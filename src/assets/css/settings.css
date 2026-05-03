@@ -17,6 +17,8 @@
   height: 430px;
   max-height: 80vh;
   flex-direction: column;
+  contain: layout style paint;
+  will-change: transform, opacity;
 }
 
 #settings-menu h2 {
@@ -86,7 +88,7 @@
   z-index: 1000;
   outline: none;
   display: inline-flex;
-  transition: all 0.05s ease;
+  transition: color 0.05s ease, transform 0.05s ease;
 }
 
 #close-settings-menu:hover {
@@ -169,7 +171,7 @@
   font-weight: 900;
   font-size: 0.8em;
   color: var(--color-icon-muted);
-  transition: all 0.12s ease;
+  transition: transform 0.12s ease;
 }
 
 .transport-selected.transport-arrow-active::after,
@@ -237,7 +239,7 @@
   cursor: pointer;
   width: 93%;
   margin: 0 auto;
-  transition: all 0.05s ease;
+  transition: background-color 0.05s ease, color 0.05s ease;
 }
 
 .transport-options div:hover,
@@ -249,52 +251,6 @@
 .theme-options div:hover {
   background-color: var(--bg-surface-active);
   color: var(--text-primary);
-}
-
-#wisp-server {
-  width: 100%;
-  max-width: 270px;
-  padding: 10px 15px;
-  margin-left: 0;
-  background-color: var(--bg-surface-7);
-  color: var(--text-primary);
-  margin-left: -38px;
-  border: 2px solid #00000000;
-  font-size: 0.8em;
-  border-radius: 15px;
-  outline: none;
-  transition:
-    background-color 0.1s ease,
-    border-color 0.1s ease;
-}
-
-#wisp-server:hover,
-#wisp-server:focus {
-  background-color: var(--bg-surface-10);
-}
-
-#wisp-server::placeholder {
-  color: var(--input-placeholder);
-}
-
-#save-wisp-url {
-  padding: 8px 10px;
-  background-color: var(--btn-save-bg);
-  border: 2px solid #4141411a;
-  color: var(--btn-save-text);
-  font-size: 16px;
-  margin-left: 5px;
-  border-radius: 15px;
-  cursor: pointer;
-  transition: all 0.1s ease;
-}
-
-#save-wisp-url:hover {
-  background-color: var(--btn-save-bg-hover);
-}
-
-#save-wisp-url:active {
-  transform: scale(0.95);
 }
 
 input[type="checkbox"] {
@@ -324,7 +280,7 @@ input[type="checkbox"]::before {
   position: absolute;
   top: 5px;
   left: 6px;
-  transition: all 0.05s ease;
+  transition: transform 0.05s ease, background-color 0.05s ease, width 0.05s ease, height 0.05s ease, top 0.05s ease, left 0.05s ease;
 }
 
 input[type="checkbox"]:hover::before {
@@ -361,7 +317,7 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .settings {
-  transition: all 1 ease;
+  transition: color 0.1s ease;
 }
 
 .settings.active-icon {
@@ -382,7 +338,7 @@ input[type="checkbox"]:checked:hover::before {
   display: flex;
   align-items: center;
   gap: 5px;
-  transition: all 0.05s ease;
+  transition: color 0.05s ease, background-color 0.05s ease;
 }
 
 .tab-button i {
@@ -395,7 +351,7 @@ input[type="checkbox"]:checked:hover::before {
   border-radius: 11px;
   font-size: 14px;
   flex-shrink: 0;
-  transition: all 0.05s ease;
+  transition: background-color 0.1s ease, transform 0.1s ease;
 }
 
 .tab-button:hover {

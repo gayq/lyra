@@ -1,10 +1,3 @@
-/**
- * Click-burst particle effect.
- * On every click a ring of small dots explodes outward from the cursor,
- * then fades and shrinks to nothing. Uses a pre-allocated canvas overlay
- * so there is zero DOM thrashing.
- */
-
 interface Particle {
   x: number;
   y: number;
