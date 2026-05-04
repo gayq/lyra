@@ -36,7 +36,7 @@
   font-weight: 400;
   cursor: pointer;
   padding: 5.5px 10px;
-  border-radius: 12px;
+  border-radius: 10px;
   transition: color 0.05s ease, background-color 0.05s ease, transform 0.05s ease;
   user-select: none;
 }
