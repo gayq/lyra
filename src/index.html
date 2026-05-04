@@ -9,7 +9,7 @@
     <meta property="og:url" content="https://coursera.org" />
     <meta property="og:site_name" content="coursera.org" />
     <meta name="theme-color" content="#0056D2" />
-    <title>MathPath – Personalized Learning for Every Student</title>
+    <title>MathPath - Personalized Learning for Every Student</title>
     <style>
       :root {
         --bg-body: #050505;
@@ -53,7 +53,7 @@
       .meow, #connection-status {
         display: none;
       }
-      #ixl-cloak {
+      #root {
         position: fixed;
         inset: 0;
         z-index: 999999;
@@ -84,7 +84,7 @@
         _stopRevealGuard();
         try { document.title = _title; } catch (_e) {}
         try {
-          var c = document.getElementById("ixl-cloak");
+          var c = document.getElementById("root");
           if (c) c.remove();
         } catch (_e) {}
         try {
@@ -129,13 +129,13 @@
       setTimeout(function () {
         _minTimeReached = true;
         _tryReveal();
-      }, 1000);
+      }, 9000);
       setTimeout(_revealPage, 1400);
     </script>
-    <link rel="icon" href="https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
+    <link rel="icon" href="/!!/https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
-    <link rel="dns-prefetch" href="https://site-assets.fontawesome.com" />
+    <link rel="dns-prefetch" href="/!!?https://site-assets.fontawesome.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
@@ -167,7 +167,7 @@
     <script type="module" src="/assets/scripts/entry.jsx"></script>
   </head>
   <body>
-    <iframe id="ixl-cloak" src="/ed.html" loading="eager" aria-hidden="true"></iframe>
+    <iframe id="root" src="/ed.html" loading="eager" aria-hidden="true"></iframe>
     <noscript>please enable javascript!!</noscript>
     <main class="meow"></main>
   </body>

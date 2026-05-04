@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 
-function Selector({ label, value, options, onChange }) {
-  const [open, setOpen] = useState(false);
+function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }) {
+  const open = isOpen === label;
   const ref = useRef(null);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target)) onClose();
     };
     window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
-  }, [open]);
+  }, [open, onClose]);
 
   return (
     <div class={`${label}-selector`} ref={ref}>
@@ -19,7 +19,11 @@ function Selector({ label, value, options, onChange }) {
         class={`${label}-selected${open ? ` ${label}-arrow-active` : ""}`}
         onClick={(e) => {
           e.stopPropagation();
-          setOpen(!open);
+          if (open) {
+            onClose();
+          } else {
+            onOpen(label);
+          }
         }}
       >
         {value}
@@ -34,7 +38,7 @@ function Selector({ label, value, options, onChange }) {
                 onClick={(e) => {
                   e.stopPropagation();
                   onChange(opt);
-                  setOpen(false);
+                  onClose();
                 }}
               >
                 {opt}
@@ -66,6 +70,7 @@ export default function SettingsMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [activeTab, setActiveTab] = useState("preferences");
+  const [openSelector, setOpenSelector] = useState(null);
   const menuRef = useRef(null);
 
   const [backend, setBackend] = useState(
@@ -165,7 +170,7 @@ export default function SettingsMenu() {
 
   const save = (key, value) => {
     localStorage.setItem(key, value);
-    window.showToast?.("success", "settings saved!");
+    window.showToast?.("success", "settings saved");
   };
 
   const handleSetting = (key, value, setter) => {
@@ -266,7 +271,7 @@ export default function SettingsMenu() {
           const data = JSON.parse(ev.target.result);
           if (typeof window.wavesImportDataFromObject === "function") {
             await window.wavesImportDataFromObject(data);
-            window.showToast?.("success", "data imported!");
+            window.showToast?.("success", "data imported");
           }
         } catch (err) {
           console.error("import error:", err);
@@ -364,6 +369,9 @@ export default function SettingsMenu() {
                 label="search-engine"
                 value={searchEngine}
                 options={allSearchEngines}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) =>
                   handleSetting("searchEngine", v, setSearchEngine)
                 }
@@ -376,6 +384,9 @@ export default function SettingsMenu() {
                 label="game-source"
                 value={gameSource}
                 options={allGameSources}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) => handleSetting("gameSource", v, setGameSource)}
               />
             </div>
@@ -402,6 +413,9 @@ export default function SettingsMenu() {
                 label="theme"
                 value={theme}
                 options={allThemes}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) => handleSetting("theme", v, setTheme)}
               />
             </div>
@@ -417,6 +431,9 @@ export default function SettingsMenu() {
                 label="site-cloaking"
                 value={siteCloaking}
                 options={allSiteCloaking}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) =>
                   handleSetting("siteCloaking", v, setSiteCloaking)
                 }
@@ -429,6 +446,9 @@ export default function SettingsMenu() {
                 label="link-cloaking"
                 value={linkCloaking}
                 options={allLinkCloaking}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) =>
                   handleSetting("linkCloaking", v, setLinkCloaking)
                 }
@@ -457,6 +477,9 @@ export default function SettingsMenu() {
                 label="backend"
                 value={backend}
                 options={allBackends}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) => handleSetting("backend", v, setBackend)}
               />
             </div>
@@ -467,6 +490,9 @@ export default function SettingsMenu() {
                 label="transport"
                 value={transport}
                 options={allTransports}
+                isOpen={openSelector}
+                onOpen={setOpenSelector}
+                onClose={() => setOpenSelector(null)}
                 onChange={(v) => handleSetting("transport", v, setTransport)}
               />
             </div>

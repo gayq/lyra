@@ -12,13 +12,13 @@
   bottom: 0;
   right: 0;
   width: calc(100% - 10px);
-  padding: 13px 10px;
+  padding: 14px 10px;
   margin: 5px;
-  border-radius: 13px;
+  border-radius: 16px;
   font-size: 12px;
   color: var(--toast-text);
   font-weight: 400;
-  border: 1.5px solid var(--toast-border);
+  border: 1px solid var(--toast-border);
   transition: transform 0.3s ease, opacity 0.3s ease;
   display: flex;
   align-items: center;
@@ -49,7 +49,7 @@
 }
 
 .toast i {
-  font-size: 15px;
+  font-size: 14px;
   margin-right: 8px;
 }
 

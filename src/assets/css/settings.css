@@ -141,7 +141,7 @@
   border: 2px solid var(--border-transparent);
   color: var(--text-primary);
   padding: 8px;
-  border-radius: 13px;
+  border-radius: 15px;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -199,7 +199,7 @@
   color: var(--color-icon-muted);
   background-color: var(--bg-surface-7);
   border: 2px solid var(--border-transparent);
-  border-radius: 13px;
+  border-radius: 15px;
   max-height: 0;
   text-align: left;
   overflow: hidden;
@@ -209,7 +209,7 @@
     opacity 0.12s ease,
     margin-top 0.12s ease;
   opacity: 0;
-  z-index: 10;
+  z-index: 100;
   padding: 3px 0;
   pointer-events: none;
 }
@@ -234,8 +234,8 @@
 .link-cloaking-options div,
 .game-source-options div,
 .theme-options div {
-  padding: 7px;
-  border-radius: 8px;
+  padding: 6.5px;
+  border-radius: 10px;
   cursor: pointer;
   width: 93%;
   margin: 0 auto;
@@ -347,10 +347,10 @@ input[type="checkbox"]:checked:hover::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-light);
   border-radius: 11px;
   font-size: 14px;
   flex-shrink: 0;
+  margin-right: -4px;
   transition: background-color 0.1s ease, transform 0.1s ease;
 }
 

@@ -133,7 +133,7 @@ body.browser-view #bookmarks-container,
 body.browser-view #top-left-stuff,
 body.browser-view #top-right-stuff,
 body.browser-view #stuff,
-body.browser-view #share,
+body.browser-view #cute,
 body.browser-view #oneko,
 body.browser-view .footer {
     display: none !important;
@@ -687,7 +687,7 @@ body.browser-view .main-nav {
     cursor: text;
 }
 
-#share {
+#cute {
     left: auto;
     margin-left: auto;
     max-width: 280px;
@@ -697,7 +697,7 @@ body.browser-view .main-nav {
     z-index: 1;
 }
 
-#share a {
+#cute a {
     cursor: text;
 }
 

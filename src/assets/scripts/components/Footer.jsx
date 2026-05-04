@@ -4,7 +4,7 @@ export default function Footer() {
       <div id="stuff">
         <a>--</a>
       </div>
-      <div id="share">
+      <div id="cute">
         <a>:3</a>
       </div>
     </div>
