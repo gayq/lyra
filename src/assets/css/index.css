@@ -891,7 +891,7 @@ body.browser-view .main-nav {
 
 .popup.new-tab-popup {
     background: transparent;
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 0;
     top: 45%;
     max-width: 400px;

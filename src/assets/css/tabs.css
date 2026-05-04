@@ -23,7 +23,7 @@
   align-items: center;
   padding: 8px 10px;
   background-color: transparent;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--color-tab);
   cursor: pointer;
   flex-shrink: 0;
@@ -134,7 +134,7 @@
   width: 100%;
   text-align: left;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   margin-bottom: 5px;
   flex-shrink: 0;
   transition: background-color 0.05s ease, color 0.05s ease, transform 0.05s ease;
@@ -152,26 +152,4 @@
 
 #add-tab-btn:active {
   transform: scale(1);
-}
-
-.sidebar-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: left;
-  padding: 10px;
-  border-top: 1px solid var(--border-subtle);
-  color: var(--color-icon-muted);
-  font-size: 11px;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.memory-usage-label {
-  margin-top: 5px;
-  font-size: 10px;
-}
-
-.memory-value {
-  margin-top: 5px;
-  font-size: 10px;
 }
