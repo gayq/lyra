@@ -203,18 +203,21 @@ net.ipv4.ip_local_port_range = 1024 65535
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
-net.core.rmem_max = 16777216
-net.core.wmem_max = 16777216
-net.ipv4.udp_rmem_min = 8192
-net.ipv4.udp_wmem_min = 8192
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.core.rmem_default = 1048576
+net.core.wmem_default = 1048576
+net.ipv4.udp_rmem_min = 65536
+net.ipv4.udp_wmem_min = 65536
+net.ipv4.udp_mem = 65536 131072 262144
 fs.file-max = 2097152
 fs.nr_open = 2097152
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_window_scaling = 1
-net.ipv4.tcp_rmem = 4096 87380 16777216
-net.ipv4.tcp_wmem = 4096 65536 16777216
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_sack = 1
@@ -267,10 +270,13 @@ eturnal:
       transport: tcp
   relay_min_port: 49152
   relay_max_port: 65535
+  max_bps: unlimited
+  max_permissions: unlimited
+  strict_expiry: false
+  software_name: none
   log_dir: stdout
-  log_level: warning
-  modules:
-    mod_log_stun: {}
+  log_level: critical
+  modules: {}
 EOF
 if [ -f /etc/eturnal.yml ]; then
   echo "[setup] /etc/eturnal.yml applied!"
