@@ -17,8 +17,8 @@ const SOURCE_CONFIG = {
     assets: "https://edurocks.org",
   },
   velara: {
-    games: "/!!/" + encodeMochiUrl("https://velara.cc/data/games.json") + "/",
-    assets: "https://velara.cc",
+    games: "/!!/" + encodeMochiUrl("https://edunet.climaref.cl/gxxes.json") + "/",
+    assets: "https://edunet.climaref.cl",
   },
 };
 
