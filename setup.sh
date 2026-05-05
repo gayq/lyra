@@ -114,9 +114,18 @@ if command -v modprobe >/dev/null 2>&1; then
     sudo modprobe nf_conntrack || true
 fi
 retry 3 sudo apt-get update -y
-if ! retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https coturn docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl; then
-  sudo apt-get --fix-broken install -y -o Dpkg::Options::="--force-overwrite"
+retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io libjemalloc2 ca-certificates curl gnupg lsb-release openssl
+
+if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl ]; then
+  curl -fsS -o /tmp/eturnal-install.sh https://eturnal.net/install
+  sudo sh /tmp/eturnal-install.sh
+  rm -f /tmp/eturnal-install.sh
 fi
+if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl ]; then
+  echo "eturnal install failed!"
+  exit 1
+fi
+export PATH="/opt/eturnal/bin:$PATH"
 
 if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash
@@ -161,11 +170,8 @@ CARGO_BIN="$(command -v cargo)"
 
 if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok installed"; then
   sudo mkdir -p /usr/share/keyrings /etc/apt/sources.list.d
-  sudo rm -f /tmp/caddy.key /tmp/caddy-stable.list
-  retry 3 sudo curl -fL "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" -o /tmp/caddy.key
-  sudo gpg --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg /tmp/caddy.key
-  retry 3 sudo curl -fL "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" -o /tmp/caddy-stable.list
-  sudo mv /tmp/caddy-stable.list /etc/apt/sources.list.d/caddy-stable.list
+  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
   retry 3 sudo apt-get update -y
   retry 3 sudo apt-get install -y caddy
 fi
@@ -246,47 +252,55 @@ if [ -z "$PUBLIC_IP" ]; then
   exit 1
 fi
 
-sudo tee /etc/turnserver.conf <<EOF
-listening-port=3478
-fingerprint
-lt-cred-mech
-user=enniuu:enni
-realm=waves.lat
-external-ip=$PUBLIC_IP
-min-port=49152
-max-port=65535
-no-stale-nonce
-total-quota=0
-log-file=/var/log/turnserver.log
+sudo tee /etc/eturnal.yml <<EOF
+eturnal:
+  credentials:
+    enniuu: enni
+  realm: waves.lat
+  relay_ipv4_addr: "$PUBLIC_IP"
+  listen:
+    - ip: "0.0.0.0"
+      port: 3478
+      transport: udp
+    - ip: "0.0.0.0"
+      port: 3478
+      transport: tcp
+  relay_min_port: 49152
+  relay_max_port: 65535
+  log_dir: stdout
+  log_level: warning
+  modules:
+    mod_log_stun: {}
 EOF
-if [ -f /etc/turnserver.conf ]; then
-  echo "[setup] /etc/turnserver.conf applied."
+if [ -f /etc/eturnal.yml ]; then
+  echo "[setup] /etc/eturnal.yml applied."
 else
-  echo "[setup] error: /etc/turnserver.conf not found!"
+  echo "[setup] error: /etc/eturnal.yml not found!"
   exit 1
 fi
 
-if [ ! -f /etc/default/coturn ]; then
-    echo "TURNSERVER_ENABLED=1" | sudo tee /etc/default/coturn
-else
-    sudo sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/g' /etc/default/coturn
-fi
+sudo chown eturnal:eturnal /etc/eturnal.yml
+sudo chmod 640 /etc/eturnal.yml
 
-sudo systemctl unmask coturn
-sudo systemctl enable coturn
-sudo systemctl restart coturn
+sudo systemctl stop coturn 2>/dev/null || true
+sudo systemctl disable coturn 2>/dev/null || true
+sudo fuser -k 3478/tcp 2>/dev/null || true
+sudo fuser -k 3478/udp 2>/dev/null || true
 
-if ! systemctl is-active --quiet coturn; then
-    sudo turnserver -c /etc/turnserver.conf -o -v -z &
+sudo systemctl daemon-reload
+sudo systemctl enable eturnal
+sudo systemctl restart eturnal
+
+if ! systemctl is-active --quiet eturnal; then
+  echo "[setup] error: eturnal failed to start!"
+  sudo journalctl -u eturnal --no-pager -n 20 >&2
+  exit 1
 fi
 
 sudo systemctl enable docker >/dev/null 2>&1 || true
 sudo systemctl start docker >/dev/null 2>&1 || true
-
-sleep 3
-
-if ! retry 5 sudo docker info >/dev/null 2>&1; then
-  echo "docker daemon failed to start!"
+if ! sudo docker info >/dev/null 2>&1; then
+  echo "docker daemon is not ready!"
   exit 1
 fi
 require_cmd docker
@@ -322,30 +336,6 @@ fi
 
 cat <<'EOF' | sudo tee /etc/anubis-policy.yaml
 bots:
-  - name: pass-bunny-via
-    headers_regex:
-      Via: "(?i).*bunnycdn.*"
-    action: ALLOW
-  - name: pass-bunny-server
-    headers_regex:
-      Cdn-Serverid: ".*"
-    action: ALLOW
-  - name: pass-bunny-country
-    headers_regex:
-      Cdn-Requestcountrycode: ".*"
-    action: ALLOW
-  - name: pass-bunny-loop
-    headers_regex:
-      Cdn-Loop: "(?i).*bunnycdn.*"
-    action: ALLOW
-  - name: pass-b-cdn-xfh
-    headers_regex:
-      X-Forwarded-Host: "(?i).*\\.b-cdn\\.net.*"
-    action: ALLOW
-  - name: pass-b-cdn-referer
-    headers_regex:
-      Referer: "(?i).*\\.b-cdn\\.net.*"
-    action: ALLOW
   - import: (data)/meta/default-config.yaml
 EOF
 if [ -f /etc/anubis-policy.yaml ]; then
