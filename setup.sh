@@ -273,7 +273,7 @@ eturnal:
     mod_log_stun: {}
 EOF
 if [ -f /etc/eturnal.yml ]; then
-  echo "[setup] /etc/eturnal.yml applied."
+  echo "[setup] /etc/eturnal.yml applied!"
 else
   echo "[setup] error: /etc/eturnal.yml not found!"
   exit 1
