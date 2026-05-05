@@ -258,7 +258,7 @@ const TURN_SCRIPT = `
         if (!config.iceServers || config.iceServers.length === 0) {
             config.iceServers = [{
                 urls: "turn:${self.location.hostname}:3478",
-                username: "enniu",
+                username: "enniuu",
                 credential: "enni"
             }];
         }
@@ -275,7 +275,7 @@ const TURN_SCRIPT_RELAY = `
     if (!OriginalRTCPeerConnection) return;
     const customTurn = {
         urls: "turn:${self.location.hostname}:3478",
-        username: "enniu",
+        username: "enniuu",
         credential: "enni"
     };
     function WrappedRtc(config, constraints) {
