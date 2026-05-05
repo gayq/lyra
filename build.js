@@ -26,10 +26,23 @@ const CONFIG = {
   unicodeEscapeSequence: false,
 };
 
+const SW_MODULES = [
+  "constants.js",
+  "state.js",
+  "init.js",
+  "utils.js",
+  "decode.js",
+  "adblock.js",
+  "inject.js",
+  "network.js",
+  "messaging.js",
+  "handler.js",
+];
+
 export default function wavesPlugin() {
   const buildId = crypto.randomBytes(4).toString("hex");
   let distDir;
-  let swSrcPath;
+  let swSrcDir;
 
   return {
     name: "waves-build",
@@ -37,7 +50,7 @@ export default function wavesPlugin() {
 
     configResolved(config) {
       distDir = path.resolve(config.root, config.build.outDir);
-      swSrcPath = path.join(config.root, "b", "sw.js");
+      swSrcDir = path.join(config.root, "b", "sw");
     },
 
     async writeBundle(_options, bundle) {
@@ -52,10 +65,18 @@ export default function wavesPlugin() {
         }
       }
 
-      let swCode = await fs.readFile(swSrcPath, "utf8");
+      const modSources = await Promise.all(
+        SW_MODULES.map((mod) =>
+          fs.readFile(path.join(swSrcDir, mod), "utf8"),
+        ),
+      );
+      let swCode = modSources.join("\n");
       swCode = swCode
         .replace(/__BUILD_ID__/g, buildId)
-        .replace("'__PRECACHE_ASSETS__'", JSON.stringify(precacheAssets));
+        .replace(
+          /(['"])__PRECACHE_ASSETS__\1/g,
+          JSON.stringify(precacheAssets),
+        );
 
       const swObf = obfuscate(swCode, CONFIG).getObfuscatedCode();
       const swHash = crypto

@@ -226,6 +226,7 @@ export function cleanupIframe(iframe: HTMLIFrameElement): void {
     iframe.removeEventListener("load", handlers.onLoad);
     iframeExt.__wavesInternalHandlers = null;
   }
+  iframeExt[SUSPEND_KEY] = undefined;
   detachContentWindowListeners(iframe);
   iframe.removeAttribute("srcdoc");
   iframe.removeAttribute("data-navigation-started");
@@ -251,14 +252,89 @@ export function cleanupIframe(iframe: HTMLIFrameElement): void {
   }
 }
 
+interface WavesSuspendState {
+  hiddenPatched?: boolean;
+}
+
+const SUSPEND_KEY = "__wavesSuspend";
+
 export function reduceIframeMemory(iframe: HTMLIFrameElement): void {
   if (!iframe) return;
+  const iframeExt = iframe as HTMLIFrameElement &
+    Record<string, WavesSuspendState | undefined>;
+  if (iframeExt[SUSPEND_KEY]) return;
+
+  const state: WavesSuspendState = {};
+
   try {
-    const win = iframe.contentWindow;
-    if (win && win.performance?.clearResourceTimings) {
-      win.performance.clearResourceTimings();
+    const win = iframe.contentWindow as
+      | (Window & typeof globalThis)
+      | null;
+    if (!win) return;
+
+    try {
+      win.performance?.clearResourceTimings?.();
+    } catch (e) {}
+
+    try {
+      iframe.blur();
+      win.blur?.();
+    } catch (e) {}
+
+    let doc: Document | null = null;
+    try {
+      doc = win.document;
+    } catch (e) {
+      doc = null;
     }
+    if (!doc) {
+      iframeExt[SUSPEND_KEY] = state;
+      return;
+    }
+
+    try {
+      Object.defineProperty(doc, "hidden", {
+        configurable: true,
+        get: () => true,
+      });
+      Object.defineProperty(doc, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      state.hiddenPatched = true;
+      try {
+        doc.dispatchEvent(new Event("visibilitychange"));
+      } catch (e) {}
+    } catch (e) {}
   } catch (e) {}
+
+  iframeExt[SUSPEND_KEY] = state;
+}
+
+export function restoreIframeMemory(iframe: HTMLIFrameElement): void {
+  if (!iframe) return;
+  const iframeExt = iframe as HTMLIFrameElement &
+    Record<string, WavesSuspendState | undefined>;
+  const state = iframeExt[SUSPEND_KEY];
+  if (!state) return;
+  iframeExt[SUSPEND_KEY] = undefined;
+
+  let doc: Document | null = null;
+  try {
+    doc = iframe.contentWindow?.document ?? null;
+  } catch (e) {
+    doc = null;
+  }
+
+  if (doc && state.hiddenPatched) {
+    try {
+      delete (doc as unknown as Record<string, unknown>).hidden;
+      delete (doc as unknown as Record<string, unknown>).visibilityState;
+    } catch (e) {}
+    try {
+      doc.dispatchEvent(new Event("visibilitychange"));
+    } catch (e) {}
+  }
 }
 
 function updateTabDetails(iframe: HTMLIFrameElement): void {

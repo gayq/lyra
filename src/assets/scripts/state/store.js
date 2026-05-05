@@ -5,6 +5,7 @@ import {
   updateHistoryUI,
   cleanupIframe,
   reduceIframeMemory,
+  restoreIframeMemory,
 } from "../core/iframe.js";
 import { handleSearch as performSearch } from "../search/search.ts";
 import { getProxyUrl } from "../core/utils.js";
@@ -326,6 +327,9 @@ export const store = {
       }
 
       if (activeTab.iframe.contentWindow) {
+        try {
+          restoreIframeMemory(activeTab.iframe);
+        } catch (e) {}
         requestAnimationFrame(() => {
           try {
             activeTab.iframe.contentWindow.scrollTo(
@@ -446,6 +450,17 @@ export const store = {
       tab.wrapper.classList.toggle("active-split-left", isSplitLeft);
       tab.wrapper.classList.toggle("active-split-right", isSplitRight);
       tab.wrapper.classList.toggle("active", isSingleActive);
+
+      const isVisible = isSplitLeft || isSplitRight || isSingleActive;
+      if (isVisible && tab.iframe) {
+        try {
+          restoreIframeMemory(tab.iframe);
+        } catch (e) {}
+      } else if (!isVisible && tab.iframe && tab.iframe.contentWindow) {
+        try {
+          reduceIframeMemory(tab.iframe);
+        } catch (e) {}
+      }
 
       const isActiveFocus =
         (isSplitViewActive || isPicking) && tab.id === this.activeTabId;
