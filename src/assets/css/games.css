@@ -238,7 +238,6 @@ body.games-view .games-page {
   color: var(--color-result);
   text-align: center;
   margin: 18px 0 6px;
-  display: none;
 }
 
 .game-cover.no-cover {

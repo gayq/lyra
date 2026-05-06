@@ -133,7 +133,7 @@ body.browser-view #bookmarks-container,
 body.browser-view #top-left-stuff,
 body.browser-view #top-right-stuff,
 body.browser-view #stuff,
-body.browser-view #cute,
+body.browser-view #share,
 body.browser-view #oneko,
 body.browser-view .footer {
     display: none !important;
@@ -687,7 +687,7 @@ body.browser-view .main-nav {
     cursor: text;
 }
 
-#cute {
+#share {
     left: auto;
     margin-left: auto;
     max-width: 280px;
@@ -697,7 +697,7 @@ body.browser-view .main-nav {
     z-index: 1;
 }
 
-#cute a {
+#share a {
     cursor: text;
 }
 
@@ -891,7 +891,7 @@ body.browser-view .main-nav {
 
 .popup.new-tab-popup {
     background: transparent;
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 0;
     top: 45%;
     max-width: 400px;

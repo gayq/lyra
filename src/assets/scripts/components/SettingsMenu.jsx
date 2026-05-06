@@ -314,7 +314,7 @@ export default function SettingsMenu() {
     "canva",
   ];
   const allLinkCloaking = ["none", "about:blank", "blob:"];
-  const allGameSources = ["selenite", "gn-math", "edurocks", "velara"];
+  const allGameSources = ["selenite", "gn-math", "edurocks", "velara", "luminsdk", "truffled"];
   const allThemes = [
     "default",
     "catppuccin",
@@ -505,6 +505,8 @@ export default function SettingsMenu() {
               <p>gn-math - game source</p>
               <p>edurocks - game source</p>
               <p>velara - game source</p>
+              <p>luminsdk - game source</p>
+              <p>truffled - game source</p>
               <p>bog - ports for hollow knight, re:run, and touhou mother</p>
               <p>titanium network - ultraviolet</p>
               <p>mercury workshop - scramjet, epoxy, and libcurl</p>

@@ -13,12 +13,16 @@ const SOURCE_CONFIG = {
     covers: "https://cdn.jsdelivr.net/gh/freebuisness/covers@main",
   },
   edurocks: {
-    games: "/!!/" + encodeMochiUrl("https://www.edurocks.org/gxxes.json") + "/",
-    assets: "https://edurocks.org",
-  },
-  velara: {
     games: "/!!/" + encodeMochiUrl("https://edunet.climaref.cl/gxxes.json") + "/",
     assets: "https://edunet.climaref.cl",
+  },
+  velara: {
+    games: "/!!/" + encodeMochiUrl("https://velara.cc/data/games.json") + "/",
+    assets: "https://velara.cc",
+  },
+  truffled: {
+    games: "/!!/" + encodeMochiUrl("https://truffled.lol/js/json/g.json") + "/",
+    base: "https://truffled.lol",
   },
 };
 
@@ -26,7 +30,7 @@ function loadNewTabGameData(allGames) {
   if (allGames.length > 0) return Promise.resolve(allGames);
   const source = (() => {
     const stored = localStorage.getItem("gameSource") || "selenite";
-    return ["selenite", "gn-math", "edurocks", "velara"].includes(stored)
+    return ["selenite", "gn-math", "edurocks", "velara", "truffled"].includes(stored)
       ? stored
       : "selenite";
   })();
@@ -108,6 +112,31 @@ function loadNewTabGameData(allGames) {
           })
           .filter((g) => !g.name.includes("[!]")),
       );
+  } else if (source === "truffled") {
+    fetchPromise = fetch(SOURCE_CONFIG.truffled.games)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
+      .then((data) => {
+        const games = Array.isArray(data?.games) ? data.games : [];
+        const base = SOURCE_CONFIG.truffled.base;
+        return games
+          .filter((g) => g && g.name && g.url)
+          .map((game) => {
+            const gameUrl = game.url.startsWith("http")
+              ? game.url
+              : base + (game.url.startsWith("/") ? "" : "/") + game.url;
+            const thumbUrl = game.thumbnail
+              ? (game.thumbnail.startsWith("http")
+                ? game.thumbnail
+                : base + (game.thumbnail.startsWith("/") ? "" : "/") + game.thumbnail)
+              : null;
+            return {
+              name: game.name,
+              gameUrl,
+              isExternal: false,
+              coverUrl: thumbUrl ? `/!cover!/${encodeMochiUrl(thumbUrl)}/` : null,
+            };
+          });
+      });
   } else {
     fetchPromise = fetch(SOURCE_CONFIG.gnMath.zones)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))

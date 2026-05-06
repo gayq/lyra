@@ -1,12 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "preact/hooks";
+import { useState, useEffect, useRef, useCallback, useMemo } from "preact/hooks";
 import { memo } from "preact/compat";
-import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/games.ts";
+import { fetchGameData, resetGameCache, getGameDisplayLabel, ensureLuminInit } from "../features/games.ts";
 import { showHomeView } from "../state/store.js";
 import { attachSearchLight } from "../core/load.js";
 
 const FADE_DURATION = 30;
 const SKELETON_KEYS = Array.from({ length: 12 }, (_, i) => `skeleton-${i}`);
-const RENDER_BATCH = 40;
+const RENDER_BATCH = 120;
 
 const GameCard = memo(function GameCard({ game, onPlay }) {
   const [loaded, setLoaded] = useState(false);
@@ -37,7 +37,7 @@ const GameCard = memo(function GameCard({ game, onPlay }) {
   );
 });
 
-function SkeletonCard() {
+const SkeletonCard = memo(function SkeletonCard() {
   return (
     <article class="game-card skeleton-card">
       <div class="game-cover skeleton" />
@@ -47,7 +47,7 @@ function SkeletonCard() {
       </div>
     </article>
   );
-}
+});
 
 export default function GamesPage() {
   const [allGames, setAllGames] = useState([]);
@@ -232,9 +232,25 @@ export default function GamesPage() {
   }, [show, hide, toggle]);
 
   const handlePlay = useCallback(
-    (game) => {
+    async (game) => {
       if (game.isExternal) {
         window.open(game.gameUrl, "_blank");
+      } else if (game.gameUrl.startsWith("luminsdk://")) {
+        const gameId = game.gameUrl.replace("luminsdk://", "");
+        try {
+          await ensureLuminInit();
+          if (typeof Lumin !== "undefined" && Lumin.getGameUrl) {
+            const { url } = await Lumin.getGameUrl(gameId);
+            if (url && window.WavesApp?.handleSearch) {
+              hide();
+              window.WavesApp.handleSearch(url, game.name, game.coverUrl);
+            }
+          } else {
+            await Lumin.loadGame(gameId);
+          }
+        } catch (err) {
+          console.error("luminsdk game load failed:", err);
+        }
       } else if (window.WavesApp?.handleSearch) {
         hide();
         window.WavesApp.handleSearch(game.gameUrl, game.name, game.coverUrl);
@@ -246,6 +262,7 @@ export default function GamesPage() {
   const filteredGames = useMemo(() => {
     if (!query) return allGames;
     const q = query.toLowerCase().trim();
+    if (!q) return allGames;
     return allGames.filter(
       (g) => (g._nameLc || "").includes(q) || (g._authorLc || "").includes(q),
     );
@@ -256,12 +273,13 @@ export default function GamesPage() {
   useEffect(() => {
     setRenderCount(RENDER_BATCH);
   }, [filteredGames]);
+
   useEffect(() => {
     if (!visible || !loaded || renderCount >= filteredGames.length) return;
-    const id = requestAnimationFrame(() => {
+    const id = setTimeout(() => {
       setRenderCount((c) => Math.min(c + RENDER_BATCH, filteredGames.length));
-    });
-    return () => cancelAnimationFrame(id);
+    }, 0);
+    return () => clearTimeout(id);
   }, [visible, loaded, renderCount, filteredGames.length]);
 
   const visibleGames = useMemo(
@@ -305,9 +323,9 @@ export default function GamesPage() {
         >
           {!loaded
             ? SKELETON_KEYS.map((key) => <SkeletonCard key={key} />)
-            : visibleGames.map((game, idx) => (
+            : visibleGames.map((game) => (
                 <GameCard
-                  key={`${game.id || game.gameUrl}-${idx}`}
+                  key={game.id}
                   game={game}
                   onPlay={handlePlay}
                 />

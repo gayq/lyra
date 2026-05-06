@@ -18,6 +18,8 @@ interface SourceConfig {
   "gn-math": { zones: string; covers: string; html: string };
   velara: { games: string; assets: string };
   edurocks: { games: string; assets: string };
+  luminsdk: Record<string, never>;
+  truffled: { games: string; base: string };
 }
 
 type SourceKey = keyof SourceConfig;
@@ -42,6 +44,31 @@ interface EdurocksGame {
   url: string;
   img: string;
 }
+
+interface LuminGame {
+  id: string;
+  name: string;
+  image_token: string;
+  category?: string;
+}
+
+interface TruffledGame {
+  name: string;
+  url: string;
+  thumbnail: string;
+  frameType: string;
+}
+
+interface LuminSDK {
+  init(opts: { headless: boolean }): Promise<void>;
+  getGames(opts: { page: number; limit: number }): Promise<{ games: LuminGame[]; total: number; pages: number }>;
+  getImageUrl(token: string): Promise<string>;
+  getGameUrl(gameId: string): Promise<{ url: string; meta?: unknown }>;
+  loadGame(gameId: string): Promise<void>;
+  destroy(): void;
+}
+
+declare const Lumin: LuminSDK;
 
 interface GnMathZone {
   id: string | number;
@@ -70,6 +97,11 @@ const SOURCE_CONFIG: SourceConfig = {
     games: "/!!/" + encodeMochiUrl("https://edunet.climaref.cl/gxxes.json") + "/",
     assets: "https://edunet.climaref.cl",
   },
+  luminsdk: {},
+  truffled: {
+    games: "/!!/" + encodeMochiUrl("https://truffled.lol/js/json/g.json") + "/",
+    base: "https://truffled.lol",
+  },
 };
 
 let allGames: GameEntry[] = [];
@@ -77,7 +109,7 @@ let gameDataPromise: Promise<GameEntry[]> | null = null;
 
 function getSourceKey(): SourceKey {
   const source = localStorage.getItem("gameSource") || "selenite";
-  if (!["selenite", "gn-math", "edurocks", "velara"].includes(source)) {
+  if (!["selenite", "gn-math", "edurocks", "velara", "luminsdk", "truffled"].includes(source)) {
     return "selenite";
   }
   return source as SourceKey;
@@ -230,6 +262,87 @@ function mapGnMathGames(data: unknown): GameEntry[] {
     );
 }
 
+let _luminInitialized = false;
+let _luminInitPromise: Promise<void> | null = null;
+
+export async function ensureLuminInit(): Promise<void> {
+  if (_luminInitialized) return;
+  if (_luminInitPromise) return _luminInitPromise;
+  _luminInitPromise = (async () => {
+    if (typeof Lumin === "undefined") {
+      throw new Error("Lumin SDK not loaded");
+    }
+    await Lumin.init({ headless: true });
+    _luminInitialized = true;
+  })();
+  return _luminInitPromise;
+}
+
+async function fetchLuminGames(): Promise<GameEntry[]> {
+  await ensureLuminInit();
+
+  const { games: rawGames } = await Lumin.getGames({ page: 1, limit: 10000 });
+
+  const seen = new Map<string, LuminGame>();
+  for (const game of rawGames) {
+    if (!seen.has(game.id)) {
+      seen.set(game.id, game);
+    }
+  }
+  const uniqueGames = Array.from(seen.values());
+
+  const imageMap: Record<string, string> = {};
+  await Promise.all(
+    uniqueGames.map(async (g) => {
+      try {
+        imageMap[g.id] = await Lumin.getImageUrl(g.image_token);
+      } catch {
+        imageMap[g.id] = "";
+      }
+    }),
+  );
+
+  return uniqueGames
+    .map((game) => ({
+      id: game.id,
+      name: game.name,
+      coverUrl: imageMap[game.id] || "",
+      gameUrl: `luminsdk://${game.id}`,
+      isExternal: false,
+      featured: false,
+      sourceKey: "luminsdk",
+    } satisfies GameEntry))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function mapTruffledGames(data: unknown): GameEntry[] {
+  const wrapper = data as { games?: TruffledGame[] };
+  const games = Array.isArray(wrapper?.games) ? wrapper.games : [];
+  const base = SOURCE_CONFIG.truffled.base;
+  return games
+    .filter((g) => g && g.name && g.url)
+    .map((game) => {
+      const gameUrl = game.url.startsWith("http")
+        ? game.url
+        : base + (game.url.startsWith("/") ? "" : "/") + game.url;
+      const thumbUrl = game.thumbnail
+        ? (game.thumbnail.startsWith("http")
+          ? game.thumbnail
+          : base + (game.thumbnail.startsWith("/") ? "" : "/") + game.thumbnail)
+        : "";
+      return {
+        id: game.name,
+        name: game.name,
+        coverUrl: thumbUrl ? `/!cover!/${encodeMochiUrl(thumbUrl)}/` : "",
+        gameUrl,
+        isExternal: false,
+        featured: false,
+        sourceKey: "truffled",
+      } satisfies GameEntry;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function fetchGameData(): Promise<GameEntry[]> {
   if (gameDataPromise) return gameDataPromise;
 
@@ -265,6 +378,13 @@ export function fetchGameData(): Promise<GameEntry[]> {
       fetch(SOURCE_CONFIG["gn-math"].zones)
         .then(ok)
         .then((d) => saveToCache(source, applySearchCacheFields(mapGnMathGames(d)))),
+    luminsdk: () =>
+      fetchLuminGames()
+        .then((games) => saveToCache(source, applySearchCacheFields(games))),
+    truffled: () =>
+      fetch(SOURCE_CONFIG.truffled.games)
+        .then(ok)
+        .then((d) => saveToCache(source, applySearchCacheFields(mapTruffledGames(d)))),
   };
 
   gameDataPromise = (mappers[source] ?? mappers.selenite)().then((games) => {

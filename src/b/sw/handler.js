@@ -326,7 +326,46 @@ self.addEventListener("fetch", (event) => {
 
   const realUrl = unwrapUrl(url);
 
-  if (url.pathname.startsWith(MOCHI_PREFIX)) return;
+  if (url.pathname.startsWith(MOCHI_PREFIX)) {
+    let afterPrefix = url.pathname.slice(MOCHI_PREFIX.length);
+    if (afterPrefix.endsWith("/")) afterPrefix = afterPrefix.slice(0, -1);
+    if (afterPrefix.startsWith("http")) return;
+    let decodedUrl = null;
+    try {
+      let p = afterPrefix.replace(/-/g, "+").replace(/_/g, "/");
+      while (p.length % 4) p += "=";
+      const raw = atob(p);
+      const dec = _adXorDec(raw);
+      const result = decodeURIComponent(dec);
+      if (result.startsWith("http")) decodedUrl = result;
+    } catch (e) {}
+    if (decodedUrl) {
+      return event.respondWith(
+        (async () => {
+          try {
+            const cached = await caches.match(request);
+            if (cached) return cached;
+            const r = await tryWithTimeout(
+              mochiFetch(request, decodedUrl),
+              MOCHI_TIMEOUT_MS,
+            );
+            if (r && r.ok) {
+              const clone = r.clone();
+              caches.open(RUNTIME_CACHE).then((c) => {
+                c.put(request, clone);
+                capCache(RUNTIME_CACHE, MAX_RUNTIME);
+              });
+              return r;
+            }
+            return r || new Response("not found", { status: 404 });
+          } catch (e) {
+            return new Response("error", { status: 502 });
+          }
+        })(),
+      );
+    }
+    return;
+  }
 
   if (realUrl && realUrl.startsWith("http") && isLargeFile(realUrl, request)) {
     return event.respondWith(handleLargeFile(request, realUrl));

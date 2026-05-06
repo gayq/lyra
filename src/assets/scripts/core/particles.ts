@@ -18,7 +18,7 @@ let lastTime = 0;
 function ensureCanvas(): void {
   if (canvas) return;
   canvas = document.createElement("canvas");
-  canvas.id = "click-particles-canvas";
+  canvas.id = "particles-canva";
   Object.assign(canvas.style, {
     position: "fixed",
     inset: "0",

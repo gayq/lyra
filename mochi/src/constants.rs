@@ -149,6 +149,10 @@ pub const SCRIPT_PART_2: &str = r##"";
         if (url.startsWith("//")) return window.__MOCHI_BASE__ + __mochiEncode("https:" + url);
         
         try {
+            const match = document.cookie.match(/(?:^|; )mochi_base=([^;]*)/);
+            if (match && url.startsWith('/')) {
+                return window.__MOCHI_BASE__ + match[1] + '/!a!' + url;
+            }
             const resolved = new _U(url, document.baseURI).href;
             if (resolved.includes(window.__MOCHI_PREFIX__)) return resolved;
             return window.__MOCHI_BASE__ + __mochiEncode(resolved);
