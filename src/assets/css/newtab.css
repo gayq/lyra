@@ -1,6 +1,6 @@
 .new-tab-unified-wrapper {
     background-color: var(--bg-surface-5);
-    border-radius: 10px;
+    border-radius: 14px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -64,7 +64,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    border-radius: 8px;
+    border-radius: 12px;
 }
 
 .new-tab-result-item i {
