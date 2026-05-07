@@ -17,9 +17,9 @@
     "postinstall": "node others/patch.js"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.7",
+    "@mercuryworkshop/bare-mux": "^2.1.9",
     "@mercuryworkshop/epoxy-transport": "^2.1.28",
-    "@mercuryworkshop/libcurl-transport": "^1.5.0",
+    "@mercuryworkshop/libcurl-transport": "^1.5.1",
     "@preact/preset-vite": "^2.10.5",
     "@preact/signals": "^2.9.0",
     "compression": "^1.7.4",
