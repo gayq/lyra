@@ -19,6 +19,8 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 || url.starts_with("data:")
                 || url.starts_with("blob:")
                 || url.starts_with("javascript:")
+                || url.starts_with("mailto:")
+                || url.starts_with("tel:")
                 || url.starts_with("#")
                 || url.starts_with(MOCHI_PREFIX)
             {
@@ -28,7 +30,8 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(url)));
             }
             if url.starts_with("//") {
-                let full = format!("https:{}", url);
+                let scheme = current_base.borrow().scheme().to_string();
+                let full = format!("{}:{}", scheme, url);
                 return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&full)));
             }
             let base = current_base.borrow().clone();
@@ -49,14 +52,13 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
     let rw5 = rewrite_url.clone();
     let rw6 = rewrite_url.clone();
     let rw7 = rewrite_url.clone();
-
     let base_url_for_head = base_url_owned.clone();
     let base_url_for_html = base_url_owned.clone();
-
     let script_injected = Rc::new(RefCell::new(false));
     let script_injected_for_head = script_injected.clone();
     let script_injected_for_html = script_injected.clone();
-
+    let base_for_href = base_for_updater.clone();
+    let base_for_style = base_for_updater.clone();
     let mut output = Vec::with_capacity(body.len() + 2048);
     let mut rewriter = HtmlRewriter::new(
         Settings {
@@ -94,13 +96,17 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 element!("base[href]", move |el| {
                     if let Some(href) = el.get_attribute("href") {
                         if let Ok(parsed_base) = target_url_for_base.join(&href) {
-                            *base_for_updater.borrow_mut() = parsed_base;
+                            *base_for_href.borrow_mut() = parsed_base.clone();
+                            let escaped_target = parsed_base.as_str().replace('\'', "\\'");
+                            let injection = format!("<script>window.__MOCHI_TARGET__ = '{}';</script>", escaped_target);
+                            let _ = el.after(&injection, ContentType::Html);
                         }
                         let proxy_href =
                             if href.starts_with("http://") || href.starts_with("https://") {
                                 format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&href))
                             } else if href.starts_with("//") {
-                                let full = format!("https:{}", href);
+                                let scheme = target_url_for_base.scheme();
+                                let full = format!("{}:{}", scheme, href);
                                 format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&full))
                             } else if let Ok(parsed_base) = target_url_for_base.join(&href) {
                                 format!(
@@ -149,7 +155,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                     }
                     Ok(())
                 }),
-                element!("img[src]", move |el| {
+                element!("img[src], input[src], track[src]", move |el| {
                     if let Some(val) = el.get_attribute("src") {
                         if let Some(rewritten) = rw3(&val) {
                             let _ = el.set_attribute("src", &rewritten);
@@ -181,15 +187,27 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                     }
                     Ok(())
                 }),
-                element!("iframe[src], embed[src], form[action]", move |el| {
+                element!("iframe[src], embed[src], object[data], form[action]", move |el| {
                     let attr = if el.tag_name() == "form" {
                         "action"
+                    } else if el.tag_name() == "object" {
+                        "data"
                     } else {
                         "src"
                     };
                     if let Some(val) = el.get_attribute(attr) {
                         if let Some(rewritten) = rw7(&val) {
                             let _ = el.set_attribute(attr, &rewritten);
+                        }
+                    }
+                    Ok(())
+                }),
+                element!("*[style]", move |el| {
+                    if let Some(style_val) = el.get_attribute("style") {
+                        let current_base = base_for_style.borrow().clone();
+                        let rewritten = rewrite_css_urls(&style_val, &current_base);
+                        if rewritten != style_val {
+                            let _ = el.set_attribute("style", &rewritten);
                         }
                     }
                     Ok(())
@@ -253,7 +271,8 @@ pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
         let resolved = if url_val.starts_with("http://") || url_val.starts_with("https://") {
             Some(url_val.to_string())
         } else if url_val.starts_with("//") {
-            Some(format!("https:{}", url_val))
+            let scheme = base_url.scheme();
+            Some(format!("{}:{}", scheme, url_val))
         } else if !url_val.is_empty() && !url_val.starts_with("data:") && !url_val.starts_with("#")
         {
             base_url.join(url_val).ok().map(|u| u.to_string())

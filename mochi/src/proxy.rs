@@ -133,17 +133,16 @@ pub async fn proxy_handler(
         if let Some(decoded_base) = decode_mochi_url(token) {
             valid_token = Some(token.to_string());
 
-            let mut base_for_join = decoded_base.clone();
-            if (remainder.contains("core.ruffle") || remainder.ends_with(".wasm"))
-                && !base_for_join.ends_with('/')
-                && !base_for_join.ends_with(".js")
-            {
-                base_for_join.push('/');
-            }
-
             if remainder.is_empty() {
                 decoded_base
             } else {
+                let mut base_for_join = decoded_base.clone();
+                if !base_for_join.ends_with('/')
+                    && !base_for_join.split('?').next().unwrap_or("").split('/').last().unwrap_or("").contains('.')
+                {
+                    base_for_join.push('/');
+                }
+
                 match url::Url::parse(&base_for_join) {
                     Ok(base) => base
                         .join(remainder)
@@ -438,6 +437,9 @@ pub async fn proxy_handler(
 
     fix_game_content_type(&target_url_string, &mut safe_headers);
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    safe_headers.insert("Cross-Origin-Opener-Policy", HeaderValue::from_static("same-origin"));
+    safe_headers.insert("Cross-Origin-Embedder-Policy", HeaderValue::from_static("require-corp"));
+    safe_headers.insert("Cross-Origin-Resource-Policy", HeaderValue::from_static("cross-origin"));
     safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
     let content_type = safe_headers
@@ -805,6 +807,9 @@ async fn fetch_and_cache(
 
     fix_game_content_type(_target_url_string, &mut safe_headers);
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
+    safe_headers.insert("Cross-Origin-Opener-Policy", HeaderValue::from_static("same-origin"));
+    safe_headers.insert("Cross-Origin-Embedder-Policy", HeaderValue::from_static("require-corp"));
+    safe_headers.insert("Cross-Origin-Resource-Policy", HeaderValue::from_static("cross-origin"));
     safe_headers.insert("X-Cache", HeaderValue::from_static("MISS"));
 
     let should_cache =

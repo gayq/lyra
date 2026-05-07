@@ -161,6 +161,13 @@ const server = createServer(app);
 const pageCache = new LRUCache({ max: 1000, ttl: 1000 * 60 * 5 });
 
 app.use((req, res, next) => {
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  next();
+});
+
+app.use((req, res, next) => {
   if (NODE_ENV !== "development") return next();
 
   let targetPort = 0;
@@ -290,7 +297,6 @@ app.use("/api/", cookieParser());
 app.use(
   helmet({
     contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
     xPoweredBy: false,
     frameguard: false,
     hsts: false,

@@ -151,5 +151,8 @@ pub fn is_blacklisted_res_header(name: &str) -> bool {
             | "report-to"
             | "nel"
             | "referrer-policy"
+            | "cross-origin-opener-policy"
+            | "cross-origin-embedder-policy"
+            | "cross-origin-resource-policy"
     )
 }

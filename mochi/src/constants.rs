@@ -3,59 +3,13 @@ pub const COVER_PREFIX: &str = "/!cover!/";
 
 pub const SCRIPT_PART_1: &str = r##"<script>
 (function() {
+    var _U = window.URL;
     try {
-        var _U = window.URL;
         window.URL = function(u, b) {
             if ((!u || u === "") && !b) return new _U(window.location.href);
             return new _U(u, b);
         };
-        try {
-        const rewriteToMochi = (url) => {
-            if (typeof url !== 'string') return url;
-            if (url.startsWith('blob:') || url.startsWith('data:')) return url;
-            if (url.startsWith('/') && !url.startsWith('/!!/')) {
-                const match = document.cookie.match(/(?:^|; )mochi_base=([^;]*)/);
-                if (match) {
-                    return '/!!/' + match[1] + '/!a!' + url; 
-                }
-            }
-            return url;
-        };
 
-        const origFetch = window.fetch;
-        window.fetch = async function(...args) {
-            args[0] = rewriteToMochi(args[0]);
-            return origFetch.apply(this, args);
-        };
-
-        const origOpen = XMLHttpRequest.prototype.open;
-        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-            return origOpen.call(this, method, rewriteToMochi(url), ...rest);
-        };
-
-        const origSetAttribute = Element.prototype.setAttribute;
-        Element.prototype.setAttribute = function(name, value) {
-            if (name.toLowerCase() === 'src' || name.toLowerCase() === 'href') {
-                value = rewriteToMochi(value);
-            }
-            return origSetAttribute.call(this, name, value);
-        };
-
-        ['src', 'href'].forEach(prop => {
-            [HTMLScriptElement, HTMLLinkElement, HTMLImageElement, HTMLIFrameElement].forEach(elementClass => {
-                const descriptor = Object.getOwnPropertyDescriptor(elementClass.prototype, prop);
-                if (descriptor && descriptor.set) {
-                    const originalSetter = descriptor.set;
-                    Object.defineProperty(elementClass.prototype, prop, {
-                        get: descriptor.get,
-                        set: function(val) {
-                            originalSetter.call(this, rewriteToMochi(val));
-                        }
-                    });
-                }
-            });
-        });
-        
         if (navigator.serviceWorker) {
             Object.defineProperty(navigator, 'serviceWorker', {
                 value: {
@@ -69,6 +23,8 @@ pub const SCRIPT_PART_1: &str = r##"<script>
             });
         }
     } catch(e) {}
+
+    try {
         window.URL.prototype = _U.prototype;
         window.URL.createObjectURL = function(o) { return _U.createObjectURL(o); };
         window.URL.revokeObjectURL = function(u) { return _U.revokeObjectURL(u); };
@@ -94,9 +50,7 @@ pub const SCRIPT_PART_1: &str = r##"<script>
             set: function() { },
             configurable: true
         });
-    } catch(e) {}
 
-    try {
         Object.defineProperty(window, 'devicePixelRatio', {
             get: function() { return 1; }
         });
@@ -117,8 +71,8 @@ pub const SCRIPT_PART_2: &str = r##"";
 
     try {
         if (typeof window.__MOCHI_TARGET__ === 'string' && window.__MOCHI_TARGET__.startsWith('http')) {
-            const t = new URL(window.__MOCHI_TARGET__);
-            const current = new URL(window.location.href);
+            const t = new _U(window.__MOCHI_TARGET__);
+            const current = new _U(window.location.href);
             const needsSearch = (!current.search || current.search === '?') && t.search;
             const needsHash = (!current.hash) && t.hash;
             if ((needsSearch || needsHash) && history && typeof history.replaceState === 'function') {
@@ -144,17 +98,15 @@ pub const SCRIPT_PART_2: &str = r##"";
     const rewrite = (url) => {
         if (!url) return url;
         if (typeof url !== 'string') return url;
-        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("javascript:") || url.includes(window.__MOCHI_PREFIX__)) return url;
-        if (url.startsWith("http")) return window.__MOCHI_BASE__ + __mochiEncode(url);
-        if (url.startsWith("//")) return window.__MOCHI_BASE__ + __mochiEncode("https:" + url);
+        if (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("javascript:")) return url;
+        if (url.includes(window.__MOCHI_PREFIX__)) return url;
         
         try {
             const match = document.cookie.match(/(?:^|; )mochi_base=([^;]*)/);
             if (match && url.startsWith('/')) {
                 return window.__MOCHI_BASE__ + match[1] + '/!a!' + url;
             }
-            const resolved = new _U(url, document.baseURI).href;
-            if (resolved.includes(window.__MOCHI_PREFIX__)) return resolved;
+            const resolved = new _U(url, window.__MOCHI_TARGET__).href;
             return window.__MOCHI_BASE__ + __mochiEncode(resolved);
         } catch (e) {
             return url;
@@ -163,14 +115,14 @@ pub const SCRIPT_PART_2: &str = r##"";
 
     const originalFetch = window.fetch;
     window.fetch = function(input, init) {
-        if (typeof input === "string") input = rewrite(input);
-        else if (input instanceof Request) input = new Request(rewrite(input.url), input);
+        if (input instanceof Request) input = new Request(rewrite(input.url), input);
+        else input = rewrite(String(input));
         return originalFetch(input, init)
     };
     
     const originalOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url, ...args) {
-        return originalOpen.call(this, method, rewrite(url), ...args)
+        return originalOpen.call(this, method, rewrite(String(url)), ...args)
     };
     
     const isDirectWsHost = (hostname) => {
@@ -192,12 +144,12 @@ pub const SCRIPT_PART_2: &str = r##"";
         let target = url;
         if (!target.startsWith("ws")) {
             try {
-                target = new URL(url, window.__MOCHI_TARGET__).href
+                target = new _U(url, window.__MOCHI_TARGET__).href
             } catch (e) {}
             target = target.replace(/^http/, "ws")
         }
         try {
-            const targetHost = new URL(target, window.__MOCHI_TARGET__).hostname;
+            const targetHost = new _U(target, window.__MOCHI_TARGET__).hostname;
             if (isDirectWsHost(targetHost)) {
                 return new originalWS(target, protocols);
             }
@@ -210,7 +162,7 @@ pub const SCRIPT_PART_2: &str = r##"";
     
     const originalWorker = window.Worker;
     window.Worker = function(scriptURL, options) {
-        return new originalWorker(rewrite(scriptURL), options)
+        return new originalWorker(rewrite(String(scriptURL)), options)
     };
     
     const hookProperty = (proto, prop) => {
@@ -221,7 +173,7 @@ pub const SCRIPT_PART_2: &str = r##"";
             Object.defineProperty(proto, prop, {
                 get: desc.get,
                 set: function(val) {
-                    return originalSet.call(this, typeof val === "string" ? rewrite(val) : val);
+                    return originalSet.call(this, rewrite(String(val)));
                 },
                 configurable: true,
                 enumerable: true

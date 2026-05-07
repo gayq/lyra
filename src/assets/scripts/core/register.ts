@@ -180,7 +180,7 @@ class WavesConnectionManager {
       this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
     } catch (e) {
       this.updateStatus(
-        "could not access localStorage. using defaults.",
+        "Could not access localStorage. Using defaults.",
         "error",
       );
     }

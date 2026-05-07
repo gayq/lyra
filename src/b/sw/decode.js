@@ -57,7 +57,7 @@ function unwrapUrl(url) {
     self.__uv$config &&
     typeof self.__uv$config.decodeUrl === "function"
   ) {
-    const prefix = self.__uv$config.prefix || "/b/u/hi/";
+    const prefix = self.__uv$config.prefix || UV_PREFIX;
     if (url.pathname.startsWith(prefix)) {
       const encoded = url.pathname.slice(prefix.length);
       try {

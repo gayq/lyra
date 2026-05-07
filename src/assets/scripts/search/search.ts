@@ -110,7 +110,7 @@ export async function handleSearch(
   activeTab.isUrlLoaded = true;
   const searchURL = executeBang(query) || generateSearchUrl(query);
   const isGame =
-    /jsdelivr|googleusercontent|githack|selenite|edunet|velara|vsembed|vidsrc\.me|gn-math\.dev|luminsdk|truffled/.test(
+    /jsdelivr|googleusercontent|githack|selenite|edunet|velara|vsembed|vidsrc\.me|gn-math\.dev|truffled/.test(
       searchURL,
     );
   if (isGame) {

@@ -74,8 +74,11 @@ async function handleLargeFile(request, realUrl) {
         fetchLargeFileStreaming(request, realUrl, LARGE_TIMEOUT_MS)
           .then((fresh) => {
             if (fresh && fresh.ok) {
-              cache.put(request, fresh.clone());
-              capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+              const cl = parseInt(fresh.headers.get("content-length") || "0", 10);
+              if (cl < LARGE_SIZE_THRESHOLD) {
+                cache.put(request, fresh.clone());
+                capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+              }
             }
           })
           .catch(() => {});
@@ -89,9 +92,12 @@ async function handleLargeFile(request, realUrl) {
     );
     if (response && response.ok) {
       if (!isRangeRequest(request)) {
-        const cache = await caches.open(LARGE_CACHE);
-        cache.put(request, response.clone()).catch(() => {});
-        capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+        const cl = parseInt(response.headers.get("content-length") || "0", 10);
+        if (cl < LARGE_SIZE_THRESHOLD) {
+          const cache = await caches.open(LARGE_CACHE);
+          cache.put(request, response.clone()).catch(() => {});
+          capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+        }
       }
       return response;
     }
@@ -222,10 +228,13 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         fetch(request)
           .then((res) => {
             if (res && res.ok) {
-              caches.open(RUNTIME_CACHE).then((c) => {
-                c.put(request, res);
-                capCache(RUNTIME_CACHE, MAX_RUNTIME);
-              });
+              const cl = parseInt(res.headers.get("content-length") || "0", 10);
+              if (cl < LARGE_SIZE_THRESHOLD) {
+                caches.open(RUNTIME_CACHE).then((c) => {
+                  c.put(request, res);
+                  capCache(RUNTIME_CACHE, MAX_RUNTIME);
+                });
+              }
             }
           })
           .catch(() => {});
@@ -234,11 +243,14 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
     }
     const res = await fetch(request).catch(() => null);
     if (res && res.ok) {
-      const clone = res.clone();
-      caches.open(RUNTIME_CACHE).then((c) => {
-        c.put(request, clone);
-        capCache(RUNTIME_CACHE, MAX_RUNTIME);
-      });
+      const cl = parseInt(res.headers.get("content-length") || "0", 10);
+      if (cl < LARGE_SIZE_THRESHOLD) {
+        const clone = res.clone();
+        caches.open(RUNTIME_CACHE).then((c) => {
+          c.put(request, clone);
+          capCache(RUNTIME_CACHE, MAX_RUNTIME);
+        });
+      }
       return res;
     }
     if (res) return res;
@@ -282,10 +294,13 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
       networkFetch
         .then((fresh) => {
           if (fresh && fresh.ok) {
-            caches.open(RUNTIME_CACHE).then((c) => {
-              c.put(request, fresh);
-              capCache(RUNTIME_CACHE, MAX_RUNTIME);
-            });
+            const cl = parseInt(fresh.headers.get("content-length") || "0", 10);
+            if (cl < LARGE_SIZE_THRESHOLD) {
+              caches.open(RUNTIME_CACHE).then((c) => {
+                c.put(request, fresh);
+                capCache(RUNTIME_CACHE, MAX_RUNTIME);
+              });
+            }
           }
         })
         .catch(() => {});
@@ -293,11 +308,14 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
     }
     const mochiResponse = await networkFetch;
     if (mochiResponse && mochiResponse.ok) {
-      const clone = mochiResponse.clone();
-      caches.open(RUNTIME_CACHE).then((c) => {
-        c.put(request, clone);
-        capCache(RUNTIME_CACHE, MAX_RUNTIME);
-      });
+      const cl = parseInt(mochiResponse.headers.get("content-length") || "0", 10);
+      if (cl < LARGE_SIZE_THRESHOLD) {
+        const clone = mochiResponse.clone();
+        caches.open(RUNTIME_CACHE).then((c) => {
+          c.put(request, clone);
+          capCache(RUNTIME_CACHE, MAX_RUNTIME);
+        });
+      }
       return mochiResponse;
     }
   } catch (e) {}

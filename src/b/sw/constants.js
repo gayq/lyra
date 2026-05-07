@@ -55,6 +55,7 @@ const LARGE_EXTENSIONS = new Set([
   ".m4a", ".aac", ".ogg", ".opus", ".wv", ".tta", ".tak",
   ".mkv", ".mp4", ".webm", ".avi", ".mov", "wmv",
   ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
+  ".wasm", ".data", ".pck", ".unityweb", ".bin",
 ]);
 
 const COMPRESSIBLE = new Set([

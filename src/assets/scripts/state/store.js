@@ -144,9 +144,7 @@ export const store = {
     const wrapper = document.createElement("div");
     wrapper.className = "iframe";
     const iframe = document.createElement("iframe");
-    iframe.loading = "lazy";
-    iframe.allow =
-      "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay;";
+    iframe.allow = "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; cross-origin-isolated;";
     iframe.referrerPolicy = "no-referrer";
     iframe.tabIndex = -1;
     wrapper.appendChild(iframe);

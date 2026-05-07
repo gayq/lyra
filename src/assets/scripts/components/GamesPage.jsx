@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "preact/hooks";
 import { memo } from "preact/compat";
-import { fetchGameData, resetGameCache, getGameDisplayLabel, ensureLuminInit } from "../features/games.ts";
+import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/games.ts";
 import { showHomeView } from "../state/store.js";
 import { attachSearchLight } from "../core/load.js";
 
@@ -235,22 +235,6 @@ export default function GamesPage() {
     async (game) => {
       if (game.isExternal) {
         window.open(game.gameUrl, "_blank");
-      } else if (game.gameUrl.startsWith("luminsdk://")) {
-        const gameId = game.gameUrl.replace("luminsdk://", "");
-        try {
-          await ensureLuminInit();
-          if (typeof Lumin !== "undefined" && Lumin.getGameUrl) {
-            const { url } = await Lumin.getGameUrl(gameId);
-            if (url && window.WavesApp?.handleSearch) {
-              hide();
-              window.WavesApp.handleSearch(url, game.name, game.coverUrl);
-            }
-          } else {
-            await Lumin.loadGame(gameId);
-          }
-        } catch (err) {
-          console.error("luminsdk game load failed:", err);
-        }
       } else if (window.WavesApp?.handleSearch) {
         hide();
         window.WavesApp.handleSearch(game.gameUrl, game.name, game.coverUrl);
