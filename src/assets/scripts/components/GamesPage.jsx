@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "preact/hooks"
 import { memo } from "preact/compat";
 import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/games.ts";
 import { showHomeView } from "../state/store.js";
-import { attachSearchLight } from "../core/load.js";
+import { attachSearchLight } from "../core/searchLight.js";
 
 const FADE_DURATION = 30;
 const SKELETON_KEYS = Array.from({ length: 12 }, (_, i) => `skeleton-${i}`);

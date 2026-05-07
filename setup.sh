@@ -176,17 +176,6 @@ if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok instal
   retry 3 sudo apt-get install -y caddy
 fi
 
-if ! command -v node >/dev/null 2>&1; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-  retry 3 sudo apt-get install -y nodejs
-fi
-
-if ! command -v node >/dev/null 2>&1; then
-  echo "node install failed!"
-  exit 1
-fi
-require_cmd node
-
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
@@ -203,21 +192,18 @@ net.ipv4.ip_local_port_range = 1024 65535
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.rmem_default = 1048576
-net.core.wmem_default = 1048576
-net.ipv4.udp_rmem_min = 65536
-net.ipv4.udp_wmem_min = 65536
-net.ipv4.udp_mem = 65536 131072 262144
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
 fs.file-max = 2097152
 fs.nr_open = 2097152
 vm.swappiness = 10
 vm.vfs_cache_pressure = 50
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_window_scaling = 1
-net.ipv4.tcp_rmem = 4096 87380 67108864
-net.ipv4.tcp_wmem = 4096 65536 67108864
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_sack = 1
@@ -270,16 +256,13 @@ eturnal:
       transport: tcp
   relay_min_port: 49152
   relay_max_port: 65535
-  max_bps: unlimited
-  max_permissions: unlimited
-  strict_expiry: false
-  software_name: none
   log_dir: stdout
-  log_level: critical
-  modules: {}
+  log_level: warning
+  modules:
+    mod_log_stun: {}
 EOF
 if [ -f /etc/eturnal.yml ]; then
-  echo "[setup] /etc/eturnal.yml applied!"
+  echo "[setup] /etc/eturnal.yml applied."
 else
   echo "[setup] error: /etc/eturnal.yml not found!"
   exit 1
@@ -491,12 +474,12 @@ module.exports = {
     },
     {
       name: "waves",
-      script: "./index.mjs",
+      script: "$BUN_BIN",
+      args: "run index.mjs",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_memory_restart: "4G",
-      node_args: "--max-old-space-size=4096 --turbo-fast-api-calls --no-warnings",
       env: {
         NODE_ENV: "production",
         PORT: "3000"

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "preact/hooks";
-import { attachSearchLight } from "../core/load.js";
+import { attachSearchLight } from "../core/searchLight.js";
 import { useSearchInputBindings } from "../search/search.ts";
 
 const placeholders = [

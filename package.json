@@ -5,21 +5,20 @@
   "type": "module",
   "packageManager": "bun@1.2.17",
   "engines": {
-    "bun": ">=1.0.0",
-    "node": ">=18.0.0"
+    "bun": ">=1.0.0"
   },
   "scripts": {
-    "start": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=production node --max-old-space-size=512 --turbo-fast-api-calls index.mjs",
-    "dev": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=development node --max-old-space-size=2048 --turbo-fast-api-calls index.mjs",
+    "start": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=production bun index.mjs",
+    "dev": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=development bun index.mjs",
     "lint": "eslint .",
     "build": "vite build --config vite.config.js",
     "build:legacy": "bun build.mjs",
-    "postinstall": "node others/patch.js"
+    "postinstall": "bun others/patch.js"
   },
   "dependencies": {
-    "@mercuryworkshop/bare-mux": "^2.1.9",
-    "@mercuryworkshop/epoxy-transport": "^2.1.28",
-    "@mercuryworkshop/libcurl-transport": "^1.5.1",
+    "@mercuryworkshop/bare-mux": "latest",
+    "@mercuryworkshop/epoxy-transport": "latest",
+    "@mercuryworkshop/libcurl-transport": "latest",
     "@preact/preset-vite": "^2.10.5",
     "@preact/signals": "^2.9.0",
     "compression": "^1.7.4",
