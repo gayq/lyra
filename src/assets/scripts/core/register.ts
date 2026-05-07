@@ -40,6 +40,16 @@ const STATES = Object.freeze({
   RECONNECTING: "RECONNECTING",
 } as const);
 
+const TRANSPORT_MAP: Record<string, string> = {
+  epoxy: "/epoxy/index.mjs",
+  libcurl: "/libcurl/index.mjs",
+};
+
+const SCOPE_MAP: Record<string, string> = {
+  ultraviolet: "/b/u/r/",
+  scramjet: "/b/s/r/",
+};
+
 function createResolvablePromise<T = void>(): ResolvablePromise<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
@@ -48,15 +58,13 @@ function createResolvablePromise<T = void>(): ResolvablePromise<T> {
     reject = rej;
   }) as ResolvablePromise<T>;
   promise._settled = false;
-  const origResolve = resolve;
-  const origReject = reject;
   promise._resolve = (value: T | PromiseLike<T>) => {
     promise._settled = true;
-    origResolve(value);
+    resolve(value);
   };
   promise._reject = (reason?: unknown) => {
     promise._settled = true;
-    origReject(reason);
+    reject(reason);
   };
   return promise;
 }
@@ -85,20 +93,13 @@ class WavesConnectionManager {
     this._isRecovering = false;
     this._tabWasHiddenWhileConnected = false;
 
-    (window as unknown as Record<string, unknown>)["WavesApp"] =
-      (window as unknown as Record<string, unknown>)["WavesApp"] ?? {};
-    window.WavesApp.transportReady = this._transportReadyPromise;
+    const app = ((window as unknown as Record<string, unknown>)["WavesApp"] ??= {}) as typeof window.WavesApp;
+    app.transportReady = this._transportReadyPromise;
 
-    window.WavesApp.waitForTransport = async (timeoutMs = 10000) => {
-      if (
-        this._transportReadyPromise._settled &&
-        this.state !== STATES.CONNECTED
-      ) {
+    app.waitForTransport = async (timeoutMs = 10000) => {
+      if (this._transportReadyPromise._settled && this.state !== STATES.CONNECTED) {
         this._resetTransportReady();
-      } else if (
-        this._transportReadyPromise._settled &&
-        this.state === STATES.CONNECTED
-      ) {
+      } else if (this._transportReadyPromise._settled && this.state === STATES.CONNECTED) {
         const verified = await this._verifyTransport();
         if (!verified) {
           this._resetTransportReady();
@@ -108,18 +109,12 @@ class WavesConnectionManager {
       return Promise.race([
         this._transportReadyPromise,
         new Promise<void>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("transport setup timed out")),
-            timeoutMs,
-          ),
+          setTimeout(() => reject(new Error("transport setup timed out")), timeoutMs),
         ),
       ]);
     };
 
-    if (
-      document.readyState === "complete" ||
-      document.readyState === "interactive"
-    ) {
+    if (document.readyState === "complete" || document.readyState === "interactive") {
       this.start();
     } else {
       window.addEventListener("DOMContentLoaded", () => this.start());
@@ -152,12 +147,12 @@ class WavesConnectionManager {
 
   preFlightChecks(): boolean {
     if (!navigator.serviceWorker) {
-      this.updateStatus("fatal: service workers are not supported.", "error");
+      this.updateStatus("fatal: service workers are not supported!", "error");
       this.setState(STATES.FAILED);
       return false;
     }
     if (typeof BareMux !== "object" || !BareMux.BareMuxConnection) {
-      this.updateStatus("fatal: baremux library not found.", "error");
+      this.updateStatus("fatal: baremux library not found!", "error");
       this.setState(STATES.FAILED);
       return false;
     }
@@ -170,19 +165,17 @@ class WavesConnectionManager {
       statusEl.textContent = message;
       statusEl.className = `status-${type}`;
     }
-    const logMethod = type === "error" ? console.error : console.log;
-    if (type === "error") logMethod(`Status: ${message}`);
+    if (type === "error") {
+      console.error(`Status: ${message}`);
+    }
   }
 
   loadConfig(): void {
     try {
       this.appConfig.backend = localStorage.getItem("backend") || "scramjet";
       this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
-    } catch (e) {
-      this.updateStatus(
-        "Could not access localStorage. Using defaults.",
-        "error",
-      );
+    } catch {
+      this.updateStatus("could not access localStorage! using defaults...", "error");
     }
   }
 
@@ -195,32 +188,23 @@ class WavesConnectionManager {
       for (const registration of registrations) {
         await registration.unregister();
       }
-
-      if (navigator.serviceWorker.controller) {
-      }
     } catch (e) {
-      this.updateStatus(
-        `sw unregistration failed: ${(e as Error).message}`,
-        "error",
-      );
+      this.updateStatus(`sw unregistration failed: ${(e as Error).message}`, "error");
     }
   }
 
-  async ensureWispServerConnection(
-    url: string,
-    timeout: number = 1500,
-  ): Promise<void> {
+  async ensureWispServerConnection(url: string, timeout: number = 1500): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let ws: WebSocket | undefined;
       try {
         ws = new WebSocket(url);
-      } catch (e) {
-        return reject(new Error("invalid websocket url."));
+      } catch {
+        return reject(new Error("invalid websocket url!"));
       }
 
       const connectionTimeout = setTimeout(() => {
-        if (ws) ws.close();
-        reject(new Error("wisp connection timed out."));
+        ws?.close();
+        reject(new Error("wisp connection timed out!"));
       }, timeout);
 
       ws.onopen = () => {
@@ -230,7 +214,7 @@ class WavesConnectionManager {
       };
       ws.onerror = () => {
         clearTimeout(connectionTimeout);
-        reject(new Error("wisp connection failed."));
+        reject(new Error("wisp connection failed!"));
       };
     });
   }
@@ -241,10 +225,10 @@ class WavesConnectionManager {
       const name = await Promise.race([
         this.bareMuxConnection.getTransport(),
         new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error("transport verify timed out")), 4000),
+          setTimeout(() => reject(new Error("transport verify timed out!")), 4000),
         ),
       ]);
-      return !!(name && name.length > 0);
+      return name.length > 0;
     } catch (e) {
       console.warn("transport verification failed:", e);
       return false;
@@ -254,11 +238,7 @@ class WavesConnectionManager {
   async _reapplyTransport(): Promise<boolean> {
     if (!this.bareMuxConnection) return false;
     try {
-      const transportMap: Record<string, string> = {
-        epoxy: "/epoxy/index.mjs",
-        libcurl: "/libcurl/index.mjs",
-      };
-      const transportModule = transportMap[this.appConfig.transport];
+      const transportModule = TRANSPORT_MAP[this.appConfig.transport];
       if (!transportModule) return false;
 
       await this.bareMuxConnection.setTransport(transportModule, [
@@ -287,27 +267,19 @@ class WavesConnectionManager {
 
     try {
       if (!this.bareMuxConnection) {
-        this.bareMuxConnection = new BareMux!.BareMuxConnection(
-          "/bmux/worker.js",
-        );
+        this.bareMuxConnection = new BareMux!.BareMuxConnection("/bmux/worker.js");
         window.WavesApp.bareMuxConnection = this.bareMuxConnection;
       }
 
-      const defaultWispUrl = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/w/`;
-      this.currentWispUrl = defaultWispUrl;
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      this.currentWispUrl = `${protocol}://${window.location.host}/w/`;
 
       await this.ensureWispServerConnection(this.currentWispUrl, 5000);
 
-      const scopeMap: Record<string, string> = {
-        ultraviolet: "/b/u/r/",
-        scramjet: "/b/s/r/",
-      };
-      const scope = scopeMap[this.appConfig.backend];
+      const scope = SCOPE_MAP[this.appConfig.backend];
       if (!scope) throw new Error(`unknown backend: ${this.appConfig.backend}`);
 
-      const registration = await navigator.serviceWorker.register("./b/sw.js", {
-        scope,
-      });
+      const registration = await navigator.serviceWorker.register("./b/sw.js", { scope });
       const pendingSw = registration.installing || registration.waiting;
       if (pendingSw && pendingSw.state !== "activated") {
         await new Promise<void>((resolve) => {
@@ -322,13 +294,8 @@ class WavesConnectionManager {
         });
       }
 
-      const transportMap: Record<string, string> = {
-        epoxy: "/epoxy/index.mjs",
-        libcurl: "/libcurl/index.mjs",
-      };
-      const transportModule = transportMap[this.appConfig.transport];
-      if (!transportModule)
-        throw new Error(`unknown transport: ${this.appConfig.transport}`);
+      const transportModule = TRANSPORT_MAP[this.appConfig.transport];
+      if (!transportModule) throw new Error(`unknown transport: ${this.appConfig.transport}`);
 
       await this.bareMuxConnection.setTransport(transportModule, [
         { wisp: this.currentWispUrl },
@@ -336,14 +303,11 @@ class WavesConnectionManager {
 
       const transportVerified = await this._verifyTransport();
       if (!transportVerified) {
-        throw new Error(
-          "transport was set but verification failed",
-        );
+        throw new Error("transport was set but verification failed");
       }
 
       this._resolveTransportReady();
-
-      this.updateStatus(`successfully connected!`, "success");
+      this.updateStatus("successfully connected!", "success");
       this.setState(STATES.CONNECTED);
       this._retryCount = 0;
       this.isInitialLoad = false;
@@ -353,10 +317,7 @@ class WavesConnectionManager {
 
       return true;
     } catch (error) {
-      this.updateStatus(
-        `connection failed: ${(error as Error).message}`,
-        "error",
-      );
+      this.updateStatus(`connection failed: ${(error as Error).message}`, "error");
       console.error("full error object:", error);
       await this.handleConnectionFailure();
       return false;
@@ -372,7 +333,7 @@ class WavesConnectionManager {
       await new Promise<void>((res) => setTimeout(res, delay));
       await this.initializeApp(true);
     } else {
-      this.updateStatus("connection failed after multiple retries.", "error");
+      this.updateStatus("connection failed after multiple retries!", "error");
       this.setState(STATES.FAILED);
       this._retryCount = 0;
     }
@@ -391,8 +352,7 @@ class WavesConnectionManager {
       )
         return;
 
-      if (window.WavesApp && window.WavesApp.isLoading) return;
-
+      if (window.WavesApp?.isLoading) return;
       if (this.state !== STATES.CONNECTED) return;
 
       isChecking = true;
@@ -401,19 +361,17 @@ class WavesConnectionManager {
 
         const transportAlive = await this._verifyTransport();
         if (!transportAlive) {
-          console.warn(
-            "health check: transport lost in sharedWorker, re-applying...",
-          );
+          console.warn("health check: transport lost in sharedWorker, re-applying...");
           this._resetTransportReady();
           const recovered = await this._reapplyTransport();
           if (!recovered) {
             this.updateStatus("transport lost. reconnecting...", "error");
             await this.initializeApp();
           } else {
-            console.log("health check: transport recovered successfully");
+            console.log("health check: transport recovered successfully!");
           }
         }
-      } catch (err) {
+      } catch {
         this.updateStatus("health check failed. reconnecting...", "error");
         await this.initializeApp();
       } finally {
@@ -422,9 +380,7 @@ class WavesConnectionManager {
     }, 8000);
   }
 
-  async recoverOnWake(
-    options?: { forceReapply?: boolean },
-  ): Promise<void> {
+  async recoverOnWake(options?: { forceReapply?: boolean }): Promise<void> {
     if (
       this._isRecovering ||
       this.state === STATES.CONNECTING ||
@@ -433,7 +389,6 @@ class WavesConnectionManager {
       return;
 
     if (this.state === STATES.IDLE) return;
-
     if (!navigator.onLine) return;
 
     const forceReapply = options?.forceReapply === true;
@@ -442,11 +397,7 @@ class WavesConnectionManager {
     try {
       await this.ensureWispServerConnection(this.currentWispUrl, 3000);
 
-      if (
-        forceReapply &&
-        this.state === STATES.CONNECTED &&
-        this.bareMuxConnection
-      ) {
+      if (forceReapply && this.state === STATES.CONNECTED && this.bareMuxConnection) {
         this._resetTransportReady();
         const reapplied = await this._reapplyTransport();
         if (reapplied) {
@@ -503,8 +454,7 @@ class WavesConnectionManager {
       try {
         const u = new URL(data.url);
         if (u.origin !== window.location.origin) return;
-        if (!u.pathname.startsWith("/b/s/") && !u.pathname.startsWith("/b/u/"))
-          return;
+        if (!u.pathname.startsWith("/b/s/") && !u.pathname.startsWith("/b/u/")) return;
       } catch {
         return;
       }
@@ -512,18 +462,13 @@ class WavesConnectionManager {
       if (!ctrl) return;
       try {
         ctrl.postMessage({ type: "waves-prefetch", url: data.url });
-      } catch {
+      } catch (e) {
+        console.warn("failed to postMessage to service worker:", e);
       }
     });
 
-    const applyLiveChanges = async (
-      updateFn: () => Promise<void>,
-    ): Promise<void> => {
-      if (
-        this.state === STATES.CONNECTING ||
-        this.state === STATES.RECONNECTING
-      )
-        return;
+    const applyLiveChanges = async (updateFn: () => Promise<void>): Promise<void> => {
+      if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
 
       this.updateStatus("switching engine...", "info");
       this._resetTransportReady();
@@ -533,7 +478,6 @@ class WavesConnectionManager {
       await new Promise<void>((res) => setTimeout(res, 800));
 
       const success = await this.initializeApp();
-
       if (success) {
         this.updateStatus("switched successfully!", "success");
       }
@@ -552,11 +496,13 @@ class WavesConnectionManager {
         void this.recoverOnWake({ forceReapply: true });
       }
     });
+
     window.addEventListener("offline", () => {
-      this.updateStatus("network offline.", "error");
+      this.updateStatus("network offline!", "error");
       this.setState(STATES.FAILED);
       this._resetTransportReady();
     });
+
     document.addEventListener("visibilitychange", () => {
       if (document.hidden) {
         this._tabWasHiddenWhileConnected = this.state === STATES.CONNECTED;
@@ -567,10 +513,7 @@ class WavesConnectionManager {
           this._resetTransportReady();
         }
         setTimeout(
-          () =>
-            void this.recoverOnWake(
-              resumeFromHidden ? { forceReapply: true } : undefined,
-            ),
+          () => void this.recoverOnWake(resumeFromHidden ? { forceReapply: true } : undefined),
           0,
         );
       }
@@ -584,34 +527,21 @@ class WavesConnectionManager {
     });
 
     if (navigator.serviceWorker) {
-      navigator.serviceWorker.addEventListener(
-        "message",
-        (event: MessageEvent) => {
-          if (
-            event.data &&
-            (event.data as { type?: string }).type === "transport-error"
-          ) {
-            if (this.state === STATES.CONNECTED) {
-              const failures =
-                (event.data as { failures?: number }).failures || 1;
-              console.warn(
-                `transport error reported by service worker (${failures} consecutive failures), recovering...`,
-              );
-              this._resetTransportReady();
-              this._reapplyTransport().then((recovered) => {
-                if (!recovered) {
-                  if (failures >= 3) {
-                    console.warn(
-                      "multiple consecutive failures, full reconnect...",
-                    );
-                    this.initializeApp();
-                  }
-                }
-              });
-            }
+      navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
+        const data = event.data as { type?: string; failures?: number } | null;
+        if (data?.type !== "transport-error") return;
+        if (this.state !== STATES.CONNECTED) return;
+
+        const failures = data.failures ?? 1;
+        console.warn(`transport error reported by service worker (${failures} consecutive failures), recovering...`);
+        this._resetTransportReady();
+        this._reapplyTransport().then((recovered) => {
+          if (!recovered && failures >= 3) {
+            console.warn("multiple consecutive failures, full reconnect...");
+            this.initializeApp();
           }
-        },
-      );
+        });
+      });
     }
 
     document.addEventListener("newTransport", (e) =>
@@ -628,5 +558,4 @@ class WavesConnectionManager {
 }
 
 window.wavesConnection = new WavesConnectionManager();
-
 export {};
