@@ -15,6 +15,7 @@ a really cool web-proxy
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
 - [edurocks](https://edurocks.org/) - game source
 - [velara](https://velara.cc/) - game source
+- [truffled](https://truffled.lol) - game source
 - [titanium network](https://github.com/titaniumnetwork-dev/ultraviolet/) - ultraviolet
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 

@@ -506,7 +506,6 @@ export default function SettingsMenu() {
               <p>edurocks - game source</p>
               <p>velara - game source</p>
               <p>truffled - game source</p>
-              <p>bog - ports for hollow knight, re:run, and touhou mother</p>
               <p>titanium network - ultraviolet</p>
               <p>mercury workshop - scramjet, epoxy, and libcurl</p>
             </div>
