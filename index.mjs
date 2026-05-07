@@ -10,9 +10,9 @@ import express from "express";
 import compression from "compression";
 import helmet from "helmet";
 import { LRUCache } from "lru-cache";
-import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
-import { epoxyPath } from "@mercuryworkshop/epoxy-transport";
-import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
+const baremuxPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "bare-mux", "dist");
+const epoxyPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "epoxy-transport", "dist");
+const libcurlPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "libcurl-transport", "dist");
 import rateLimit from "express-rate-limit";
 import cookieParser from "cookie-parser";
 
