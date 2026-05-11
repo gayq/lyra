@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import meow from "./build.js";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -33,10 +33,6 @@ export default defineConfig({
     cssMinify: "lightningcss",
     assetsInlineLimit: 8192,
     rollupOptions: {
-      onwarn(warning, warn) {
-        if (warning.code === "PLUGIN_TIMINGS") return;
-        warn(warning);
-      },
       input: {
         main: resolve(__dirname, "src/index.html"),
         "404": resolve(__dirname, "src/404.html"),

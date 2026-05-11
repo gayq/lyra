@@ -5,6 +5,7 @@ pub struct CloudSyncTuning {
     pub db_pool_min_idle: u32,
     pub write_semaphore_permits: usize,
     pub db_cache_size_kb: i64,
+    pub db_mmap_size: i64,
     pub body_limit_mb: usize,
 }
 
@@ -26,19 +27,27 @@ pub fn detect() -> CloudSyncTuning {
 }
 
 fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
-    let db_pool_max = ((cores * 2) as u32).max(4).min(32);
+    let db_pool_max = ((cores * 4) as u32).max(8).min(64);
     let db_pool_min_idle = (db_pool_max / 5).max(2);
 
-    let write_semaphore_permits = (cores * 6).max(4).min(100);
+    let write_semaphore_permits = (cores * 12).max(8).min(200);
 
     let db_cache_size_kb = if ram_mb < 4096 {
-        8000
-    } else if ram_mb < 8192 {
         16000
-    } else if ram_mb < 16384 {
+    } else if ram_mb < 8192 {
         32000
-    } else {
+    } else if ram_mb < 16384 {
         64000
+    } else {
+        128000
+    };
+
+    let db_mmap_size = if ram_mb < 4096 {
+        134_217_728
+    } else if ram_mb < 8192 {
+        268_435_456
+    } else {
+        536_870_912
     };
 
     let body_limit_mb = if ram_mb < 4096 { 40 } else { 80 };
@@ -48,6 +57,7 @@ fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
         db_pool_min_idle,
         write_semaphore_permits,
         db_cache_size_kb,
+        db_mmap_size,
         body_limit_mb,
     }
 }

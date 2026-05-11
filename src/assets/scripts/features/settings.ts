@@ -195,7 +195,6 @@ function _initSettings(): void {
     if (
       !importedData ||
       !importedData.localStorage ||
-      !importedData.sessionStorage ||
       !importedData.indexedDB
     ) {
       return;
@@ -379,14 +378,16 @@ function _initSettings(): void {
               }
             }
 
-            sessionStorage.clear();
-            for (const [key, value] of Object.entries(
-              importedData.sessionStorage,
-            )) {
-              try {
-                sessionStorage.setItem(key, value);
-              } catch (e) {
-                console.warn(`failed to import sessionStorage key: ${key}`, e);
+            if (importedData.sessionStorage) {
+              sessionStorage.clear();
+              for (const [key, value] of Object.entries(
+                importedData.sessionStorage,
+              )) {
+                try {
+                  sessionStorage.setItem(key, value);
+                } catch (e) {
+                  console.warn(`failed to import sessionStorage key: ${key}`, e);
+                }
               }
             }
 
@@ -811,7 +812,7 @@ function _initSettings(): void {
     updateTitleAndIcon();
   });
 
-  (function updateServerInfo() {
+  {
     const applyText = (textStr: string): void => {
       const stuffDiv = document.getElementById("stuff");
       if (stuffDiv) {
@@ -819,16 +820,16 @@ function _initSettings(): void {
       }
     };
 
-    fetch("/api/stuff", {
-      cache: "no-store",
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { location?: string } | null) => {
-        const location = data && data.location ? data.location : "unknown";
+    window.__wavesStuffData!
+      .then((data: Record<string, unknown> | null) => {
+        const location =
+          data && typeof data.location === "string"
+            ? data.location
+            : "unknown";
         applyText(`server: ${location.toLowerCase()}`);
       })
       .catch(() => applyText(`server: unknown`));
-  })();
+  }
 
   document.addEventListener("siteCloakingUpdated", (e: Event) =>
     applyInitialSiteCloaking((e as CustomEvent<string>).detail),

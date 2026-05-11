@@ -8,7 +8,6 @@ use std::time::{Duration, SystemTime};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufWriter};
 use tokio_util::io::ReaderStream;
-
 use crate::helpers::{fix_game_content_type, is_likely_static_asset};
 
 pub fn get_cache_path(url: &str) -> String {
@@ -106,14 +105,15 @@ pub async fn write_to_disk(cache_key: &str, status: u16, headers: &HeaderMap, bo
 }
 
 pub async fn disk_cache_cleanup_task(
-    max_dir_size_bytes: u64,
+    max_bytes: u64,
     max_age_secs: u64,
     cleanup_interval_secs: u64,
 ) {
+    let mut interval = tokio::time::interval(Duration::from_secs(cleanup_interval_secs));
+    interval.tick().await;
     let cache_dir = "./cache";
-    let interval = cleanup_interval_secs.max(60);
     loop {
-        tokio::time::sleep(Duration::from_secs(interval)).await;
+        tokio::time::sleep(Duration::from_secs(cleanup_interval_secs.max(60))).await;
 
         let mut entries = match fs::read_dir(cache_dir).await {
             Ok(e) => e,
@@ -149,7 +149,7 @@ pub async fn disk_cache_cleanup_task(
             }
         }
 
-        if total_size <= max_dir_size_bytes {
+        if total_size <= max_bytes {
             continue;
         }
 
@@ -160,12 +160,12 @@ pub async fn disk_cache_cleanup_task(
                 .duration_since(modified)
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs();
-            if age_secs > max_age_secs || total_size > max_dir_size_bytes {
+            if age_secs > max_age_secs || total_size > max_bytes {
                 if fs::remove_file(&path).await.is_ok() {
                     total_size = total_size.saturating_sub(size);
                     tracing::debug!("deleted old cache: {:?}", path);
                 }
-            } else if total_size <= max_dir_size_bytes {
+            } else if total_size <= max_bytes {
                 break;
             }
         }

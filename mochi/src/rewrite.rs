@@ -2,8 +2,7 @@ use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
 use std::cell::RefCell;
 use std::rc::Rc;
 use url::Url;
-
-use crate::constants::{MOCHI_PREFIX, SCRIPT_PART_1, SCRIPT_PART_2};
+use crate::constants::{MOCHI_PREFIX, PART_1, PART_2};
 use crate::encoding::encode_mochi_url;
 
 pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8> {
@@ -21,7 +20,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 || url.starts_with("javascript:")
                 || url.starts_with("mailto:")
                 || url.starts_with("tel:")
-                || url.starts_with("#")
+                || url.starts_with('#')
                 || url.starts_with(MOCHI_PREFIX)
             {
                 return None;
@@ -66,8 +65,8 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 element!("html", move |el| {
                     if !*script_injected_for_html.borrow() {
                         let full_script =
-                            format!("{}{}{}", SCRIPT_PART_1, base_url_for_html, SCRIPT_PART_2);
-                        let _ = el.prepend(&full_script, ContentType::Html);
+                            format!("{}{}{}", PART_1, base_url_for_html, PART_2);
+                        el.prepend(&full_script, ContentType::Html);
                         *script_injected_for_html.borrow_mut() = true;
                     }
                     Ok(())
@@ -75,8 +74,8 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                 element!("head", move |el| {
                     if !*script_injected_for_head.borrow() {
                         let full_script =
-                            format!("{}{}{}", SCRIPT_PART_1, base_url_for_head, SCRIPT_PART_2);
-                        let _ = el.prepend(&full_script, ContentType::Html);
+                            format!("{}{}{}", PART_1, base_url_for_head, PART_2);
+                        el.prepend(&full_script, ContentType::Html);
                         *script_injected_for_head.borrow_mut() = true;
                     }
                     if base_url_for_head.contains("gn-math.dev") {
@@ -88,8 +87,8 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                             #zoneViewer { display: flex !important; position: fixed; inset: 0; z-index: 9999; background: #000; }
                             #zoneFrame { flex: 1; width: 100%; height: 100%; border: none; }
                             body { margin: 0; padding: 0; overflow: hidden; background: #000; }
-                        </style>"#;
-                        let _ = el.append(gnmath_inject, ContentType::Html);
+                        </style><script>window.sadjgknsdfjg='https://gn-math.dev'</script>"#;
+                        el.append(gnmath_inject, ContentType::Html);
                     }
                     Ok(())
                 }),
@@ -99,7 +98,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                             *base_for_href.borrow_mut() = parsed_base.clone();
                             let escaped_target = parsed_base.as_str().replace('\'', "\\'");
                             let injection = format!("<script>window.__MOCHI_TARGET__ = '{}';</script>", escaped_target);
-                            let _ = el.after(&injection, ContentType::Html);
+                            el.after(&injection, ContentType::Html);
                         }
                         let proxy_href =
                             if href.starts_with("http://") || href.starts_with("https://") {
@@ -115,7 +114,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                                     encode_mochi_url(parsed_base.as_str())
                                 )
                             } else {
-                                href.to_string()
+                                href
                             };
                         let _ = el.set_attribute("href", &proxy_href);
                     }
@@ -138,7 +137,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                                 if real_type == "module" {
                                     let _ = el.set_attribute("type", "module");
                                 } else if real_type == "text/javascript" {
-                                    let _ = el.remove_attribute("type");
+                                    el.remove_attribute("type");
                                 } else {
                                     let _ = el.set_attribute("type", real_type);
                                 }
@@ -224,7 +223,7 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
     let _ = rewriter.end();
 
     if !*script_injected.borrow() {
-        let full_script = format!("{}{}{}", SCRIPT_PART_1, base_url_owned, SCRIPT_PART_2);
+        let full_script = format!("{}{}{}", PART_1, base_url_owned, PART_2);
         let mut new_output = Vec::with_capacity(full_script.len() + output.len());
         new_output.extend_from_slice(full_script.as_bytes());
         new_output.extend_from_slice(&output);
@@ -238,9 +237,10 @@ pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
     let mut result = String::with_capacity(css.len() + 512);
     let mut rest = css;
 
-    while let Some(url_pos) = find_url_fn(rest) {
+    while let Some((url_pos, paren_pos)) = find_url_fn(rest) {
         result.push_str(&rest[..url_pos]);
-        rest = &rest[url_pos + 4..];
+        rest = &rest[paren_pos + 1..];
+        rest = rest.trim_start();
 
         let quote_char = if rest.starts_with('"') {
             rest = &rest[1..];
@@ -258,12 +258,15 @@ pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
             rest.find(')').unwrap_or(rest.len())
         };
 
-        let url_val = &rest[..end_pos];
+        let url_val = rest[..end_pos].trim();
         rest = &rest[end_pos..];
 
-        if quote_char.is_some() && rest.starts_with(quote_char.unwrap()) {
-            rest = &rest[1..];
+        if let Some(q) = quote_char {
+            if rest.starts_with(q) {
+                rest = &rest[1..];
+            }
         }
+        rest = rest.trim_start();
         if rest.starts_with(')') {
             rest = &rest[1..];
         }
@@ -273,7 +276,7 @@ pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
         } else if url_val.starts_with("//") {
             let scheme = base_url.scheme();
             Some(format!("{}:{}", scheme, url_val))
-        } else if !url_val.is_empty() && !url_val.starts_with("data:") && !url_val.starts_with("#")
+        } else if !url_val.is_empty() && !url_val.starts_with("data:") && !url_val.starts_with('#')
         {
             base_url.join(url_val).ok().map(|u| u.to_string())
         } else {
@@ -305,7 +308,7 @@ pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {
     result
 }
 
-fn find_url_fn(s: &str) -> Option<usize> {
+fn find_url_fn(s: &str) -> Option<(usize, usize)> {
     let bytes = s.as_bytes();
     if bytes.len() < 4 {
         return None;
@@ -314,8 +317,14 @@ fn find_url_fn(s: &str) -> Option<usize> {
         let a = bytes[i].to_ascii_lowercase();
         let b = bytes[i + 1].to_ascii_lowercase();
         let c = bytes[i + 2].to_ascii_lowercase();
-        if a == b'u' && b == b'r' && c == b'l' && bytes[i + 3] == b'(' {
-            return Some(i);
+        if a == b'u' && b == b'r' && c == b'l' {
+            let mut j = i + 3;
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'(' {
+                return Some((i, j));
+            }
         }
     }
     None

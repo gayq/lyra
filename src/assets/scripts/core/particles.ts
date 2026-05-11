@@ -14,6 +14,7 @@ let ctx: CanvasRenderingContext2D | null = null;
 let particles: Particle[] = [];
 let raf: number | null = null;
 let lastTime = 0;
+let resizeRaf: number | null = null;
 
 function ensureCanvas(): void {
   if (canvas) return;
@@ -30,13 +31,23 @@ function ensureCanvas(): void {
   document.body.appendChild(canvas);
   ctx = canvas.getContext("2d")!;
   syncSize();
-  window.addEventListener("resize", syncSize, { passive: true });
+  window.addEventListener("resize", onResize, { passive: true });
+}
+
+function onResize(): void {
+  if (resizeRaf) return;
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = null;
+    syncSize();
+  });
 }
 
 function syncSize(): void {
   if (!canvas) return;
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
 }
 
 function spawnBurst(x: number, y: number): void {
@@ -52,7 +63,7 @@ function spawnBurst(x: number, y: number): void {
       vy: Math.sin(angle) * speed,
       life,
       maxLife: life,
-      size: 1 + Math.random() * 1,
+      size: 1 + Math.random(),
       alpha: 1,
     });
   }
@@ -64,9 +75,12 @@ function tick(time: number): void {
   lastTime = time;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#ffffff";
 
+  const len = particles.length;
   let alive = 0;
-  for (let i = 0; i < particles.length; i++) {
+
+  for (let i = 0; i < len; i++) {
     const p = particles[i]!;
     p.life -= dt;
     if (p.life <= 0) continue;
@@ -77,19 +91,16 @@ function tick(time: number): void {
     p.vy *= 1 - 3.5 * dt;
 
     const t = p.life / p.maxLife;
-    p.alpha = t;
-    const size = p.size * t;
-
-    ctx.globalAlpha = p.alpha;
-    ctx.fillStyle = "#ffffff";
+    ctx.globalAlpha = t;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, p.size * t, 0, Math.PI * 2);
     ctx.fill();
 
     if (alive !== i) particles[alive] = p;
     alive++;
   }
-  particles.length = alive;
+
+  if (alive < len) particles.length = alive;
   ctx.globalAlpha = 1;
 
   if (alive > 0) {

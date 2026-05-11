@@ -67,7 +67,7 @@ async fn async_main(t: tuning::MochiTuning) {
     let asset_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::none())
+        .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(t.pool_idle_timeout_secs))
         .pool_max_idle_per_host(t.pool_idle_per_host_asset)
         .tcp_nodelay(true)
@@ -82,7 +82,7 @@ async fn async_main(t: tuning::MochiTuning) {
     let html_client = Client::builder()
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
-        .redirect(Policy::none())
+        .redirect(Policy::default())
         .pool_idle_timeout(Duration::from_secs(t.pool_idle_timeout_secs))
         .pool_max_idle_per_host(t.pool_idle_per_host_html)
         .tcp_nodelay(true)
@@ -99,6 +99,10 @@ async fn async_main(t: tuning::MochiTuning) {
         "googletagmanager.com",
         "doubleclick.net",
         "adsbygoogle",
+        "js.rev.iq",
+        "motorsnag.com",
+        "monetag",
+        "netpub",
     ];
     let blocklist_matcher = Arc::new(AhoCorasick::new(&patterns).unwrap());
 
@@ -178,6 +182,7 @@ async fn async_main(t: tuning::MochiTuning) {
         .allow_headers(Any);
 
     let app = Router::new()
+        .route("/health", axum::routing::get(|| async { "ok" }))
         .route("/", any(proxy::proxy_handler))
         .route("/*path", any(proxy::proxy_handler))
         .layer(CompressionLayer::new())
@@ -194,7 +199,7 @@ async fn async_main(t: tuning::MochiTuning) {
         .tcp_nodelay(true)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("graceful shutdown triggered");
+            tracing::info!("shutting down...");
         })
         .await
         .unwrap();

@@ -1,4 +1,4 @@
-import { encodeMochiUrl } from "../core/utils.js";
+import { encodeMochiUrl, normalizeGameHistoryUrl } from "../core/utils.ts";
 
 export interface GameEntry {
   id: string | number;
@@ -66,7 +66,7 @@ const SOURCE_CONFIG: SourceConfig = {
     assets: "https://selenite.cc/resources/semag/",
   },
   "gn-math": {
-    zones: "/!!/" + encodeMochiUrl("https://cdn.jsdelivr.net/gh/freebuisness/assets@main/zones.json") + "/",
+    zones: "/!!/" + encodeMochiUrl("https://cdn.jsdelivr.net/gh/freebuisness/assets@latest/zones.json") + "/",
     covers: "https://cdn.jsdelivr.net/gh/freebuisness/covers@main",
     html: "https://cdn.jsdelivr.net/gh/freebuisness/html@main",
   },
@@ -105,28 +105,6 @@ function applySearchCacheFields(games: GameEntry[]): GameEntry[] {
     g._authorLc = (g.author || "").toLowerCase();
   }
   return games;
-}
-
-function normalizeGameMatchUrl(candidate: string | null | undefined): string | null {
-  if (!candidate || typeof candidate !== "string") return null;
-  try {
-    const parsed = new URL(candidate);
-    if (parsed.hostname.includes("gn-math.dev")) {
-      const rawId = parsed.searchParams.get("id");
-      if (rawId) {
-        const cleanId = decodeURIComponent(rawId).trim().split(/[?&#]/)[0]!.trim();
-        if (cleanId) {
-          return `${parsed.protocol}//${parsed.host}/?id=${encodeURIComponent(cleanId)}`;
-        }
-      }
-    }
-    let pathname = parsed.pathname || "/";
-    pathname = pathname.replace(/\/+$/, "") || "/";
-    pathname = pathname.replace(/\/index\.(html?|php)$/i, "") || "/";
-    return `${parsed.protocol}//${parsed.host}${pathname}${parsed.search}`;
-  } catch {
-    return candidate.trim().replace(/\/+$/, "").toLowerCase();
-  }
 }
 
 function saveToCache(source: SourceKey, games: GameEntry[]): GameEntry[] {
@@ -222,15 +200,15 @@ function mapGnMathGames(data: unknown): GameEntry[] {
   const zones = Array.isArray(data) ? (data as GnMathZone[]) : [];
   return zones
     .map((zone) => {
-      const isExternal = zone.url ? zone.url.startsWith("http") : false;
-      const finalUrl = zone.url ? zone.url.replace("{HTML_URL}", SOURCE_CONFIG["gn-math"].html) : `https://gn-math.dev/?id=${zone.id}`;
+      const isExternal = zone.url ? /^https?:\/\//.test(zone.url) && !zone.url.includes("{HTML_URL}") : false;
+      const finalUrl = isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`;
       const finalCover = zone.cover.replace("{COVER_URL}", SOURCE_CONFIG["gn-math"].covers);
       return {
         id: zone.id,
         name: zone.name,
         author: zone.author,
         coverUrl: `/!cover!/${encodeMochiUrl(finalCover)}/`,
-        gameUrl: isExternal ? zone.url : finalUrl,
+        gameUrl: finalUrl,
         isExternal,
         featured: zone.featured ?? false,
         sourceKey: "gn-math",
@@ -339,9 +317,9 @@ export function getGameDisplayLabel(realUrl: string): string | null {
     let match = allGames.find((g) => g.gameUrl === realUrl);
 
     if (!match) {
-      const normalized = normalizeGameMatchUrl(realUrl);
+      const normalized = normalizeGameHistoryUrl(realUrl);
       if (normalized) {
-        match = allGames.find((g) => normalizeGameMatchUrl(g.gameUrl) === normalized);
+        match = allGames.find((g) => normalizeGameHistoryUrl(g.gameUrl) === normalized);
       }
     }
 

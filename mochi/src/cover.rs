@@ -5,7 +5,6 @@ use bytes::Bytes;
 use futures::StreamExt;
 use std::sync::Arc;
 use url::Url;
-
 use crate::cache::{load_from_disk, write_to_disk};
 use crate::helpers::is_blacklisted_header;
 use crate::state::{AppState, CachedResponse};

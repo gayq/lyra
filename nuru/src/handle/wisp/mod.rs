@@ -4,7 +4,6 @@ pub mod utils;
 pub mod wispnet;
 
 use std::{sync::Arc, time::Duration};
-
 use anyhow::Context;
 use cfg_if::cfg_if;
 use event_listener::Event;

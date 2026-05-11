@@ -53,17 +53,18 @@ type Client = (Arc<DashMap<Uuid, (ConnectPacket, ConnectPacket)>>, String);
 #[doc(hidden)]
 #[derive(Debug)]
 pub enum Resolver {
-    Hickory(TokioResolver),
+    Hickory(Box<TokioResolver>),
     System,
 }
 
 impl Resolver {
     pub async fn resolve(&self, host: String) -> anyhow::Result<Box<dyn Iterator<Item = IpAddr>>> {
         match self {
-            Self::Hickory(resolver) => Ok(Box::new(resolver.lookup_ip(host).await?.into_iter())),
+            Self::Hickory(resolver) => Ok(Box::new(resolver.lookup_ip(host).await?.into_iter())
+                as Box<dyn Iterator<Item = IpAddr>>),
             Self::System => Ok(Box::new(
                 tokio::net::lookup_host(host + ":0").await?.map(|x| x.ip()),
-            )),
+            ) as Box<dyn Iterator<Item = IpAddr>>),
         }
     }
 
@@ -97,17 +98,17 @@ lazy_static! {
     pub static ref RESOLVER: Resolver = {
         if CONFIG.stream.dns_servers.is_empty() {
             if let Ok((config, opts)) = read_system_conf() {
-                Resolver::Hickory(TokioResolver::builder_with_config(config, TokioConnectionProvider::default()).with_options(opts).build())
+                Resolver::Hickory(Box::new(TokioResolver::builder_with_config(config, TokioConnectionProvider::default()).with_options(opts).build()))
             } else {
                 warn!("unable to read system dns configuration. using system dns resolver with no caching");
                 Resolver::System
             }
         } else {
-            Resolver::Hickory(TokioResolver::builder_with_config(ResolverConfig::from_parts(
+            Resolver::Hickory(Box::new(TokioResolver::builder_with_config(ResolverConfig::from_parts(
                     None,
                     Vec::new(),
                     NameServerConfigGroup::from_ips_clear(&CONFIG.stream.dns_servers, 53, true),
-                ), TokioConnectionProvider::default()).build())
+                ), TokioConnectionProvider::default()).build()))
 
         }
     };

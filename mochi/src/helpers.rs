@@ -1,7 +1,6 @@
 use aho_corasick::AhoCorasick;
 use axum::http::{HeaderMap, HeaderValue};
 use std::path::Path;
-
 use crate::state::CDN_DOMAINS;
 
 pub fn fix_game_content_type(url: &str, headers: &mut HeaderMap) {

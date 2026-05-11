@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "preact/hooks";
-import { attachSearchLight } from "../core/searchLight.js";
+import { attachSearchLight } from "../core/searchLight.ts";
 import { useSearchInputBindings } from "../search/search.ts";
 
 const placeholders = [
@@ -8,6 +8,7 @@ const placeholders = [
   "join the discord server!",
   "1 update per year",
   "waves is such a good site!!",
+  "yo search is right here",
 ];
 
 const pickPlaceholder = () =>

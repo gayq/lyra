@@ -7,7 +7,7 @@ file_raw_mode = false
 use_real_ip_headers = true
 non_ws_response = "hi!! You should join discord.gg/dJvdkPRheV :3"
 max_message_size = 33554432
-log_level = "DEBUG"
+log_level = "WARN"
 runtime = "threadpercore"
 
 [wisp]

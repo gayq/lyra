@@ -1,9 +1,9 @@
 import { memo, createPortal } from "preact/compat";
 import { useEffect, useRef, useState, useCallback } from "preact/hooks";
-import { DEFAULT_BOOKMARKS } from "../core/config.js";
-import { canonicalize, getProxyUrl } from "../core/utils.js";
+import { DEFAULT_BOOKMARKS, type Bookmark } from "../core/config.ts";
+import { canonicalize } from "../core/utils.ts";
 
-function getBookmarks() {
+function getBookmarks(): Bookmark[] {
   try {
     const raw = localStorage.getItem("waves-bookmarks");
     if (!raw) {
@@ -17,11 +17,11 @@ function getBookmarks() {
   }
 }
 
-function saveBookmarks(bookmarks) {
+function saveBookmarks(bookmarks: Bookmark[]) {
   localStorage.setItem("waves-bookmarks", JSON.stringify(bookmarks));
 }
 
-const BookmarkIcon = memo(function BookmarkIcon({ bookmark }) {
+const BookmarkIcon = memo(function BookmarkIcon({ bookmark }: { bookmark: Bookmark }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
   const isFaIcon =
@@ -88,17 +88,17 @@ export default function Bookmarks() {
   const [bookmarks, setBookmarks] = useState(() => getBookmarks());
   const [isEditMode, setIsEditMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [editIndex, setEditIndex] = useState(null);
-  const nameRef = useRef(null);
-  const urlRef = useRef(null);
-  const dragRef = useRef({ draggedIndex: null });
+  const [editIndex, setEditIndex] = useState<number | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const urlRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<{ draggedIndex: number | null }>({ draggedIndex: null });
 
   const reload = useCallback(() => setBookmarks(getBookmarks()), []);
 
   useEffect(() => {
     const handler = () => reload();
     document.addEventListener("cloudsync-restored", handler);
-    const storageHandler = (e) => {
+    const storageHandler = (e: StorageEvent) => {
       if (e.key === "waves-bookmarks") reload();
     };
     window.addEventListener("storage", storageHandler);
@@ -108,21 +108,23 @@ export default function Bookmarks() {
     };
   }, [reload]);
 
-  const deleteBookmark = (index) => {
+  const deleteBookmark = (index: number) => {
     const bm = [...bookmarks];
     bm.splice(index, 1);
     saveBookmarks(bm);
     setBookmarks(bm);
   };
 
-  const openPrompt = (index = null) => {
+  const openPrompt = (index: number | null = null) => {
     setEditIndex(index);
     setShowPrompt(true);
     if (index !== null) {
       requestAnimationFrame(() => {
-        if (nameRef.current)
-          nameRef.current.value = bookmarks[index].name || "";
-        if (urlRef.current) urlRef.current.value = bookmarks[index].url || "";
+        const bm = bookmarks[index];
+        if (bm) {
+          if (nameRef.current) nameRef.current.value = bm.name || "";
+          if (urlRef.current) urlRef.current.value = bm.url || "";
+        }
       });
     }
   };
@@ -132,9 +134,9 @@ export default function Bookmarks() {
     setEditIndex(null);
   };
 
-  const handleSave = (closeWithAnimation) => {
-    const name = nameRef.current?.value.trim();
-    let rawUrl = urlRef.current?.value.trim();
+  const handleSave = (closeWithAnimation?: () => void) => {
+    const name = nameRef.current?.value?.trim() ?? "";
+    let rawUrl = urlRef.current?.value?.trim() ?? "";
     if (!name || !rawUrl) {
       window.showToast?.("error", "Name and URL cannot be empty!", "warning");
       return;
@@ -163,9 +165,9 @@ export default function Bookmarks() {
       return;
     }
 
-    const newBm = { name, url: canonUrl };
+    const newBm: Bookmark = { name, url: canonUrl };
     if (editIndex !== null && bookmarks[editIndex]?.icon)
-      newBm.icon = bookmarks[editIndex].icon;
+      newBm.icon = bookmarks[editIndex]!.icon;
     if (editIndex !== null) bm[editIndex] = newBm;
     else bm.push(newBm);
     saveBookmarks(bm);
@@ -173,28 +175,28 @@ export default function Bookmarks() {
     closeWithAnimation?.();
   };
 
-  const handleDragStart = (e, index) => {
+  const handleDragStart = (e: DragEvent, index: number) => {
     if (!isEditMode) {
       e.preventDefault();
       return;
     }
     dragRef.current.draggedIndex = index;
-    e.currentTarget.classList.add("dragging");
-    e.dataTransfer.effectAllowed = "move";
+    (e.currentTarget as HTMLElement).classList.add("dragging");
+    e.dataTransfer!.effectAllowed = "move";
   };
 
-  const handleDragOver = (e) => {
+  const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer!.dropEffect = "move";
   };
 
-  const handleDrop = (e, dropIndex) => {
+  const handleDrop = (e: DragEvent, dropIndex: number) => {
     e.preventDefault();
     const draggedIndex = dragRef.current.draggedIndex;
     if (draggedIndex === null || draggedIndex === dropIndex) return;
     const bm = [...bookmarks];
-    const [dragged] = bm.splice(draggedIndex, 1);
-    const rect = e.currentTarget.getBoundingClientRect();
+    const dragged = bm.splice(draggedIndex, 1)[0]!;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     let insertAt =
       e.clientX >= rect.left + rect.width / 2 ? dropIndex + 1 : dropIndex;
     if (insertAt > draggedIndex) insertAt--;
@@ -205,7 +207,7 @@ export default function Bookmarks() {
   };
 
   useEffect(() => {
-    window.hideBookmarkPrompt = (calledByOther) => closePrompt();
+    window.hideBookmarkPrompt = () => closePrompt();
   }, []);
 
   return (
@@ -238,9 +240,9 @@ export default function Bookmarks() {
               <a
                 href="#"
                 class="bookmark-link"
-                onClick={(e) => {
+                  onClick={(e) => {
                   e.preventDefault();
-                  window.WavesApp?.handleSearch(bookmark.url);
+                  (window.WavesApp as any)?.handleSearch(bookmark.url);
                 }}
               >
                 <BookmarkIcon bookmark={bookmark} />
@@ -292,10 +294,15 @@ export default function Bookmarks() {
   );
 }
 
-function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }) {
+function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }: {
+  nameRef: { current: HTMLInputElement | null };
+  urlRef: { current: HTMLInputElement | null };
+  onSave: (closeWithAnimation: () => void) => void;
+  onCancel: () => void;
+}) {
   const [isClosing, setIsClosing] = useState(false);
   const isClosingRef = useRef(false);
-  const promptRef = useRef(null);
+  const promptRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
@@ -323,7 +330,7 @@ function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }) {
       onCancel();
       return;
     }
-    const handler = (e) => {
+    const handler = (e: AnimationEvent) => {
       if (e.animationName === "fadeOut") onCancel();
     };
     el.addEventListener("animationend", handler, { once: true });
@@ -331,7 +338,7 @@ function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }) {
   }, [isClosing, onCancel]);
 
   useEffect(() => {
-    const fn = (e) => {
+    const fn = (e: KeyboardEvent) => {
       if (e.key === "Escape") handleClose();
     };
     document.addEventListener("keydown", fn);
@@ -339,7 +346,7 @@ function BookmarkPrompt({ nameRef, urlRef, onSave, onCancel }) {
   }, [handleClose]);
 
   useEffect(() => {
-    const fn = (e) => {
+    const fn = (e: MouseEvent) => {
       const overlay = document.getElementById("overlay");
       if (overlay && e.target === overlay) handleClose();
     };

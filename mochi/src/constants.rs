@@ -1,7 +1,6 @@
 pub const MOCHI_PREFIX: &str = "/!!/";
 pub const COVER_PREFIX: &str = "/!cover!/";
-
-pub const SCRIPT_PART_1: &str = r##"<script>
+pub const PART_1: &str = r##"<script>
 (function() {
     var _U = window.URL;
     try {
@@ -59,7 +58,7 @@ pub const SCRIPT_PART_1: &str = r##"<script>
     window.__MOCHI_PREFIX__="/!!/";
     window.__MOCHI_TARGET__=""##;
 
-pub const SCRIPT_PART_2: &str = r##"";
+pub const PART_2: &str = r##"";
     window.__MOCHI_BASE__ = window.__MOCHI_BASE__ || ((window.location.origin || "") + window.__MOCHI_PREFIX__);
     
     try {
@@ -258,5 +257,6 @@ pub const SCRIPT_PART_2: &str = r##"";
         AdErrorEvent: { Type: { AD_ERROR: 'adError' } },
         ViewMode: { NORMAL: 'normal' }
     };
+    window.__tcfapi = function(a,b,c) { if (typeof c === 'function') c(null, false); };
 })()
 </script>"##;

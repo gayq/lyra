@@ -415,7 +415,6 @@ async function prefetchProxiedNavFromClient(urlStr) {
   if (!p.startsWith("/b/s/") && !p.startsWith("/b/u/")) return;
   if (adBlocked(adTarget(urlStr), false)) return;
   if (!trackPrefetchUrl(urlStr)) return;
-  console.log("starting prefetch for", urlStr);
   const req = new Request(urlStr, { method: "GET" });
   const event = {
     request: req,
@@ -430,21 +429,9 @@ async function prefetchProxiedNavFromClient(urlStr) {
   };
   try {
     const res = await handlePrefetchProxyRequest(event);
-    if (res && res.ok) {
-      console.log(
-        "prefetched and finished ok:",
-        urlStr,
-        "status=" + res.status,
-      );
-    } else {
-      console.warn(
-        "prefetch finished without usable response:",
-        urlStr,
-        res ? "status=" + res.status : "no response",
-      );
-    }
+    if (!res || !res.ok) return;
   } catch (e) {
-    console.warn("prefetch failed:", urlStr, e && e.message ? e.message : e);
+    return;
   }
 }
 
@@ -502,7 +489,6 @@ async function warmSubresources(htmlText, navRealUrl) {
       } catch (e) {}
     }
     if (jobs.length > 0) {
-      console.log("warming", jobs.length, "subresources for prefetched nav");
       await Promise.allSettled(jobs);
     }
   } catch (e) {}

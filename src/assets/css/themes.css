@@ -146,7 +146,6 @@
     --game-search-icon-focus: #ffffff7f;
 
     --brand-color: #fff;
-    --iframe-loaded-bg: #fff;
 }
 
 [data-theme="catppuccin"] {
@@ -296,7 +295,6 @@
     --game-search-icon-focus: #a6adc8bb;
 
     --brand-color: #cdd6f4;
-    --iframe-loaded-bg: #cdd6f4;
 }
 
 [data-theme="nord"] {
@@ -446,7 +444,6 @@
     --game-search-icon-focus: #d8dee9bb;
 
     --brand-color: #eceff4;
-    --iframe-loaded-bg: #eceff4;
 }
 
 [data-theme="rose pine"] {
@@ -596,7 +593,6 @@
     --game-search-icon-focus: #908caabb;
 
     --brand-color: #e0def4;
-    --iframe-loaded-bg: #e0def4;
 }
 
 [data-theme="gruvbox"] {
@@ -746,7 +742,6 @@
     --game-search-icon-focus: #d5c4a1bb;
 
     --brand-color: #ebdbb2;
-    --iframe-loaded-bg: #ebdbb2;
 }
 
 [data-theme="dracula"] {
@@ -896,7 +891,6 @@
     --game-search-icon-focus: #8892b4bb;
 
     --brand-color: #f8f8f2;
-    --iframe-loaded-bg: #f8f8f2;
 }
 
 [data-theme="synthwave"] {
@@ -1046,7 +1040,6 @@
     --game-search-icon-focus: #b8a0ccbb;
 
     --brand-color: #f0e0ff;
-    --iframe-loaded-bg: #f0e0ff;
 }
 
 [data-theme="tokyo night"] {
@@ -1196,7 +1189,6 @@
     --game-search-icon-focus: #a9b1d6bb;
 
     --brand-color: #c0caf5;
-    --iframe-loaded-bg: #c0caf5;
 }
 
 [data-theme="everforest"] {
@@ -1346,7 +1338,6 @@
     --game-search-icon-focus: #c5b899bb;
 
     --brand-color: #d3c6aa;
-    --iframe-loaded-bg: #d3c6aa;
 }
 
 [data-theme="kanagawa"] {
@@ -1496,7 +1487,6 @@
     --game-search-icon-focus: #c8c093bb;
 
     --brand-color: #dcd7ba;
-    --iframe-loaded-bg: #dcd7ba;
 }
 
 [data-theme="solarized"] {
@@ -1646,7 +1636,6 @@
     --game-search-icon-focus: #839496bb;
 
     --brand-color: #93a1a1;
-    --iframe-loaded-bg: #93a1a1;
 }
 
 [data-theme="sakura"] {
@@ -1796,5 +1785,4 @@
     --game-search-icon-focus: #d0b8c8bb;
 
     --brand-color: #fff0f6;
-    --iframe-loaded-bg: #fff0f6;
 }

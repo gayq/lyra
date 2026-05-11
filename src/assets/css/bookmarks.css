@@ -37,7 +37,7 @@
   cursor: pointer;
   padding: 5.5px 10px;
   border-radius: 10px;
-  transition: color 0.05s ease, background-color 0.05s ease, transform 0.05s ease;
+  transition: color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
   user-select: none;
 }
 
@@ -92,7 +92,7 @@
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
-  transition: background-color 0.05s ease, transform 0.05s ease;
+  transition: background-color 0.1s ease, transform 0.1s ease;
   padding: 5px;
   word-break: break-all;
 }

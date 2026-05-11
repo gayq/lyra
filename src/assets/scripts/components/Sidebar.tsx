@@ -1,11 +1,11 @@
 import { useState, useMemo, useCallback } from "preact/hooks";
-import { store, useStore } from "../state/store.js";
-import { sidebarHiddenSignal, setSidebarHidden } from "../core/uiSignals";
+import { store, useStore } from "../state/store.ts";
+import { sidebarHiddenSignal } from "../core/uiSignals";
 
 const DEFAULT_FAVICON =
   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="%23818181" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1h-2v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>';
 
-function TabIcon({ favicon }) {
+function TabIcon({ favicon }: { favicon?: string | null }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
   const src = favicon || DEFAULT_FAVICON;
@@ -26,7 +26,19 @@ function TabIcon({ favicon }) {
   );
 }
 
-function Tab({ tab, isActive, isSplitPair, splitSide, showClose }) {
+function Tab({
+  tab,
+  isActive,
+  isSplitPair,
+  splitSide,
+  showClose,
+}: {
+  tab: { id: number; title: string; favicon: string | null };
+  isActive: boolean;
+  isSplitPair: boolean;
+  splitSide: string | null;
+  showClose: boolean;
+}) {
   const classes = ["tab"];
   if (isActive) classes.push("active");
   if (isSplitPair) {
@@ -38,15 +50,15 @@ function Tab({ tab, isActive, isSplitPair, splitSide, showClose }) {
   }
 
   const onTabClick = useCallback(
-    (e) => {
-      if (e.target.closest(".tab-close")) return;
+    (e: MouseEvent) => {
+      if (e.target && (e.target as HTMLElement).closest(".tab-close")) return;
       store.switchTab(tab.id);
     },
     [tab.id],
   );
 
   const onCloseClick = useCallback(
-    (e) => {
+    (e: MouseEvent) => {
       e.stopPropagation();
       store.closeTab(tab.id);
     },
@@ -59,7 +71,7 @@ function Tab({ tab, isActive, isSplitPair, splitSide, showClose }) {
       data-tab-id={tab.id}
       onClick={onTabClick}
     >
-      <TabIcon favicon={tab.favicon} key={tab.favicon} />
+      <TabIcon favicon={tab.favicon} />
       <span class="tab-title">{tab.title}</span>
       <button
         class="tab-close"
@@ -122,11 +134,6 @@ export default function Sidebar() {
     document.getElementById("new-tab-modal")?.classList.add("is-visible");
   }, []);
 
-  const handleToggleSidebar = (e) => {
-    e.preventDefault();
-    setSidebarHidden(!sidebarHiddenSignal.value);
-  };
-
   return (
     <nav class="sidebar">
       <div class="tabs-header">
@@ -135,7 +142,7 @@ export default function Sidebar() {
       <button
         id="add-tab-btn"
         onClick={openNewTabModal}
-        aria-pressed={sidebarHiddenSignal.value}
+        aria-pressed={sidebarHiddenSignal}
       >
         <i class="fa-regular fa-plus"></i> new tab
       </button>
@@ -152,6 +159,10 @@ export default function Sidebar() {
             />
           );
         })}
+      </div>
+      <div id="sidebar-footer" class="sidebar-footer">
+        <div class="sidebar-footer-oneko"></div>
+        <span class="sidebar-footer-text">loading...</span>
       </div>
     </nav>
   );

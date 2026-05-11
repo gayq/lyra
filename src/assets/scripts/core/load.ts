@@ -1,4 +1,4 @@
-import { attachSearchLight } from "./searchLight.js";
+import { attachSearchLight } from "./searchLight.ts";
 
 declare global {
   interface Window {
@@ -23,6 +23,7 @@ declare global {
     toggleSettingsMenu?: () => void;
     hideBookmarkPrompt?: (calledByOther: boolean) => void;
     __wavesUpdatePollerStarted?: boolean;
+    __wavesStuffData?: Promise<Record<string, unknown> | null>;
   }
 }
 
@@ -145,8 +146,8 @@ export function initializeLoad(): void {
         document.body.appendChild(this.successEl);
         this.successEl.innerHTML = `
             <i class="fa-solid fa-check-circle" style="font-size:40px;margin-bottom:15px;"></i>
-            <label>successfully updated ฅ^>⩊<^ฅ</label>
-            <p>if you don't see any changes or the site breaks, do Ctrl + Shift + R a few times.</p>
+            <label>successfully updated! ฅ^>⩊<^ฅ</label>
+            <p>if you don't see any changes or the site breaks, do ctrl + shift + r a few times!</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }
@@ -246,9 +247,10 @@ export function initializeLoad(): void {
     },
     async checkVersion() {
       try {
-        const res = await fetch("/api/stuff", { cache: "no-store" });
-        if (!res.ok) return;
-        const { version, build } = parseStuffResponse(await res.json());
+        if (!window.__wavesStuffData) return;
+        const data = await window.__wavesStuffData;
+        if (!data) return;
+        const { version, build } = parseStuffResponse(data);
         const currentStamp = `${version}:${build || ""}`;
         const prevStamp = localStorage.getItem("wavesVersionStamp");
         const prev = localStorage.getItem("wavesVersion");
@@ -270,6 +272,9 @@ export function initializeLoad(): void {
     window.__wavesUpdatePollerStarted = true;
     window.setInterval(() => {
       if (document.visibilityState === "visible") {
+        window.__wavesStuffData = fetch("/api/stuff", { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() : null))
+          .catch(() => null);
         void window.wavesUpdater.checkVersion();
       }
     }, 5 * 60 * 1000);
@@ -345,7 +350,7 @@ export function initializeLoad(): void {
     },
     showWarningPrompt() {
       if (!this.shareEl) return false;
-      if (document.getElementById("root")) return false;
+      if (document.getElementById("ixl-cloak")) return false;
       if (!this.overlay) this.overlay = document.getElementById("overlay");
       if (!this.overlay) return false;
 

@@ -1,5 +1,5 @@
-import { showLoading, hideLoading } from "../state/store.js";
-import { decodeUrl, getProxyUrl } from "./utils";
+import { showLoading, hideLoading } from "../state/store.ts";
+import { decodeUrl, getProxyUrl, normalizeGameHistoryUrl } from "./utils";
 
 interface WavesTab {
   id: number;
@@ -8,6 +8,9 @@ interface WavesTab {
   favicon: string | null;
   isUrlLoaded: boolean;
   isLoading: boolean;
+  fixedTitle?: boolean;
+  fixedFavicon?: boolean;
+  gameDisplayByUrl?: Record<string, string>;
   historyManager?: {
     getCurrentUrl(): string | null;
     canGoBack(): boolean;
@@ -37,33 +40,6 @@ declare global {
 }
 
 let loadingTimeout: ReturnType<typeof setTimeout> | null = null;
-
-const normalizeGameHistoryUrl = (
-  candidate: string | null | undefined,
-): string | null => {
-  if (!candidate || typeof candidate !== "string") return null;
-  try {
-    const parsed = new URL(candidate);
-    if (parsed.hostname && parsed.hostname.includes("gn-math.dev")) {
-      const rawId = parsed.searchParams.get("id");
-      if (rawId) {
-        const decodedId = decodeURIComponent(String(rawId)).trim();
-        const cleanId = (decodedId.split(/[?&#]/)[0] as string).trim();
-        if (cleanId) {
-          return `${parsed.protocol}//${parsed.host}/?id=${encodeURIComponent(cleanId)}`;
-        }
-      }
-    }
-    let pathname = parsed.pathname || "/";
-    pathname = pathname.replace(/\/+$/, "");
-    if (!pathname) pathname = "/";
-    pathname = pathname.replace(/\/index\.(html?|php)$/i, "");
-    if (!pathname) pathname = "/";
-    return `${parsed.protocol}//${parsed.host}${pathname}${parsed.search}`;
-  } catch (e) {
-    return candidate.trim().replace(/\/+$/, "").toLowerCase();
-  }
-};
 
 function getTabIdFromIframe(iframe: HTMLIFrameElement): number | null {
   if (!iframe) return null;
@@ -125,7 +101,7 @@ export function stopIframeLoading(iframe: HTMLIFrameElement): void {
 
   updateTabDetails(iframe);
 
-  hideLoading(tabId);
+  hideLoading(tabId ?? undefined);
   window.WavesApp.isLoading = false;
   iframe.parentElement?.classList.add("loaded");
 
@@ -161,7 +137,7 @@ export function navigateIframeTo(iframe: HTMLIFrameElement, url: string): void {
   if (!url || !iframe) return;
   const iframeExt = iframe as HTMLIFrameElement & Record<string, unknown>;
   const tab = window.WavesApp.tabs!.find((t) => t.iframe === iframe);
-  showLoading(tab?.id || getTabIdFromIframe(iframe));
+  showLoading((tab?.id || getTabIdFromIframe(iframe)) ?? undefined);
   window.WavesApp.isLoading = true;
   delete iframe.dataset.reloadAttempted;
   iframe.parentElement?.classList.remove("loaded");
@@ -254,9 +230,35 @@ export function cleanupIframe(iframe: HTMLIFrameElement): void {
 
 interface WavesSuspendState {
   hiddenPatched?: boolean;
+  rafSuspended?: boolean;
 }
 
 const SUSPEND_KEY = "__wavesSuspend";
+
+function trySuspendAnimations(win: Window & typeof globalThis): void {
+  try {
+    (win as any).__wavesSuspendedRAF = win.requestAnimationFrame;
+    (win as any).__wavesSuspendedCAF = win.cancelAnimationFrame;
+    let pending = 0;
+    const id = win.requestAnimationFrame(() => {
+      pending--;
+    });
+    win.cancelAnimationFrame(id);
+    (win as any).requestAnimationFrame = () => 0;
+    (win as any).cancelAnimationFrame = () => {};
+  } catch (e) {}
+}
+
+function tryRestoreAnimations(win: Window & typeof globalThis): void {
+  try {
+    if ((win as any).__wavesSuspendedRAF) {
+      win.requestAnimationFrame = (win as any).__wavesSuspendedRAF;
+      win.cancelAnimationFrame = (win as any).__wavesSuspendedCAF;
+      (win as any).__wavesSuspendedRAF = undefined;
+      (win as any).__wavesSuspendedCAF = undefined;
+    }
+  } catch (e) {}
+}
 
 export function reduceIframeMemory(iframe: HTMLIFrameElement): void {
   if (!iframe) return;
@@ -280,6 +282,8 @@ export function reduceIframeMemory(iframe: HTMLIFrameElement): void {
       iframe.blur();
       win.blur?.();
     } catch (e) {}
+
+    iframe.setAttribute("loading", "lazy");
 
     let doc: Document | null = null;
     try {
@@ -306,6 +310,11 @@ export function reduceIframeMemory(iframe: HTMLIFrameElement): void {
         doc.dispatchEvent(new Event("visibilitychange"));
       } catch (e) {}
     } catch (e) {}
+
+    try {
+      trySuspendAnimations(win);
+      state.rafSuspended = true;
+    } catch (e) {}
   } catch (e) {}
 
   iframeExt[SUSPEND_KEY] = state;
@@ -319,11 +328,19 @@ export function restoreIframeMemory(iframe: HTMLIFrameElement): void {
   if (!state) return;
   iframeExt[SUSPEND_KEY] = undefined;
 
+  iframe.removeAttribute("loading");
+
   let doc: Document | null = null;
+  let win: Window | null = null;
   try {
+    win = iframe.contentWindow;
     doc = iframe.contentWindow?.document ?? null;
   } catch (e) {
     doc = null;
+  }
+
+  if (win && state.rafSuspended) {
+    tryRestoreAnimations(win as Window & typeof globalThis);
   }
 
   if (doc && state.hiddenPatched) {
@@ -480,7 +497,7 @@ function setupIframeContentListeners(
     }
 
     const beforeUnloadHandler = () => {
-      showLoading(tabId);
+      showLoading(tabId ?? undefined);
       window.WavesApp.isLoading = true;
       iframe.parentElement?.classList.remove("loaded");
       const tab = window.WavesApp.tabs!.find((t) => t.id === tabId);
@@ -533,12 +550,15 @@ let _searchInputNav: HTMLInputElement | null = null;
 let _backIcon: HTMLElement | null = null;
 let _forwardIcon: HTMLElement | null = null;
 let _lockIcon: HTMLElement | null = null;
+let _navElCheckCount = 0;
 
 function getNavEls() {
-  if (!_searchInputNav) _searchInputNav = document.getElementById("searchInputt") as HTMLInputElement | null;
-  if (!_backIcon) _backIcon = document.getElementById("backIcon");
-  if (!_forwardIcon) _forwardIcon = document.getElementById("forwardIcon");
-  if (!_lockIcon) _lockIcon = document.getElementById("lockIcon");
+  _navElCheckCount++;
+  const needsRefresh = _navElCheckCount % 100 === 0;
+  if (!_searchInputNav || needsRefresh) _searchInputNav = document.getElementById("searchInputt") as HTMLInputElement | null;
+  if (!_backIcon || needsRefresh) _backIcon = document.getElementById("backIcon");
+  if (!_forwardIcon || needsRefresh) _forwardIcon = document.getElementById("forwardIcon");
+  if (!_lockIcon || needsRefresh) _lockIcon = document.getElementById("lockIcon");
 }
 
 export function updateHistoryUI(
@@ -646,7 +666,7 @@ export function initializeIframe(
       clearTimeout(iframeExt.__usableTimeout as ReturnType<typeof setTimeout>);
       iframeExt.__usableTimeout = null;
     }
-    hideLoading(tabId);
+    hideLoading(tabId ?? undefined);
     window.WavesApp.isLoading = false;
   };
 
@@ -671,7 +691,7 @@ export function initializeIframe(
 
     updateTabDetails(iframe);
 
-    hideLoading(tabId);
+    hideLoading(tabId ?? undefined);
     window.WavesApp.isLoading = false;
     iframe.parentElement?.classList.add("loaded");
 

@@ -11,9 +11,7 @@
   color: var(--text-primary);
   text-align: center;
   display: none;
-  transition:
-    opacity 0.1s ease,
-    transform 0.1s ease;
+  transition: opacity 0.1s ease, transform 0.1s ease;
   height: 430px;
   max-height: 80vh;
   flex-direction: column;
@@ -88,7 +86,7 @@
   z-index: 1000;
   outline: none;
   display: inline-flex;
-  transition: color 0.05s ease, transform 0.05s ease;
+  transition: color 0.1s ease, transform 0.1s ease;
 }
 
 #close-settings-menu:hover {
@@ -127,7 +125,7 @@
   max-width: 255px;
   margin-bottom: 15px;
   user-select: none;
-  transition: background-color 0.05s ease;
+  transition: background-color 0.1s ease;
 }
 
 .transport-selected,
@@ -146,7 +144,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: background-color 0.05s ease;
+  transition: background-color 0.1s ease;
 }
 
 .transport-selected:hover,
@@ -239,7 +237,7 @@
   cursor: pointer;
   width: 93%;
   margin: 0 auto;
-  transition: background-color 0.05s ease, color 0.05s ease;
+  transition: background-color 0.1s ease, color 0.1s ease;
 }
 
 .transport-options div:hover,
@@ -280,7 +278,7 @@ input[type="checkbox"]::before {
   position: absolute;
   top: 5px;
   left: 6px;
-  transition: transform 0.05s ease, background-color 0.05s ease, width 0.05s ease, height 0.05s ease, top 0.05s ease, left 0.05s ease;
+  transition: transform 0.1s ease, background-color 0.1s ease, width 0.1s ease, height 0.1s ease, top 0.1s ease, left 0.1s ease;
 }
 
 input[type="checkbox"]:hover::before {
@@ -385,11 +383,12 @@ input[type="checkbox"]:checked:hover::before {
 
 .settings-bottom {
   margin-top: auto;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--color-version);
   cursor: text;
   text-align: left;
   padding-left: 2px;
+  user-select: text;
 }
 
 .settings-item {

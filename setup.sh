@@ -173,7 +173,12 @@ if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok instal
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
   retry 3 sudo apt-get update -y
-  retry 3 sudo apt-get install -y caddy
+  retry 3 sudo apt-get install -y --no-install-recommends caddy
+fi
+
+if [ -f /etc/sysctl.d/99-waves-optimizations.conf ]; then
+  sudo cp /etc/sysctl.d/99-waves-optimizations.conf /etc/sysctl.d/99-waves-optimizations.conf.bak.$(date +%s)
+  echo "[setup] backed up existing sysctl config"
 fi
 
 cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
@@ -191,7 +196,7 @@ net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.ip_local_port_range = 1024 65535
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
-net.ipv6.conf.lo.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 0
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.udp_rmem_min = 8192
@@ -207,10 +212,10 @@ net.ipv4.tcp_wmem = 4096 65536 16777216
 net.ipv4.tcp_mtu_probing = 1
 net.ipv4.tcp_timestamps = 1
 net.ipv4.tcp_sack = 1
-net.ipv4.tcp_keepalive_time = 60
-net.ipv4.tcp_keepalive_intvl = 10
-net.ipv4.tcp_keepalive_probes = 6
-net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_intvl = 30
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_fin_timeout = 10
 EOF
 sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
 
@@ -239,6 +244,11 @@ PUBLIC_IP="$(curl -s4 --max-time 8 ifconfig.me || true)"
 if [ -z "$PUBLIC_IP" ]; then
   echo "couldn't detect public ip!"
   exit 1
+fi
+
+if [ -f /etc/eturnal.yml ]; then
+  sudo cp /etc/eturnal.yml /etc/eturnal.yml.bak.$(date +%s)
+  echo "[setup] backed up existing eturnal config"
 fi
 
 sudo tee /etc/eturnal.yml <<EOF
@@ -316,7 +326,8 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
-retry 3 sudo docker pull ghcr.io/techarohq/anubis:latest
+ANUBIS_TAG="v0.3.16"
+retry 3 sudo docker pull "ghcr.io/techarohq/anubis:${ANUBIS_TAG}"
 
 if sudo docker ps -a | grep -q "anubis"; then
     sudo docker stop anubis 2>/dev/null || true
@@ -341,17 +352,27 @@ sudo docker run -d --name anubis \
     -e OG_PASSTHROUGH="true" \
     -e POLICY_FNAME=/botPolicies.yaml \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
-    ghcr.io/techarohq/anubis:latest
+    "ghcr.io/techarohq/anubis:${ANUBIS_TAG}"
 
-"$BUN_BIN" run build
+"$BUN_BIN" --bun run build
 
 sudo mkdir -p /etc/nuru /etc/systemd/system/caddy.service.d
+
+if [ -f /etc/systemd/system/caddy.service.d/override.conf ]; then
+  sudo cp /etc/systemd/system/caddy.service.d/override.conf /etc/systemd/system/caddy.service.d/override.conf.bak.$(date +%s)
+  echo "[setup] backed up existing caddy override config"
+fi
 
 sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
 [Service]
 Environment="NO_PROXY=127.0.0.1"
 EOF
 sudo systemctl daemon-reload
+
+if [ -f /etc/caddy/Caddyfile ]; then
+  sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%s)
+  echo "[setup] backed up existing caddy config"
+fi
 
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
@@ -457,6 +478,32 @@ else
   exit 1
 fi
 
+# --- auto-detect RAM for PM2 memory limits ---
+TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || free -m | awk '/^Mem:/ {print $2}' 2>/dev/null || 8192)
+[ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -le 0 ] && TOTAL_RAM_MB=8192
+log "detected ${TOTAL_RAM_MB}MB RAM, computing memory limits..."
+
+# percentages based on each service's self-tuning:
+#   mochi: cache = ram/48 MB → needs moderate headroom for proxying + lol_html
+#   nuru:  threadpercore (1 thread/core) + 500K DNS cache entries + jemalloc
+#   waves: express + LRU cache (400MB) + Bun JS heap
+#   cloudsync: SQLite mmap (128-512MB) + page cache (16-128MB) + pool
+#   ask: simple domain-approval server → fixed 256M
+# total target: ~70% of RAM, leaving 30% for OS + Docker/Anubis + Caddy + Eturnal
+calc_mem() {
+  local pct=$1 min=$2 max=$3
+  local val=$(( TOTAL_RAM_MB * pct / 100 ))
+  [ "$val" -lt "$min" ] && val=$min
+  [ "$val" -gt "$max" ] && val=$max
+  echo "$val"
+}
+
+WAVES_MEM="$(calc_mem 16 256 2560)M"
+MOCHI_MEM="$(calc_mem 24 384 5120)M"
+CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
+NURU_MEM="$(calc_mem 22 512 4608)M"
+log "memory limits — waves: $WAVES_MEM, mochi: $MOCHI_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM"
+
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
 
@@ -465,24 +512,30 @@ module.exports = {
   apps: [
     {
       name: "ask",
-      script: "$BUN_BIN",
-      args: "run ask.js",
+      script: "ask.js",
+      interpreter: "$BUN_BIN",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
+      max_restarts: 10,
+      min_uptime: 10000,
       max_memory_restart: "256M"
     },
     {
       name: "waves",
-      script: "$BUN_BIN",
-      args: "run index.mjs",
+      script: "index.mjs",
+      interpreter: "$BUN_BIN",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
-      max_memory_restart: "4G",
+      max_restarts: 5,
+      min_uptime: 15000,
+      kill_timeout: 10000,
+      max_memory_restart: "$WAVES_MEM",
       env: {
         NODE_ENV: "production",
-        PORT: "3000"
+        PORT: "3000",
+        UV_THREADPOOL_SIZE: "32"
       }
     },
     {
@@ -490,11 +543,14 @@ module.exports = {
       script: "./mochi/target/release/mochi", 
       interpreter: "none", 
       exec_mode: "fork",
-      instances: 1, 
+      instances: 1,
       autorestart: true,
-      max_memory_restart: "8G", 
+      max_restarts: 10,
+      min_uptime: 10000,
+      kill_timeout: 5000,
+      max_memory_restart: "$MOCHI_MEM",
       env: {
-        RUST_LOG: "info",
+        RUST_LOG: "warn",
         MOCHI_PORT: "4000"
       }
     },
@@ -506,9 +562,13 @@ module.exports = {
       exec_mode: "fork",
       instances: 1, 
       autorestart: true,
-      max_memory_restart: "1G",
+      max_memory_restart: "$CLOUDSYNC_MEM",
+      max_restarts: 10,
+      min_uptime: 10000,
+      kill_timeout: 5000,
       env: {
-        RUST_LOG: "info"
+        RUST_LOG: "warn",
+        CLOUDSYNC_DB_PATH: "$ROOT/cloudsync/.db"
       }
     },
     {
@@ -518,7 +578,10 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
-      max_memory_restart: "8G",
+      max_memory_restart: "$NURU_MEM",
+      max_restarts: 10,
+      min_uptime: 10000,
+      kill_timeout: 5000,
       env: {
         RUST_LOG: "off",
         LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
@@ -569,6 +632,7 @@ fi
 if [ -d "cloudsync" ]; then
     echo "JWT_SECRET=$JWT_SECRET" > cloudsync/.env
     echo "SYNC_SECRET=$SYNC_SECRET" >> cloudsync/.env
+    echo "COOKIE_SECURE=true" >> cloudsync/.env
     chmod 600 cloudsync/.env
     if [ -f cloudsync/.env ]; then
       echo "[setup] cloudsync/.env applied!"

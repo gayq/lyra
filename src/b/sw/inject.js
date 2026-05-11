@@ -1,863 +1,459 @@
-const SPA_PATCH = `
+const INJECT_SHARED_PREAMBLE = `
 <script>
 (function(){
-  function roErr(e){
-    try{
-      var m=e&&e.message!=null?String(e.message):'';
-      if(m.indexOf('ResizeObserver')!==-1)return true;
-    }catch(x){}
-    return false;
-  }
-  function roRej(e){
-    try{
-      var r=e&&e.reason;
-      var m=r&&(typeof r.message==='string'?r.message:(r&&r.toString&&r.toString())||'')||'';
-      if(String(m).indexOf('ResizeObserver')!==-1)return true;
-    }catch(x){}
-    return false;
-  }
-  window.addEventListener('error',function(e){
-    if(roErr(e)){
-      e.preventDefault();
-      e.stopImmediatePropagation();
+var _P='${MOCHI_PREFIX}',_U='${UV_PREFIX}',_S=${isScramjet},_V=${isUltraviolet};
+var _K='q7Zx!9pL',_xd=function(s){var o='';for(var i=0;i<s.length;i++)o+=String.fromCharCode(s.charCodeAt(i)^_K.charCodeAt(i%_K.length));return o;};
+var dU=function(h){
+  if(!h)return h;
+  try{
+    var u=new URL(h,location.origin);
+    if(u.pathname.startsWith(_P)){
+      var p=u.pathname.slice(_P.length);
+      if(p.endsWith('/'))p=p.slice(0,-1);
+      try{
+        var r=p.replace(/-/g,'+').replace(/_/g,'/');
+        while(r.length%4)r+='=';
+        var d=_xd(atob(r));
+        d=decodeURIComponent(d);
+        if(d.indexOf('http://')===0||d.indexOf('https://')===0)return d+u.search+u.hash
+      }catch(e){}
+      if(p.indexOf('http://')===0||p.indexOf('https://')===0)return p+u.search+u.hash;
+      return p+u.search+u.hash
     }
-  },true);
-  window.addEventListener('unhandledrejection',function(e){
-    if(roRej(e))e.preventDefault();
-  });
-  var h=location.hostname||'';
-  if(h.indexOf('discord.com')!==-1||h.indexOf('discordapp.com')!==-1){
-    try{
-      window.__SENTRY__={hub:{getClient:function(){return{getOptions:function(){return{};}};}}};
-    }catch(x){}
-    try{localStorage.setItem('hideMessageRequests','true');}catch(e){}
-  }
-})();
-</script>
+    if(_S&&u.pathname.indexOf('/b/s/')===0){
+      var raw=u.pathname.slice(5)+u.search+u.hash;
+      try{return decodeURIComponent(raw)}catch(e){return raw}
+    }
+    if(_V){
+      try{
+        var pf=(self.__uv$config&&self.__uv$config.prefix)||_U;
+        if(u.pathname.indexOf(pf)===0&&self.__uv$config&&typeof self.__uv$config.decodeUrl==='function')
+          return self.__uv$config.decodeUrl(u.pathname.slice(pf.length))+u.search+u.hash
+      }catch(e){}
+    }
+    return u.href
+  }catch(e){return h}
+};
 `;
 
-const SOUNDCLOUD_PATCH = `
-<script>
+const SPA_PATCH = `
 (function(){
-  const MOCHI_PREFIX='${MOCHI_PREFIX}';
-  const UV_PREFIX='${UV_PREFIX}';
-  const isScramjet=${isScramjet ? "true" : "false"};
-  const isUltraviolet=${isUltraviolet ? "true" : "false"};
-  const _MK2='q7Zx!9pL';
-  const _xorDec=(s)=>{let o='';for(let i=0;i<s.length;i++){o+=String.fromCharCode(s.charCodeAt(i)^_MK2.charCodeAt(i%_MK2.length));}return o;};
-  const decUrl=(href)=>{
-    if(!href) return href;
-    try{
-      const u=new URL(href, window.location.origin);
-      if(u.pathname.startsWith(MOCHI_PREFIX)){
-        let encodedPart = u.pathname.slice(MOCHI_PREFIX.length);
-        if (encodedPart.endsWith('/')) encodedPart = encodedPart.slice(0, -1);
-        try {
-            let p = encodedPart.replace(/-/g, '+').replace(/_/g, '/');
-            while (p.length % 4) { p += '='; }
-            let raw = atob(p);
-            let dec = _xorDec(raw);
-            let result = decodeURIComponent(dec);
-            if (result.startsWith('http://') || result.startsWith('https://')) {
-                return result + u.search + u.hash;
-            }
-        } catch(e) {}
-        if (encodedPart.startsWith('http://') || encodedPart.startsWith('https://')) {
-            return encodedPart + u.search + u.hash;
-        }
-        return encodedPart + u.search + u.hash;
-      }
-      if(isScramjet && u.pathname.startsWith('/b/s/')){
-        const raw=u.pathname.slice(5)+u.search+u.hash;
-        try{return decodeURIComponent(raw);}catch(e){return raw;}
-      }
-      if(isUltraviolet){
-        try{
-          const prefix=(window.__uv$config && window.__uv$config.prefix) || UV_PREFIX;
-          if(u.pathname.startsWith(prefix) && window.__uv$config && typeof window.__uv$config.decodeUrl==='function'){
-            const encoded=u.pathname.slice(prefix.length);
-            return window.__uv$config.decodeUrl(encoded)+u.search+u.hash;
-          }
-        }catch(e){}
-      }
-      return u.href;
-    }catch(e){
-      return href;
-    }
-  };
-  const initSoundcloudPatch=()=>{
-    try{
-      const onSoundcloud=()=>{
-        try{
-          const host=(location.hostname||'').toLowerCase();
-          if(host.includes('soundcloud.com')) return true;
-          const href=window.location.href||'';
-          if(!href) return false;
-          try{
-            const decoded=decUrl(href)||'';
-            if(decoded && decoded.includes('soundcloud.com')) return true;
-          }catch(e){}
-          try{
-            const url=new URL(href);
-            const pathname=url.pathname||'';
-            if(pathname.includes('soundcloud.com')) return true;
-          }catch(e){}
-          return false;
-        }catch(e){ return false; }
-      };
-      if(!onSoundcloud()) return;
-      const closeSelector='button.modal__closeButton, .modal.auth-modal button[title="Close"]';
-      const authOverlaySelector='#app .sign-in-up-form, #app .connect-form-title-ui-evo, main.vertically-centered-ui-evo';
-      const floatingShellSelector='.modalWhiteout, .g-z-index-modal-background, .g-z-index-overlay, .g-backdrop-filter-grayscale';
-      const authIframeSelector='iframe[src*="secure.soundcloud.com/web-auth"], iframe[scramjet-attr-src*="secure.soundcloud.com/web-auth"], iframe[src*="embedded_in_iframe=true"], iframe[scramjet-attr-src*="embedded_in_iframe=true"]';
-      const promotionBannerSelector='div.banner.m-promotion, .banner.m-promotion.primary, .banner.l-inner-fullwidth.primary';
-      const hideOrRemoveModal=(fromButton)=>{
-        try{
-          const modal=fromButton ? fromButton.closest('.modal.auth-modal, .modal') : null;
-          if(!modal) return;
-          modal.style.setProperty('display','none','important');
-          modal.style.setProperty('visibility','hidden','important');
-          modal.style.setProperty('opacity','0','important');
-          if(modal.parentNode) modal.parentNode.removeChild(modal);
-        }catch(err){}
-      };
-      const resetPageLock=()=>{
-        try{
-          const pageNodes=[document.documentElement, document.body];
-          for(const node of pageNodes){
-            if(!node || !node.style) continue;
-            node.style.removeProperty('overflow');
-            node.style.removeProperty('overflow-y');
-            node.style.removeProperty('padding-right');
-            node.style.removeProperty('position');
-          }
-        }catch(err){}
-      };
-      const removeFloatingShells=()=>{
-        try{
-          const shells=document.querySelectorAll(floatingShellSelector);
-          for(const shell of shells){
-            if(!shell) continue;
-            const hasAuthContent=shell.querySelector('.sign-in-up-form, .connect-form-title-ui-evo, button.modal__closeButton');
-            const isDetachedOverlay=!hasAuthContent;
-            if(isDetachedOverlay){
-              shell.style.setProperty('display','none','important');
-              shell.style.setProperty('visibility','hidden','important');
-              shell.style.setProperty('opacity','0','important');
-              if(shell.parentNode) shell.parentNode.removeChild(shell);
-            }
-          }
-        }catch(err){}
-      };
-      const removeEmptyAppShell=()=>{
-        try{
-          const app=document.getElementById('app');
-          if(!app) return;
-          const first=app.firstElementChild;
-          if(first && app.childElementCount===1 && first.childElementCount===0){
-            first.style.setProperty('display','none','important');
-            first.style.setProperty('visibility','hidden','important');
-            first.style.setProperty('opacity','0','important');
-            if(first.parentNode) first.parentNode.removeChild(first);
-          }
-          const text=(app.textContent||'').trim();
-          if(app.childElementCount===0 && !text){
-            app.style.setProperty('display','none','important');
-            app.style.setProperty('visibility','hidden','important');
-            app.style.setProperty('opacity','0','important');
-            if(app.parentNode) app.parentNode.removeChild(app);
-          }
-        }catch(err){}
-      };
-      const removeAuthOverlay=()=>{
-        try{
-          const hit=document.querySelector(authOverlaySelector);
-          if(!hit) return;
-          const root=hit.closest('main.vertically-centered-ui-evo') || hit.closest('.vertically-centered-ui-evo') || hit.closest('#app > div') || hit;
-          if(!root) return;
-          root.style.setProperty('display','none','important');
-          root.style.setProperty('visibility','hidden','important');
-          root.style.setProperty('opacity','0','important');
-          root.style.setProperty('pointer-events','none','important');
-          if(root.parentNode) root.parentNode.removeChild(root);
-        }catch(err){}
-      };
-      const removeAuthIframes=()=>{
-        try{
-          const frames=document.querySelectorAll(authIframeSelector);
-          for(const frame of frames){
-            if(!frame) continue;
-            frame.style.setProperty('display','none','important');
-            frame.style.setProperty('visibility','hidden','important');
-            frame.style.setProperty('opacity','0','important');
-            if(frame.parentNode) frame.parentNode.removeChild(frame);
-          }
-        }catch(err){}
-      };
-      const removePromotionBanners=()=>{
-        try{
-          const banners=document.querySelectorAll(promotionBannerSelector);
-          for(const banner of banners){
-            if(!banner) continue;
-            banner.style.setProperty('display','none','important');
-            banner.style.setProperty('visibility','hidden','important');
-            banner.style.setProperty('opacity','0','important');
-            if(banner.parentNode) banner.parentNode.removeChild(banner);
-          }
-          document.querySelectorAll('a.targetedGoUpsellBanner__link').forEach((a)=>{
-            const b=a && a.closest && a.closest('.banner');
-            if(b && b.parentNode) b.parentNode.removeChild(b);
-          });
-        }catch(err){}
-      };
-      const closeNow=()=>{
-        try{
-          const buttons=document.querySelectorAll(closeSelector);
-          for(const button of buttons){
-            if(!button || button.__wavesAutoClosed) continue;
-            button.__wavesAutoClosed=true;
-            try{ button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window})); }catch(e){}
-            try{ button.click(); }catch(e){}
-            setTimeout(()=>hideOrRemoveModal(button), 40);
-          }
-          const orphanModal=document.querySelector('.modal.auth-modal.showBackground, .modal.auth-modal');
-          if(orphanModal) hideOrRemoveModal(orphanModal.querySelector('button.modal__closeButton'));
-          removeAuthOverlay();
-          removeAuthIframes();
-          removeFloatingShells();
-          removeEmptyAppShell();
-          removePromotionBanners();
-          resetPageLock();
-        }catch(err){}
-      };
-      closeNow();
-      const observer=new MutationObserver(()=>closeNow());
-      observer.observe(document.documentElement || document, { childList:true, subtree:true });
-      setInterval(closeNow, 150);
-    }catch(e){}
-  };
-  initSoundcloudPatch();
-})();
-</script>
+  function ok(e){
+    try{var m=e&&e.message!=null?String(e.message):'';return m.indexOf('ResizeObserver')!==-1}catch(x){return false}
+  }
+  function ok2(e){
+    try{var r=e&&e.reason,m=r&&(typeof r.message==='string'?r.message:(r&&r.toString&&r.toString())||'')||'';return String(m).indexOf('ResizeObserver')!==-1}catch(x){return false}
+  }
+  self.addEventListener('error',function(e){if(ok(e)){e.preventDefault();e.stopImmediatePropagation()}},true);
+  self.addEventListener('unhandledrejection',function(e){if(ok2(e))e.preventDefault()});
+  var h=(location.hostname||'').toLowerCase();
+  if(h.indexOf('discord.com')!==-1||h.indexOf('discordapp.com')!==-1){
+    try{self.__SENTRY__={hub:{getClient:function(){return{getOptions:function(){return{}}}}}}}catch(x){}
+    try{localStorage.setItem('hideMessageRequests','true')}catch(e){}
+  }
+})()
 `;
 
 const TURN_SCRIPT = `
-<script>
-(function() {
-    const OriginalRTCPeerConnection = window.RTCPeerConnection;
-    window.RTCPeerConnection = function(config) {
-        config = config || {};
-        config.iceTransportPolicy = "relay";
-        if (config.iceServers) {
-            config.iceServers = config.iceServers.filter(server => {
-                if (!server || !server.urls) return false;
-                const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-                return urls.every(url => url.startsWith("turn:"));
-            });
-        }
-        if (!config.iceServers || config.iceServers.length === 0) {
-            config.iceServers = [{
-                urls: "turn:${self.location.hostname}:3478",
-                username: "enniuu",
-                credential: "enni"
-            }];
-        }
-        return new OriginalRTCPeerConnection(config);
-    };
-})();
-</script>
+(function(relayOnly){
+  var O=window.RTCPeerConnection;
+  if(!O)return;
+  var s={urls:'turn:${self.location.hostname}:3478',username:'enniuu',credential:'enni'};
+  function W(cfg,cs){
+    var c=cfg?Object.assign({},cfg):{};
+    c.iceTransportPolicy='relay';
+    if(relayOnly){
+      if(c.iceServers)c.iceServers=c.iceServers.filter(function(s){
+        if(!s||!s.urls)return false;
+        var u=Array.isArray(s.urls)?s.urls:[s.urls];
+        return u.every(function(u){return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
+      });
+      if(!c.iceServers||c.iceServers.length===0)c.iceServers=[s]
+    }else{
+      if(!c.iceServers)c.iceServers=[];
+      c.iceServers=c.iceServers.filter(function(s){
+        if(!s||!s.urls)return false;
+        var u=Array.isArray(s.urls)?s.urls:[s.urls];
+        return u.some(function(u){return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
+      });
+      c.iceServers.push(s)
+    }
+    return cs!==undefined?new O(c,cs):new O(c)
+  }
+  W.prototype=O.prototype;
+  try{Object.defineProperty(W,'name',{value:'RTCPeerConnection'})}catch(e){}
+  window.RTCPeerConnection=W
+})(\${true})
 `;
 
-const TURN_SCRIPT_RELAY = `
-<script>
-(function() {
-    const OriginalRTCPeerConnection = window.RTCPeerConnection;
-    if (!OriginalRTCPeerConnection) return;
-    const customTurn = {
-        urls: "turn:${self.location.hostname}:3478",
-        username: "enniuu",
-        credential: "enni"
-    };
-    function WrappedRtc(config, constraints) {
-        const c = config ? Object.assign({}, config) : {};
-        c.iceTransportPolicy = "relay";
-        if (!c.iceServers) c.iceServers = [];
-        c.iceServers = c.iceServers.filter(function(server) {
-            if (!server || !server.urls) return false;
-            var urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-            return urls.some(function(url) { return url.startsWith("turn:") || url.startsWith("turns:"); });
-        });
-        c.iceServers.push(customTurn);
-        return constraints !== undefined
-            ? new OriginalRTCPeerConnection(c, constraints)
-            : new OriginalRTCPeerConnection(c);
-    }
-    WrappedRtc.prototype = OriginalRTCPeerConnection.prototype;
-    try { Object.defineProperty(WrappedRtc, "name", { value: "RTCPeerConnection" }); } catch (e) {}
-    window.RTCPeerConnection = WrappedRtc;
-})();
-</script>
+const SOUNDCLOUD_PATCH = `
+(function(){
+  function onSC(){
+    try{
+      var h=(location.hostname||'').toLowerCase();
+      if(h.indexOf('soundcloud.com')!==-1)return true;
+      var href=location.href||'';
+      if(!href)return false;
+      try{var d=dU(href)||'';if(d&&d.indexOf('soundcloud.com')!==-1)return true}catch(e){}
+      try{var u=new URL(href);if((u.pathname||'').indexOf('soundcloud.com')!==-1)return true}catch(e){}
+    }catch(e){}
+    return false
+  }
+  if(!onSC())return;
+  var cs='button.modal__closeButton, .modal.auth-modal button[title="Close"]';
+  var ao='#app .sign-in-up-form, #app .connect-form-title-ui-evo, main.vertically-centered-ui-evo';
+  var fs='.modalWhiteout, .g-z-index-modal-background, .g-z-index-overlay, .g-backdrop-filter-grayscale';
+  var ai='iframe[src*="secure.soundcloud.com/web-auth"], iframe[scramjet-attr-src*="secure.soundcloud.com/web-auth"], iframe[src*="embedded_in_iframe=true"], iframe[scramjet-attr-src*="embedded_in_iframe=true"]';
+  var pb='div.banner.m-promotion, .banner.m-promotion.primary, .banner.l-inner-fullwidth.primary';
+  function hide(el){
+    try{
+      el.style.setProperty('display','none','important');
+      el.style.setProperty('visibility','hidden','important');
+      el.style.setProperty('opacity','0','important');
+      if(el.parentNode)el.parentNode.removeChild(el)
+    }catch(e){}
+  }
+  function hideModal(fromBtn){
+    try{var m=fromBtn?fromBtn.closest('.modal.auth-modal, .modal'):null;if(m)hide(m)}catch(e){}
+  }
+  function reset(){
+    try{
+      var ns=[document.documentElement,document.body];
+      for(var i=0;i<ns.length;i++){
+        if(!ns[i]||!ns[i].style)continue;
+        ns[i].style.removeProperty('overflow');
+        ns[i].style.removeProperty('overflow-y');
+        ns[i].style.removeProperty('padding-right');
+        ns[i].style.removeProperty('position')
+      }
+    }catch(e){}
+  }
+  function closeNow(){
+    try{
+      var btns=document.querySelectorAll(cs);
+      for(var i=0;i<btns.length;i++){
+        var b=btns[i];
+        if(!b||b._wc)continue;
+        b._wc=true;
+        try{b.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}))}catch(e){}
+        try{b.click()}catch(e){}
+        setTimeout(function(){hideModal(b)},40)
+      }
+      var om=document.querySelector('.modal.auth-modal.showBackground, .modal.auth-modal');
+      if(om)hideModal(om.querySelector('button.modal__closeButton'));
+      var hit=document.querySelector(ao);
+      if(hit){
+        var rt=hit.closest('main.vertically-centered-ui-evo')||hit.closest('.vertically-centered-ui-evo')||hit.closest('#app > div')||hit;
+        if(rt)hide(rt)
+      }
+      var frames=document.querySelectorAll(ai);
+      for(var j=0;j<frames.length;j++){if(frames[j])hide(frames[j])}
+      var shells=document.querySelectorAll(fs);
+      for(var k=0;k<shells.length;k++){
+        var sh=shells[k];
+        if(!sh)continue;
+        var hasAuth=sh.querySelector('.sign-in-up-form, .connect-form-title-ui-evo, button.modal__closeButton');
+        if(!hasAuth)hide(sh)
+      }
+      try{
+        var app=document.getElementById('app');
+        if(app){
+          var f=app.firstElementChild;
+          if(f&&app.childElementCount===1&&f.childElementCount===0)hide(f);
+          var t=(app.textContent||'').trim();
+          if(app.childElementCount===0&&!t)hide(app)
+        }
+      }catch(e){}
+      var banners=document.querySelectorAll(pb);
+      for(var l=0;l<banners.length;l++){if(banners[l])hide(banners[l])}
+      document.querySelectorAll('a.targetedGoUpsellBanner__link').forEach(function(a){
+        var b=a&&a.closest&&a.closest('.banner');
+        if(b&&b.parentNode)b.parentNode.removeChild(b)
+      });
+      reset()
+    }catch(e){}
+  }
+  closeNow();
+  var obs=new MutationObserver(function(){closeNow()});
+  obs.observe(document.documentElement||document,{childList:true,subtree:true});
+  setInterval(closeNow,150)
+})()
 `;
 
 const HOVER_PREFETCH_SCRIPT = `
-<script>
 (function(){
-  if (!("serviceWorker" in navigator)) return;
-  var isScramjet = ${isScramjet ? "true" : "false"};
-  var isUltraviolet = ${isUltraviolet ? "true" : "false"};
-  var DEBOUNCE_MS = 25;
-  var maxUrls = 40;
-  var sent = Object.create(null);
-  var count = 0;
-  var t = null;
-  var swControllerRef = null;
-  function keyHref(h) {
-    try { return String(h || "").split("#")[0]; } catch (e) { return ""; }
-  }
-  function onProxiedSite() {
-    try {
-      var p = location.pathname || "";
-      return p.indexOf("/b/s/") === 0 || p.indexOf("/b/u/") === 0;
-    } catch (e) { return false; }
-  }
-  function proxiedResultUrl(abs) {
-    try {
-      var u = new URL(abs, location.href);
-      if (u.origin === location.origin) {
-        var p = u.pathname || "";
-        if (p.indexOf("/b/s/r/") === 0) return keyHref(u.href);
-        if (p.indexOf("/b/u/") === 0 && p.length > 10) return keyHref(u.href);
-        return null;
+  if(!('serviceWorker'in navigator))return;
+  var max=40,sent=Object.create(null),cnt=0,tm=null,swRef=null;
+  function kH(h){try{return String(h||'').split('#')[0]}catch(e){return''}}
+  function onP(){try{var p=location.pathname||'';return p.indexOf('/b/s/')===0||p.indexOf('/b/u/')===0}catch(e){return false}}
+  function prU(abs){
+    try{
+      var u=new URL(abs,location.href);
+      if(u.origin===location.origin){
+        var p=u.pathname||'';
+        if(p.indexOf('/b/s/r/')===0)return kH(u.href);
+        if(p.indexOf('/b/u/')===0&&p.length>10)return kH(u.href);
+        return null
       }
-      if (!onProxiedSite()) return null;
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-      var raw = keyHref(u.href);
-      if (isScramjet) {
-        return keyHref(location.origin + "/b/s/r/" + raw);
+      if(!onP())return null;
+      if(u.protocol!=='http:'&&u.protocol!=='https:')return null;
+      var raw=kH(u.href);
+      if(_S)return kH(location.origin+'/b/s/r/'+raw);
+      if(_V&&window.__uv$config&&typeof window.__uv$config.encodeUrl==='function'){
+        var pref=window.__uv$config.prefix||'/b/u/r/';
+        return kH(location.origin+pref+window.__uv$config.encodeUrl(raw))
       }
-      if (isUltraviolet && window.__uv$config && typeof window.__uv$config.encodeUrl === "function") {
-        var pref = window.__uv$config.prefix || "/b/u/r/";
-        return keyHref(location.origin + pref + window.__uv$config.encodeUrl(raw));
-      }
-      return null;
-    } catch (e) { return null; }
+      return null
+    }catch(e){return null}
   }
-  function anchorFromEvent(ev) {
-    var t = ev.target;
-    if (t && t.closest) {
-      var a = t.closest("a[href]");
-      if (a) return a;
-    }
-    var path = ev.composedPath && ev.composedPath();
-    if (path) {
-      for (var i = 0; i < path.length; i++) {
-        var n = path[i];
-        if (!n || n.nodeType !== 1) continue;
-        if (n.tagName === "A" && n.getAttribute("href")) return n;
-      }
-    }
-    return null;
+  function aFE(ev){
+    var t=ev.target;
+    if(t&&t.closest){var a=t.closest('a[href]');if(a)return a}
+    var path=ev.composedPath&&ev.composedPath();
+    if(path)for(var i=0;i<path.length;i++){var n=path[i];if(!n||n.nodeType!==1)continue;if(n.tagName==='A'&&n.getAttribute('href'))return n}
+    return null
   }
-  function postToSw(worker, url) {
-    if (!worker || typeof worker.postMessage !== "function") return false;
-    try {
-      worker.postMessage({ type: "waves-prefetch", url: url });
-      return true;
-    } catch (e) {
-      return false;
-    }
+  function pS(w,url){
+    if(!w||typeof w.postMessage!=='function')return false;
+    try{w.postMessage({type:'waves-prefetch',url:url});return true}catch(e){return false}
   }
-  async function postPrefetch(url) {
-    if (!url || sent[url]) return;
-    if (count >= maxUrls) return;
-    var c = null;
-    try { c = navigator.serviceWorker.controller; } catch (e) {}
-    if (!c) c = swControllerRef;
-    if (!c) {
-      try {
-        var reg = await navigator.serviceWorker.ready;
-        c =
-          reg.active ||
-          reg.waiting ||
-          reg.installing ||
-          navigator.serviceWorker.controller;
-        if (c) swControllerRef = c;
-      } catch (e) {}
-    } else {
-      swControllerRef = c;
-    }
-    if (c && postToSw(c, url)) {
-      sent[url] = 1;
-      count++;
-      console.log("requesting prefetch:", url);
-      return;
-    }
-    try {
-      if (window.top && window.top !== window) {
-        window.top.postMessage(
-          { type: "waves-prefetch-bridge", url: url },
-          location.origin
-        );
-        sent[url] = 1;
-        count++;
-        console.log("bridge prefetch to top window:", url);
-        return;
-      }
-    } catch (e) {}
-    console.warn(
-      "cannot reach sw (no controller, no top bridge):",
-      url
-    );
+  async function pf(url){
+    if(!url||sent[url])return;
+    if(cnt>=max)return;
+    var c=null;
+    try{c=navigator.serviceWorker.controller}catch(e){}
+    if(!c)c=swRef;
+    if(!c){
+      try{
+        var reg=await navigator.serviceWorker.ready;
+        c=reg.active||reg.waiting||reg.installing||navigator.serviceWorker.controller;
+        if(c)swRef=c
+      }catch(e){}
+    }else swRef=c;
+    if(c&&pS(c,url)){sent[url]=1;cnt++;return}
+    try{var tp=window.top;if(tp&&tp!==window){tp.postMessage({type:'waves-prefetch-bridge',url:url},location.origin);sent[url]=1;cnt++;return}}catch(e){}
   }
-  try {
-    console.log("hover listener installed:", location.href);
-  } catch (e) {}
-  function queuePrefetchFromPointer(ev) {
-    var el = anchorFromEvent(ev);
-    if (!el) return null;
-    var raw = el.getAttribute("href");
-    if (!raw || raw.indexOf("javascript:") === 0 || raw === "#") return null;
-    var abs;
-    try { abs = new URL(raw, location.href).href; } catch (e) { return null; }
-    return proxiedResultUrl(abs);
+  function qP(ev){
+    var el=aFE(ev);
+    if(!el)return null;
+    var raw=el.getAttribute('href');
+    if(!raw||raw.indexOf('javascript:')===0||raw==='#')return null;
+    var abs;try{abs=new URL(raw,location.href).href}catch(e){return null}
+    return prU(abs)
   }
-  document.addEventListener("pointerover", function (ev) {
-    var prefetchUrl = queuePrefetchFromPointer(ev);
-    if (!prefetchUrl) return;
-    clearTimeout(t);
-    t = setTimeout(function () { void postPrefetch(prefetchUrl); }, DEBOUNCE_MS);
-  }, true);
-  document.addEventListener("pointerdown", function (ev) {
-    var prefetchUrl = queuePrefetchFromPointer(ev);
-    if (!prefetchUrl) return;
-    void postPrefetch(prefetchUrl);
-  }, true);
-})();
-</script>
+  document.addEventListener('pointerover',function(ev){
+    var p=qP(ev);if(!p)return;
+    clearTimeout(tm);tm=setTimeout(function(){pf(p)},25)
+  },true);
+  document.addEventListener('pointerdown',function(ev){
+    var p=qP(ev);if(!p)return;
+    pf(p)
+  },true)
+})()
 `;
 
 const META_SCRIPT = `
-<script>
 (function(){
-  const MOCHI_PREFIX='${MOCHI_PREFIX}';
-  const UV_PREFIX='${UV_PREFIX}';
-  const isScramjet=${isScramjet ? "true" : "false"};
-  const isUltraviolet=${isUltraviolet ? "true" : "false"};
-  const isTopFrame=(function(){try{return window.top===window;}catch(e){return false;}})();
-  const mEncode = (str) => {
-      if(!str) return '';
-      const key = "wb!";
-      try {
-          const e = encodeURIComponent(str);
-          let x = '';
-          for (let i = 0; i < e.length; i++) {
-              x += String.fromCharCode(e.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-          }
-          return btoa(x);
-      } catch(e) { return str; }
+  var isTop;try{isTop=window.top===window}catch(e){isTop=false}
+  var mE=function(s){
+    if(!s)return'';
+    var k='wb!';
+    try{var e=encodeURIComponent(s),r='';for(var i=0;i<e.length;i++)r+=String.fromCharCode(e.charCodeAt(i)^k.charCodeAt(i%k.length));return btoa(r)}catch(e){return s}
   };
-  const _MK2='q7Zx!9pL';
-  const _xorDec=(s)=>{let o='';for(let i=0;i<s.length;i++){o+=String.fromCharCode(s.charCodeAt(i)^_MK2.charCodeAt(i%_MK2.length));}return o;};
-  const decUrl=(href)=>{
-    if(!href) return href;
+  var tabId;try{if(window.name&&!isNaN(parseInt(window.name,10)))tabId=window.name;else tabId=window.frameElement&&window.frameElement.dataset?window.frameElement.dataset.tabId||null:null}catch(e){tabId=null}
+  var swRef=null,lU=null,lT=null,lF=null;
+  function pT(){
     try{
-      const u=new URL(href, window.location.origin);
-      if(u.pathname.startsWith(MOCHI_PREFIX)){
-        let encodedPart = u.pathname.slice(MOCHI_PREFIX.length);
-        if (encodedPart.endsWith('/')) encodedPart = encodedPart.slice(0, -1);
-        try {
-            let p = encodedPart.replace(/-/g, '+').replace(/_/g, '/');
-            while (p.length % 4) { p += '='; }
-            let raw = atob(p);
-            let dec = _xorDec(raw);
-            let result = decodeURIComponent(dec);
-            if (result.startsWith('http://') || result.startsWith('https://')) {
-                return result + u.search + u.hash;
-            }
-        } catch(e) {}
-        if (encodedPart.startsWith('http://') || encodedPart.startsWith('https://')) {
-            return encodedPart + u.search + u.hash;
-        }
-        return encodedPart + u.search + u.hash;
-      }
-      if(isScramjet && u.pathname.startsWith('/b/s/')){
-        const raw=u.pathname.slice(5)+u.search+u.hash;
-        try{return decodeURIComponent(raw);}catch(e){return raw;}
-      }
-      if(isUltraviolet){
-        try{
-          const prefix=(window.__uv$config && window.__uv$config.prefix) || UV_PREFIX;
-          if(u.pathname.startsWith(prefix) && window.__uv$config && typeof window.__uv$config.decodeUrl==='function'){
-            const encoded=u.pathname.slice(prefix.length);
-            return window.__uv$config.decodeUrl(encoded)+u.search+u.hash;
-          }
-        }catch(e){}
-      }
-      return u.href;
-    }catch(e){
-      return href;
-    }
-  };
-  const pickIcon=()=>{
+      var src=[function(){return(document.title||'').trim()},function(){var og=document.querySelector('meta[property="og:title"], meta[name="og:title"]');return og&&og.content?og.content.trim():''},function(){var tw=document.querySelector('meta[property="twitter:title"], meta[name="twitter:title"]');return tw&&tw.content?tw.content.trim():''},function(){var mt=document.querySelector('meta[name="title"], meta[property="title"]');return mt&&mt.content?mt.content.trim():''},function(){var h=document.querySelector('h1,h2,h3');return h&&h.textContent?h.textContent.trim():''}];
+      for(var i=0;i<src.length;i++){var v=src[i]();if(v)return v}
+      return''
+    }catch(e){return''}
+  }
+  function pI(){
     try{
-      const links=[...document.querySelectorAll('link[rel~="icon"], link[rel*="icon"]')];
-      for(const link of links){
-        const href=link.getAttribute('href');
-        if(!href) continue;
-        try{ return new URL(href, window.location.href).href; }catch(e){}
-      }
-      try{ return new URL('/favicon.ico', window.location.href).href; }catch(e){}
-      return null;
-    }catch(e){ return null; }
-  };
-  const tabId=(function(){
-      try {
-          if (window.name && !isNaN(parseInt(window.name, 10))) {
-              return window.name;
-          }
-          return window.frameElement && window.frameElement.dataset ? window.frameElement.dataset.tabId || null : null;
-      } catch(e) { return null; }
-  })();
-  let swControllerRef=null;
-  let lastUrl=null;
-  let lastTitle=null;
-  let lastFavicon=null;
-  const pageTitle=()=>{
+      var ls=document.querySelectorAll('link[rel~="icon"], link[rel*="icon"]');
+      for(var i=0;i<ls.length;i++){var h=ls[i].getAttribute('href');if(!h)continue;try{return new URL(h,location.href).href}catch(e){}}
+      try{return new URL('/favicon.ico',location.href).href}catch(e){}
+      return null
+    }catch(e){return null}
+  }
+  async function sM(){
+    if(!isTop&&!tabId)return;
+    if(!('serviceWorker'in navigator))return;
     try{
-      const titleSources=[
-        ()=>(document.title||'').trim(),
-        ()=>{
-          const og=document.querySelector('meta[property=\"og:title\"], meta[name=\"og:title\"]');
-          return og && og.content ? og.content.trim() : '';
-        },
-        ()=>{
-          const tw=document.querySelector('meta[property=\"twitter:title\"], meta[name=\"twitter:title\"]');
-          return tw && tw.content ? tw.content.trim() : '';
-        },
-        ()=>{
-          const metaTitle=document.querySelector('meta[name=\"title\"], meta[property=\"title\"]');
-          return metaTitle && metaTitle.content ? metaTitle.content.trim() : '';
-        },
-        ()=>{
-          const heading=document.querySelector('h1,h2,h3');
-          return heading && heading.textContent ? heading.textContent.trim() : '';
-        }
-      ];
-      for(const getter of titleSources){
-        const val=getter();
-        if(val) return val;
-      }
-      return '';
-    }catch(e){ return ''; }
-  };
-  const sendMeta=async ()=>{
-    if(!isTopFrame && !tabId) return;
-    if(!('serviceWorker' in navigator)) return;
-    try{
-      let controller=navigator.serviceWorker.controller;
-      if(!controller){
-        controller=swControllerRef;
-      }
-      if(!controller){
-        const reg=await navigator.serviceWorker.ready;
-        controller=reg.active||reg.waiting||reg.installing||navigator.serviceWorker.controller;
-        if(controller) swControllerRef=controller;
-      } else {
-        swControllerRef=controller;
-      }
-      if(!controller) return;
-      const url=window.location.href;
-      const title=pageTitle();
-      const rawFavicon=pickIcon();
-      const decodedFavicon=rawFavicon ? decUrl(rawFavicon) : null;
-      if (lastUrl === url && lastTitle === title && lastFavicon === rawFavicon) return;
-      lastUrl=url;
-      lastTitle=title;
-      lastFavicon=rawFavicon;
-      controller.postMessage({
-        type:'page-meta',
-        url: mEncode(url),
-        decodedUrl: mEncode(decUrl(url)),
-        title: mEncode(title),
-        favicon: mEncode(decodedFavicon || rawFavicon || null),
-        rawFavicon: mEncode(rawFavicon || null),
-        tabId:tabId,
-        isTopFrame:isTopFrame,
-        encoded: true
-      });
+      var c=navigator.serviceWorker.controller;
+      if(!c)c=swRef;
+      if(!c){
+        var reg=await navigator.serviceWorker.ready;
+        c=reg.active||reg.waiting||reg.installing||navigator.serviceWorker.controller;
+        if(c)swRef=c
+      }else swRef=c;
+      if(!c)return;
+      var url=location.href,title=pT(),rf=pI(),df=rf?dU(rf):null;
+      if(lU===url&&lT===title&&lF===rf)return;
+      lU=url;lT=title;lF=rf;
+      c.postMessage({type:'page-meta',url:mE(url),decodedUrl:mE(dU(url)),title:mE(title),favicon:mE(df||rf||null),rawFavicon:mE(rf||null),tabId:tabId,isTopFrame:isTop,encoded:true})
     }catch(e){}
-  };
-  const runMeta=()=>{ void sendMeta(); };
-  let domRafScheduled=false;
-  const rAF=typeof requestAnimationFrame==='function'
-    ? requestAnimationFrame
-    : function(cb){ return setTimeout(cb,16); };
-  const metaDom=()=>{
-    if(domRafScheduled) return;
-    domRafScheduled=true;
-    rAF(()=>{
-      domRafScheduled=false;
-      runMeta();
-    });
-  };
-  const micro=typeof queueMicrotask==='function'
-    ? function(fn){ queueMicrotask(fn); }
-    : function(fn){ Promise.resolve().then(fn); };
-  const metaNav=()=>{
-    micro(()=>{ runMeta(); });
-    rAF(()=>{
-      runMeta();
-      rAF(()=>{ runMeta(); });
-    });
-  };
-  const hookHistory=()=>{
+  }
+  var rM=function(){sM()};
+  var dS=false;
+  var rAF=typeof requestAnimationFrame==='function'?requestAnimationFrame:function(cb){setTimeout(cb,16)};
+  var mD=function(){if(dS)return;dS=true;rAF(function(){dS=false;rM()})};
+  var mic=typeof queueMicrotask==='function'?function(fn){queueMicrotask(fn)}:function(fn){Promise.resolve().then(fn)};
+  var mN=function(){mic(function(){rM()});rAF(function(){rM();rAF(function(){rM()})})};
+  function hH(){
     try{
-      const push=history.pushState;
-      history.pushState=function(...args){
-        const res=push.apply(this,args);
-        metaNav();
-        return res;
-      };
-      const replace=history.replaceState;
-      history.replaceState=function(...args){
-        const res=replace.apply(this,args);
-        metaNav();
-        return res;
-      };
+      var push=history.pushState;history.pushState=function(){var r=push.apply(this,arguments);mN();return r};
+      var replace=history.replaceState;history.replaceState=function(){var r=replace.apply(this,arguments);mN();return r}
     }catch(e){}
-  };
-  const bindTitle=(el)=>{
+  }
+  function bT(el){
+    try{if(!el||el._wo)return;el._wo=true;var o=new MutationObserver(function(){mD()});o.observe(el,{childList:true,subtree:true,characterData:true})}catch(e){}
+  }
+  function hHt(muts){
     try{
-      if(!el||el._wavesObserved) return;
-      el._wavesObserved=true;
-      const o=new MutationObserver(()=>metaDom());
-      o.observe(el,{childList:true,subtree:true,characterData:true});
-    }catch(e){}
-  };
-  const headHit=(mutations)=>{
-    try{
-      for(let i=0;i<mutations.length;i++){
-        const m=mutations[i];
-        const t=m.target;
-        if(!t) continue;
-        if(m.type==='characterData'){
-          const p=t.parentElement;
-          if(p&&p.nodeName&&p.nodeName.toUpperCase()==='TITLE') return true;
-          continue;
-        }
-        if(m.type==='attributes'){
-          const n=t.nodeName&&t.nodeName.toUpperCase();
-          if(n==='META'||n==='LINK'||n==='TITLE') return true;
-          continue;
-        }
+      for(var i=0;i<muts.length;i++){
+        var m=muts[i],t=m.target;
+        if(!t)continue;
+        if(m.type==='characterData'){var p=t.parentElement;if(p&&p.nodeName&&p.nodeName.toUpperCase()==='TITLE')return true;continue}
+        if(m.type==='attributes'){var n=t.nodeName&&t.nodeName.toUpperCase();if(n==='META'||n==='LINK'||n==='TITLE')return true;continue}
         if(m.type==='childList'){
-          const tn=t.nodeName&&t.nodeName.toUpperCase();
-          if(tn==='TITLE'||tn==='META'||tn==='LINK') return true;
+          var tn=t.nodeName&&t.nodeName.toUpperCase();
+          if(tn==='TITLE'||tn==='META'||tn==='LINK')return true;
           if(tn==='HEAD'){
-            const nodes=m.addedNodes;
-            for(let j=0;j<nodes.length;j++){
-              const nn=nodes[j]&&nodes[j].nodeName&&nodes[j].nodeName.toUpperCase();
-              if(nn==='TITLE'||nn==='META'||nn==='LINK') return true;
-            }
-            const removed=m.removedNodes;
-            for(let k=0;k<removed.length;k++){
-              const rn=removed[k]&&removed[k].nodeName&&removed[k].nodeName.toUpperCase();
-              if(rn==='TITLE'||rn==='META'||rn==='LINK') return true;
-            }
+            var na=m.addedNodes;for(var j=0;j<na.length;j++){var nn=na[j]&&na[j].nodeName&&na[j].nodeName.toUpperCase();if(nn==='TITLE'||nn==='META'||nn==='LINK')return true}
+            var nr=m.removedNodes;for(var k=0;k<nr.length;k++){var rn=nr[k]&&nr[k].nodeName&&nr[k].nodeName.toUpperCase();if(rn==='TITLE'||rn==='META'||rn==='LINK')return true}
           }
         }
       }
     }catch(e){}
-    return false;
-  };
-  const watchHead=()=>{
+    return false
+  }
+  function wH(){
     try{
-      bindTitle(document.querySelector('title'));
-      const head=document.head || document.documentElement;
-      if(!head||head._wavesHeadObserved) return;
-      head._wavesHeadObserved=true;
-      const headObs=new MutationObserver((mutations)=>{
-        if(!headHit(mutations)) return;
-        metaDom();
-        bindTitle(document.querySelector('title'));
-      });
-      headObs.observe(head,{childList:true,subtree:true,attributes:true,attributeFilter:['content','property','name','href','rel']});
+      bT(document.querySelector('title'));
+      var h=document.head||document.documentElement;
+      if(!h||h._who)return;
+      h._who=true;
+      var o=new MutationObserver(function(muts){if(!hHt(muts))return;mD();bT(document.querySelector('title'))});
+      o.observe(h,{childList:true,subtree:true,attributes:true,attributeFilter:['content','property','name','href','rel']})
     }catch(e){}
-  };
-  const start=()=>{
-    if (!isScramjet && !isUltraviolet) {
-        hookHistory();
-    }
-    try{
-      if('serviceWorker' in navigator){
-        navigator.serviceWorker.addEventListener('controllerchange',()=>{
-          swControllerRef=navigator.serviceWorker.controller;
-        });
-      }
-    }catch(e){}
-    watchHead();
-    metaNav();
-  };
-  window.addEventListener('popstate', metaNav);
-  window.addEventListener('hashchange', metaNav);
-  window.addEventListener('load', metaNav);
+  }
+  function start(){
+    if(!_S&&!_V)hH();
+    try{if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('controllerchange',function(){swRef=navigator.serviceWorker.controller})}catch(e){}
+    wH();mN()
+  }
+  self.addEventListener('popstate',mN);
+  self.addEventListener('hashchange',mN);
+  self.addEventListener('load',mN);
   start();
-  let burstCount = 0;
-  const burst = setInterval(() => {
-    metaNav();
-    burstCount++;
-    if(burstCount > 16) clearInterval(burst);
-  }, 72);
-  setInterval(()=>{
-    if(document.visibilityState!=='visible') return;
-    metaDom();
-  }, 450);
-  const httpOk=(candidate)=>{
-    if(!candidate) return false;
-    try{
-      const parsed=new URL(candidate, window.location.href);
-      return parsed.protocol==='http:'||parsed.protocol==='https:';
-    }catch(e){
-      return false;
+  var bc=0,bi=setInterval(function(){mN();bc++;if(bc>16)clearInterval(bi)},72);
+  setInterval(function(){if(document.visibilityState!=='visible')return;mD()},450);
+  function hOk(c){if(!c)return false;try{var p=new URL(c,location.href);return p.protocol==='http:'||p.protocol==='https:'}catch(e){return false}}
+  function oT(raw,cause){
+    if(!raw)return false;
+    var abs;
+    try{abs=new URL(raw,location.href).href}catch(e){abs=raw}
+    if(abs.indexOf(self.location.origin)===0&&abs.indexOf(_P)===-1&&abs.indexOf('/b/s/')===-1&&abs.indexOf('/b/u/')===-1){
+      try{var bR=dU(location.href)||location.href;abs=new URL(raw,bR).href}catch(e){}
     }
-  };
-  const openTab=(rawUrl,cause)=>{
-    if(!rawUrl) return false;
-    let absoluteUrl;
-    try{
-      absoluteUrl=new URL(rawUrl, window.location.href).href;
-    }catch(e){
-      absoluteUrl=rawUrl;
-    }
-    if(absoluteUrl.startsWith(self.location.origin) && !absoluteUrl.includes(MOCHI_PREFIX) && !absoluteUrl.includes('/b/s/') && !absoluteUrl.includes('/b/u/')) {
-      try{
-        const baseReal = decUrl(window.location.href) || window.location.href;
-        const realResolved = new URL(rawUrl, baseReal).href;
-        absoluteUrl = realResolved;
-      }catch(e){}
-    }
-    const decoded=decUrl(absoluteUrl)||absoluteUrl;
-    if(!httpOk(decoded)) return false;
-    const payload={
-      type:'open-new-tab',
-      url:absoluteUrl,
-      decodedUrl:decoded,
-      openerUrl:decUrl(window.location.href)||window.location.href,
-      tabId:tabId,
-      isTopFrame:isTopFrame,
-      cause:cause||null
-    };
-    let posted=false;
-    const swPost=(controller)=>{
-      if(controller && typeof controller.postMessage==='function'){
-        try{controller.postMessage(payload);posted=true;}catch(e){}
-      }
-    };
-    try{
-      if(window.top && window.top!==window && typeof window.top.postMessage==='function'){
-        window.top.postMessage(payload,'*');
-        posted=true;
-      }
-    }catch(e){}
+    var dec=dU(abs)||abs;
+    if(!hOk(dec))return false;
+    var pl={type:'open-new-tab',url:abs,decodedUrl:dec,openerUrl:dU(location.href)||location.href,tabId:tabId,isTopFrame:isTop,cause:cause||null};
+    var posted=false;
+    var sp=function(c){if(c&&typeof c.postMessage==='function')try{c.postMessage(pl);posted=true}catch(e){}};
+    try{var tp=window.top;if(tp&&tp!==window&&typeof tp.postMessage==='function'){tp.postMessage(pl,'*');posted=true}}catch(e){}
     if(!posted){
       try{
         if(navigator.serviceWorker){
-          if(navigator.serviceWorker.controller){
-            swPost(navigator.serviceWorker.controller);
-          }else if(navigator.serviceWorker.ready){
-            navigator.serviceWorker.ready.then(reg=>{
-              const controller=reg.active||navigator.serviceWorker.controller;
-              swPost(controller);
-            }).catch(()=>{});
-          }
+          if(navigator.serviceWorker.controller)sp(navigator.serviceWorker.controller);
+          else if(navigator.serviceWorker.ready)navigator.serviceWorker.ready.then(function(reg){sp(reg.active||navigator.serviceWorker.controller)}).catch(function(){})
         }
       }catch(e){}
     }
-    return posted;
-  };
-  const hookOpen=()=>{
+    return posted
+  }
+  function hO(){
     try{
-      const originalOpen=window.open;
+      var orig=window.open;
       window.open=function(url,target){
-        const resolved=url&&url.href?url.href:url;
-        const tgt=(target||'').toLowerCase();
-        const shouldIntercept=!target||tgt===''||tgt==='_blank'||tgt==='blank'||tgt==='_new'||!(tgt==='_self'||tgt==='_top'||tgt==='_parent');
-        if(shouldIntercept&&typeof resolved==='string'){
-          const posted=openTab(resolved,'window.open');
-          if(posted) return null;
-        }
-        return originalOpen.apply(this,arguments);
+        var res=url&&url.href?url.href:url;
+        var t=(target||'').toLowerCase();
+        var si=!target||t===''||t==='_blank'||t==='blank'||t==='_new'||!(t==='_self'||t==='_top'||t==='_parent');
+        if(si&&typeof res==='string'){var p=oT(res,'window.open');if(p)return null;return null}
+        return orig.apply(this,arguments)
       };
-      window.open.__wavesIntercepted=true;
+      window.open._wi=true;
+      try{var wp=Window.prototype;if(wp&&typeof Object.getOwnPropertyDescriptor==='function'){var d=Object.getOwnPropertyDescriptor(wp,'open');if(d&&d.configurable)Object.defineProperty(wp,'open',{value:window.open,writable:true,configurable:true})}}catch(e){}
     }catch(e){}
-  };
-  const pathFind=(e, predicate)=>{
+  }
+  function pF(e,pred){
     try{
-      const path=e.composedPath?e.composedPath():[];
-      for(const node of path){
-        if(predicate(node)) return node;
-      }
-      let current=e.target;
-      while(current){
-        if(predicate(current)) return current;
-        current=current.parentElement;
-      }
-    }catch(err){}
-    return null;
-  };
-  const hookClicks=()=>{
-    const handler=(e)=>{
+      var path=e.composedPath?e.composedPath():[];
+      for(var i=0;i<path.length;i++){if(pred(path[i]))return path[i]}
+      var cur=e.target;
+      while(cur){if(pred(cur))return cur;cur=cur.parentElement}
+    }catch(e){}
+    return null
+  }
+  function hC(){
+    var h=function(e){
       try{
-        const anchor=pathFind(e,(node)=>node&&node.tagName==='A'&&node.href);
-        if(!anchor) return;
-        const href=anchor.href||anchor.getAttribute('href');
-        if(!href) return;
-        const targetAttr=anchor.getAttribute('target');
-        const target=(targetAttr||'').toLowerCase();
-        const hasExplicitTarget=anchor.hasAttribute('target');
-        const isNewTabTarget=hasExplicitTarget && !(target===''||target==='_self'||target==='_top'||target==='_parent');
-        const modifierRequested = e.ctrlKey || e.metaKey || e.button===1;
-        const shouldIntercept = isNewTabTarget || modifierRequested;
-        if(!shouldIntercept) return;
-        const cause = isNewTabTarget ? 'anchor-target-blank' : 'anchor-modifier';
-        const posted=openTab(href,cause);
-        if(posted){
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      }catch(err){}
+        var a=pF(e,function(n){return n&&n.href&&(n.tagName==='A'||n.tagName==='AREA')});
+        if(!a)return;
+        var href=a.href||a.getAttribute('href');
+        if(!href)return;
+        var be=document.querySelector('base'),bt=be?(be.getAttribute('target')||'').toLowerCase():'',ibn=bt&&!(bt===''||bt==='_self'||bt==='_top'||bt==='_parent');
+        var ta=a.getAttribute('target'),tgt=(ta||'').toLowerCase(),het=a.hasAttribute('target'),int=het&&!(tgt===''||tgt==='_self'||tgt==='_top'||tgt==='_parent');
+        var mr=e.ctrlKey||e.metaKey||e.button===1,si=int||ibn||mr;
+        if(!si)return;
+        var cause=int?'anchor-target-blank':(ibn?'anchor-base-target':'anchor-modifier');
+        var p=oT(href,cause);
+        if(p){e.preventDefault();e.stopImmediatePropagation()}
+      }catch(e){}
     };
-    document.addEventListener('click',handler,true);
-    document.addEventListener('auxclick',handler,true);
-  };
-  const hookForms=()=>{
-    const handler=(e)=>{
+    document.addEventListener('click',h,true);
+    document.addEventListener('auxclick',h,true)
+  }
+  function hF(){
+    var h=function(e){
       try{
-        const form=pathFind(e,(node)=>node&&node.tagName==='FORM'&&node.hasAttribute&&node.hasAttribute('target'));
-        if(!form) return;
-        const target=(form.getAttribute('target')||'').toLowerCase();
-        if(!target||target==='_self'||target==='_top'||target==='_parent') return;
-        const action=form.getAttribute('action')||window.location.href;
-        const posted=openTab(action,'form-target-blank');
-        if(posted){
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-      }catch(err){}
+        var f=pF(e,function(n){return n&&n.tagName==='FORM'&&n.hasAttribute&&n.hasAttribute('target')});
+        if(!f)return;
+        var t=(f.getAttribute('target')||'').toLowerCase();
+        if(!t||t==='_self'||t==='_top'||t==='_parent')return;
+        var a=f.getAttribute('action')||location.href,p=oT(a,'form-target-blank');
+        if(p){e.preventDefault();e.stopImmediatePropagation()}
+      }catch(e){}
     };
-    document.addEventListener('submit',handler,true);
-  };
-  hookOpen();
-  hookClicks();
-  hookForms();
-})();
+    document.addEventListener('submit',h,true)
+  }
+  hO();hC();hF()
+})()
+`;
+
+const INJECT_FOOTER = `
 </script>
 `;
 
 const INJECT_PATCHES_STANDARD =
-  TURN_SCRIPT + SPA_PATCH + SOUNDCLOUD_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
+  INJECT_SHARED_PREAMBLE +
+  SPA_PATCH + ";" +
+  TURN_SCRIPT.replace("${true}", "true") + ";" +
+  SOUNDCLOUD_PATCH + ";" +
+  HOVER_PREFETCH_SCRIPT + ";" +
+  META_SCRIPT +
+  INJECT_FOOTER;
+
 const INJECT_PATCHES_RELAY =
-  TURN_SCRIPT_RELAY + SPA_PATCH + SOUNDCLOUD_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
+  INJECT_SHARED_PREAMBLE +
+  SPA_PATCH + ";" +
+  TURN_SCRIPT.replace("${true}", "false") + ";" +
+  SOUNDCLOUD_PATCH + ";" +
+  HOVER_PREFETCH_SCRIPT + ";" +
+  META_SCRIPT +
+  INJECT_FOOTER;
 
 function buildHtmlInjectPatches(upstreamUrlStr) {
   const host = upstreamHostname(upstreamUrlStr || "");

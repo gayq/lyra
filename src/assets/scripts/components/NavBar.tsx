@@ -1,11 +1,21 @@
 import { useCallback } from "preact/hooks";
-import { store, useStore } from "../state/store.js";
-import { navigateIframeTo, stopIframeLoading } from "../core/iframe.js";
+import { store, useStore } from "../state/store.ts";
+import { navigateIframeTo, stopIframeLoading } from "../core/iframe.ts";
 import { useSearchInputBindings } from "../search/search.ts";
 
-let loadingTimeoutId = null;
+declare global {
+  interface Window {
+    eruda?: {
+      init(): void;
+      show(): void;
+      destroy(): void;
+    };
+  }
+}
 
-function injectEruda(iframe) {
+let loadingTimeoutId: ReturnType<typeof setTimeout> | undefined;
+
+function injectEruda(iframe: HTMLIFrameElement) {
   if (!iframe?.contentDocument || !iframe?.contentWindow) return;
 
   const doc = iframe.contentDocument;
@@ -80,13 +90,15 @@ function injectEruda(iframe) {
 
 function toggleEruda() {
   const activeTab = store.getActiveTab();
-  if (!activeTab?.iframe?.contentWindow) return;
+  if (!activeTab?.iframe) return;
   const iframe = activeTab.iframe;
+  const win = iframe.contentWindow;
+  if (!win) return;
   try {
     const isActive = iframe.dataset.erudaActive === "true";
-    if (isActive && iframe.contentWindow.eruda) {
-      if (typeof iframe.contentWindow.eruda.destroy === "function")
-        iframe.contentWindow.eruda.destroy();
+    if (isActive && win.eruda) {
+      if (typeof win.eruda.destroy === "function")
+        win.eruda.destroy();
       iframe.dataset.erudaActive = "false";
     } else {
       iframe.dataset.erudaActive = "true";
@@ -133,12 +145,12 @@ export default function NavBar() {
     } else {
       const manualUrl = activeTab.iframe.dataset.manualUrl;
       if (manualUrl) {
-        if (window.WavesApp?.handleSearch)
-          await window.WavesApp.handleSearch(manualUrl, activeTab);
+        if ((window as any).WavesApp?.handleSearch)
+          await (window as any).WavesApp.handleSearch(manualUrl, activeTab);
       } else if (
         activeTab.iframe.contentWindow &&
         activeTab.iframe.src &&
-        activeTab.iframe.src !== "about-blank"
+        activeTab.iframe.src !== "about:blank"
       ) {
         store.showLoading(activeTab.id);
         activeTab.iframe.parentElement?.classList.remove("loaded");
@@ -158,17 +170,18 @@ export default function NavBar() {
     const activeTab = store.getActiveTab();
     if (!activeTab) return;
     const iframe = activeTab.iframe;
-    if (iframe.requestFullscreen) iframe.requestFullscreen();
-    else if (iframe.mozRequestFullScreen) iframe.mozRequestFullScreen();
-    else if (iframe.webkitRequestFullscreen) iframe.webkitRequestFullscreen();
+    const el = iframe as HTMLIFrameElement & { mozRequestFullScreen?(): void; webkitRequestFullscreen?(): void };
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if (el.mozRequestFullScreen) el.mozRequestFullScreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
   }, []);
 
-  const handleHome = useCallback((e) => {
+  const handleHome = useCallback((e: MouseEvent) => {
     e.preventDefault();
     store.resetSession();
   }, []);
 
-  const handleSplitView = useCallback((e) => {
+  const handleSplitView = useCallback((e: MouseEvent) => {
     e.preventDefault();
     const wasPicking = store.isPickingSplitTab;
     store.toggleSplitView();
@@ -179,12 +192,12 @@ export default function NavBar() {
     }
   }, []);
 
-  const handleSidebarToggle = useCallback((e) => {
+  const handleSidebarToggle = useCallback((e: MouseEvent) => {
     e.preventDefault();
     document.body.classList.toggle("sidebar-hidden");
     localStorage.setItem(
       "sidebarHidden",
-      document.body.classList.contains("sidebar-hidden"),
+      String(document.body.classList.contains("sidebar-hidden")),
     );
   }, []);
 
@@ -192,7 +205,6 @@ export default function NavBar() {
   useSearchInputBindings({
     inputId: "searchInputt",
     suggestionsId: "suggestions-container-nav",
-    activeTab,
     syncHistory: true,
   });
 
@@ -270,7 +282,7 @@ export default function NavBar() {
           href="#"
           onClick={handleSplitView}
           class={`${splitBtnActive ? "active" : ""} ${splitBtnDisabled ? "disabled" : ""}`}
-          disabled={splitBtnDisabled}
+          aria-disabled={splitBtnDisabled}
         >
           <i class="fa-regular fa-table-columns"></i>
         </a>

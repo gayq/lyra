@@ -1,6 +1,6 @@
 [package]
 name = "cloudsync"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 
 [dependencies]
@@ -31,7 +31,10 @@ dashmap = "6"
 sysinfo = "0.32"
 
 [profile.release]
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
+opt-level = 3
 strip = true
+overflow-checks = false
+debug = false

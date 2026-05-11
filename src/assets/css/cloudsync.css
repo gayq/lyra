@@ -13,7 +13,8 @@
   position: absolute;
   right: 10px;
   top: 10px;
-  transition: color 0.05s ease, transform 0.05s ease;
+  transition: color 
+  ease, transform 0.1s ease;
   width: 30px;
   z-index: 1000;
 }

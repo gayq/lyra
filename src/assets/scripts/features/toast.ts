@@ -268,7 +268,7 @@ function initToast(): void {
         toast.classList.add("is-hiding");
         updateToastPositions(toastContainer!.matches(":hover"));
       } else {
-        toast.style.transition = "transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.25s ease-out";
+        toast.style.transition = "transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.1s ease-out";
         updateToastPositions(toastContainer!.matches(":hover"));
         toast.style.opacity = "1";
         controller.start();

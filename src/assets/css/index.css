@@ -6,15 +6,6 @@ select {
     font-family: Lexend, sans-serif;
 }
 
-.icon-preloader {
-    position: absolute;
-    width: 0;
-    height: 0;
-    overflow: hidden;
-    visibility: hidden;
-    pointer-events: none;
-}
-
 html {
     height: 100%;
     overflow: hidden;
@@ -45,13 +36,13 @@ body.games-view .games-topbar::before {
     top: -51px;
     left: 0;
     width: 100%;
-    height: 220px;
+    height: 340px;
     background: linear-gradient(
         to bottom,
         var(--bg-body) 0%,
         var(--bg-body) 20%,
-        color-mix(in srgb, var(--bg-body) 80%, transparent) 45%,
-        color-mix(in srgb, var(--bg-body) 30%, transparent) 75%,
+        color-mix(in srgb, var(--bg-body) 70%, transparent) 35%,
+        color-mix(in srgb, var(--bg-body) 20%, transparent) 65%,
         transparent 100%
     );
     opacity: 0;
@@ -171,8 +162,8 @@ body.split-view #iframe-container {
     gap: 0;
     height: 99%;
     transition:
-        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body.is-picking-split #iframe-container .iframe,
@@ -189,9 +180,9 @@ body.split-view #iframe-container .iframe {
     top: auto;
     transform: translateZ(0);
     transition:
-        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+        border-radius 0.1s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 0;
 }
 
@@ -251,10 +242,10 @@ body.split-view #iframe-container .iframe.active-split-right {
     position: absolute;
     top: 0;
     transition:
-        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        border-radius 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-        position 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
+        border-radius 0.1scubic-bezier(0.4, 0, 0.2, 1),
+        position 0.1s cubic-bezier(0.4, 0, 0.2, 1);
     width: 100%;
     z-index: 2;
 }
@@ -265,10 +256,6 @@ body.split-view #iframe-container .iframe.active-split-right {
     display: block;
     height: 100%;
     width: 100%;
-}
-
-#iframe-container .iframe.loaded {
-    background: var(--iframe-loaded-bg);
 }
 
 #iframe-container .iframe.active {
@@ -406,8 +393,8 @@ body.browser-view .main-nav {
     padding: 8px;
     text-decoration: none;
     transition:
-        background-color 0.05s ease,
-        color 0.05s ease;
+        background-color 0.1s ease,
+        color 0.1s ease;
 }
 
 .nav-controls a:hover,
@@ -463,8 +450,8 @@ body.browser-view .main-nav {
     padding: 10px;
     text-decoration: none;
     transition:
-        background-color 0.05s ease,
-        transform 0.05s ease;
+        background-color 0.1s ease,
+        transform 0.1s ease;
 }
 
 .icon-btn:hover {
@@ -571,7 +558,7 @@ body.browser-view .main-nav {
     outline: none;
     padding: 10px 15px 10px 35px;
     text-align: left;
-    transition: background-color 0.05s ease;
+    transition: background-color 0.1s ease;
     width: 100%;
 }
 
@@ -600,25 +587,25 @@ body.browser-view .main-nav {
     transform: translateY(-50%);
 }
 
-#top-left-stuff {
-    align-items: center;
-    height: 35px;
-    left: 25px;
-}
-
 #top-left-stuff,
 #top-right-stuff {
     display: flex;
     gap: 10px;
     position: fixed;
-    top: 25px;
+    top: 19px;
     z-index: 1200;
+}
+
+#top-left-stuff {
+    align-items: center;
+    height: 35px;
+    left: 19px;
 }
 
 #top-right-stuff {
     align-items: center;
-    height: auto;
-    right: 25px;
+    height: 35px;
+    right: 19px;
 }
 
 #branding-container {
@@ -632,7 +619,6 @@ body.browser-view .main-nav {
 
 #brand {
     color: var(--brand-color);
-    font-family: "Sniglet";
     cursor: default;
     cursor: pointer;
     font-size: 15px;
@@ -707,16 +693,23 @@ body.browser-view .main-nav {
     width: 90%;
     max-width: 640px;
     z-index: 5;
-    margin-top: 23.5vh;
+    margin-top: 23vh;
 }
 
 .title {
-    color: var(--text-white);
-    font-family: "Sniglet";
     display: inline-block;
-    font-size: 54px;
-    margin-bottom: 7px;
-    text-align: center;
+    margin-bottom: 5px;
+}
+
+.title img {
+    max-height: 90px;
+    -webkit-user-drag: none;
+    user-select: none;
+    cursor: grab;
+}
+
+.title img:active {
+    cursor: grabbing;
 }
 
 .search-bar {
@@ -977,7 +970,7 @@ body.browser-view .main-nav {
     cursor: pointer;
     font-size: 16px;
     padding: 10px;
-    transition: background-color 0.05s ease, transform 0.05s ease;
+    transition: background-color 0.1s ease, transform 0.1s ease;
     width: 48%;
 }
 
@@ -1053,42 +1046,46 @@ body.browser-view .main-nav {
     }
 }
 
-.iframe-loading {
-    align-items: center;
-    background-color: var(--bg-body-translucent);
-    border-radius: 2px;
-    display: none;
-    flex-direction: column;
-    gap: 16px;
-    height: 100%;
-    justify-content: center;
-    left: 0;
-    position: absolute;
-    top: 0;
-    width: 100%;
-    z-index: 50;
-}
-
-.iframe-loading.visible {
+.sidebar-footer {
     display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    margin-top: auto;
 }
 
-.iframe-loading-cat {
+.sidebar-footer-oneko {
     background-image: url(/assets/images/gifs/oneko.gif);
     height: 32px;
-    image-rendering: pixelated;
-    transform: scale(2);
     width: 32px;
-    margin-left: -9px;
+    image-rendering: pixelated;
+    flex-shrink: 0;
+    margin-left: -20px;
+    margin-bottom: -15px;
+    animation: onekoIdle 0.8s steps(1) infinite;
+}
+
+.sidebar-footer.loading .sidebar-footer-oneko {
     animation: onekoGroom 1.2s steps(1) infinite;
 }
 
-.iframe-loading-text {
+.sidebar-footer-text {
+    display: none;
     color: var(--color-loading-text);
-    font-size: 15px;
+    opacity: 0.8;
+    font-size: 11px;
     font-weight: 300;
-    margin-top: 5px;
-    cursor: text;
+    margin-left: -3px;
+    margin-bottom: -30.8px;
+}
+
+.sidebar-footer.loading .sidebar-footer-text {
+    display: inline;
+}
+
+@keyframes onekoIdle {
+    0%, 100% { background-position: -64px 0; }
+    50% { background-position: -64px -32px; }
 }
 
 @keyframes onekoGroom {
@@ -1141,7 +1138,7 @@ html.theme-transitioning::view-transition-old(root) {
 
 html.theme-transitioning::view-transition-new(root) {
     z-index: 9999;
-    animation: circle-reveal 0.8s cubic-bezier(0.25, 1, 0.5, 1);
+    animation: circle-reveal 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes circle-reveal {

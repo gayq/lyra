@@ -235,6 +235,7 @@ pub async fn delete_account(
         }
     }).await.unwrap();
 
+    crate::sync::cached_meta_invalidate(user_id);
     let cookie = Cookie::build((COOKIE_NAME, ""))
         .path("/")
         .http_only(true)

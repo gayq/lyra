@@ -1,6 +1,6 @@
 import { render } from "preact";
-import App from "./App.jsx";
-import { store } from "./state/store.js";
+import App from "./App.tsx";
+import { store } from "./state/store.ts";
 import { initUiSignals } from "./core/uiSignals";
 import { initClickParticles } from "./core/particles.ts";
 
@@ -8,7 +8,11 @@ import "../css/themes.css";
 import "../css/index.css";
 import "../css/tabs.css";
 
-let cloudSyncLoadPromise = null;
+window.__wavesStuffData = fetch("/api/stuff", { cache: "no-store" })
+  .then((res) => (res.ok ? res.json() : null))
+  .catch(() => null);
+
+let cloudSyncLoadPromise: Promise<void> | null = null;
 let cloudSyncReady = false;
 
 function ensureCloudSyncLoaded() {
@@ -41,7 +45,7 @@ function shouldPreloadCloudSync() {
   }
 }
 
-function scheduleIdleLoad(callback) {
+function scheduleIdleLoad(callback: () => void) {
   if (typeof window.requestIdleCallback === "function") {
     const idleId = window.requestIdleCallback(callback, { timeout: 1500 });
     return () => window.cancelIdleCallback(idleId);
@@ -57,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.addEventListener(
     "toggleAuthModal",
-    (event) => {
+    (event: Event) => {
       if (cloudSyncReady) return;
 
       event.stopImmediatePropagation();
@@ -72,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
     true,
   );
 
-  const meow = document.querySelector(".meow");
+  const meow = document.querySelector<HTMLElement>(".meow");
   if (meow) {
     render(<App />, meow);
   }
@@ -85,11 +89,11 @@ document.addEventListener("DOMContentLoaded", () => {
     void import("../css/bookmarks.css");
     void import("../css/newtab.css");
     void import("../css/toast.css");
-    void import("./core/register.js");
-    void import("./core/load.js").then((module) => {
+    void import("./core/register.ts");
+    void import("./core/load.ts").then((module) => {
       module.initializeLoad();
     });
-    void import("./features/settings.js");
+    void import("./features/settings.ts");
     void import("./features/toast.ts");
   });
 
@@ -98,7 +102,7 @@ document.addEventListener("DOMContentLoaded", () => {
     void ensureCloudSyncLoaded();
   });
 
-  const onSwMessage = (e) => store.handleServiceWorkerMessage(e);
+  const onSwMessage = (e: MessageEvent) => store.handleServiceWorkerMessage(e);
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.addEventListener("message", onSwMessage);
   }

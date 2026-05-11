@@ -1,4 +1,4 @@
-import { encodeMochiUrl } from "./utils.js";
+import { encodeMochiUrl } from "./utils.ts";
 
 export interface Bookmark {
   name: string;

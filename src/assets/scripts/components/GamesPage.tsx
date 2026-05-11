@@ -1,32 +1,29 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "preact/hooks";
 import { memo } from "preact/compat";
-import { fetchGameData, resetGameCache, getGameDisplayLabel } from "../features/games.ts";
-import { showHomeView } from "../state/store.js";
-import { attachSearchLight } from "../core/searchLight.js";
+import { fetchGameData, resetGameCache, getGameDisplayLabel, type GameEntry } from "../features/games.ts";
+import { showHomeView } from "../state/store.ts";
+import { attachSearchLight } from "../core/searchLight.ts";
 
-const FADE_DURATION = 30;
+const FADE_DURATION = 100;
 const SKELETON_KEYS = Array.from({ length: 12 }, (_, i) => `skeleton-${i}`);
 const RENDER_BATCH = 120;
 
-const GameCard = memo(function GameCard({ game, onPlay }) {
+const GameCard = memo(function GameCard({ game, onPlay }: { game: GameEntry; onPlay: (game: GameEntry) => void }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
 
   return (
     <article class="game-card" onClick={() => onPlay(game)}>
       <div
-        class={`game-cover${!loaded && !errored ? " skeleton" : ""}${errored ? " no-cover" : ""}`}
+        class={`game-cover${!loaded && !errored ? " skeleton" : ""}${errored ? " no-cover" : ""}${loaded && !errored ? " loaded" : ""}`}
       >
-        {!errored && game.coverUrl && (
+        {game.coverUrl && !errored && (
           <img
             loading="lazy"
             decoding="async"
             src={game.coverUrl}
             onLoad={() => setLoaded(true)}
-            onError={() => {
-              setLoaded(true);
-              setErrored(true);
-            }}
+            onError={() => { setLoaded(true); setErrored(true); }}
           />
         )}
       </div>
@@ -50,25 +47,64 @@ const SkeletonCard = memo(function SkeletonCard() {
 });
 
 export default function GamesPage() {
-  const [allGames, setAllGames] = useState([]);
+  const [allGames, setAllGames] = useState<GameEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [visible, setVisible] = useState(false);
   const [active, setActive] = useState(false);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const searchBarRef = useRef(null);
-  const searchInputRef = useRef(null);
-  const scrollTargetRef = useRef(null);
+  const searchBarRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollTargetRef = useRef<HTMLElement | Window | null>(null);
   const savedScrollRef = useRef(0);
-  const fadeTimerRef = useRef(null);
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const loadGames = useCallback(() => {
+    setError(null);
+    fetchGameData()
+      .then((games) => {
+        setAllGames(games);
+        setLoaded(true);
+      })
+      .catch(() => {
+        setError(
+          "failed to fetch games .‸. (this is an issue with the source)",
+        );
+        setLoaded(true);
+      });
+  }, []);
+
+  const hide = useCallback(() => {
+    if (!document.body.classList.contains("games-view")) return;
+
+    const target = scrollTargetRef.current;
+    if (target) {
+      savedScrollRef.current =
+        target === window
+          ? window.scrollY || document.documentElement.scrollTop
+          : (target as HTMLElement).scrollTop;
+    }
+
+    setActive(false);
+
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    fadeTimerRef.current = setTimeout(() => {
+      setVisible(false);
+      document.body.classList.remove("games-view");
+      fadeTimerRef.current = null;
+    }, FADE_DURATION);
+
+    const iconEl = document.querySelector("#choi i");
+    if (iconEl) iconEl.className = "fa-solid fa-gamepad-modern";
+  }, []);
 
   useEffect(() => {
     if (searchBarRef.current) attachSearchLight(searchBarRef.current);
   }, [visible]);
 
   useEffect(() => {
-    scrollTargetRef.current = document.querySelector(".meow") || window;
+    scrollTargetRef.current = document.querySelector<HTMLElement>(".meow") || window;
   }, []);
 
   useEffect(() => {
@@ -76,10 +112,10 @@ export default function GamesPage() {
     const target = scrollTargetRef.current;
     const bar = searchBarRef.current;
     if (!target || !bar) return;
-    const readTop = () => (target === window ? window.scrollY : target.scrollTop);
+    const readTop = () => (target === window ? window.scrollY : (target as HTMLElement).scrollTop);
     bar.classList.toggle("is-sticky", readTop() > 10);
 
-    let scrollRaf = null;
+    let scrollRaf: number | null = null;
     const onScroll = () => {
       if (scrollRaf) return;
       scrollRaf = requestAnimationFrame(() => {
@@ -105,31 +141,16 @@ export default function GamesPage() {
     };
     document.addEventListener("gameSourceUpdated", handler);
     return () => document.removeEventListener("gameSourceUpdated", handler);
-  }, [visible]);
+  }, [visible, loadGames]);
 
   useEffect(() => {
     if (!visible) return;
-    const onKey = (e) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") hide();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [visible]);
-
-  const loadGames = useCallback(() => {
-    setError(null);
-    fetchGameData()
-      .then((games) => {
-        setAllGames(games);
-        setLoaded(true);
-      })
-      .catch(() => {
-        setError(
-          "failed to fetch games .‸. (this is an issue with the source)",
-        );
-        setLoaded(true);
-      });
-  }, []);
+  }, [visible, hide]);
 
   const show = useCallback(() => {
     if (fadeTimerRef.current) {
@@ -138,10 +159,10 @@ export default function GamesPage() {
     }
 
     if (
-      window.toggleSettingsMenu &&
+      (window as any).toggleSettingsMenu &&
       document.getElementById("settings-menu")?.classList.contains("open")
     ) {
-      window.toggleSettingsMenu();
+      (window as any).toggleSettingsMenu();
     }
     if (
       document.body.classList.contains("watch-view") &&
@@ -153,14 +174,14 @@ export default function GamesPage() {
     showHomeView();
     document.body.classList.add("games-view");
     setVisible(true);
-    setActive(true);
     localStorage.setItem("wavesUserOpenedGameMenu", "true");
 
     requestAnimationFrame(() => {
+      setActive(true);
       const target = scrollTargetRef.current;
       if (target) {
         if (target === window) window.scrollTo(0, savedScrollRef.current);
-        else target.scrollTop = savedScrollRef.current;
+        else (target as HTMLElement).scrollTop = savedScrollRef.current;
       }
     });
 
@@ -172,52 +193,27 @@ export default function GamesPage() {
     if (iconEl) iconEl.className = "fa-solid fa-magnifying-glass";
   }, [loaded, allGames.length, loadGames]);
 
-  const hide = useCallback(() => {
-    if (!document.body.classList.contains("games-view")) return;
-
-    const target = scrollTargetRef.current;
-    if (target) {
-      savedScrollRef.current =
-        target === window
-          ? window.scrollY || document.documentElement.scrollTop
-          : target.scrollTop;
-    }
-
-    setActive(false);
-
-    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
-    fadeTimerRef.current = setTimeout(() => {
-      setVisible(false);
-      document.body.classList.remove("games-view");
-      fadeTimerRef.current = null;
-    }, FADE_DURATION);
-
-    const iconEl = document.querySelector("#choi i");
-    if (iconEl) iconEl.className = "fa-solid fa-gamepad-modern";
-  }, []);
-
   const toggle = useCallback(() => {
     if (document.body.classList.contains("games-view")) hide();
     else show();
   }, [show, hide]);
 
   useEffect(() => {
-    window.showGameMenu = show;
-    window.hideGameMenu = hide;
-    window.toggleGameMenu = toggle;
+    (window as any).showGameMenu = show;
+    (window as any).hideGameMenu = hide;
+    (window as any).toggleGameMenu = toggle;
 
-    window.WavesApp = window.WavesApp || {};
-    window.WavesApp.getGameDisplayLabel = getGameDisplayLabel;
+    ((window as any).WavesApp ??= {}).getGameDisplayLabel = getGameDisplayLabel;
 
     const gameIcon = document.getElementById("choi");
     const brand =
       document.getElementById("branding-container") ||
       document.getElementById("brand");
-    const onGameIconClick = (e) => {
+    const onGameIconClick = (e: MouseEvent) => {
       e.preventDefault();
       toggle();
     };
-    const onBrandClick = (e) => {
+    const onBrandClick = (e: MouseEvent) => {
       e.preventDefault();
       if (document.body.classList.contains("games-view")) hide();
     };
@@ -232,12 +228,12 @@ export default function GamesPage() {
   }, [show, hide, toggle]);
 
   const handlePlay = useCallback(
-    async (game) => {
+    async (game: GameEntry) => {
       if (game.isExternal) {
         window.open(game.gameUrl, "_blank");
-      } else if (window.WavesApp?.handleSearch) {
+      } else if ((window as any).WavesApp?.handleSearch) {
         hide();
-        window.WavesApp.handleSearch(game.gameUrl, game.name, game.coverUrl);
+        (window as any).WavesApp.handleSearch(game.gameUrl, game.name, game.coverUrl);
       }
     },
     [hide],
@@ -309,7 +305,7 @@ export default function GamesPage() {
             ? SKELETON_KEYS.map((key) => <SkeletonCard key={key} />)
             : visibleGames.map((game) => (
                 <GameCard
-                  key={game.id}
+                  key={`${game.sourceKey}-${game.gameUrl}`}
                   game={game}
                   onPlay={handlePlay}
                 />

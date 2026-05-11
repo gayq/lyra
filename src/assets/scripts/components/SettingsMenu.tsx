@@ -1,13 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from "preact/hooks";
 
-function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }) {
+interface SelectorProps {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  isOpen: string | null;
+  onOpen: (label: string) => void;
+  onClose: () => void;
+}
+
+function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }: SelectorProps) {
   const open = isOpen === label;
-  const ref = useRef(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) onClose();
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     window.addEventListener("click", handler);
     return () => window.removeEventListener("click", handler);
@@ -17,7 +27,7 @@ function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }) 
     <div class={`${label}-selector`} ref={ref}>
       <div
         class={`${label}-selected${open ? ` ${label}-arrow-active` : ""}`}
-        onClick={(e) => {
+        onClick={(e: MouseEvent) => {
           e.stopPropagation();
           if (open) {
             onClose();
@@ -35,7 +45,7 @@ function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }) 
             .map((opt) => (
               <div
                 key={opt}
-                onClick={(e) => {
+                onClick={(e: MouseEvent) => {
                   e.stopPropagation();
                   onChange(opt);
                   onClose();
@@ -50,9 +60,15 @@ function Selector({ label, value, options, onChange, isOpen, onOpen, onClose }) 
   );
 }
 
-function Toggle({ id, checked, onChange }) {
-  const onToggle = (e) => {
-    const el = e.currentTarget;
+interface ToggleProps {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}
+
+function Toggle({ id, checked, onChange }: ToggleProps) {
+  const onToggle = (e: Event) => {
+    const el = e.currentTarget as HTMLInputElement;
     const isChecked = el.checked;
     el.classList.remove("animate-on", "animate-off");
     requestAnimationFrame(() => {
@@ -70,8 +86,8 @@ export default function SettingsMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [activeTab, setActiveTab] = useState("preferences");
-  const [openSelector, setOpenSelector] = useState(null);
-  const menuRef = useRef(null);
+  const [openSelector, setOpenSelector] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const [backend, setBackend] = useState(
     () => localStorage.getItem("backend") || "scramjet",
@@ -101,6 +117,22 @@ export default function SettingsMenu() {
   const [focusCloaking, setFocusCloaking] = useState(
     () => localStorage.getItem("focusCloaking") !== "false",
   );
+  const [versionInfo, setVersionInfo] = useState("");
+
+  useEffect(() => {
+    const w = window as Record<string, any>;
+    if (!w.__wavesStuffData) {
+      w.__wavesStuffData = fetch("/api/stuff", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null);
+    }
+    w.__wavesStuffData.then((data: any) => {
+      if (data && typeof data.version === "string") {
+        const build = typeof data.build === "string" ? `~${data.build}` : "";
+        setVersionInfo(`v${data.version}${build}`);
+      }
+    });
+  }, []);
 
   const toggleMenu = useCallback(() => {
     if (isClosing) return;
@@ -121,7 +153,7 @@ export default function SettingsMenu() {
   }, [isOpen, isClosing]);
 
   const onAnimEnd = useCallback(
-    (e) => {
+    (e: AnimationEvent) => {
       if (isClosing && e.animationName === "fadeOut") {
         setIsOpen(false);
         setIsClosing(false);
@@ -140,8 +172,8 @@ export default function SettingsMenu() {
   }, [toggleMenu]);
 
   useEffect(() => {
-    const handler = (e) => {
-      if (e.target.closest("#settings")) {
+    const handler = (e: MouseEvent) => {
+      if ((e.target as Element).closest("#settings")) {
         e.preventDefault();
         toggleMenu();
       }
@@ -153,7 +185,7 @@ export default function SettingsMenu() {
   useEffect(() => {
     const overlay = document.getElementById("overlay");
     if (!overlay) return;
-    const handler = (e) => {
+    const handler = (e: MouseEvent) => {
       if (e.target === overlay && isOpen && !isClosing) toggleMenu();
     };
     overlay.addEventListener("click", handler);
@@ -161,19 +193,19 @@ export default function SettingsMenu() {
   }, [isOpen, isClosing, toggleMenu]);
 
   useEffect(() => {
-    const handler = (e) => {
+    const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen && !isClosing) toggleMenu();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [isOpen, isClosing, toggleMenu]);
 
-  const save = (key, value) => {
+  const save = (key: string, value: string) => {
     localStorage.setItem(key, value);
     window.showToast?.("success", "settings saved");
   };
 
-  const handleSetting = (key, value, setter) => {
+  const handleSetting = (key: string, value: string, setter: (v: string) => void) => {
     setter(value);
     save(key, value);
 
@@ -224,7 +256,7 @@ export default function SettingsMenu() {
     }
   };
 
-  const handleToggle = (key, value, setter) => {
+  const handleToggle = (key: string, value: boolean, setter: (v: boolean) => void) => {
     setter(value);
     save(key, String(value));
 
@@ -262,15 +294,15 @@ export default function SettingsMenu() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".json,application/json";
-    input.onchange = (e) => {
-      const file = e.target.files?.[0];
+    input.onchange = (e: Event) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = async (ev) => {
+      reader.onload = async (ev: ProgressEvent<FileReader>) => {
         try {
-          const data = JSON.parse(ev.target.result);
-          if (typeof window.wavesImportDataFromObject === "function") {
-            await window.wavesImportDataFromObject(data);
+          const data = JSON.parse(ev.target?.result as string);
+          if (typeof (window as any).wavesImportDataFromObject === "function") {
+            await (window as any).wavesImportDataFromObject(data);
             window.showToast?.("success", "data imported");
           }
         } catch (err) {
@@ -293,13 +325,13 @@ export default function SettingsMenu() {
   const allBackends = ["ultraviolet", "scramjet"];
   const allTransports = ["epoxy", "libcurl"];
   const allSearchEngines = [
-    "google",
-    "bing",
     "duckduckgo",
-    "startpage",
     "brave",
+    "startpage",
     "mojeek",
     "swisscows",
+    "google",
+    "bing",
   ];
   const allSiteCloaking = [
     "coursera",
@@ -356,7 +388,7 @@ export default function SettingsMenu() {
               {t.label}
             </button>
           ))}
-          <div class="settings-bottom">≽^•⩊•^≼</div>
+          <div class="settings-bottom">{versionInfo || "≽^•⩊•^≼"}</div>
         </div>
         <div class="settings-content-wrapper">
           <div
@@ -532,7 +564,7 @@ export default function SettingsMenu() {
                 >
                   github repository
                 </a>{" "}
-                &lt;3
+                &lt;33
               </p>
             </div>
           </div>

@@ -20,6 +20,7 @@
     "checkJs": false,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "allowImportingTsExtensions": true,
 
     "paths": {
       "react": ["./node_modules/preact/compat/"],

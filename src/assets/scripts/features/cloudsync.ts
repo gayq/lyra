@@ -15,6 +15,12 @@ interface SyncPayload {
   [key: string]: unknown;
 }
 
+interface DeltaPayload {
+  _delta: boolean;
+  localStorage: Record<string, string | null>;
+  indexedDB?: Record<string, unknown>;
+}
+
 interface ToastController {
   update(type: string, message: string, icon?: string): void;
   hide(): void;
@@ -26,6 +32,23 @@ interface SessionData {
   [key: string]: unknown;
 }
 
+interface DBExportRecord {
+  key: unknown;
+  value: unknown;
+}
+
+interface DBExportStore {
+  __isExportFormatV2?: boolean;
+  usesOutOfLineKeys?: boolean;
+  data: DBExportRecord[];
+}
+
+type DBExport = Record<string, DBExportStore>;
+
+interface IDBHashEntry {
+  hash: string;
+}
+
 declare global {
   interface Window {
     wavesExportAllData?: () => Promise<SyncPayload>;
@@ -34,9 +57,17 @@ declare global {
       callback: (progressText: string) => void,
     ) => Promise<void>;
     bypassPreventClosing?: boolean;
-    IDBObjectStore?: unknown;
   }
 }
+
+const POLL_INTERVAL = 20000;
+const POLL_MAX_INTERVAL = 60000;
+const DIRTY_DEBOUNCE = 1500;
+const DELTA_MAX_KEYS = 20;
+const DELTA_FULL_INTERVAL = 10;
+const SYNC_TIMEOUT = 60000;
+
+const SKIP_KEYS = new Set(["auth_user", "auth_token", "waves-sync-meta"]);
 
 const LOADING_SCREEN = `
     <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
@@ -68,6 +99,11 @@ export class CloudSync {
   _lastStatusText: string | undefined;
   _lastStatusType: string | undefined;
   _uploadRetries: number;
+  _dirtyKeys: Map<string, string | null>;
+  _idbHashes: Map<string, string>;
+  _deltaCount: number;
+  _pollInterval: number;
+  _checkIntervalId: ReturnType<typeof setInterval> | null;
 
   constructor() {
     this.user = JSON.parse(localStorage.getItem("auth_user") || "{}");
@@ -87,6 +123,11 @@ export class CloudSync {
     this._lastStatusText = undefined;
     this._lastStatusType = undefined;
     this._uploadRetries = 0;
+    this._dirtyKeys = new Map();
+    this._idbHashes = new Map();
+    this._deltaCount = 0;
+    this._pollInterval = POLL_INTERVAL;
+    this._checkIntervalId = null;
 
     this.init();
   }
@@ -151,7 +192,36 @@ export class CloudSync {
     this.hookStorage();
 
     if (this.isAuthenticated) {
-      setInterval(() => this.checkForChanges(), 5000);
+      this.startPolling();
+    }
+  }
+
+  startPolling(): void {
+    this.stopPolling();
+    this._pollInterval = POLL_INTERVAL;
+    this._checkIntervalId = setInterval(() => {
+      if (this.isAuthenticated && !this.isSyncing && this.syncMeta.dirty) {
+        this.syncData();
+      }
+    }, this._pollInterval);
+  }
+
+  stopPolling(): void {
+    if (this._checkIntervalId) {
+      clearInterval(this._checkIntervalId);
+      this._checkIntervalId = null;
+    }
+  }
+
+  onSyncError(): void {
+    this._pollInterval = Math.min(this._pollInterval * 2, POLL_MAX_INTERVAL);
+    this.startPolling();
+  }
+
+  onSyncSuccess(): void {
+    if (this._pollInterval > POLL_INTERVAL) {
+      this._pollInterval = POLL_INTERVAL;
+      this.startPolling();
     }
   }
 
@@ -225,11 +295,8 @@ export class CloudSync {
     const self = this;
     localStorage.setItem = function (key: string, value: string): void {
       originalSetItem.call(localStorage, key, value);
-      if (
-        key !== "auth_user" &&
-        key !== "auth_token" &&
-        key !== "waves-sync-meta"
-      ) {
+      if (!SKIP_KEYS.has(key)) {
+        self._dirtyKeys.set(key, value);
         self.markDirty();
       }
     };
@@ -237,16 +304,34 @@ export class CloudSync {
     const originalRemoveItem = localStorage.removeItem;
     localStorage.removeItem = function (key: string): void {
       originalRemoveItem.call(localStorage, key);
-      if (
-        key !== "auth_user" &&
-        key !== "auth_token" &&
-        key !== "waves-sync-meta"
-      ) {
+      if (!SKIP_KEYS.has(key)) {
+        self._dirtyKeys.set(key, null);
         self.markDirty();
       }
     };
 
-    if (window.IDBObjectStore) {
+    const originalClear = localStorage.clear;
+    localStorage.clear = function (): void {
+      originalClear.call(localStorage);
+      if (!self.isAuthenticated || self.isRestoring) return;
+      self._dirtyKeys.clear();
+      self.markDirty();
+    };
+
+    window.addEventListener("storage", (e: StorageEvent) => {
+      if (!self.isAuthenticated || self.isRestoring) return;
+      if (e.storageArea !== localStorage) return;
+      if (e.key === null) {
+        self._dirtyKeys.clear();
+        self.markDirty();
+        return;
+      }
+      if (SKIP_KEYS.has(e.key)) return;
+      self._dirtyKeys.set(e.key, e.newValue);
+      self.markDirty();
+    });
+
+    if (typeof IDBObjectStore !== "undefined") {
       type IDBMutableMethod = "put" | "add" | "delete" | "clear";
       const hookIDB = (method: IDBMutableMethod): void => {
         const proto = IDBObjectStore.prototype as unknown as Record<
@@ -254,6 +339,7 @@ export class CloudSync {
           unknown
         >;
         const original = proto[method] as (...args: unknown[]) => IDBRequest;
+        if (!original) return;
         proto[method] = function (this: IDBObjectStore, ...args: unknown[]) {
           self.markDirty();
           return original.apply(this, args);
@@ -268,18 +354,10 @@ export class CloudSync {
 
   markDirty(): void {
     if (!this.isAuthenticated || this.isRestoring) return;
-    if (this.syncMeta.dirty) {
-      this.notifyChange();
-      return;
+    if (!this.syncMeta.dirty) {
+      this.syncMeta.dirty = true;
+      this.saveMeta();
     }
-
-    this.syncMeta.dirty = true;
-    this.saveMeta();
-    this.notifyChange();
-  }
-
-  notifyChange(): void {
-    if (!this.isAuthenticated) return;
 
     if (this.syncTimeout) clearTimeout(this.syncTimeout);
 
@@ -287,12 +365,297 @@ export class CloudSync {
 
     this.syncTimeout = setTimeout(() => {
       this.syncData();
-    }, 1500);
+    }, DIRTY_DEBOUNCE);
   }
 
   checkForChanges(): void {
     if (this.isAuthenticated && !this.isSyncing && this.syncMeta.dirty) {
       this.syncData();
+    }
+  }
+
+  async computeIDBHashes(): Promise<Map<string, string>> {
+    const hashes = new Map<string, string>();
+    if (!("indexedDB" in window) || typeof indexedDB.databases !== "function") {
+      return hashes;
+    }
+    try {
+      const dbs = await indexedDB.databases();
+      for (const dbInfo of dbs) {
+        if (!dbInfo.name) continue;
+        try {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open(dbInfo.name!);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => reject(new Error("blocked"));
+          });
+          const storeNames = Array.from(db.objectStoreNames);
+          for (const storeName of storeNames) {
+            try {
+              const tx = db.transaction(storeName, "readonly");
+              const store = tx.objectStore(storeName);
+              const count = await new Promise<number>((resolve, reject) => {
+                const req = store.count();
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
+              });
+              hashes.set(`${dbInfo.name}:${storeName}`, String(count));
+            } catch {}
+          }
+          db.close();
+        } catch {}
+      }
+    } catch {}
+    return hashes;
+  }
+
+  async syncData(
+    manual: boolean = false,
+    _retryCount: number = 0,
+  ): Promise<void> {
+    if (!manual && (!this.isAuthenticated || this.isSyncing)) return;
+    this.isSyncing = true;
+
+    try {
+      if (typeof window.wavesExportAllData !== "function") {
+        if (_retryCount >= 3) {
+          console.warn(
+            "[cloudsync] wavesExportAllData not available after 3 retries, aborting sync",
+          );
+          this.isSyncing = false;
+          this.updateStatus("sync skipped", "error");
+          this.onSyncError();
+          return;
+        }
+        console.warn(
+          `[cloudsync] wavesExportAllData not available yet, retry ${_retryCount + 1}/3...`,
+        );
+        this.isSyncing = false;
+        setTimeout(() => this.syncData(manual, _retryCount + 1), 2000);
+        return;
+      }
+
+      this._deltaCount++;
+      const shouldFullSync = this._deltaCount % DELTA_FULL_INTERVAL === 0;
+      const dirtyKeyCount = this._dirtyKeys.size;
+
+      let body: string;
+
+      if (shouldFullSync || dirtyKeyCount === 0 || dirtyKeyCount > DELTA_MAX_KEYS) {
+        const data = await window.wavesExportAllData();
+        body = JSON.stringify(data);
+      } else {
+        const newIdbHashes = await this.computeIDBHashes();
+        const delta: DeltaPayload = {
+          _delta: true,
+          localStorage: Object.fromEntries(this._dirtyKeys),
+        };
+        const changedDbs: Record<string, unknown> = {};
+        let hasIdbChanges = false;
+
+        for (const [key, hash] of newIdbHashes) {
+          const oldHash = this._idbHashes.get(key);
+          if (oldHash !== hash) {
+            hasIdbChanges = true;
+            const [dbName, storeName] = key.split(":");
+            if (!dbName || !storeName) continue;
+            if (!changedDbs[dbName]) changedDbs[dbName] = {};
+          }
+        }
+
+        if (hasIdbChanges) {
+          const fullData = await window.wavesExportAllData();
+          const idbData = fullData.indexedDB || {};
+          for (const dbName of Object.keys(changedDbs)) {
+            if (idbData[dbName]) {
+              changedDbs[dbName] = idbData[dbName];
+            }
+          }
+          delta.indexedDB = changedDbs;
+        }
+
+        this._idbHashes = newIdbHashes;
+        body = JSON.stringify(delta);
+      }
+
+      const res = await fetchWithTimeout(
+        "/api/sync/upload",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body,
+        },
+        SYNC_TIMEOUT,
+      );
+
+      if (res.ok) {
+        const result = await res.json();
+        this.syncMeta.dirty = false;
+        this.syncMeta.last_synced =
+          result.updated_at ||
+          new Date().toISOString().replace("T", " ").slice(0, 19);
+        this.saveMeta();
+        this._dirtyKeys.clear();
+
+        this.updateStatus("synced", "success");
+        this._uploadRetries = 0;
+        this.onSyncSuccess();
+      } else {
+        console.warn("[cloudsync] upload failed:", res.status);
+        if (
+          (res.status === 429 || res.status >= 500) &&
+          (!this._uploadRetries || this._uploadRetries < 3)
+        ) {
+          this._uploadRetries = (this._uploadRetries || 0) + 1;
+          const delay = Math.min(
+            2000 * Math.pow(2, this._uploadRetries - 1),
+            8000,
+          );
+          console.warn(
+            `[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`,
+          );
+          this.updateStatus("retrying sync...", "loading");
+          this.isSyncing = false;
+          setTimeout(() => this.syncData(manual, _retryCount), delay);
+          return;
+        }
+        this._uploadRetries = 0;
+        this.updateStatus("sync failed", "error");
+        this.onSyncError();
+      }
+    } catch (err) {
+      console.error("sync error!", err);
+      if (!this._uploadRetries || this._uploadRetries < 3) {
+        this._uploadRetries = (this._uploadRetries || 0) + 1;
+        const delay = Math.min(
+          2000 * Math.pow(2, this._uploadRetries - 1),
+          8000,
+        );
+        console.warn(
+          `[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`,
+        );
+        this.updateStatus("retrying sync...", "loading");
+        this.isSyncing = false;
+        setTimeout(() => this.syncData(manual, _retryCount), delay);
+        return;
+      }
+      this._uploadRetries = 0;
+      this.updateStatus("connection error", "error");
+      this.onSyncError();
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  async restoreData(
+    silent: boolean = false,
+    _retryCount: number = 0,
+  ): Promise<void> {
+    if (!this.isAuthenticated) return;
+    if (this.isRestoring) return;
+    if (!silent) this.updateStatus("restoring...", "loading");
+    this.isRestoring = true;
+
+    let restoreToast: ToastController | null = null;
+    let reloading = false;
+
+    if (!silent && window.showToast) {
+      restoreToast = window.showToast("info", "restoring data...", "rotate", 0);
+    }
+
+    const maxRetries = 6;
+    const jitter = (): number => Math.floor(Math.random() * 400);
+
+    try {
+      const res = await fetchWithTimeout("/api/sync/download", {}, SYNC_TIMEOUT);
+
+      if (res.status === 429 || res.status >= 500) {
+        if (_retryCount < maxRetries) {
+          const delay =
+            Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
+          if (!silent) this.updateStatus("restore retrying...", "loading");
+          console.warn(
+            `[cloudsync] restore retry ${_retryCount + 1}/${maxRetries} after ${delay}ms (status ${res.status})`,
+          );
+          this.isRestoring = false;
+          setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
+          return;
+        }
+        if (!silent) this.updateStatus("server busy", "error");
+        this.isRestoring = false;
+        return;
+      }
+
+      if (!res.ok && res.status !== 404) {
+        if (
+          _retryCount < maxRetries &&
+          res.status >= 400 &&
+          res.status !== 401
+        ) {
+          const delay =
+            Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
+          if (!silent) this.updateStatus("restore retrying...", "loading");
+          console.warn(
+            `[cloudsync] restore retry ${_retryCount + 1}/${maxRetries} after ${delay}ms (status ${res.status})`,
+          );
+          this.isRestoring = false;
+          setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
+          return;
+        }
+        if (!silent) this.updateStatus("server error", "error");
+        this.isRestoring = false;
+        return;
+      }
+
+      const json = await res.json();
+
+      if (res.ok && json.data) {
+        if (typeof window.wavesImportDataFromObject === "function") {
+          await window.wavesImportDataFromObject(
+            json.data,
+            (progressText: string) => {
+              const loadingH1 =
+                document.querySelector<HTMLElement>("#loading-screen h1");
+              if (loadingH1) loadingH1.textContent = progressText;
+            },
+          );
+
+          this.syncMeta.dirty = false;
+          this.syncMeta.last_synced = json.updated_at;
+          this.saveMeta();
+          this._dirtyKeys.clear();
+
+          if (!silent) {
+            reloading = true;
+            window.bypassPreventClosing = true;
+            window.location.reload();
+          } else {
+            document.dispatchEvent(new CustomEvent("cloudsync-restored"));
+            this.updateStatus("synced", "success");
+          }
+        }
+      } else if (res.status === 404) {
+        if (!silent) this.updateStatus("no data found", "success");
+      }
+    } catch (err) {
+      console.error("restore error!", err);
+      if (_retryCount < maxRetries) {
+        const delay =
+          Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
+        if (!silent) this.updateStatus("restore retrying...", "loading");
+        this.isRestoring = false;
+        setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
+        return;
+      }
+      if (!silent) this.updateStatus("restore failed", "error");
+    } finally {
+      this.isRestoring = false;
+      if (restoreToast && !reloading) {
+        restoreToast.hide();
+      }
     }
   }
 
@@ -335,7 +698,7 @@ export class CloudSync {
                         <div style="text-align: center;">
                             <button type="submit" class="auth-action-btn" style="width: 60%; margin-top: 15px;">create account</button>
                             <p style="font-size: 11.5px; color: #ff5555; margin-top: 10px; max-width: 80%; margin-left: auto; margin-right: auto;">
-                                save your password somewhere safe! all data will be forever lost if you forget your password ( •̯́ ^ •̯̀)
+                                save your password somewhere safe! all data will be forever lost if you forget your password ( \u2022\u032F\u0301 ^ \u2022\u0300)
                             </p>
                         </div>
                     </form>
@@ -433,22 +796,26 @@ export class CloudSync {
       }
     });
 
-    const container = modal.querySelector<HTMLElement>(
-      "#auth-switch-container",
-    );
     const promptText = modal.querySelector<HTMLElement>("#auth-prompt-text")!;
     const actionText = modal.querySelector<HTMLElement>("#auth-action-text")!;
     const authTitle = modal.querySelector<HTMLElement>("#auth-title")!;
 
+    const loginUsername = modal.querySelector<HTMLInputElement>("#login-username")!;
+    const loginPassword = modal.querySelector<HTMLInputElement>("#login-password")!;
+
     actionText.addEventListener("click", () => {
       const isLogin = loginForm.style.display !== "none";
       if (isLogin) {
+        regUsername.value = loginUsername.value;
+        regPassword.value = loginPassword.value;
         loginForm.style.display = "none";
         regForm.style.display = "block";
         authTitle.textContent = "create account";
         promptText.textContent = "already have an account?";
         actionText.textContent = "login!";
       } else {
+        loginUsername.value = regUsername.value;
+        loginPassword.value = regPassword.value;
         loginForm.style.display = "block";
         regForm.style.display = "none";
         authTitle.textContent = "login";
@@ -467,7 +834,7 @@ export class CloudSync {
 
     const deleteBtn = modal.querySelector<HTMLElement>("#delete-account-btn")!;
     deleteBtn.addEventListener("click", () => {
-      this.deleteAccount();
+      void this.deleteAccount();
     });
 
     document.addEventListener("click", (e) => {
@@ -504,7 +871,6 @@ export class CloudSync {
       });
     });
 
-    void container;
   }
 
   async toggleModal(): Promise<void> {
@@ -543,7 +909,7 @@ export class CloudSync {
     if (this.isAuthenticated) {
       if (loggedInView) loggedInView.style.display = "block";
       if (formsView) formsView.style.display = "none";
-      if (userDisplay) userDisplay.textContent = this.user.username as string;
+      if (userDisplay) userDisplay.textContent = this.user.username ?? "";
       if (authTitle) authTitle.textContent = "cloud sync";
     } else {
       if (loggedInView) loggedInView.style.display = "none";
@@ -554,7 +920,7 @@ export class CloudSync {
     const statusEl = document.querySelector<HTMLElement>("#auth-status");
     if (statusEl)
       statusEl.textContent = this.isAuthenticated
-        ? (this.user.username as string)
+        ? (this.user.username ?? "")
         : "cloud sync";
   }
 
@@ -683,6 +1049,7 @@ export class CloudSync {
         this.setSession(data as unknown as SessionData);
         this.toggleModal();
         this.syncMeta.dirty = true;
+        this._dirtyKeys.clear();
         this.saveMeta();
         await this.syncData();
       } else {
@@ -706,6 +1073,7 @@ export class CloudSync {
     this.user = data.user;
     localStorage.setItem("auth_user", JSON.stringify(this.user));
     this.updateModalState();
+    this.startPolling();
   }
 
   async logout(): Promise<void> {
@@ -720,13 +1088,13 @@ export class CloudSync {
           class: "danger-btn",
           dismiss: true,
           callback: async () => {
-            this.performLogout();
+            await this.performLogout();
           },
         },
       ]);
     } else {
       if (!confirm("confirm logout?")) return;
-      this.performLogout();
+      void this.performLogout();
     }
   }
 
@@ -748,8 +1116,10 @@ export class CloudSync {
 
     if (toastController) toastController.hide();
 
+    this.stopPolling();
     this.isAuthenticated = false;
     this.user = {};
+    this._dirtyKeys.clear();
     localStorage.removeItem("auth_user");
     localStorage.removeItem("waves-sync-meta");
 
@@ -772,8 +1142,8 @@ export class CloudSync {
           text: "delete",
           class: "danger-btn",
           dismiss: true,
-          callback: () => {
-            this.performDelete();
+          callback: async () => {
+            await this.performDelete();
           },
         },
       ]);
@@ -783,7 +1153,7 @@ export class CloudSync {
           "are you sure? this will delete your account and all synced data permanently.",
         )
       ) {
-        this.performDelete();
+        void this.performDelete();
       }
     }
   }
@@ -806,8 +1176,10 @@ export class CloudSync {
 
       if (res.ok) {
         if (toastController) toastController.hide();
+        this.stopPolling();
         this.isAuthenticated = false;
         this.user = {};
+        this._dirtyKeys.clear();
         localStorage.removeItem("auth_user");
         localStorage.removeItem("waves-sync-meta");
 
@@ -882,10 +1254,9 @@ export class CloudSync {
         const dbs = await indexedDB.databases();
         for (const dbInfo of dbs) {
           if (dbInfo.name) {
-            const req: IDBOpenDBRequest = indexedDB.deleteDatabase(
+            indexedDB.deleteDatabase(
               dbInfo.name!,
             );
-            void req;
           }
         }
       } catch (e) {
@@ -908,203 +1279,6 @@ export class CloudSync {
         await Promise.all(keys.map((k) => caches.delete(k)));
       } catch (e) {
         console.warn("[cloudsync] error clearing caches:", e);
-      }
-    }
-  }
-
-  async syncData(
-    manual: boolean = false,
-    _retryCount: number = 0,
-  ): Promise<void> {
-    if (!manual && (!this.isAuthenticated || this.isSyncing)) return;
-    this.isSyncing = true;
-
-    try {
-      if (typeof window.wavesExportAllData !== "function") {
-        if (_retryCount >= 3) {
-          console.warn(
-            "[cloudsync] wavesExportAllData not available after 3 retries, aborting sync",
-          );
-          this.isSyncing = false;
-          this.updateStatus("sync skipped", "error");
-          return;
-        }
-        console.warn(
-          `[cloudsync] wavesExportAllData not available yet, retry ${_retryCount + 1}/3...`,
-        );
-        this.isSyncing = false;
-        setTimeout(() => this.syncData(manual, _retryCount + 1), 2000);
-        return;
-      }
-
-      const data = await window.wavesExportAllData();
-
-      const res = await fetchWithTimeout(
-        "/api/sync/upload",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(data),
-        },
-        60000,
-      );
-
-      if (res.ok) {
-        const result = await res.json();
-        this.syncMeta.dirty = false;
-        this.syncMeta.last_synced =
-          result.updated_at ||
-          new Date().toISOString().replace("T", " ").slice(0, 19);
-        this.saveMeta();
-
-        this.updateStatus("synced", "success");
-        this._uploadRetries = 0;
-      } else {
-        console.warn("[cloudsync] upload failed:", res.status);
-        if (
-          (res.status === 429 || res.status >= 500) &&
-          (!this._uploadRetries || this._uploadRetries < 3)
-        ) {
-          this._uploadRetries = (this._uploadRetries || 0) + 1;
-          const delay = Math.min(
-            2000 * Math.pow(2, this._uploadRetries - 1),
-            8000,
-          );
-          console.warn(
-            `[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`,
-          );
-          this.updateStatus("retrying sync...", "loading");
-          this.isSyncing = false;
-          setTimeout(() => this.syncData(manual, _retryCount), delay);
-          return;
-        }
-        this._uploadRetries = 0;
-        this.updateStatus("sync failed", "error");
-      }
-    } catch (err) {
-      console.error("sync error!", err);
-      if (!this._uploadRetries || this._uploadRetries < 3) {
-        this._uploadRetries = (this._uploadRetries || 0) + 1;
-        const delay = Math.min(
-          2000 * Math.pow(2, this._uploadRetries - 1),
-          8000,
-        );
-        console.warn(
-          `[cloudsync] retrying upload in ${delay}ms (attempt ${this._uploadRetries}/3)`,
-        );
-        this.updateStatus("retrying sync...", "loading");
-        this.isSyncing = false;
-        setTimeout(() => this.syncData(manual, _retryCount), delay);
-        return;
-      }
-      this._uploadRetries = 0;
-      this.updateStatus("connection error", "error");
-    } finally {
-      this.isSyncing = false;
-    }
-  }
-
-  async restoreData(
-    silent: boolean = false,
-    _retryCount: number = 0,
-  ): Promise<void> {
-    if (!this.isAuthenticated) return;
-    if (this.isRestoring) return;
-    if (!silent) this.updateStatus("restoring...", "loading");
-    this.isRestoring = true;
-
-    let restoreToast: ToastController | null = null;
-    let reloading = false;
-
-    if (!silent && window.showToast) {
-      restoreToast = window.showToast("info", "restoring data...", "rotate", 0);
-    }
-
-    const maxRetries = 6;
-    const jitter = (): number => Math.floor(Math.random() * 400);
-
-    try {
-      const res = await fetchWithTimeout("/api/sync/download", {}, 60000);
-
-      if (res.status === 429 || res.status >= 500) {
-        if (_retryCount < maxRetries) {
-          const delay =
-            Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
-          if (!silent) this.updateStatus("restore retrying...", "loading");
-          console.warn(
-            `[cloudsync] restore retry ${_retryCount + 1}/${maxRetries} after ${delay}ms (status ${res.status})`,
-          );
-          setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
-          return;
-        }
-        if (!silent) this.updateStatus("server busy", "error");
-        return;
-      }
-
-      if (!res.ok && res.status !== 404) {
-        if (
-          _retryCount < maxRetries &&
-          res.status >= 400 &&
-          res.status !== 401
-        ) {
-          const delay =
-            Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
-          if (!silent) this.updateStatus("restore retrying...", "loading");
-          console.warn(
-            `[cloudsync] restore retry ${_retryCount + 1}/${maxRetries} after ${delay}ms (status ${res.status})`,
-          );
-          setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
-          return;
-        }
-        if (!silent) this.updateStatus("server error", "error");
-        return;
-      }
-
-      const json = await res.json();
-
-      if (res.ok && json.data) {
-        if (typeof window.wavesImportDataFromObject === "function") {
-          await window.wavesImportDataFromObject(
-            json.data,
-            (progressText: string) => {
-              const loadingH1 =
-                document.querySelector<HTMLElement>("#loading-screen h1");
-              if (loadingH1) loadingH1.textContent = progressText;
-            },
-          );
-
-          this.syncMeta.dirty = false;
-          this.syncMeta.last_synced = json.updated_at;
-          this.saveMeta();
-
-          if (!silent) {
-            reloading = true;
-            window.bypassPreventClosing = true;
-            window.location.reload();
-          } else {
-            document.dispatchEvent(new CustomEvent("cloudsync-restored"));
-            this.updateStatus("synced", "success");
-          }
-        }
-      } else if (res.status === 404) {
-        if (!silent) this.updateStatus("no data found", "success");
-      }
-    } catch (err) {
-      console.error("restore error!", err);
-      if (_retryCount < maxRetries) {
-        const delay =
-          Math.min(1000 * Math.pow(2, _retryCount), 30000) + jitter();
-        if (!silent) this.updateStatus("restore retrying...", "loading");
-        setTimeout(() => this.restoreData(silent, _retryCount + 1), delay);
-        return;
-      }
-      if (!silent) this.updateStatus("restore failed", "error");
-    } finally {
-      this.isRestoring = false;
-      if (restoreToast && !reloading) {
-        restoreToast.hide();
       }
     }
   }

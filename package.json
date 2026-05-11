@@ -1,6 +1,6 @@
 {
   "name": "waves",
-  "version": "3.6.1",
+  "version": "3.6.4",
   "description": "a really cool web-proxy",
   "type": "module",
   "packageManager": "bun@1.2.17",
@@ -8,8 +8,8 @@
     "bun": ">=1.0.0"
   },
   "scripts": {
-    "start": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=production bun index.mjs",
-    "dev": "cross-env UV_THREADPOOL_SIZE=32 NODE_ENV=development bun index.mjs",
+    "start": "UV_THREADPOOL_SIZE=32 NODE_ENV=production bun index.mjs",
+    "dev": "UV_THREADPOOL_SIZE=32 NODE_ENV=development bun index.mjs",
     "lint": "eslint .",
     "build": "vite build --config vite.config.js",
     "build:legacy": "bun build.mjs",
@@ -33,10 +33,10 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "cross-env": "^10.1.0",
     "eslint": "^9.5.0",
     "javascript-obfuscator": "^5.0.1",
     "prettier": "^3.8.2",
-    "terser": "^5.46.1"
+    "terser": "^5.46.1",
+    "typescript": "^6.0.3"
   }
 }

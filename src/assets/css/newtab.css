@@ -4,7 +4,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transition: background-color 0.05s ease;
+    transition: background-color 0.1s ease;
 }
 
 .new-tab-search-container {
@@ -60,7 +60,7 @@
     cursor: pointer;
     color: var(--color-result);
     font-size: 14px;
-    transition: color 0.05s ease, background-color 0.05s ease;
+    transition: color 0.1s ease, background-color 0.1s ease;
     display: flex;
     align-items: center;
     gap: 10px;

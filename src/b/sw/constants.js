@@ -43,25 +43,12 @@ const CACHEABLE_ASSET_EXTS = new Set([
   ".eot",
 ]);
 
-const DOWNLOAD_EXTENSIONS = new Set([
-  ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".exe",
-  ".msi", ".apk", ".dmg", ".deb", ".rpm", ".pdf", ".doc", ".docx",
-  ".xls", ".xlsx", ".ppt", ".pptx", ".iso", ".img", ".bin", ".msix",
-  ".pkg", ".mp3", ".mp4", ".wav", ".flac", ".mkv", ".mov",
-]);
-
 const LARGE_EXTENSIONS = new Set([
   ".flac", ".wav", ".aiff", ".alac", ".wma", ".ape", ".dsd",
   ".m4a", ".aac", ".ogg", ".opus", ".wv", ".tta", ".tak",
   ".mkv", ".mp4", ".webm", ".avi", ".mov", "wmv",
   ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
   ".wasm", ".data", ".pck", ".unityweb", ".bin",
-]);
-
-const COMPRESSIBLE = new Set([
-  ".flac", ".wav", ".aiff", ".m4a", ".aac", ".ogg", ".opus",
-  ".mp3", ".wma", ".txt", ".json", ".xml", ".html", ".css", ".js",
-  ".svg", ".woff", ".woff2", ".ttf", ".otf",
 ]);
 
 const LARGE_SIZE_THRESHOLD = 50 * 1024 * 1024;
@@ -72,7 +59,6 @@ const DEFAULT_CHUNK = 2 * 1024 * 1024;
 const MIN_CHUNK = 512 * 1024;
 const MAX_CHUNK = 10 * 1024 * 1024;
 const MOCHI_TIMEOUT_MS = 15000;
-const PROXY_TIMEOUT_MS = 10000;
 const PROXY_NAV_TIMEOUT_MS = 12000;
 const PROXY_SUBRESOURCE_TIMEOUT_MS = 8000;
 const MOCHI_SECONDARY_MS = 12000;

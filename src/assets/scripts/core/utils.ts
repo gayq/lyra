@@ -164,6 +164,28 @@ export function getProxyUrl(url: string): string {
   return "/!!/" + encoded + "/";
 }
 
+export function normalizeGameHistoryUrl(candidate: string | null | undefined): string | null {
+  if (!candidate || typeof candidate !== "string") return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.hostname && parsed.hostname.includes("gn-math.dev")) {
+      const rawId = parsed.searchParams.get("id");
+      if (rawId) {
+        const cleanId = decodeURIComponent(rawId).trim().split(/[?&#]/)[0]!.trim();
+        if (cleanId) {
+          return `${parsed.protocol}//${parsed.host}/?id=${encodeURIComponent(cleanId)}`;
+        }
+      }
+    }
+    let pathname = parsed.pathname || "/";
+    pathname = pathname.replace(/\/+$/, "") || "/";
+    pathname = pathname.replace(/\/index\.(html?|php)$/i, "") || "/";
+    return `${parsed.protocol}//${parsed.host}${pathname}${parsed.search}`;
+  } catch {
+    return candidate.trim().replace(/\/+$/, "").toLowerCase();
+  }
+}
+
 export function canonicalize(u: string): string {
   try {
     const url = new URL(u);

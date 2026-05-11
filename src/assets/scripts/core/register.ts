@@ -194,30 +194,47 @@ class WavesConnectionManager {
   }
 
   async ensureWispServerConnection(url: string, timeout: number = 1500): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let ws: WebSocket | undefined;
-      try {
-        ws = new WebSocket(url);
-      } catch {
-        return reject(new Error("invalid websocket url!"));
-      }
-
-      const connectionTimeout = setTimeout(() => {
-        ws?.close();
-        reject(new Error("wisp connection timed out!"));
-      }, timeout);
-
-      ws.onopen = () => {
-        clearTimeout(connectionTimeout);
-        ws!.close();
-        resolve();
-      };
-      ws.onerror = () => {
-        clearTimeout(connectionTimeout);
-        reject(new Error("wisp connection failed!"));
-      };
-    });
-  }
+      return new Promise<void>((resolve, reject) => {
+        let ws: WebSocket | undefined;
+        let settled = false;
+        try {
+          ws = new WebSocket(url);
+        } catch {
+          return reject(new Error("invalid websocket url!"));
+        }
+  
+        const connectionTimeout = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          if (ws && ws.readyState !== WebSocket.CLOSED) {
+            ws.close();
+          }
+          reject(new Error("wisp connection timed out!"));
+        }, timeout);
+  
+        ws.onopen = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(connectionTimeout);
+          ws!.close();
+          resolve();
+        };
+        
+        ws.onerror = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(connectionTimeout);
+          reject(new Error("wisp connection failed!"));
+        };
+  
+        ws.onclose = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(connectionTimeout);
+          reject(new Error("wisp connection closed!"));
+        };
+      });
+    }
 
   async _verifyTransport(): Promise<boolean> {
     if (!this.bareMuxConnection) return false;
@@ -272,9 +289,13 @@ class WavesConnectionManager {
       }
 
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      this.currentWispUrl = `${protocol}://${window.location.host}/w/`;
+      const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const wispHost = (isLocalDev && window.location.port === '3000')
+        ? `${window.location.hostname}:8080`
+        : window.location.host;
+      this.currentWispUrl = `${protocol}://${wispHost}/w/`;
 
-      await this.ensureWispServerConnection(this.currentWispUrl, 5000);
+      await this.ensureWispServerConnection(this.currentWispUrl, 10000);
 
       const scope = SCOPE_MAP[this.appConfig.backend];
       if (!scope) throw new Error(`unknown backend: ${this.appConfig.backend}`);

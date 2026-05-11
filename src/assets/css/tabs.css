@@ -18,6 +18,8 @@
 }
 
 .tab {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
   display: flex;
   position: relative;
   align-items: center;
@@ -29,7 +31,7 @@
   flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
-  transition: background-color 0.05s ease, color 0.05s ease;
+  transition: background-color 0.1s ease, color 0.1s ease;
 }
 
 .tab:hover {
@@ -106,7 +108,7 @@
   height: 20px;
   opacity: 0;
   border-radius: 50%;
-  transition: opacity 0.05s ease, color 0.05s ease, background-color 0.05s ease, transform 0.05s ease;
+  transition: opacity 0.1s ease, color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
 }
 
 .tab:hover .tab-close,
@@ -137,7 +139,7 @@
   border-radius: 10px;
   margin-bottom: 5px;
   flex-shrink: 0;
-  transition: background-color 0.05s ease, color 0.05s ease, transform 0.05s ease;
+  transition: background-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
 }
 
 #add-tab-btn i {

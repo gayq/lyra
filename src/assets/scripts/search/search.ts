@@ -1,8 +1,8 @@
-import { BANGS, SEARCH_ENGINES } from "../core/config.js";
+import { BANGS, SEARCH_ENGINES } from "../core/config.ts";
 import { useEffect } from "preact/hooks";
-import { showBrowserView } from "../state/store.js";
-import { navigateIframeTo, updateHistoryUI } from "../core/iframe.js";
-import { getProxyUrl } from "../core/utils.js";
+import { store, showBrowserView } from "../state/store.ts";
+import { navigateIframeTo, updateHistoryUI } from "../core/iframe.ts";
+import { getProxyUrl } from "../core/utils.ts";
 
 interface TabLike {
   iframe: HTMLIFrameElement;
@@ -17,7 +17,6 @@ interface TabLike {
 interface SearchInputBindingsOptions {
   inputId: string;
   suggestionsId?: string | null;
-  activeTab?: TabLike | null;
   syncHistory?: boolean;
 }
 
@@ -162,7 +161,6 @@ export async function handleSearch(
 export function useSearchInputBindings({
   inputId,
   suggestionsId,
-  activeTab = null,
   syncHistory = false,
 }: SearchInputBindingsOptions): void {
   useEffect(() => {
@@ -170,7 +168,9 @@ export function useSearchInputBindings({
     if (!input) return;
 
     const onInput = () => {
-      if (!syncHistory || !activeTab?.historyManager) return;
+      if (!syncHistory) return;
+      const activeTab = store.getActiveTab();
+      if (!activeTab?.historyManager) return;
       updateHistoryUI(activeTab as any, {
         currentUrl: input.value,
         canGoBack: activeTab.historyManager.canGoBack(),
@@ -179,7 +179,9 @@ export function useSearchInputBindings({
     };
 
     const onFocus = () => {
-      if (!syncHistory || !activeTab?.historyManager) return;
+      if (!syncHistory) return;
+      const activeTab = store.getActiveTab();
+      if (!activeTab?.historyManager) return;
       updateHistoryUI(activeTab as any, {
         currentUrl: activeTab.historyManager.getCurrentUrl(),
         canGoBack: activeTab.historyManager.canGoBack(),
@@ -212,5 +214,5 @@ export function useSearchInputBindings({
       input.removeEventListener("focus", onFocus);
       input.removeEventListener("keyup", onKeyup);
     };
-  }, [inputId, suggestionsId, activeTab, syncHistory]);
+  }, [inputId, suggestionsId, syncHistory]);
 }

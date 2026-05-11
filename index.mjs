@@ -2,19 +2,19 @@ import dotenv from "dotenv";
 dotenv.config();
 import fs from "fs";
 import path from "path";
-import { createHash } from "crypto";
 import { createServer, request } from "http";
-import { spawn } from "child_process";
-import net from "net";
 import express from "express";
 import compression from "compression";
 import helmet from "helmet";
 import { LRUCache } from "lru-cache";
+import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
+
+let shuttingDown = false;
+
 const baremuxPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "bare-mux", "dist");
 const epoxyPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "epoxy-transport", "dist");
 const libcurlPath = path.join(process.cwd(), "node_modules", "@mercuryworkshop", "libcurl-transport", "dist");
-import rateLimit from "express-rate-limit";
-import cookieParser from "cookie-parser";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const NODE_ENV = process.env.NODE_ENV || "development";
@@ -24,6 +24,8 @@ const CACHING_ENABLED = NODE_ENV === "production";
 const fileCache = CACHING_ENABLED
   ? new LRUCache({
       maxSize: 400 * 1024 * 1024,
+      ttl: 1000 * 60 * 30,
+      ttlAutopurge: true,
       sizeCalculation: (buf) => buf.length,
     })
   : null;
@@ -126,7 +128,7 @@ try {
   packageData = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 } catch {}
 
-const geoCtrl = AbortController ? new AbortController() : null;
+const geoCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
 const geoTimeout = geoCtrl ? setTimeout(() => geoCtrl.abort(), 5000) : null;
 fetch("https://get.geojs.io/v1/ip/geo.json", geoCtrl ? { signal: geoCtrl.signal } : {})
   .then((res) => res.json())
@@ -146,10 +148,20 @@ const srcPath = path.join(
 const publicPath = path.join(__dirname, "public");
 const buildFingerprint = (() => {
   const fallback = packageData?.version || "unknown";
-  if (!CACHING_ENABLED) return fallback;
+
+  for (const dir of ["dist", "src"]) {
+    try {
+      const metaPath = path.join(__dirname, dir, "build-meta.json");
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      if (typeof meta.build === "string" && meta.build.length > 0) {
+        return meta.build;
+      }
+    } catch {}
+  }
+
   try {
-    const indexHtml = fs.readFileSync(path.join(srcPath, "index.html"));
-    return createHash("sha1").update(indexHtml).digest("hex").slice(0, 12);
+    const indexHtml = fs.readFileSync(path.join(__dirname, "src", "index.html"));
+    return new Bun.CryptoHasher("sha1").update(indexHtml).digest("hex").slice(0, 8);
   } catch {
     return fallback;
   }
@@ -158,6 +170,11 @@ const buildFingerprint = (() => {
 const app = express();
 app.set("trust proxy", 1);
 const server = createServer(app);
+const connections = new Set();
+server.on("connection", (conn) => {
+  connections.add(conn);
+  conn.on("close", () => connections.delete(conn));
+});
 const pageCache = new LRUCache({ max: 1000, ttl: 1000 * 60 * 5 });
 
 app.use((req, res, next) => {
@@ -169,6 +186,7 @@ app.use((req, res, next) => {
 
 app.use((req, res, next) => {
   if (NODE_ENV !== "development") return next();
+  if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return next();
 
   let targetPort = 0;
   let label = "";
@@ -229,6 +247,27 @@ for (const [id, filePath] of Object.entries(bMap)) {
   } catch {}
 }
 
+app.get("/b/all.js", (req, res) => {
+  const fp = path.join(srcPath, "b", "all.js");
+  if (sendCached(res, fp, "public, max-age=31536000, immutable")) return;
+
+  const rawPieces = Object.values(bCache).filter(Boolean);
+  if (rawPieces.length === 0) return res.status(404).send("bundle not found");
+  const pieces = rawPieces.map((buf) => {
+    let code = buf.toString("utf-8");
+    code = code.replace(/\r\n/g, "\n");
+    code = code.replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim();
+    return Buffer.from(code, "utf-8");
+  });
+  const sep = Buffer.from(";\n");
+  const body = Buffer.concat(pieces.map((b, i) => i === 0 ? b : Buffer.concat([sep, b])));
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Cache-Control", CACHING_ENABLED
+    ? "public, max-age=31536000, immutable"
+    : "public, max-age=0, must-revalidate");
+  res.send(body);
+});
+
 app.get("/b", (req, res) => {
   const buf = bCache[req.query.id];
   if (!buf) return res.status(404).send("file not found :(");
@@ -247,6 +286,34 @@ if (NODE_ENV === "development") {
   app.use(vite.middlewares);
 }
 
+if (NODE_ENV === "development") {
+  app.use((req, res, next) => {
+    let filePath = path.join(srcPath, req.path);
+    if (req.path.endsWith('.js') && !fs.existsSync(filePath)) {
+      const tsPath = filePath.slice(0, -3) + '.ts';
+      if (!fs.existsSync(tsPath)) {
+        const tsxPath = filePath.slice(0, -3) + '.tsx';
+        if (fs.existsSync(tsxPath)) filePath = tsxPath;
+      } else {
+        filePath = tsPath;
+      }
+    }
+    if ((filePath.endsWith('.ts') || filePath.endsWith('.tsx')) && fs.existsSync(filePath)) {
+      try {
+        const code = fs.readFileSync(filePath, 'utf-8');
+        const result = new Bun.Transpiler({ loader: filePath.endsWith('.tsx') ? 'tsx' : 'ts' }).transformSync(code);
+        res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+        res.send(result);
+      } catch (e) {
+        console.error('TS transpile error:', e.message);
+        if (!res.headersSent) res.status(500).send(`Error: ${e.message}`);
+      }
+    } else {
+      next();
+    }
+  });
+}
+
 const IMMUTABLE_CC = "public, max-age=31536000, immutable";
 const NO_CACHE_CC = "public, max-age=0, must-revalidate";
 
@@ -256,8 +323,8 @@ app.use(
       if (req.headers["x-no-compression"]) return false;
       return compression.filter(req, res);
     },
-    level: 6,
-    threshold: "1kb",
+    level: 2,
+    threshold: "2kb",
   }),
 );
 
@@ -299,7 +366,11 @@ app.use(
     contentSecurityPolicy: false,
     xPoweredBy: false,
     frameguard: false,
-    hsts: false,
+    hsts: {
+      maxAge: 31536000,
+      includeSubDomains: true,
+      preload: true,
+    },
   }),
 );
 
@@ -437,8 +508,7 @@ const EARLY_HINTS_LINKS = [
     : builtModuleEntryPath
       ? [`<${builtModuleEntryPath}>; rel=modulepreload`]
       : []),
-  "</b?id=1>; rel=preload; as=script",
-  "</b?id=2>; rel=preload; as=script",
+  "</b/all.js>; rel=preload; as=script",
   "<https://fonts.googleapis.com>; rel=preconnect",
   "<https://fonts.gstatic.com>; rel=preconnect; crossorigin",
 ];
@@ -487,65 +557,6 @@ app.use((_req, res) => {
   res.status(404).sendFile(fp);
 });
 
-function proxyWebSocketUpgrade(req, sock, head, targetPort, label) {
-  const upstream = new net.Socket();
-
-  function cleanup() {
-    upstream.destroy();
-    sock.destroy();
-  }
-
-  upstream.on("error", (err) => {
-    console.error(`${label} ws upstream error: ${err.message}`);
-    if (sock.writable) {
-      sock.write(
-        "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nContent-Length: " +
-          Buffer.byteLength(`${label} not reachable`) +
-          `\r\n\r\n${label} not reachable`,
-      );
-    }
-    cleanup();
-  });
-
-  sock.on("error", () => upstream.destroy());
-  upstream.on("close", () => sock.destroy());
-  sock.on("close", () => upstream.destroy());
-
-  upstream.connect(targetPort, "127.0.0.1", () => {
-    try {
-      upstream.setNoDelay(true);
-      sock.setNoDelay(true);
-    } catch {}
-
-    const rh = req.rawHeaders;
-    let raw = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
-    for (let i = 0; i < rh.length; i += 2) {
-      raw += `${rh[i]}: ${rh[i + 1]}\r\n`;
-    }
-    raw += "\r\n";
-    upstream.write(raw);
-
-    if (head && head.length) upstream.write(head);
-
-    upstream.pipe(sock);
-    sock.pipe(upstream);
-  });
-}
-
-server.on("upgrade", (req, sock, head) => {
-  sock.on("error", () => {});
-
-  if (NODE_ENV === "development" && req.url.startsWith("/w/")) {
-    proxyWebSocketUpgrade(req, sock, head, 8080, "nuru");
-  } else if (
-    NODE_ENV === "development" &&
-    (req.url.startsWith("/!!/") || req.url.startsWith("/!cover!/"))
-  ) {
-    proxyWebSocketUpgrade(req, sock, head, 4000, "mochi");
-  } else {
-    sock.destroy();
-  }
-});
 
 server.keepAliveTimeout = 60000;
 server.headersTimeout = 61000;
@@ -581,7 +592,7 @@ function printStatus() {
   lines.push("services:");
   for (const svc of DEV_SERVICES) {
     lines.push(
-      ` ${svc.name.padEnd(12)} - ${colorize(serviceStatus[svc.name])}`,
+      ` ${svc.name.padEnd(9)} ~ ${colorize(serviceStatus[svc.name])}`,
     );
   }
   lines.push("");
@@ -589,24 +600,20 @@ function printStatus() {
   statusLineCount = lines.length - 1;
 }
 
-function checkPort(port) {
-  return new Promise((resolve) => {
-    const sock = new net.Socket();
-    sock.setTimeout(400);
-    sock.once("connect", () => {
-      sock.destroy();
-      resolve(true);
+async function checkPort(port) {
+  try {
+    await Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open(sock) { sock.end(); },
+      },
+      timeout: 400,
     });
-    sock.once("error", () => {
-      sock.destroy();
-      resolve(false);
-    });
-    sock.once("timeout", () => {
-      sock.destroy();
-      resolve(false);
-    });
-    sock.connect(port, "127.0.0.1");
-  });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function pollService(svc) {
@@ -631,52 +638,76 @@ function spawnServices() {
   printStatus();
 
   for (const svc of DEV_SERVICES) {
-    const isWin = process.platform === "win32";
-    const cargoArgs = ["run", ...(svc.args || [])];
-    const child = spawn("cargo", cargoArgs, {
-      cwd: path.join(__dirname, svc.dir),
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: isWin,
-    });
+    let child;
+    try {
+      const cargoArgs = ["run", ...(svc.args || [])];
+      const isWin = process.platform === "win32";
+      const cmd = isWin ? ["cmd.exe", "/c", "cargo", ...cargoArgs] : ["cargo", ...cargoArgs];
+      child = Bun.spawn(cmd, {
+        cwd: path.join(__dirname, svc.dir),
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (err) {
+      serviceStatus[svc.name] = `error: ${err.message}`;
+      printStatus();
+      continue;
+    }
 
     serviceProcs.push(child);
 
-    child.stdout.on("data", (data) => {
-      const text = data.toString();
-      if (
-        serviceStatus[svc.name] !== "good" &&
-        (text.toLowerCase().includes("listening") ||
-          text.toLowerCase().includes("started"))
-      ) {
-        serviceStatus[svc.name] = "good";
+    (async () => {
+      try {
+        const decoder = new TextDecoder();
+        for await (const chunk of child.stdout) {
+          const text = decoder.decode(chunk, { stream: true });
+          if (
+            serviceStatus[svc.name] !== "good" &&
+            (text.toLowerCase().includes("listening") ||
+              text.toLowerCase().includes("started"))
+          ) {
+            serviceStatus[svc.name] = "good";
+            printStatus();
+          }
+        }
+      } catch {}
+    })();
+
+    (async () => {
+      try {
+        const decoder = new TextDecoder();
+        for await (const chunk of child.stderr) {
+          const text = decoder.decode(chunk, { stream: true });
+          const lower = text.toLowerCase();
+          if (
+            serviceStatus[svc.name] !== "good" &&
+            (lower.includes("listening") ||
+              lower.includes("started") ||
+              lower.includes("running") ||
+              lower.includes("ready"))
+          ) {
+            serviceStatus[svc.name] = "good";
+            printStatus();
+          } else if (
+            serviceStatus[svc.name] === "starting..." &&
+            lower.includes("compiling")
+          ) {
+            serviceStatus[svc.name] = "compiling...";
+            printStatus();
+          }
+        }
+      } catch {}
+    })();
+
+    child.exited
+      .then((exitCode) => {
+        if (serviceStatus[svc.name] === "good") {
+          serviceStatus[svc.name] = `stopped (${exitCode})`;
+        } else {
+          serviceStatus[svc.name] = `exited (${exitCode})`;
+        }
         printStatus();
-      }
-    });
-
-    child.stderr.on("data", (data) => {
-      const text = data.toString();
-      if (
-        serviceStatus[svc.name] === "starting..." &&
-        text.includes("Compiling")
-      ) {
-        serviceStatus[svc.name] = "compiling...";
-        printStatus();
-      }
-    });
-
-    child.on("error", (err) => {
-      serviceStatus[svc.name] = `error: ${err.message}`;
-      printStatus();
-    });
-
-    child.on("exit", (code) => {
-      if (serviceStatus[svc.name] === "good") {
-        serviceStatus[svc.name] = `stopped (${code})`;
-      } else {
-        serviceStatus[svc.name] = `exited (${code})`;
-      }
-      printStatus();
-    });
+      })
+      .catch(() => {});
 
     pollService(svc);
   }
@@ -686,29 +717,43 @@ function killServices() {
   for (const child of serviceProcs) {
     try {
       if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(child.pid), "/f", "/t"], {
-          stdio: "ignore",
+        Bun.spawnSync(["taskkill", "/pid", String(child.pid), "/f", "/t"], {
+          stdio: ["ignore", "ignore", "ignore"],
         });
       } else {
         child.kill("SIGTERM");
       }
     } catch {}
   }
+  setTimeout(() => {
+    for (const child of serviceProcs) {
+      try { child.kill("SIGKILL"); } catch {}
+    }
+  }, 2000);
 }
 
-process.on("SIGINT", () => {
+async function gracefulShutdown() {
+  if (shuttingDown) process.exit(0);
+  shuttingDown = true;
+  console.log("\nshutting down...");
   killServices();
-  process.exit(0);
-});
-process.on("SIGTERM", () => {
-  killServices();
-  process.exit(0);
-});
+  await vite?.close().catch(() => {});
+  for (const conn of connections) conn.destroy();
+  connections.clear();
+  server.close(() => {
+    console.log("port 3000 released! goodbye :(");
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(0), 3000);
+}
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 process.on("exit", killServices);
 
 server.listen(PORT, () => {
   console.log(
-    `server listening on ${PORT}!! ~ cache: ${CACHING_ENABLED ? "yes" : "no"}`,
+    `server listening on ${PORT}!! ~ caching: ${CACHING_ENABLED ? "yes" : "no"}`,
   );
 
   if (NODE_ENV === "development") {

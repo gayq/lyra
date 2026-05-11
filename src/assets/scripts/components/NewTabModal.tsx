@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "preact/hooks";
-import { store, useStore } from "../state/store.js";
-import { encodeMochiUrl } from "../core/utils.js";
+import { useEffect, useRef, useState, useMemo } from "preact/hooks";
+import { store, useStore } from "../state/store.ts";
+import { encodeMochiUrl } from "../core/utils.ts";
 
 const SOURCE_CONFIG = {
   selenite: {
@@ -26,7 +26,7 @@ const SOURCE_CONFIG = {
   },
 };
 
-function loadNewTabGameData(allGames) {
+function loadNewTabGameData(allGames: unknown[]) {
   if (allGames.length > 0) return Promise.resolve(allGames);
   const source = (() => {
     const stored = localStorage.getItem("gameSource") || "selenite";
@@ -38,7 +38,7 @@ function loadNewTabGameData(allGames) {
   if (source === "velara") {
     fetchPromise = fetch(SOURCE_CONFIG.velara.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data) =>
+      .then((data: any[]) =>
         data
           .filter(
             (g) =>
@@ -69,7 +69,7 @@ function loadNewTabGameData(allGames) {
   } else if (source === "selenite") {
     fetchPromise = fetch(SOURCE_CONFIG.selenite.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data) =>
+      .then((data: any[]) =>
         (Array.isArray(data) ? data : [])
           .filter((g) => g && g.name && g.directory)
           .map((game) => {
@@ -90,7 +90,7 @@ function loadNewTabGameData(allGames) {
   } else if (source === "edurocks") {
     fetchPromise = fetch(SOURCE_CONFIG.edurocks.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data) =>
+      .then((data: any[]) =>
         data
           .map((game) => {
             let finalUrl = game.url.startsWith("http")
@@ -116,7 +116,7 @@ function loadNewTabGameData(allGames) {
     fetchPromise = fetch(SOURCE_CONFIG.truffled.games)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
       .then((data) => {
-        const games = Array.isArray(data?.games) ? data.games : [];
+        const games: any[] = Array.isArray(data?.games) ? data.games : [];
         const base = SOURCE_CONFIG.truffled.base;
         return games
           .filter((g) => g && g.name && g.url)
@@ -140,17 +140,15 @@ function loadNewTabGameData(allGames) {
   } else {
     fetchPromise = fetch(SOURCE_CONFIG.gnMath.zones)
       .then((r) => (r.ok ? r.json() : Promise.reject(r.statusText)))
-      .then((data) =>
+      .then((data: any[]) =>
         data
           .map((zone) => {
-            const isExternal = zone.url ? zone.url.startsWith("http") : false;
-            const finalUrl = zone.url ? zone.url.replace("{HTML_URL}", SOURCE_CONFIG.gnMath.html) : `https://gn-math.dev/?id=${zone.id}`;
+            const isExternal = zone.url ? /^https?:\/\//.test(zone.url) && !zone.url.includes("{HTML_URL}") : false;
+            const finalUrl = isExternal ? zone.url : `https://gn-math.dev/?id=${zone.id}`;
             return {
               id: zone.id,
               name: zone.name,
-              gameUrl: isExternal
-                ? zone.url
-                : finalUrl,
+              gameUrl: finalUrl,
               isExternal,
               coverUrl: zone.cover
                 ? `/!cover!/${encodeMochiUrl(zone.cover.replace("{COVER_URL}", SOURCE_CONFIG.gnMath.covers))}/`
@@ -163,7 +161,7 @@ function loadNewTabGameData(allGames) {
       );
   }
   return fetchPromise
-    .then((games) => {
+    .then((games: any[]) => {
       games.sort((a, b) => a.name.localeCompare(b.name));
       allGames.splice(0, allGames.length, ...games);
       window.WavesApp.allGames = allGames;
@@ -179,7 +177,7 @@ export default function NewTabModal() {
   const [visible, setVisible] = useState(false);
   const [mode, setMode] = useState("newTab");
   const [query, setQuery] = useState("");
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const lastVisibleRef = useRef(false);
 
   const tabs = useStore((s) => s.tabs) || [];
@@ -230,16 +228,17 @@ export default function NewTabModal() {
 
   useEffect(() => {
     if (!visible) return;
-    const outsideClick = (e) => {
+    const outsideClick = (e: MouseEvent) => {
+      const target = e.target as Node | null;
       const modal = document.getElementById("new-tab-modal");
       const addBtn = document.getElementById("add-tab-btn");
       const splitBtn = document.getElementById("splitViewBtn");
       if (
         modal &&
-        !modal.contains(e.target) &&
+        !modal.contains(target) &&
         addBtn &&
-        !addBtn.contains(e.target) &&
-        (!splitBtn || !splitBtn.contains(e.target))
+        !addBtn.contains(target) &&
+        (!splitBtn || !splitBtn.contains(target))
       ) {
         hide();
         if (store.isPickingSplitTab) {
@@ -257,7 +256,7 @@ export default function NewTabModal() {
         }
       }
     };
-    const onEscape = (e) => {
+    const onEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         hide();
         if (store.isPickingSplitTab) {
@@ -276,7 +275,7 @@ export default function NewTabModal() {
     };
   }, [visible]);
 
-  const handleAction = (url, title, isGame = false, icon = null) => {
+  const handleAction = (url: string, title: string, isGame = false, icon: string | null = null) => {
     if (url) store.addTab(url, title, isGame, icon);
     hide();
   };
@@ -284,7 +283,7 @@ export default function NewTabModal() {
   const lowerQuery = useMemo(() => query.toLowerCase(), [query]);
   const filteredGames = useMemo(() => {
     if (!query) return [];
-    return store.allGames
+    return (store.allGames as any[])
       .filter((g) => (g.name || "").toLowerCase().includes(lowerQuery))
       .slice(0, 4);
   }, [query, lowerQuery]);
@@ -302,7 +301,7 @@ export default function NewTabModal() {
   
   const hasResults = mode === "newTab" ? !!query : filteredTabs.length > 0;
 
-  const handleKeyUp = (e) => {
+  const handleKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
       hide();
       return;
@@ -316,9 +315,10 @@ export default function NewTabModal() {
       }
     } else if (mode === "splitSelect") {
       if (e.key === "Enter") {
-        if (filteredTabs.length > 0) {
+        const tab = filteredTabs[0];
+        if (tab) {
           hide();
-          store.switchTab(filteredTabs[0].id);
+          store.switchTab(tab.id);
         }
       } else {
         setQuery(inputRef.current?.value || "");

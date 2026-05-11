@@ -1,4 +1,4 @@
-import { canonicalize } from "./utils.js";
+import { canonicalize } from "./utils.ts";
 
 export interface HistoryState {
   currentUrl: string | null;

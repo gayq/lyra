@@ -14,11 +14,10 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, warn};
 use url::Url;
-
 use crate::cache::{get_cache_path, load_from_disk, write_to_disk};
 use crate::constants;
 use crate::cover::handle_cover_request;
-use crate::encoding::{decode_mochi_url, encode_mochi_url};
+use crate::encoding::decode_mochi_url;
 use crate::helpers::{
     fix_game_content_type, get_cdn_cache_control, is_blacklisted_header, is_blacklisted_res_header,
     is_likely_static_asset_fast,
@@ -382,35 +381,7 @@ pub async fn proxy_handler(
     debug!("upstream response status: {} for {}", status, target_url);
 
     if status.is_redirection() {
-        if let Some(loc) = upstream_res.headers().get("location") {
-            if let Ok(loc_str) = loc.to_str() {
-                let absolute_url = match Url::parse(loc_str) {
-                    Ok(u) => u.to_string(),
-                    Err(_) => target_url
-                        .join(loc_str)
-                        .map(|u| u.to_string())
-                        .unwrap_or_else(|_| loc_str.to_string()),
-                };
-
-                let rewritten_location = format!(
-                    "{}{}/",
-                    constants::MOCHI_PREFIX,
-                    encode_mochi_url(&absolute_url)
-                );
-
-                let mut redirect_headers = HeaderMap::new();
-                redirect_headers.insert(
-                    "location",
-                    HeaderValue::from_str(&rewritten_location).unwrap(),
-                );
-
-                if let Some(cookie) = upstream_res.headers().get("set-cookie") {
-                    redirect_headers.insert("set-cookie", cookie.clone());
-                }
-
-                return (status, redirect_headers, Body::empty()).into_response();
-            }
-        }
+        return (StatusCode::BAD_GATEWAY, "too many redirects").into_response();
     }
 
     if !status.is_success() {
@@ -488,6 +459,8 @@ pub async fn proxy_handler(
             }
         };
 
+        let effective_url = upstream_res.url().clone();
+
         let full_body = match upstream_res.bytes().await {
             Ok(b) => b,
             Err(_) => {
@@ -495,12 +468,12 @@ pub async fn proxy_handler(
             }
         };
 
-        let target_url_clone = target_url.clone();
+        let effective_url_clone = effective_url.clone();
 
         let body_vec = tokio::task::spawn_blocking(move || {
             let _permit = html_permit;
-            let base_url_str = target_url_clone.to_string();
-            rewrite_html(&full_body, &target_url_clone, &base_url_str)
+            let base_url_str = effective_url_clone.to_string();
+            rewrite_html(&full_body, &effective_url_clone, &base_url_str)
         })
         .await
         .unwrap_or_default();
@@ -761,34 +734,7 @@ async fn fetch_and_cache(
     let status = upstream_res.status();
 
     if status.is_redirection() {
-        if let Some(loc) = upstream_res.headers().get("location") {
-            if let Ok(loc_str) = loc.to_str() {
-                let absolute_url = match Url::parse(loc_str) {
-                    Ok(u) => u.to_string(),
-                    Err(_) => target_url
-                        .join(loc_str)
-                        .map(|u| u.to_string())
-                        .unwrap_or_else(|_| loc_str.to_string()),
-                };
-
-                let rewritten_location = format!(
-                    "{}{}/",
-                    constants::MOCHI_PREFIX,
-                    encode_mochi_url(&absolute_url)
-                );
-                let mut redirect_headers = HeaderMap::new();
-                redirect_headers.insert(
-                    "location",
-                    HeaderValue::from_str(&rewritten_location).unwrap(),
-                );
-
-                if let Some(cookie) = upstream_res.headers().get("set-cookie") {
-                    redirect_headers.insert("set-cookie", cookie.clone());
-                }
-
-                return Ok((status, redirect_headers, Body::empty()).into_response());
-            }
-        }
+        return Err((StatusCode::BAD_GATEWAY, "too many redirects").into_response());
     }
 
     let res_headers_ref = upstream_res.headers();
