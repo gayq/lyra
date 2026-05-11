@@ -326,8 +326,7 @@ if [ -d "cloudsync" ]; then
     cd ..
 fi
 
-ANUBIS_TAG="v0.3.16"
-retry 3 sudo docker pull "ghcr.io/techarohq/anubis:${ANUBIS_TAG}"
+retry 3 sudo docker pull "ghcr.io/techarohq/anubis:latest"
 
 if sudo docker ps -a | grep -q "anubis"; then
     sudo docker stop anubis 2>/dev/null || true
