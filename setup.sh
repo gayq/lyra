@@ -351,7 +351,7 @@ sudo docker run -d --name anubis \
     -e OG_PASSTHROUGH="true" \
     -e POLICY_FNAME=/botPolicies.yaml \
     -v /etc/anubis-policy.yaml:/botPolicies.yaml \
-    "ghcr.io/techarohq/anubis:${ANUBIS_TAG}"
+    "ghcr.io/techarohq/anubis:latest"
 
 "$BUN_BIN" --bun run build
 
