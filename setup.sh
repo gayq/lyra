@@ -503,7 +503,8 @@ module.exports = {
   apps: [
     {
       name: "ask",
-      script: "ask.js",
+      script: "$BUN_BIN",
+      args: "start ask.js",
       interpreter: "none",
       exec_mode: "fork",
       instances: 1,
@@ -514,7 +515,8 @@ module.exports = {
     },
     {
       name: "waves",
-      script: "index.mjs",
+      script: "$BUN_BIN",
+      args: "start index.mjs",
       interpreter: "none",
       exec_mode: "fork",
       instances: 1,
@@ -566,6 +568,7 @@ module.exports = {
       name: "nuru",
       script: "/usr/local/bin/nuru", 
       args: ["/etc/nuru/config.toml"], 
+      interpreter: "none", 
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
