@@ -504,7 +504,7 @@ module.exports = {
     {
       name: "ask",
       script: "ask.js",
-      interpreter: "$BUN_BIN",
+      interpreter: "none",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -515,7 +515,7 @@ module.exports = {
     {
       name: "waves",
       script: "index.mjs",
-      interpreter: "$BUN_BIN",
+      interpreter: "none",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
