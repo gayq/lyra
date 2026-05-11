@@ -477,18 +477,10 @@ else
   exit 1
 fi
 
-# --- auto-detect RAM for PM2 memory limits ---
 TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || free -m | awk '/^Mem:/ {print $2}' 2>/dev/null || 8192)
 [ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -le 0 ] && TOTAL_RAM_MB=8192
 log "detected ${TOTAL_RAM_MB}MB RAM, computing memory limits..."
 
-# percentages based on each service's self-tuning:
-#   mochi: cache = ram/48 MB → needs moderate headroom for proxying + lol_html
-#   nuru:  threadpercore (1 thread/core) + 500K DNS cache entries + jemalloc
-#   waves: express + LRU cache (400MB) + Bun JS heap
-#   cloudsync: SQLite mmap (128-512MB) + page cache (16-128MB) + pool
-#   ask: simple domain-approval server → fixed 256M
-# total target: ~70% of RAM, leaving 30% for OS + Docker/Anubis + Caddy + Eturnal
 calc_mem() {
   local pct=$1 min=$2 max=$3
   local val=$(( TOTAL_RAM_MB * pct / 100 ))
