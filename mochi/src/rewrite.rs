@@ -79,6 +79,47 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
                         *script_injected_for_head.borrow_mut() = true;
                     }
                     if base_url_for_head.contains("gn-math.dev") {
+                        let in tercept_script = r##"<script>
+(function() {
+    var _f = window.fetch.bind(window);
+    window.fetch = function(u, o) {
+        var s = type of u == = 'string'?u: (u &&u.url?u.url: String(u));
+        if (s.in dexOf('data.jsdelivr.com/v1/stats/') != = -1) {
+            return Promise.resolve(new Response(' {"total":0, "files":[], "versions":[]}', {status: 200, headers: {'Content-Type': 'application/json'}}));
+        }
+    return _f(u, o).then(function(r) {
+        if (r.status >= 500 || r.status == = 404) {
+            var ct = r.headers.get('content-type') || '';
+            if (ct.in dexOf('json') != = -1) {
+            return new Response(' {"total":0, "files":[], "versions":[]}', {status: 200, headers: {'Content-Type': 'application/json'}});
+        }
+    return new Response('', {status: 200, headers: {'Content-Type': 'text/html'}});
+}
+return r;
+}).catch(function() {
+return new Response(' {"total":0, "files":[], "versions":[]}', {status: 200, headers: {'Content-Type': 'application/json'}});
+});
+};
+var _iv = setInterval(function() {
+    var zf = document.getElementById('zoneFrame');
+    if (zf && !zf._hooked) {
+        zf._hooked = 1;
+        zf.addEventListener('load', function() {
+        try {if (zf.contentDocument &&zf.contentDocument.body) {
+                var t = zf.contentDocument.body.in nerText || '';
+                if (t.in dexOf('Failed to fetch') != = -1 || t.in dexOf('upstream error') != = -1 || t.in dexOf('not found') != = -1) {
+                zf.srcdoc = '<html><body style = "background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100%;margin:0;font-family:sans-serif;text-align:center"><div><h2 style = "font-size:24px;margin-bottom:8px">Game Unavailable</h2><p style = "color:#999">This game\u2019s content is no longer available.</p></div></body></html>';
+            }
+    }}catch(e) {}
+});
+clearInterval(_iv);
+}
+}, 200);
+setTimeout(function() {clearInterval(_iv);}, 15000);
+})();
+</script>"##;
+                        el.prepend(intercept_script, ContentType::Html);
+
                         let gnmath_inject = r#"<style>
                             .zone-header { display: none !important; }
                             header { display: none !important; }
