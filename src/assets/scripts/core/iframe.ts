@@ -413,13 +413,13 @@ function updateTabDetails(iframe: HTMLIFrameElement): void {
     const iconLink = doc.querySelector("link[rel*='icon']");
     if (!tabToUpdate.fixedFavicon) {
       if (iconLink) {
-        tabToUpdate.favicon =
-          "/!cover!/" + decodeUrl((iconLink as HTMLLinkElement).href);
+        const decodedFavicon = decodeUrl((iconLink as HTMLLinkElement).href);
+        tabToUpdate.favicon = decodedFavicon ? getProxyUrl(decodedFavicon) : null;
       } else {
         try {
-          const realOrigin = new URL(getProxyUrl(realUrl)).origin;
-          tabToUpdate.favicon =
-            "/!cover!/" + new URL("favicon.ico", realOrigin).href; 
+          tabToUpdate.favicon = getProxyUrl(
+            new URL("favicon.ico", realUrl).href,
+          );
         } catch (e) {
           tabToUpdate.favicon = null;
         }

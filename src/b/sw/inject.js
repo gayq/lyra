@@ -21,8 +21,12 @@ const SHARED_SCRIPT = `
         return q+u.search+u.hash
       }
       if(S&&u.pathname.indexOf('/b/s/')===0){
-        var w=u.pathname.slice(5)+u.search+u.hash;
-        try{return decodeURIComponent(w)}catch(e){return w}
+        var raw=u.pathname.slice(5)+u.search+u.hash;
+        var httpIdx=raw.indexOf('http');
+        if(httpIdx!==-1){
+          try{return decodeURIComponent(raw.substring(httpIdx))}catch(e){return raw.substring(httpIdx)}
+        }
+        try{return decodeURIComponent(raw)}catch(e){return raw}
       }
       if(V){
         try{

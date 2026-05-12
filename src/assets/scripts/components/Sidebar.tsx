@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "preact/hooks";
+import { useState, useMemo, useCallback, useRef, useEffect } from "preact/hooks";
 import { store, useStore } from "../state/store.ts";
 import { sidebarHiddenSignal } from "../core/uiSignals";
 
@@ -8,13 +8,23 @@ const DEFAULT_FAVICON =
 function TabIcon({ favicon }: { favicon?: string | null }) {
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
+  const prevFavicon = useRef(favicon);
   const src = favicon || DEFAULT_FAVICON;
+
+  useEffect(() => {
+    if (prevFavicon.current !== favicon) {
+      setLoaded(false);
+      setErrored(false);
+      prevFavicon.current = favicon;
+    }
+  }, [favicon]);
 
   return (
     <div class={`tab-icon${!loaded && !errored ? " skeleton" : ""}`}>
       <img
         loading="eager"
         decoding="async"
+        key={favicon || "default"}
         src={errored ? DEFAULT_FAVICON : src}
         onLoad={() => setLoaded(true)}
         onError={() => {
