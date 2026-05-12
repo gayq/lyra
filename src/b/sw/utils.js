@@ -152,6 +152,10 @@ function fixHtmlHeaders(source) {
   headers.delete("content-encoding");
   headers.delete("content-length");
   headers.delete("transfer-encoding");
+  headers.delete("content-security-policy");
+  headers.delete("content-security-policy-report-only");
+  headers.delete("x-content-security-policy");
+  headers.delete("x-webkit-csp");
   const ct = (source.get("content-type") || "").trim();
   if (/text\/html/i.test(ct)) {
     if (!/charset=/i.test(ct)) {
