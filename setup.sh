@@ -138,30 +138,55 @@ else
 fi
 
 WG_ENABLED=0
+WG_REUSE=0
 if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
-    log "route nuru through wireguard vpn?"
-    log "(helps avoid ip blocks)"
-    log "type 'y' to configure or 'n' to skip"
-    while true; do
-        read -r -p "> " ws_choice
-        case "$ws_choice" in
-            yes|y)
-                WG_ENABLED=1
-                break
-                ;;
-            no|n)
-                WG_ENABLED=0
-                break
-                ;;
-            *)
-                log "please type 'y' or 'n'"
-                ;;
-        esac
-    done
+    if [ -f /etc/wireguard/wg0.conf ]; then
+        log "existing wireguard config found!"
+        log "type 'k' to keep it or 'r' to replace it"
+        while true; do
+            read -r -p "> " keep_choice
+            case "$keep_choice" in
+                k|keep)
+                    WG_ENABLED=1
+                    WG_REUSE=1
+                    break
+                    ;;
+                r|replace)
+                    WG_ENABLED=1
+                    WG_REUSE=0
+                    break
+                    ;;
+                *)
+                    log "please type 'k' or 'r'"
+                    ;;
+            esac
+        done
+    else
+        log "route nuru through wireguard vpn?"
+        log "(helps avoid ip blocks)"
+        log "type 'y' to configure or 'n' to skip"
+        while true; do
+            read -r -p "> " ws_choice
+            case "$ws_choice" in
+                yes|y)
+                    WG_ENABLED=1
+                    break
+                    ;;
+                no|n)
+                    WG_ENABLED=0
+                    break
+                    ;;
+                *)
+                    log "please type 'y' or 'n'"
+                    ;;
+            esac
+        done
+    fi
 
-    if [ "$WG_ENABLED" -eq 1 ]; then
-        WG_CONFIG_FILE="/tmp/wg0-config-paste"
-        cat > "$WG_CONFIG_FILE" <<'WGEOF'
+    if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
+        while true; do
+            WG_CONFIG_FILE="/tmp/wg0-config-paste"
+            cat > "$WG_CONFIG_FILE" <<'WGEOF'
 # paste your wireguard config below then save and exit!
 #
 # example:
@@ -176,14 +201,28 @@ if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
 # Endpoint = ...
 # PresharedKey = ...
 WGEOF
-        nano "$WG_CONFIG_FILE" </dev/tty >/dev/tty 2>&1 || true
-        if [ ! -s "$WG_CONFIG_FILE" ]; then
-            log "empty config! skipping vpn setup..."
-            WG_ENABLED=0
-        elif ! grep -q '\[Interface\]' "$WG_CONFIG_FILE" 2>/dev/null; then
-            log "not a valid wireguard config! skipping vpn setup..."
-            WG_ENABLED=0
-        fi
+            nano "$WG_CONFIG_FILE" </dev/tty >/dev/tty 2>&1 || true
+            if [ ! -s "$WG_CONFIG_FILE" ]; then
+                log "empty config!"
+                log "type 'r' to retry or 'c' to cancel vpn setup"
+                read -r -p "> " retry
+                case "$retry" in
+                    r|retry) continue ;;
+                    *) WG_ENABLED=0; break ;;
+                esac
+            elif ! grep -q '\[Interface\]' "$WG_CONFIG_FILE" 2>/dev/null; then
+                log "invalid config (missing [Interface] section)!"
+                log "type 'r' to retry or 'c' to cancel vpn setup"
+                read -r -p "> " retry
+                case "$retry" in
+                    r|retry) continue ;;
+                    *) WG_ENABLED=0; break ;;
+                esac
+            else
+                log "wireguard config looks valid!"
+                break
+            fi
+        done
     fi
 fi
 
@@ -214,7 +253,7 @@ if [ "$WG_ENABLED" -eq 1 ]; then
             WG_ENABLED=0
         }
     fi
-    if [ "$WG_ENABLED" -eq 1 ]; then
+    if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
         log "installing wireguard config..."
         sed -i '/^[[:space:]]*#/d' "$WG_CONFIG_FILE"
         sed -i -E 's/[0-9a-f]*:[0-9a-f:.]+\/[0-9]+//g' "$WG_CONFIG_FILE"
@@ -235,7 +274,10 @@ if [ "$WG_ENABLED" -eq 1 ]; then
         sudo chmod 600 /etc/wireguard/wg0.conf
         rm -f "$WG_CONFIG_FILE"
         log "wireguard config installed at /etc/wireguard/wg0.conf (MTU: $WG_MTU, fwmark: 0xca6c)!"
+    fi
+    if [ "$WG_ENABLED" -eq 1 ]; then
         sudo systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
+        [ "$WG_REUSE" -eq 1 ] && log "reusing existing wireguard config at /etc/wireguard/wg0.conf"
     fi
 fi
 
@@ -469,8 +511,6 @@ ip rule list 2>/dev/null | head -10 || true
 exit 0
 NRSCRIPT
     sudo chmod 755 /usr/local/bin/nuru-route.sh
-
-    sudo /usr/local/bin/nuru-route.sh || true
 
     if [ -f /etc/wireguard/wg0.conf ]; then
         log "bringing up wg0..."
