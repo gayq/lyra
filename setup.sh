@@ -617,7 +617,7 @@ eturnal:
     mod_log_stun: {}
 EOF
 if [ -f /etc/eturnal.yml ]; then
-  log "/etc/eturnal.yml applied."
+  log "/etc/eturnal.yml applied!"
 else
   log "error: /etc/eturnal.yml not found!"
   exit 1
@@ -702,7 +702,7 @@ sudo mkdir -p /etc/nuru /etc/systemd/system/caddy.service.d
 
 if [ -f /etc/systemd/system/caddy.service.d/override.conf ]; then
   sudo cp /etc/systemd/system/caddy.service.d/override.conf /etc/systemd/system/caddy.service.d/override.conf.bak.$(date +%s)
-  log "backed up existing caddy override config"
+  log "backed up existing caddy override config!"
 fi
 
 sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
@@ -713,7 +713,7 @@ sudo systemctl daemon-reload
 
 if [ -f /etc/caddy/Caddyfile ]; then
   sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%s)
-  log "backed up existing caddy config"
+  log "backed up existing caddy config!"
 fi
 
 sudo tee /etc/caddy/Caddyfile <<EOF
