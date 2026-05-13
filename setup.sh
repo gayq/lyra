@@ -162,7 +162,7 @@ if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
     if [ "$WG_ENABLED" -eq 1 ]; then
         WG_CONFIG_FILE="/tmp/wg0-config-paste"
         cat > "$WG_CONFIG_FILE" <<'WGEOF'
-# paste your wireguard config below!
+# paste your wireguard config below then save and exit!
 #
 # example:
 # [Interface]
@@ -344,13 +344,12 @@ net.core.wmem_default = 262144
 net.ipv4.conf.all.rp_filter = 2
 net.ipv4.conf.default.rp_filter = 2
 net.ipv4.udp_mem = 65536 131072 262144
-net.core.udp_mem = 65536 131072 262144
 net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
 EOF
-sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf
+sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf || true
 
 if ! grep -q "^\* soft nofile" /etc/security/limits.conf; then
   echo "* soft nofile 1048576" | sudo tee -a /etc/security/limits.conf
