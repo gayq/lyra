@@ -139,20 +139,23 @@ fi
 
 WG_ENABLED=0
 WG_REUSE=0
+
+if sudo [ -f /etc/wireguard/wg0.conf ]; then
+    WG_ENABLED=1
+    WG_REUSE=1
+    log "detected existing wireguard config!"
+fi
+
 if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
-    if [ -f /etc/wireguard/wg0.conf ]; then
-        log "existing wireguard config found!"
-        log "type 'k' to keep it or 'r' to replace it"
+    if [ "$WG_REUSE" -eq 1 ]; then
+        log "type 'k' to keep existing config or 'r' to replace it!"
         while true; do
             read -r -p "> " keep_choice
             case "$keep_choice" in
                 k|keep)
-                    WG_ENABLED=1
-                    WG_REUSE=1
                     break
                     ;;
                 r|replace)
-                    WG_ENABLED=1
                     WG_REUSE=0
                     break
                     ;;
@@ -164,7 +167,7 @@ if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
     else
         log "route nuru through wireguard vpn?"
         log "(helps avoid ip blocks)"
-        log "type 'y' to configure or 'n' to skip"
+        log "type 'y' to configure or 'n' to skip!"
         while true; do
             read -r -p "> " ws_choice
             case "$ws_choice" in
