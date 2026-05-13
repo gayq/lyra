@@ -182,6 +182,55 @@ async function runProxyEngine(engine, event, request, url, realUrl, isNavigate) 
   }
 }
 
+function upstreamOriginFromUrl(locUrl) {
+  try {
+    const u = typeof locUrl === "string" ? new URL(locUrl) : locUrl;
+    if (u.origin !== self.location.origin) return null;
+    if (u.pathname.startsWith(MOCHI_PREFIX)) {
+      let encoded = u.pathname.slice(MOCHI_PREFIX.length).replace(/\/+$/, "");
+      if (!encoded.startsWith("http")) {
+        try {
+          let p = encoded.replace(/-/g, "+").replace(/_/g, "/");
+          while (p.length % 4) p += "=";
+          const raw = atob(p);
+          const dec = _adXorDec(raw);
+          const result = decodeURIComponent(dec);
+          if (result.startsWith("http")) return new URL(result).origin;
+        } catch (e) {}
+      } else {
+        try { return new URL(encoded).origin; } catch (e) {}
+      }
+    }
+    if (u.pathname.startsWith("/b/s/")) {
+      const raw = u.pathname.slice(5) + u.search;
+      const httpIdx = raw.indexOf("http");
+      if (httpIdx !== -1) {
+        try { return new URL(decodeURIComponent(raw.substring(httpIdx))).origin; } catch (e) {}
+        try { return new URL(raw.substring(httpIdx)).origin; } catch (e) {}
+      }
+    }
+    if (self.__uv$config && typeof self.__uv$config.decodeUrl === "function") {
+      const prefix = self.__uv$config.prefix || UV_PREFIX;
+      if (u.pathname.startsWith(prefix)) {
+        try {
+          return new URL(self.__uv$config.decodeUrl(u.pathname.slice(prefix.length)) + u.search).origin;
+        } catch (e) {}
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function upstreamOriginFromClient(event) {
+  try {
+    const client = await self.clients.get(event.clientId);
+    if (!client) return null;
+    return upstreamOriginFromUrl(client.url);
+  } catch (e) {
+    return null;
+  }
+}
+
 async function handleLocalOriginGet(event, request, url, preloadPromise) {
   const path = url.pathname;
   if (
@@ -252,6 +301,33 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         });
       }
       return res;
+    }
+    if (!res || !res.ok) {
+      try {
+        let upstreamOrigin = await upstreamOriginFromClient(event);
+        if (!upstreamOrigin) {
+          const referer = request.headers.get("Referer") || "";
+          if (referer) upstreamOrigin = upstreamOriginFromUrl(referer);
+        }
+        if (upstreamOrigin) {
+          const upstreamUrl = upstreamOrigin + path + (url.search || "");
+          const mochiRes = await tryWithTimeout(
+            mochiFetch(request, upstreamUrl),
+            MOCHI_TIMEOUT_MS
+          );
+          if (mochiRes && mochiRes.ok) {
+            const cl = parseInt(mochiRes.headers.get("content-length") || "0", 10);
+            if (cl < LARGE_SIZE_THRESHOLD) {
+              const clone = mochiRes.clone();
+              caches.open(RUNTIME_CACHE).then((c) => {
+                c.put(request, clone);
+                capCache(RUNTIME_CACHE, MAX_RUNTIME);
+              });
+            }
+            return mochiRes;
+          }
+        }
+      } catch (e) {}
     }
     if (res) return res;
   }

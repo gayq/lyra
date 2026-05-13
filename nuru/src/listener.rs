@@ -1,9 +1,9 @@
 use std::{io::{BufReader, Cursor}, net::SocketAddr, path::PathBuf, pin::Pin, str::FromStr, sync::Arc};
-
 use anyhow::Context;
 #[cfg(not(target_os = "windows"))]
 use std::os::fd::AsFd;
 use rustls_pemfile::{certs, private_key};
+use socket2::SockRef;
 use tokio::{
 	fs::File,
 	io::{AsyncBufRead, AsyncRead, AsyncWrite, ReadHalf, WriteHalf},
@@ -398,6 +398,8 @@ impl ServerListener {
 			stream
 				.set_nodelay(true)
 				.context("failed to set tcp nodelay")?;
+			let sock_ref = SockRef::from(&stream);
+			let _ = sock_ref.set_tcp_quickack(true);
 		}
 		Ok((stream, addr.to_string()))
 	}

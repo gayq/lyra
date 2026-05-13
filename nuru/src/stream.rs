@@ -342,13 +342,15 @@ impl ClientStream {
                 .context("failed to connect to host: timeout")?
                 .with_context(|| format!("failed to connect to host {}", packet.host))?;
 
+                let sock_ref = SockRef::from(&stream);
                 if CONFIG.stream.tcp_nodelay {
                     stream
                         .set_nodelay(true)
                         .context("failed to set tcp nodelay")?;
+                    let _ = sock_ref.set_tcp_quickack(true);
+                    let _ = sock_ref.set_recv_buffer_size(1048576);
+                    let _ = sock_ref.set_send_buffer_size(1048576);
                 }
-
-                let sock_ref = SockRef::from(&stream);
                 let keepalive = socket2::TcpKeepalive::new()
                     .with_time(Duration::from_secs(30))
                     .with_interval(Duration::from_secs(10));
@@ -371,6 +373,12 @@ impl ClientStream {
                 };
 
                 let stream = UdpSocket::bind(bind_addr).await?;
+
+                {
+                    let sock_ref = SockRef::from(&stream);
+                    let _ = sock_ref.set_recv_buffer_size(2097152);
+                    let _ = sock_ref.set_send_buffer_size(2097152);
+                }
 
                 let connect_timeout =
                     Duration::from_millis(CONFIG.stream.connect_timeout_ms.max(100));
