@@ -280,7 +280,7 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         }
       } catch (e) {}
     }
-    if (res) return res;
+    if (response) return response;
   }
   return await fetch(request);
 }
