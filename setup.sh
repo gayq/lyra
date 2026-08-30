@@ -1388,6 +1388,7 @@ if systemctl cat "$PM2_SYSTEMD_SERVICE" >/dev/null 2>&1; then
 LimitNOFILE=1048576
 EOF
   sudo systemctl daemon-reload
+  "$PM2_BIN" kill >/dev/null 2>&1 || true
   sudo systemctl restart "$PM2_SYSTEMD_SERVICE"
 fi
 
