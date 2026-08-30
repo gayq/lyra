@@ -153,11 +153,6 @@ function secureSessionDescription(description: unknown): unknown {
 	};
 }
 
-function secureCandidate(candidate: unknown): unknown {
-	if (!candidate || typeof candidate !== "object") return candidate;
-	return isRelayCandidate(candidate) ? candidate : null;
-}
-
 function wrapIceEvent(listener: EventListenerOrEventListenerObject): EventListener {
 	return function (event: Event) {
 		const candidate = (event as RTCPeerConnectionIceEvent).candidate;
@@ -228,7 +223,6 @@ function secureStats(report: RTCStatsReport): RTCStatsReport {
 export default function (client: FolioClient, self: GlobalThis) {
 	const global = self as GlobalThis & {
 		RTCPeerConnection?: typeof RTCPeerConnection;
-		RTCIceCandidate?: typeof RTCIceCandidate;
 	};
 	if (!global.RTCPeerConnection) return;
 	if (shouldBypassFingerprintPatches(client)) return;
@@ -255,15 +249,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 		apply(ctx) {
 			const config = ctx.call() as RTCConfiguration;
 			ctx.return(secureConfiguration(self, config) as RTCConfiguration);
-		},
-	});
-
-	client.Proxy("RTCPeerConnection.prototype.addIceCandidate", {
-		apply(ctx) {
-			ctx.args[0] = secureCandidate(ctx.args[0]) as RTCIceCandidateInit;
-			if (ctx.args[0] === null) {
-				ctx.return(Promise.resolve());
-			}
 		},
 	});
 
@@ -351,20 +336,4 @@ export default function (client: FolioClient, self: GlobalThis) {
 			);
 		},
 	});
-
-	if (global.RTCIceCandidate) {
-		client.Proxy("RTCIceCandidate", {
-			construct(ctx) {
-				if (!isRelayCandidate(ctx.args[0])) {
-					ctx.args[0] = { candidate: "" } as RTCIceCandidateInit;
-				}
-			},
-		});
-		client.Trap("RTCIceCandidate.prototype.candidate", {
-			get(ctx) {
-				const candidate = ctx.get() as string;
-				return isRelayCandidate(candidate) ? candidate : "";
-			},
-		});
-	}
 }

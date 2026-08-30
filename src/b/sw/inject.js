@@ -72,9 +72,13 @@ const TURN_SCRIPT = `
     cfg.iceServers=to(cfg.iceServers).concat(req);
     return cfg
   }
-  window.RTCPeerConnection=function(cfg,cs){
+  function W(cfg,cs){
     return cs!==undefined?new O(sc(cfg),cs):new O(sc(cfg))
-  };
+  }
+  W.prototype=O.prototype;
+  try{Object.setPrototypeOf(W,O)}catch(e){}
+  try{Object.defineProperty(W,'name',{value:'RTCPeerConnection'})}catch(e){}
+  window.RTCPeerConnection=W;
 })()
 </script>
 `;
@@ -107,6 +111,7 @@ const TURN_SCRIPT_RELAY = `
     return pc
   }
   W.prototype=O.prototype;
+  try{Object.setPrototypeOf(W,O)}catch(e){}
   try{Object.defineProperty(W,'name',{value:'RTCPeerConnection'})}catch(e){}
   window.RTCPeerConnection=W
 })()

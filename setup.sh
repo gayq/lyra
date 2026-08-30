@@ -836,7 +836,7 @@ if [ -z "$PUBLIC_IP" ]; then
   exit 1
 fi
 
-TURN_HOST="${TURN_HOST:-turn.lyra.moe}"
+TURN_HOST="${TURN_HOST:-$PUBLIC_IP}"
 TURN_PORT="${TURN_PORT:-3478}"
 TURN_USERNAME="${TURN_USERNAME:-lyly}"
 TURN_CREDENTIAL="${TURN_CREDENTIAL:-$(openssl rand -hex 24)}"
