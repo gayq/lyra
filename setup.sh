@@ -10,6 +10,8 @@ fi
 
 set -euo pipefail
 
+export PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}:/usr/local/sbin:/usr/sbin:/sbin"
+
 NEGATIVE="... /ᐠ - ˕ -マ"
 POSITIVE="!! (˵◝ ⩊  ◜˵マ"
 
@@ -1199,7 +1201,7 @@ LYRA_MEM="$(calc_mem 16 256 2560)M"
 CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
 NURU_MEM="$(calc_mem 22 512 4608)M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
-log "memory limits — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
+log "memory limits - lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
 
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
