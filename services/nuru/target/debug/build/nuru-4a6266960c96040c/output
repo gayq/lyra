@@ -1,4 +1,0 @@
-cargo:rustc-env=VERGEN_GIT_SHA=unknown
-cargo:rustc-env=VERGEN_GIT_DIRTY=false
-cargo:rustc-env=VERGEN_RUSTC_SEMVER=unknown
-cargo:rustc-env=VERGEN_RUSTC_HOST_TRIPLE=unknown
