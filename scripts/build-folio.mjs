@@ -18,6 +18,7 @@ const toolPath = [
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const corepackCommand = process.platform === "win32" ? "corepack.cmd" : "corepack";
 const bunxCommand = process.platform === "win32" ? "bunx.cmd" : "bunx";
+const folioPnpmSpec = "pnpm@10.12.1";
 const tscPath = path.join(
   root,
   "node_modules",
@@ -101,15 +102,15 @@ function commandExists(command) {
 }
 
 async function resolvePnpm() {
-  if (await commandExists(pnpmCommand)) {
-    return { command: pnpmCommand, prefix: [] };
+  if (await commandExists(bunxCommand)) {
+    return { command: bunxCommand, prefix: [folioPnpmSpec] };
   }
   if (await commandExists(corepackCommand)) {
     await run(corepackCommand, ["enable"]);
     return { command: corepackCommand, prefix: ["pnpm"] };
   }
-  if (await commandExists(bunxCommand)) {
-    return { command: bunxCommand, prefix: ["pnpm@10.12.1"] };
+  if (await commandExists(pnpmCommand)) {
+    return { command: pnpmCommand, prefix: [] };
   }
   throw new Error("pnpm is required to build vendored folio... /ᐠ - ˕ -マ");
 }
