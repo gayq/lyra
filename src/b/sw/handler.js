@@ -15,7 +15,7 @@ self.addEventListener("activate", (event) => {
           keys
             .filter(
               (k) =>
-                k.startsWith("waves-") &&
+                k.startsWith("lyra-") &&
                 k !== SHELL_CACHE &&
                 k !== RUNTIME_CACHE &&
                 k !== PREFETCH_CACHE &&
@@ -31,40 +31,6 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-function adBlockedResponse(request, url, isNavigate) {
-  const dest = request.destination;
-  const accept = request.headers.get("Accept") || "";
-  let body = ":3";
-  let contentType = "text/plain";
-  if (dest === "script" || url.pathname.endsWith(".js")) {
-    body =
-      'window.ga=function(){return":3"};window.ga.q=[":3"];window.dataLayer=[":3"];window.dataLayer.push=function(){return":3"};window.fbq=function(){return":3"};window.googletag={cmd:{push:function(){return":3"}}};window._paq=[":3"];window._paq.push=function(){return":3"};';
-    contentType = "application/javascript";
-  } else if (dest === "image" || accept.includes("image/")) {
-    body = new Uint8Array([
-      71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255,
-      33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1,
-      0, 59,
-    ]);
-    contentType = "image/gif";
-  } else if (isNavigate || dest === "document") {
-    body =
-      '<html><head><title>:3</title></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:monospace;font-size:2rem;">:3</body></html>';
-    contentType = "text/html";
-  } else if (accept.includes("application/json")) {
-    body = '{"status": ":3", "message": ":3"}';
-    contentType = "application/json";
-  }
-  return new Response(body, {
-    status: 200,
-    statusText: ":3",
-    headers: {
-      "Content-Type": contentType,
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
-}
-
 async function handleLargeFile(request, realUrl) {
   try {
     if (!isRangeRequest(request)) {
@@ -74,8 +40,7 @@ async function handleLargeFile(request, realUrl) {
         fetchLargeFileStreaming(request, realUrl, LARGE_TIMEOUT_MS)
           .then((fresh) => {
             if (fresh && fresh.ok) {
-              const cl = parseInt(fresh.headers.get("content-length") || "0", 10);
-              if (cl < LARGE_SIZE_THRESHOLD) {
+              if (responseFitsCache(fresh)) {
                 cache.put(request, fresh.clone());
                 capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
               }
@@ -92,8 +57,7 @@ async function handleLargeFile(request, realUrl) {
     );
     if (response && response.ok) {
       if (!isRangeRequest(request)) {
-        const cl = parseInt(response.headers.get("content-length") || "0", 10);
-        if (cl < LARGE_SIZE_THRESHOLD) {
+        if (responseFitsCache(response)) {
           const cache = await caches.open(LARGE_CACHE);
           cache.put(request, response.clone()).catch(() => {});
           capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
@@ -101,17 +65,11 @@ async function handleLargeFile(request, realUrl) {
       }
       return response;
     }
-    const fallback = await tryWithTimeout(
-      mochiFetch(request, realUrl),
-      LARGE_TIMEOUT_MS,
-    );
-    return fallback || new Response("gateway timeout", { status: 504 });
+    const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
+    return fallback || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
   } catch (e) {
-    const fallback = await tryWithTimeout(
-      mochiFetch(request, realUrl),
-      LARGE_TIMEOUT_MS,
-    );
-    return fallback || new Response("gateway timeout", { status: 504 });
+    const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
+    return fallback || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
   }
 }
 
@@ -159,65 +117,65 @@ async function runProxyEngine(engine, event, request, url, realUrl, isNavigate) 
     ? PROXY_NAV_TIMEOUT_MS
     : PROXY_SUBRESOURCE_TIMEOUT_MS;
   try {
-    const response = await runProxyWithMochiFallback(
-      engine,
-      event,
-      realUrl,
-      timeoutMs,
-      isNavigate,
-      true,
-    );
-    if (response) return patchHtml(response, realUrl);
+    const response = await runFolioProxy(engine, event, timeoutMs, true);
+    if (response) {
+      if (
+        realUrl &&
+        (response.status === 401 || response.status === 403) &&
+        isGoogleVideoUrl(realUrl)
+      ) {
+        const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
+        if (fallback?.ok) return fallback;
+      }
+      return response;
+    }
     return timeoutFallbackResponse(request, url);
   } catch (e) {
     notifyTransportError();
-    if (realUrl && realUrl.startsWith("http")) {
-      const m = await tryWithTimeout(
-        mochiFetch(request, realUrl),
-        MOCHI_SECONDARY_MS,
-      );
-      if (m) return patchHtml(m, realUrl);
-    }
     return timeoutFallbackResponse(request, url);
   }
 }
 
-function upstreamOriginFromUrl(locUrl) {
+function isGoogleVideoUrl(targetUrl) {
   try {
-    const u = typeof locUrl === "string" ? new URL(locUrl) : locUrl;
-    if (u.origin !== self.location.origin) return null;
-    if (u.pathname.startsWith(MOCHI_PREFIX)) {
-      let encoded = u.pathname.slice(MOCHI_PREFIX.length).replace(/\/+$/, "");
+    const hostname = new URL(targetUrl).hostname;
+    return (
+      hostname === "googlevideo.com" ||
+      hostname.endsWith(".googlevideo.com")
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function upstreamOriginFromUrl(locationUrl) {
+  try {
+    const url = typeof locationUrl === "string" ? new URL(locationUrl) : locationUrl;
+    if (url.origin !== self.location.origin) return null;
+    if (url.pathname.startsWith(MOCHI_PREFIX)) {
+      let encoded = url.pathname.slice(MOCHI_PREFIX.length).replace(/\/+$/, "");
       if (!encoded.startsWith("http")) {
         try {
-          let p = encoded.replace(/-/g, "+").replace(/_/g, "/");
-          while (p.length % 4) p += "=";
-          const raw = atob(p);
-          const dec = _adXorDec(raw);
-          const result = decodeURIComponent(dec);
+          let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+          while (base64.length % 4) base64 += "=";
+          const raw = atob(base64);
+          const decoded = _adXorDec(raw);
+          const result = decodeURIComponent(decoded);
           if (result.startsWith("http")) return new URL(result).origin;
-        } catch (e) {}
+        } catch {}
       } else {
-        try { return new URL(encoded).origin; } catch (e) {}
+        try { return new URL(encoded).origin; } catch {}
       }
     }
-    if (u.pathname.startsWith("/b/s/")) {
-      const raw = u.pathname.slice(5) + u.search;
-      const httpIdx = raw.indexOf("http");
-      if (httpIdx !== -1) {
-        try { return new URL(decodeURIComponent(raw.substring(httpIdx))).origin; } catch (e) {}
-        try { return new URL(raw.substring(httpIdx)).origin; } catch (e) {}
+    if (url.pathname.startsWith("/b/fl/")) {
+      const encodedPath = url.pathname.slice(5);
+      const httpIndex = encodedPath.indexOf("http");
+      if (httpIndex !== -1) {
+        try { return new URL(decodeURIComponent(encodedPath.substring(httpIndex))).origin; } catch {}
+        try { return new URL(encodedPath.substring(httpIndex)).origin; } catch {}
       }
     }
-    if (self.__uv$config && typeof self.__uv$config.decodeUrl === "function") {
-      const prefix = self.__uv$config.prefix || UV_PREFIX;
-      if (u.pathname.startsWith(prefix)) {
-        try {
-          return new URL(self.__uv$config.decodeUrl(u.pathname.slice(prefix.length)) + u.search).origin;
-        } catch (e) {}
-      }
-    }
-  } catch (e) {}
+  } catch {}
   return null;
 }
 
@@ -226,7 +184,7 @@ async function upstreamOriginFromClient(event) {
     const client = await self.clients.get(event.clientId);
     if (!client) return null;
     return upstreamOriginFromUrl(client.url);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -238,49 +196,47 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
     path === "/" ||
     path.endsWith(".html")
   ) {
-    let networkRes = null;
+    let networkResponse = null;
     try {
       const preloaded = await preloadPromise;
       if (preloaded && (preloaded.ok || preloaded.status === 304)) {
-        networkRes = preloaded;
+        networkResponse = preloaded;
       } else {
-        networkRes = await fetch(request).catch(() => null);
+        networkResponse = await fetch(request).catch(() => null);
       }
-    } catch (e) {
-      networkRes = await fetch(request).catch(() => null);
+    } catch {
+      networkResponse = await fetch(request).catch(() => null);
     }
-    if (networkRes && networkRes.ok) {
-      const clone = networkRes.clone();
+    if (networkResponse && networkResponse.ok) {
+      const clone = networkResponse.clone();
       caches
         .open(SHELL_CACHE)
-        .then((c) => c.put(request, clone).catch(() => {}));
-      return networkRes;
+        .then((cache) => cache.put(request, clone).catch(() => {}));
+      return networkResponse;
     }
-    if (networkRes && networkRes.status === 304) return networkRes;
+    if (networkResponse && networkResponse.status === 304) return networkResponse;
     const cached = await caches.match(request);
     if (cached) return cached;
-    if (networkRes) return networkRes;
-    return new Response("offline", { status: 503 });
+    if (networkResponse) return networkResponse;
+    return new Response(swNegativeMessage("offline"), { status: 503 });
   }
   if (
     CACHEABLE_EXT.test(path) ||
     path.startsWith("/assets/") ||
     path.startsWith("/bmux/") ||
     path.startsWith("/epoxy/") ||
-    path.startsWith("/libcurl/") ||
-    path.startsWith("/s/")
+    path.startsWith("/libcurl/")
   ) {
     const isHashed = HASHED_ASSET_REGEX.test(path);
     const cached = await caches.match(request);
     if (cached) {
       if (!isHashed) {
         fetch(request)
-          .then((res) => {
-            if (res && res.ok) {
-              const cl = parseInt(res.headers.get("content-length") || "0", 10);
-              if (cl < LARGE_SIZE_THRESHOLD) {
-                caches.open(RUNTIME_CACHE).then((c) => {
-                  c.put(request, res);
+          .then((response) => {
+            if (response && response.ok) {
+              if (responseFitsCache(response)) {
+                caches.open(RUNTIME_CACHE).then((cache) => {
+                  cache.put(request, response);
                   capCache(RUNTIME_CACHE, MAX_RUNTIME);
                 });
               }
@@ -290,19 +246,18 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
       }
       return cached;
     }
-    const res = await fetch(request).catch(() => null);
-    if (res && res.ok) {
-      const cl = parseInt(res.headers.get("content-length") || "0", 10);
-      if (cl < LARGE_SIZE_THRESHOLD) {
-        const clone = res.clone();
-        caches.open(RUNTIME_CACHE).then((c) => {
-          c.put(request, clone);
+    const response = await fetch(request).catch(() => null);
+    if (response && response.ok) {
+      if (responseFitsCache(response)) {
+        const clone = response.clone();
+        caches.open(RUNTIME_CACHE).then((cache) => {
+          cache.put(request, clone);
           capCache(RUNTIME_CACHE, MAX_RUNTIME);
         });
       }
-      return res;
+      return response;
     }
-    if (!res || !res.ok) {
+    if (!response || !response.ok) {
       try {
         let upstreamOrigin = await upstreamOriginFromClient(event);
         if (!upstreamOrigin) {
@@ -311,20 +266,16 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         }
         if (upstreamOrigin) {
           const upstreamUrl = upstreamOrigin + path + (url.search || "");
-          const mochiRes = await tryWithTimeout(
-            mochiFetch(request, upstreamUrl),
-            MOCHI_TIMEOUT_MS
-          );
-          if (mochiRes && mochiRes.ok) {
-            const cl = parseInt(mochiRes.headers.get("content-length") || "0", 10);
-            if (cl < LARGE_SIZE_THRESHOLD) {
-              const clone = mochiRes.clone();
-              caches.open(RUNTIME_CACHE).then((c) => {
-                c.put(request, clone);
+          const fallbackResponse = await mochiFetch(request, upstreamUrl, MOCHI_TIMEOUT_MS);
+          if (fallbackResponse && fallbackResponse.ok) {
+            if (responseFitsCache(fallbackResponse)) {
+              const clone = fallbackResponse.clone();
+              caches.open(RUNTIME_CACHE).then((cache) => {
+                cache.put(request, clone);
                 capCache(RUNTIME_CACHE, MAX_RUNTIME);
               });
             }
-            return mochiRes;
+            return fallbackResponse;
           }
         }
       } catch (e) {}
@@ -351,8 +302,7 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
     STATIC_REGEX.test(url.pathname) ||
     CACHEABLE_ASSET_EXTS.has(ext);
   const preferProxyOverMochi =
-    (isScramjet || isUltraviolet) &&
-    (dest === "script" || ext === ".js" || ext === ".mjs");
+    isFolio && (dest === "script" || ext === ".js" || ext === ".mjs");
   if (
     !isCacheableAsset ||
     realUrl.includes(self.location.host) ||
@@ -362,44 +312,80 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
   }
   try {
     const cached = await caches.match(request);
-    const networkFetch = tryWithTimeout(
-      mochiFetch(request, realUrl),
-      MOCHI_TIMEOUT_MS,
-    );
     if (cached) {
-      networkFetch
-        .then((fresh) => {
-          if (fresh && fresh.ok) {
-            const cl = parseInt(fresh.headers.get("content-length") || "0", 10);
-            if (cl < LARGE_SIZE_THRESHOLD) {
-              caches.open(RUNTIME_CACHE).then((c) => {
-                c.put(request, fresh);
-                capCache(RUNTIME_CACHE, MAX_RUNTIME);
-              });
+      if (shouldRevalidateRuntime(request)) {
+        mochiFetch(request, realUrl, MOCHI_TIMEOUT_MS)
+          .then((fresh) => {
+            if (fresh && fresh.ok) {
+              if (responseFitsCache(fresh)) {
+                caches.open(RUNTIME_CACHE).then((cache) => {
+                  cache.put(request, fresh);
+                  capCache(RUNTIME_CACHE, MAX_RUNTIME);
+                });
+              }
             }
-          }
-        })
-        .catch(() => {});
+          })
+          .catch(() => {});
+      }
       return cached;
     }
+    const networkFetch = mochiFetch(request, realUrl, MOCHI_TIMEOUT_MS);
     const mochiResponse = await networkFetch;
     if (mochiResponse && mochiResponse.ok) {
-      const cl = parseInt(mochiResponse.headers.get("content-length") || "0", 10);
-      if (cl < LARGE_SIZE_THRESHOLD) {
+      if (responseFitsCache(mochiResponse)) {
         const clone = mochiResponse.clone();
-        caches.open(RUNTIME_CACHE).then((c) => {
-          c.put(request, clone);
+        caches.open(RUNTIME_CACHE).then((cache) => {
+          cache.put(request, clone);
           capCache(RUNTIME_CACHE, MAX_RUNTIME);
         });
       }
       return mochiResponse;
     }
-  } catch (e) {}
+  } catch {}
   return null;
+}
+
+async function handleRivetNetworkRequest(request, targetUrl) {
+  const response = await mochiFetch(request, targetUrl, MOCHI_TIMEOUT_MS);
+  if (!response) {
+    return new Response(swNegativeMessage("rivet extension network request failed"), {
+      status: 502,
+    });
+  }
+
+  const headers = new Headers(response.headers);
+  const requestOrigin = request.headers.get("Origin") || self.location.origin;
+  headers.set("Access-Control-Allow-Origin", requestOrigin);
+  headers.set("Access-Control-Allow-Credentials", "true");
+  headers.set("Access-Control-Expose-Headers", "*");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
+
+  const rivetNetworkUrl = rivetRouter?.extensionNetworkUrl?.(event);
+  if (rivetNetworkUrl) {
+    event.respondWith(handleRivetNetworkRequest(request, rivetNetworkUrl));
+    return;
+  }
+
+  if (rivetRouter?.shouldRoute(event)) {
+    event.respondWith(
+      rivetRouter.route(event).catch((error) => {
+        console.error("rivet service-worker route failed:", error, NEGATIVE);
+        return new Response(swNegativeMessage("rivet extension request failed"), {
+          status: 502,
+        });
+      }),
+    );
+    return;
+  }
 
   if (request.headers.get(PREFETCH_HEADER) === "1") {
     event.respondWith(handlePrefetchProxyRequest(event));
@@ -414,10 +400,6 @@ self.addEventListener("fetch", (event) => {
     dest === "frame";
   const url = new URL(request.url);
 
-  if (adBlocked(adTarget(request.url), isNavigate)) {
-    return event.respondWith(adBlockedResponse(request, url, isNavigate));
-  }
-
   const realUrl = unwrapUrl(url);
 
   if (url.pathname.startsWith(MOCHI_PREFIX)) {
@@ -426,34 +408,31 @@ self.addEventListener("fetch", (event) => {
     if (afterPrefix.startsWith("http")) return;
     let decodedUrl = null;
     try {
-      let p = afterPrefix.replace(/-/g, "+").replace(/_/g, "/");
-      while (p.length % 4) p += "=";
-      const raw = atob(p);
-      const dec = _adXorDec(raw);
-      const result = decodeURIComponent(dec);
+      let base64 = afterPrefix.replace(/-/g, "+").replace(/_/g, "/");
+      while (base64.length % 4) base64 += "=";
+      const raw = atob(base64);
+      const decoded = _adXorDec(raw);
+      const result = decodeURIComponent(decoded);
       if (result.startsWith("http")) decodedUrl = result;
-    } catch (e) {}
+    } catch {}
     if (decodedUrl) {
       return event.respondWith(
         (async () => {
           try {
             const cached = await caches.match(request);
             if (cached) return cached;
-            const r = await tryWithTimeout(
-              mochiFetch(request, decodedUrl),
-              MOCHI_TIMEOUT_MS,
-            );
-            if (r && r.ok) {
-              const clone = r.clone();
-              caches.open(RUNTIME_CACHE).then((c) => {
-                c.put(request, clone);
+            const response = await mochiFetch(request, decodedUrl, MOCHI_TIMEOUT_MS);
+            if (response && response.ok) {
+              const clone = response.clone();
+              caches.open(RUNTIME_CACHE).then((cache) => {
+                cache.put(request, clone);
                 capCache(RUNTIME_CACHE, MAX_RUNTIME);
               });
-              return r;
+              return response;
             }
-            return r || new Response("not found", { status: 404 });
-          } catch (e) {
-            return new Response("error", { status: 502 });
+            return response || new Response(swNegativeMessage("not found"), { status: 404 });
+          } catch {
+            return new Response(swNegativeMessage("request failed"), { status: 502 });
           }
         })(),
       );
@@ -471,11 +450,8 @@ self.addEventListener("fetch", (event) => {
     if (target && target.startsWith("http")) {
       return event.respondWith(
         (async () => {
-          const r = await tryWithTimeout(
-            mochiFetch(request, target),
-            MOCHI_TIMEOUT_MS,
-          );
-          return r || new Response("gateway timeout", { status: 504 });
+          const response = await mochiFetch(request, target, MOCHI_TIMEOUT_MS);
+          return response || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
         })(),
       );
     }
@@ -499,53 +475,51 @@ self.addEventListener("fetch", (event) => {
           if (cacheHit) return cacheHit;
         }
 
-        if (isScramjet) {
-          await ensureScramjetConfig();
-          if (
-            url.pathname.startsWith("/b/s/jetty.") &&
-            !url.pathname.endsWith(".wasm")
-          ) {
-            return fetch(request);
+        if (isFolio) {
+          await ensureFolioConfig();
+          const isFolioRoute = url.pathname.startsWith("/b/fl/r/");
+          let shouldRoute =
+            typeof folio.shouldRoute === "function"
+              ? folio.shouldRoute(event)
+              : !!folio.route(event);
+          if (!shouldRoute && isFolioRoute) {
+            await reviveFolioRoutes();
+            shouldRoute =
+              typeof folio.shouldRoute === "function"
+                ? folio.shouldRoute(event)
+                : !!folio.route(event);
           }
-          if (scramjet.route(event)) {
-            return await runProxyEngine(
-              scramjet,
-              event,
-              request,
-              url,
-              realUrl,
-              isNavigate,
-            );
+          if (shouldRoute) {
+            if (typeof folio.fetch === "function") {
+              return await runProxyEngine(
+                folio,
+                event,
+                request,
+                url,
+                realUrl,
+                isNavigate,
+              );
+            }
+            return await folio.route(event);
           }
-        }
-
-        if (isUltraviolet && uv.route(event)) {
-          return await runProxyEngine(
-            uv,
-            event,
-            request,
-            url,
-            realUrl,
-            isNavigate,
-          );
+          if (isFolioRoute) {
+            return await folioRouteMissFallback(request, url, realUrl, isNavigate);
+          }
         }
 
         if (url.origin === self.location.origin && request.method === "GET") {
           return await handleLocalOriginGet(event, request, url, preloadPromise);
         }
 
-        return new Response(":3", { status: 403 });
+        return new Response(swNegativeMessage("request forbidden"), { status: 403 });
       } catch (err) {
         if (realUrl && !realUrl.includes(self.location.host)) {
-          const mf = await tryWithTimeout(
-            mochiFetch(request, realUrl),
-            MOCHI_TIMEOUT_MS,
-          );
+          const mf = await mochiFetch(request, realUrl, MOCHI_TIMEOUT_MS);
           if (mf) return patchHtml(mf, realUrl);
         }
         const fallback = await caches.match(request);
         if (fallback) return fallback;
-        return new Response("error", { status: 500 });
+        return new Response(swNegativeMessage("request failed"), { status: 500 });
       }
     })(),
   );

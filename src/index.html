@@ -9,22 +9,13 @@
     <meta property="og:url" content="https://coursera.org" />
     <meta property="og:site_name" content="coursera.org" />
     <meta name="theme-color" content="#0056D2" />
-    <title>MathPath - Personalized Learning for Every Student</title>
+    <title>Coursera | Online Courses, Certificates, & Degrees</title>
     <style>
       :root {
         --bg-body: #050505;
       }
       [data-theme="catppuccin"] {
         --bg-body: #1e1e2e;
-      }
-      [data-theme="nord"] {
-        --bg-body: #2e3440;
-      }
-      [data-theme="rose pine"] {
-        --bg-body: #191724;
-      }
-      [data-theme="gruvbox"] {
-        --bg-body: #1d2021;
       }
       [data-theme="dracula"] {
         --bg-body: #282a36;
@@ -50,121 +41,102 @@
       body {
         background: var(--bg-body);
       }
-      .meow, #connection-status {
-        display: none;
-      }
-      #root {
-        position: fixed;
-        inset: 0;
-        z-index: 999999;
-        border: none;
-        width: 100vw;
-        height: 100vh;
-        background: #0d0d0d;
-      }
     </style>
     <script>
       (function () {
-        var t = localStorage.getItem("theme");
-        if (t && t !== "default")
-          document.documentElement.setAttribute("data-theme", t);
+        const storedTheme = localStorage.getItem("theme");
+        if (storedTheme && storedTheme !== "default")
+          document.documentElement.setAttribute("data-theme", storedTheme);
       })();
-      var _revealed = false;
-      var _title = "Coursera | Degrees, Certificates, & Free Online Courses";
-      var _hardRevealIntervalId = null;
-      function _stopRevealGuard() {
-        if (_hardRevealIntervalId) {
-          clearInterval(_hardRevealIntervalId);
-          _hardRevealIntervalId = null;
-        }
-      }
-      function _revealPage() {
-        if (_revealed) return;
-        _revealed = true;
-        _stopRevealGuard();
-        try { document.title = _title; } catch (_e) {}
-        try {
-          var c = document.getElementById("root");
-          if (c) c.remove();
-        } catch (_e) {}
-        try {
-          var m = document.querySelector(".meow");
-          if (m) m.style.display = "";
-        } catch (_e) {}
-        try {
-          var s = document.getElementById("connection-status");
-          if (s) s.style.display = "";
-        } catch (_e) {}
-      }
-      function _onUserAction() {
-        document.removeEventListener("click", _onUserAction, true);
-        document.removeEventListener("keydown", _onUserAction, true);
-        document.removeEventListener("touchstart", _onUserAction, true);
-        _revealPage();
-      }
-      document.addEventListener("click", _onUserAction, true);
-      document.addEventListener("keydown", _onUserAction, true);
-      document.addEventListener("touchstart", _onUserAction, true);
-      var _appReady = false;
-      var _minTimeReached = false;
-      function _tryReveal() {
-        if (_appReady && _minTimeReached) _revealPage();
-      }
-      window.addEventListener("styles-ready", function () {
-        _appReady = true;
-        _tryReveal();
-      }, { once: true });
-      window.addEventListener("load", _revealPage, { once: true });
-      window.addEventListener("pageshow", _revealPage, { once: true });
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "visible") _tryReveal();
-      });
-      _hardRevealIntervalId = setInterval(function () {
-        if (_revealed) {
-          _stopRevealGuard();
-          return;
-        }
-        _revealPage();
-      }, 2500);
-      setTimeout(function () {
-        _minTimeReached = true;
-        _tryReveal();
-      }, 9000);
-      setTimeout(_revealPage, 1400);
     </script>
     <link rel="icon" href="/!!/https://d3njjcbhbojbot.cloudfront.net/web/images/favicons/apple-touch-icon-v2-57x57.png" type="image/x-icon" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
-    <noscript><link href="https://fonts.googleapis.com/css2?family=Sniglet:wght@400;800&display=swap" rel="stylesheet" /></noscript>
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet';" />
     <noscript><link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet" /></noscript>
     <script>
       (function () {
-        function loadFaCss() {
-          var id = "fa-css";
-          if (document.getElementById(id)) return;
-          var l = document.createElement("link");
-          l.id = id;
-          l.rel = "stylesheet";
-          l.href = "/!!/https://site-assets.fontawesome.com/releases/v7.2.0/css/all.css";
-          document.head.appendChild(l);
+        const peakUrls = [
+          "/assets/images/peaks/hachii.webp",
+          "/assets/images/peaks/kona.webp",
+          "/assets/images/peaks/osa.webp",
+          "/assets/images/peaks/azu.webp",
+        ];
+        let previousIndex = -1;
+        try {
+          const storedIndex = localStorage.getItem("lyra-title-peak-index");
+          if (storedIndex !== null) previousIndex = Number(storedIndex);
+        } catch {}
+
+        let nextIndex = Math.floor(Math.random() * peakUrls.length);
+        if (peakUrls.length > 1 && nextIndex === previousIndex) {
+          nextIndex =
+            (nextIndex + 1 + Math.floor(Math.random() * (peakUrls.length - 1))) %
+            peakUrls.length;
         }
-        if (typeof requestIdleCallback === "function") {
-          requestIdleCallback(loadFaCss, { timeout: 2000 });
-        } else {
-          setTimeout(loadFaCss, 600);
-        }
+
+        document.documentElement.dataset.peakIndex = String(nextIndex);
+        const preload = document.createElement("link");
+        preload.rel = "preload";
+        preload.as = "image";
+        preload.type = "image/webp";
+        preload.href = peakUrls[nextIndex];
+        preload.fetchPriority = "high";
+        document.head.append(preload);
+        try {
+          localStorage.setItem("lyra-title-peak-index", String(nextIndex));
+        } catch {}
       })();
     </script>
-    <script defer src="/b/all.js"></script>
-    <script type="module" src="/assets/scripts/entry.tsx"></script>
+    <script>
+      (function () {
+        window.__lyraRecoverAsset = function () {
+          const now = Date.now();
+          const target = new URL(window.location.href);
+          const previous = Number(target.searchParams.get("lyra-recovery"));
+          if (Number.isFinite(previous) && now - previous < 30_000) return;
+          target.searchParams.set("lyra-recovery", String(now));
+          window.location.replace(target.href);
+        };
+        window.addEventListener(
+          "vite:preloadError",
+          function (event) {
+            event.preventDefault();
+            window.__lyraRecoverAsset();
+          },
+          { once: true },
+        );
+        window.addEventListener(
+          "error",
+          function (event) {
+            const element = event.target;
+            const assetUrl =
+              element instanceof HTMLScriptElement
+                ? element.src
+                : element instanceof HTMLLinkElement &&
+                    (element.rel === "modulepreload" ||
+                      element.rel === "stylesheet")
+                  ? element.href
+                  : "";
+            if (!assetUrl) return;
+            const failedUrl = new URL(assetUrl, window.location.href);
+            if (
+              failedUrl.origin === window.location.origin &&
+              /^\/assets\/[^/]+$/.test(failedUrl.pathname)
+            ) {
+              window.__lyraRecoverAsset();
+            }
+          },
+          true,
+        );
+      })();
+    </script>
+    <script type="module" src="/app/entry.tsx"></script>
   </head>
   <body>
-    <iframe id="root" src="/ed.html" loading="eager" aria-hidden="true"></iframe>
-    <noscript>please enable javascript!!</noscript>
+    <noscript>javascript is required... /ᐠ - ˕ -マ</noscript>
     <main class="meow"></main>
   </body>
 </html>

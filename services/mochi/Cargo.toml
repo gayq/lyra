@@ -1,0 +1,40 @@
+[package]
+name = "mochi"
+edition = "2021"
+
+[dependencies]
+adaptive-capacity = { path = "../../packages/adaptive-capacity" }
+base64 = "0.22.1"
+mimalloc = { version = "0.1", default-features = false }
+axum = { version = "0.7", features = ["http2", "ws"] }
+tokio = { version = "1.0", features = ["rt-multi-thread", "net", "macros", "sync", "signal", "process", "io-util"] }
+tokio-stream = "0.1"
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-util = { version = "0.7", features = ["io"] }
+urlencoding = "2.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2", "hickory-dns", "json"] }
+lol_html = "1.0"
+moka = { version = "0.12", features = ["future"] }
+aho-corasick = "1.1"
+url = "2.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+bytes = "1.5"
+tower-http = { version = "0.5", features = ["compression-full", "cors"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+dashmap = "6"
+uuid = { version = "1.8", features = ["v4"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+sysinfo = "0.32"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+opt-level = 3
+strip = true
+overflow-checks = false
+debug = false

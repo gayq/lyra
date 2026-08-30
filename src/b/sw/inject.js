@@ -1,7 +1,7 @@
 const SHARED_SCRIPT = `
 <script>
 (function(){
-  var P='${MOCHI_PREFIX}',U='${UV_PREFIX}',S=${isScramjet||false},V=${isUltraviolet||false},K='q7Zx!9pL';
+  var P='${MOCHI_PREFIX}',S=${isFolio||false},K='q7Zx!9pL';
   var X=function(s){var o='';for(var i=0;i<s.length;i++)o+=String.fromCharCode(s.charCodeAt(i)^K.charCodeAt(i%K.length));return o;};
   var D=function(h){
     if(!h)return h;
@@ -20,25 +20,18 @@ const SHARED_SCRIPT = `
         if(q.indexOf('http://')===0||q.indexOf('https://')===0)return q+u.search+u.hash;
         return q+u.search+u.hash
       }
-      if(S&&u.pathname.indexOf('/b/s/')===0){
-        var raw=u.pathname.slice(5)+u.search+u.hash;
+      if(S&&u.pathname.indexOf('/b/fl/')===0){
+        var raw=u.pathname.slice(5);
         var httpIdx=raw.indexOf('http');
         if(httpIdx!==-1){
           try{return decodeURIComponent(raw.substring(httpIdx))}catch(e){return raw.substring(httpIdx)}
         }
         try{return decodeURIComponent(raw)}catch(e){return raw}
       }
-      if(V){
-        try{
-          var pf=(self.__uv$config&&self.__uv$config.prefix)||U;
-          if(u.pathname.indexOf(pf)===0&&self.__uv$config&&typeof self.__uv$config.decodeUrl==='function')
-            return self.__uv$config.decodeUrl(u.pathname.slice(pf.length))+u.search+u.hash
-        }catch(e){}
-      }
       return u.href
     }catch(e){return h}
   };
-  window._W={D:D,P:P,U:U,S:S,V:V};
+  window._W={D:D,P:P,S:S};
 })();
 </script>
 `;
@@ -64,18 +57,25 @@ const TURN_SCRIPT = `
 (function(){
   var O=window.RTCPeerConnection;
   if(!O)return;
-  window.RTCPeerConnection=function(cfg){
-    cfg=cfg||{};
-    cfg.iceTransportPolicy='relay';
-    if(cfg.iceServers)cfg.iceServers=cfg.iceServers.filter(function(s){
+  function tc(){try{return window.top&&window.top.__LYRA_WEBRTC_TURN__}catch(e){}try{return window.parent&&window.parent.__LYRA_WEBRTC_TURN__}catch(e){}return window.__LYRA_WEBRTC_TURN__||null}
+  function ds(){return[{urls:['turn:'+self.location.hostname+':3478?transport=udp','turn:'+self.location.hostname+':3478?transport=tcp'],username:'lyly',credential:'rara'}]}
+  function to(sv){if(!Array.isArray(sv))return[];return sv.filter(function(s){
       if(!s||!s.urls)return false;
       var u=Array.isArray(s.urls)?s.urls:[s.urls];
-      return u.every(function(u){return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
-    });
-    if(!cfg.iceServers||cfg.iceServers.length===0)cfg.iceServers=[{urls:'turn:'+self.location.hostname+':3478',username:'enniuu',credential:'enni'}];
-    return new O(cfg)
+      return u.some(function(u){u=String(u).toLowerCase();return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
+    }).map(function(s){var c={};for(var k in s)c[k]=s[k];var u=Array.isArray(s.urls)?s.urls:[s.urls];u=u.filter(function(u){u=String(u).toLowerCase();return u.indexOf('turn:')===0||u.indexOf('turns:')===0});c.urls=Array.isArray(s.urls)?u:u[0];return c})}
+  function sc(cfg){
+    var t=tc();cfg=cfg?Object.assign({},cfg):{};
+    if(t&&t.enabled===false)return cfg;
+    cfg.iceTransportPolicy='relay';
+    var req=to(t&&t.iceServers).length?to(t.iceServers):ds();
+    cfg.iceServers=to(cfg.iceServers).concat(req);
+    return cfg
+  }
+  window.RTCPeerConnection=function(cfg,cs){
+    return cs!==undefined?new O(sc(cfg),cs):new O(sc(cfg))
   };
-})();
+})()
 </script>
 `;
 
@@ -84,56 +84,60 @@ const TURN_SCRIPT_RELAY = `
 (function(){
   var O=window.RTCPeerConnection;
   if(!O)return;
-  var T={urls:'turn:'+self.location.hostname+':3478',username:'enniuu',credential:'enni'};
-  function W(cfg,cs){
-    var c=cfg?Object.assign({},cfg):{};
-    c.iceTransportPolicy='relay';
-    if(!c.iceServers)c.iceServers=[];
-    c.iceServers=c.iceServers.filter(function(s){
+  function tc(){try{return window.top&&window.top.__LYRA_WEBRTC_TURN__}catch(e){}try{return window.parent&&window.parent.__LYRA_WEBRTC_TURN__}catch(e){}return window.__LYRA_WEBRTC_TURN__||null}
+  function ds(){return[{urls:['turn:'+self.location.hostname+':3478?transport=udp','turn:'+self.location.hostname+':3478?transport=tcp'],username:'lyly',credential:'rara'}]}
+  function to(sv){if(!Array.isArray(sv))return[];return sv.filter(function(s){
       if(!s||!s.urls)return false;
       var u=Array.isArray(s.urls)?s.urls:[s.urls];
-      return u.some(function(u){return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
-    });
-    c.iceServers.push(T);
-    return cs!==undefined?new O(c,cs):new O(c)
+      return u.some(function(u){u=String(u).toLowerCase();return u.indexOf('turn:')===0||u.indexOf('turns:')===0})
+    }).map(function(s){var c={};for(var k in s)c[k]=s[k];var u=Array.isArray(s.urls)?s.urls:[s.urls];u=u.filter(function(u){u=String(u).toLowerCase();return u.indexOf('turn:')===0||u.indexOf('turns:')===0});c.urls=Array.isArray(s.urls)?u:u[0];return c})}
+  function relay(cand){try{if(!cand)return true;var s=typeof cand==='string'?cand:cand.candidate||'';return !s||/(^|\s)typ\s+relay(\s|$)/i.test(s)}catch(e){return true}}
+  function sc(cfg){
+    var t=tc();cfg=cfg?Object.assign({},cfg):{};
+    if(t&&t.enabled===false)return cfg;
+    cfg.iceTransportPolicy='relay';
+    var req=to(t&&t.iceServers).length?to(t.iceServers):ds();
+    cfg.iceServers=to(cfg.iceServers).concat(req);
+    return cfg
+  }
+  function W(cfg,cs){
+    var pc=cs!==undefined?new O(sc(cfg),cs):new O(sc(cfg));
+    try{var add=pc.addEventListener.bind(pc);pc.addEventListener=function(type,fn,opt){if(type==='icecandidate'&&typeof fn==='function'){var f=function(e){if(relay(e&&e.candidate))return fn.call(this,e)};fn.__lyraRelay=f;return add(type,f,opt)}return add(type,fn,opt)}}catch(e){}
+    try{var rem=pc.removeEventListener.bind(pc);pc.removeEventListener=function(type,fn,opt){return rem(type,fn&&fn.__lyraRelay||fn,opt)}}catch(e){}
+    return pc
   }
   W.prototype=O.prototype;
   try{Object.defineProperty(W,'name',{value:'RTCPeerConnection'})}catch(e){}
   window.RTCPeerConnection=W
-})();
+})()
 </script>
 `;
 
 const HOVER_PREFETCH_SCRIPT = `
 <script>
 (function(){
-  var D=window._W.D,S=window._W.S,V=window._W.V;
+  var D=window._W.D,S=window._W.S;
   if(!('serviceWorker'in navigator))return;
-  var max=40,sent=Object.create(null),cnt=0,tm=null,sw=null;
+  var max=40,sent=Object.create(null),cnt=0,sw=null;
   function kH(h){try{return String(h||'').split('#')[0]}catch(e){return''}}
-  function oP(){try{var p=location.pathname||'';return p.indexOf('/b/s/')===0||p.indexOf('/b/u/')===0}catch(e){return false}}
+  function oP(){try{var p=location.pathname||'';return p.indexOf('/b/fl/')===0}catch(e){return false}}
   function pU(abs){
     try{
       var u=new URL(abs,location.href);
       if(u.origin===location.origin){
         var p=u.pathname||'';
-        if(p.indexOf('/b/s/r/')===0)return kH(u.href);
-        if(p.indexOf('/b/u/')===0&&p.length>10)return kH(u.href);
+        if(p.indexOf('/b/fl/r/')===0)return kH(u.href);
         return null
       }
       if(!oP())return null;
       if(u.protocol!=='http:'&&u.protocol!=='https:')return null;
       var raw=kH(u.href);
-      if(S)return kH(location.origin+'/b/s/r/'+raw);
-      if(V&&window.__uv$config&&typeof window.__uv$config.encodeUrl==='function'){
-        var pref=window.__uv$config.prefix||'/b/u/r/';
-        return kH(location.origin+pref+window.__uv$config.encodeUrl(raw))
-      }
+      if(S)return kH(location.origin+'/b/fl/r/'+raw);
       return null
     }catch(e){return null}
   }
   function aE(ev){var t=ev.target;if(t&&t.closest){var a=t.closest('a[href]');if(a)return a}var p=ev.composedPath&&ev.composedPath();if(p)for(var i=0;i<p.length;i++){var n=p[i];if(!n||n.nodeType!==1)continue;if(n.tagName==='A'&&n.getAttribute('href'))return n}return null}
-  function pS(w,u){if(!w||typeof w.postMessage!=='function')return false;try{w.postMessage({type:'waves-prefetch',url:u});return true}catch(e){return false}}
+  function pS(w,u){if(!w||typeof w.postMessage!=='function')return false;try{w.postMessage({type:'lyra-prefetch',url:u});return true}catch(e){return false}}
   async function pf(url){
     if(!url||sent[url])return;
     if(cnt>=max)return;
@@ -142,7 +146,7 @@ const HOVER_PREFETCH_SCRIPT = `
     if(!c)c=sw;
     if(!c){try{var reg=await navigator.serviceWorker.ready;c=reg.active||reg.waiting||reg.installing||navigator.serviceWorker.controller;if(c)sw=c}catch(e){}}else sw=c;
     if(c&&pS(c,url)){sent[url]=1;cnt++;return}
-    try{if(window.top&&window.top!==window){window.top.postMessage({type:'waves-prefetch-bridge',url:url},location.origin);sent[url]=1;cnt++;return}}catch(e){}
+    try{if(window.top&&window.top!==window){window.top.postMessage({type:'lyra-prefetch-bridge',url:url},location.origin);sent[url]=1;cnt++;return}}catch(e){}
   }
   function qP(ev){
     var el=aE(ev);if(!el)return null;
@@ -150,7 +154,6 @@ const HOVER_PREFETCH_SCRIPT = `
     var abs;try{abs=new URL(raw,location.href).href}catch(e){return null}
     return pU(abs)
   }
-  document.addEventListener('pointerover',function(ev){var p=qP(ev);if(!p)return;clearTimeout(tm);tm=setTimeout(function(){pf(p)},25)},true);
   document.addEventListener('pointerdown',function(ev){var p=qP(ev);if(!p)return;pf(p)},true)
 })();
 </script>
@@ -159,7 +162,7 @@ const HOVER_PREFETCH_SCRIPT = `
 const META_SCRIPT = `
 <script>
 (function(){
-  var D=window._W.D,S=window._W.S,V=window._W.V;
+  var D=window._W.D,S=window._W.S;
   var isTop;try{isTop=window.top===window}catch(e){isTop=false}
   var mE=function(s){if(!s)return'';var k='wb!';try{var e=encodeURIComponent(s),r='';for(var i=0;i<e.length;i++)r+=String.fromCharCode(e.charCodeAt(i)^k.charCodeAt(i%k.length));return btoa(r)}catch(e){return s}};
   var tabId;try{if(window.name&&!isNaN(parseInt(window.name,10)))tabId=window.name;else tabId=window.frameElement&&window.frameElement.dataset?window.frameElement.dataset.tabId||null:null}catch(e){tabId=null}
@@ -172,7 +175,7 @@ const META_SCRIPT = `
     }catch(e){return''}
   }
   function pI(){
-    try{var ls=document.querySelectorAll('link[rel~="icon"], link[rel*="icon"]');for(var i=0;i<ls.length;i++){var h=ls[i].getAttribute('href');if(!h)continue;try{return new URL(h,location.href).href}catch(e){}}try{return new URL('/favicon.ico',location.href).href}catch(e){}return null}catch(e){return null}
+    try{var ls=document.querySelectorAll('link[rel~="icon"], link[rel*="icon"]');for(var i=0;i<ls.length;i++){var h=ls[i].getAttribute('href');if(!h)continue;try{return new URL(h,location.href).href}catch(e){}}try{return new URL('/assets/images/icons/favicon.svg',location.href).href}catch(e){}return null}catch(e){return null}
   }
   async function sM(){
     if(!isTop&&!tabId)return;
@@ -198,7 +201,7 @@ const META_SCRIPT = `
   function bT(el){try{if(!el||el._wo)return;el._wo=true;var o=new MutationObserver(function(){mD()});o.observe(el,{childList:true,subtree:true,characterData:true})}catch(e){}}
   function hHt(muts){try{for(var i=0;i<muts.length;i++){var m=muts[i],t=m.target;if(!t)continue;if(m.type==='characterData'){var p=t.parentElement;if(p&&p.nodeName&&p.nodeName.toUpperCase()==='TITLE')return true;continue}if(m.type==='attributes'){var n=t.nodeName&&t.nodeName.toUpperCase();if(n==='META'||n==='LINK'||n==='TITLE')return true;continue}if(m.type==='childList'){var tn=t.nodeName&&t.nodeName.toUpperCase();if(tn==='TITLE'||tn==='META'||tn==='LINK')return true;if(tn==='HEAD'){var na=m.addedNodes;for(var j=0;j<na.length;j++){var nn=na[j]&&na[j].nodeName&&na[j].nodeName.toUpperCase();if(nn==='TITLE'||nn==='META'||nn==='LINK')return true}var nr=m.removedNodes;for(var k=0;k<nr.length;k++){var rn=nr[k]&&nr[k].nodeName&&nr[k].nodeName.toUpperCase();if(rn==='TITLE'||rn==='META'||rn==='LINK')return true}}}}return false}catch(e){}return false}
   function wH(){try{bT(document.querySelector('title'));var h=document.head||document.documentElement;if(!h||h._who)return;h._who=true;var o=new MutationObserver(function(muts){if(!hHt(muts))return;mD();bT(document.querySelector('title'))});o.observe(h,{childList:true,subtree:true,attributes:true,attributeFilter:['content','property','name','href','rel']})}catch(e){}}
-  function start(){if(!S&&!V)hH();try{if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('controllerchange',function(){sw=navigator.serviceWorker.controller})}catch(e){}wH();mN()}
+  function start(){if(!S)hH();try{if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('controllerchange',function(){sw=navigator.serviceWorker.controller})}catch(e){}wH();mN()}
   self.addEventListener('popstate',mN);
   self.addEventListener('hashchange',mN);
   self.addEventListener('load',mN);
@@ -209,7 +212,7 @@ const META_SCRIPT = `
   function oT(raw,cause){
     if(!raw)return false;
     var abs;try{abs=new URL(raw,location.href).href}catch(e){abs=raw}
-    if(abs.indexOf(self.location.origin)===0&&abs.indexOf(window._W.P)===-1&&abs.indexOf('/b/s/')===-1&&abs.indexOf('/b/u/')===-1){try{var bR=D(location.href)||location.href;abs=new URL(raw,bR).href}catch(e){}}
+    if(abs.indexOf(self.location.origin)===0&&abs.indexOf(window._W.P)===-1&&abs.indexOf('/b/fl/')===-1){try{var bR=D(location.href)||location.href;abs=new URL(raw,bR).href}catch(e){}}
     var dec=D(abs)||abs;
     if(!hOk(dec))return false;
     var pl={type:'open-new-tab',url:abs,decodedUrl:dec,openerUrl:D(location.href)||location.href,tabId:tabId,isTopFrame:isTop,cause:cause||null};

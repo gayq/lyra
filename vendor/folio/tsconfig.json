@@ -1,0 +1,12 @@
+{
+	"compilerOptions": {
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
+		"lib": ["ES2022", "dom", "dom.iterable"],
+		"types": ["node"],
+		"target": "ES2022"
+	},
+	"include": ["rspack.config.ts"]
+}

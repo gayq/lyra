@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
-import meow from "./build.js";
+import lyraPlugin from "./build.js";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 
@@ -9,7 +9,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   plugins: [
     preact(),
-    meow(),
+    lyraPlugin(),
   ],
   root: "src",
   publicDir: false,
@@ -24,7 +24,8 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
     sourcemap: false,
-    target: "esnext",
+    chunkSizeWarningLimit: 550,
+    target: "baseline-widely-available",
     minify: "terser",
     terserOptions: {
       compress: { drop_console: true, passes: 2 },
@@ -32,16 +33,27 @@ export default defineConfig({
     },
     cssMinify: "lightningcss",
     assetsInlineLimit: 8192,
-    rollupOptions: {
+    rolldownOptions: {
+      checks: { pluginTimings: false },
       input: {
         main: resolve(__dirname, "src/index.html"),
         "404": resolve(__dirname, "src/404.html"),
-        ed: resolve(__dirname, "src/ed.html"),
+        "player": resolve(__dirname, "src/player.html"),
       },
       output: {
+        entryFileNames: "assets/[hash:12].js",
+        chunkFileNames: "assets/[hash:12].js",
+        assetFileNames: "assets/[hash:12][extname]",
+        minifyInternalExports: true,
         manualChunks(id) {
+          if (id.includes("components/icons/paths")) return "paths";
           if (id.includes("node_modules/preact")) return "preact";
           if (id.includes("node_modules/zustand")) return "zustand";
+          if (id.includes("node_modules/hls.js")) return "hls";
+          if (id.includes("node_modules/jszip")) return "extension-vendor";
+          if (id.includes("node_modules/@mercuryworkshop")) {
+            return "proxy-vendor";
+          }
           if (id.includes("node_modules")) return "vendor";
         },
       },
@@ -50,7 +62,7 @@ export default defineConfig({
   css: {
     modules: {
       localsConvention: "camelCaseOnly",
-      generateScopedName: "[name]__[local]___[hash:base64:5]",
+      generateScopedName: "x_[hash:base64:10]",
     },
   },
   resolve: {

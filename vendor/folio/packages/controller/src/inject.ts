@@ -1,0 +1,397 @@
+import type {
+	RawHeaders,
+	ProxyTransport,
+	TransferrableResponse,
+} from "@mercuryworkshop/proxy-transports";
+
+import { RpcHelper } from "@mercuryworkshop/rpc";
+import type { Config } from ".";
+import { CONTROLLERFRAME } from "./symbols";
+import type {
+	SerializedCookieSyncEntry,
+	ControllerToTransport,
+	TransportToController,
+	WebSocketMessage,
+} from "./types";
+import {
+	CookieJar,
+	FOLIOCLIENT,
+	FolioClient,
+	setWasm,
+	Tap,
+	type CookieSyncOptions,
+	type FolioConfig,
+	type FolioContext,
+	type TrackedHistoryState,
+} from "@mercuryworkshop/folio";
+
+const MessagePort_postMessage = MessagePort.prototype.postMessage;
+const postMessage = (
+	port: MessagePort,
+	data: any,
+	transfer?: Transferable[]
+) => {
+	MessagePort_postMessage.call(port, data, transfer as any);
+};
+
+function bodyTransferList(body: BodyInit | null): Transferable[] | undefined {
+	if (body instanceof ArrayBuffer) return [body];
+	if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) {
+		return [body as unknown as Transferable];
+	}
+	return undefined;
+}
+
+class RemoteTransport implements ProxyTransport {
+	private readyResolve!: () => void;
+	private readyPromise: Promise<void> = new Promise((resolve) => {
+		this.readyResolve = resolve;
+	});
+
+	public ready = false;
+	async init() {
+		await this.readyPromise;
+		this.ready = true;
+	}
+
+	private rpc: RpcHelper<ControllerToTransport, TransportToController>;
+	constructor(public port: MessagePort) {
+		this.rpc = new RpcHelper<ControllerToTransport, TransportToController>(
+			{
+				ready: async () => {
+					this.readyResolve();
+				},
+			},
+			"transport",
+			(data, transfer) => {
+				postMessage(port, data, transfer);
+			}
+		);
+		port.onmessageerror = (ev) => {
+			console.error(
+				"onmessageerror (this should never happen!)... /ᐠ - ˕ -マ",
+				ev
+			);
+		};
+		port.onmessage = (ev) => {
+			this.rpc.recieve(ev.data);
+		};
+		port.start();
+	}
+	connect(
+		url: URL,
+		protocols: string[],
+		requestHeaders: RawHeaders,
+		onopen: (protocol: string, extensions: string) => void,
+		onmessage: (data: Blob | ArrayBuffer | string) => void,
+		onclose: (code: number, reason: string) => void,
+		onerror: (error: string) => void
+	): [
+		(data: Blob | ArrayBuffer | string) => void,
+		(code: number, reason: string) => void,
+	] {
+		const channel = new MessageChannel();
+		const port = channel.port1;
+		console.warn("connecting");
+		this.rpc
+			.call(
+				"connect",
+				{
+					url: url.href,
+					protocols,
+					requestHeaders,
+					port: channel.port2,
+				},
+				[channel.port2]
+			)
+			.then((response) => {
+				console.log(response);
+				if (response.result === "success") {
+					onopen(response.protocol, response.extensions);
+				} else {
+					onerror(response.error);
+				}
+			});
+		port.onmessage = (ev) => {
+			const message = ev.data as WebSocketMessage;
+			if (message.type === "data") {
+				onmessage(message.data);
+			} else if (message.type === "close") {
+				onclose(message.code, message.reason);
+			}
+		};
+		port.onmessageerror = (ev) => {
+			console.error(
+				"onmessageerror (this should never happen!)... /ᐠ - ˕ -マ",
+				ev
+			);
+			onerror("message error in transport port... /ᐠ - ˕ -マ");
+		};
+
+		return [
+			(data) => {
+				postMessage(
+					port,
+					{
+						type: "data",
+						data: data,
+					},
+					data instanceof ArrayBuffer ? [data] : []
+				);
+			},
+			(code) => {
+				postMessage(port, {
+					type: "close",
+					code: code,
+				});
+			},
+		];
+	}
+
+	async request(
+		remote: URL,
+		method: string,
+		body: BodyInit | null,
+		headers: RawHeaders,
+		_signal: AbortSignal | undefined
+	): Promise<TransferrableResponse> {
+		return await this.rpc.call("request", {
+			remote: remote.href,
+			method,
+			body,
+			headers,
+		}, bodyTransferList(body));
+	}
+
+	async sendSetCookie(
+		cookies: Array<{ url: URL; cookie: string }>,
+		options: CookieSyncOptions = {}
+	): Promise<void> {
+		await this.rpc.call("sendSetCookie", {
+			cookies: cookies.map(({ url, cookie }) => ({
+				url: url.href,
+				cookie,
+			})),
+			options,
+		});
+	}
+}
+
+function resolveServiceWorkerContainer(): ServiceWorkerContainer | undefined {
+	if (navigator.serviceWorker) return navigator.serviceWorker;
+	try {
+		if (typeof window !== "undefined" && window.parent !== window) {
+			return window.parent.navigator.serviceWorker;
+		}
+	} catch {}
+	return undefined;
+}
+
+const serviceWorkerContainer = resolveServiceWorkerContainer();
+const sw = serviceWorkerContainer?.controller;
+
+type Init = {
+	config: Config;
+	flconfig: FolioConfig;
+	prefix: URL;
+	cookies: string;
+	yieldGetInjectScripts: (
+		config: Config,
+		flconfig: FolioConfig,
+		prefix: URL,
+		cookieJar: CookieJar,
+		codecEncode: (input: string) => string,
+		codecDecode: (input: string) => string
+	) => any;
+	codecEncode: (input: string) => string;
+	codecDecode: (input: string) => string;
+	initHeaders: RawHeaders;
+	history: TrackedHistoryState[];
+};
+
+export function load(init: Init) {
+	if (FOLIOCLIENT in globalThis) {
+		((globalThis as any)[FOLIOCLIENT] as FolioClient).syncDocumentInit({
+			initHeaders: init.initHeaders,
+			history: init.history,
+			cookies: init.cookies,
+		});
+		return;
+	}
+	const wasmSource = (self as typeof self & { WASM?: unknown }).WASM;
+	if (typeof wasmSource !== "string") {
+		throw new Error("wasm was not found in the global scope /ᐠ - ˕ -マ");
+	}
+	const wasm = Uint8Array.from(atob(wasmSource), (c) => c.charCodeAt(0));
+	delete (self as any).WASM;
+	setWasm(wasm);
+
+	new ExecutionContextWrapper(globalThis, init);
+}
+
+function createFrameId() {
+	return `${Array(8)
+		.fill(0)
+		.map(() => Math.floor(Math.random() * 36).toString(36))
+		.join("")}`;
+}
+
+class ExecutionContextWrapper {
+	client!: FolioClient;
+	cookieJar: CookieJar;
+	transport: RemoteTransport;
+	private handleServiceWorkerCookieMessage: (event: MessageEvent) => void;
+
+	constructor(
+		public global: typeof globalThis,
+		public init: Init
+	) {
+		const channel = new MessageChannel();
+		this.transport = new RemoteTransport(channel.port1);
+		sw?.postMessage(
+			{
+				$sw$initRemoteTransport: {
+					port: channel.port2,
+					prefix: this.init.prefix.href,
+				},
+			},
+			[channel.port2]
+		);
+
+		this.cookieJar = new CookieJar();
+		this.cookieJar.load(this.init.cookies);
+
+		this.handleServiceWorkerCookieMessage = (event: MessageEvent) => {
+			if (
+				!event.data?.$controller$setCookie ||
+				typeof event.data.$controller$setCookie !== "object"
+			) {
+				return;
+			}
+
+			const payload = event.data.$controller$setCookie as {
+				cookies?: SerializedCookieSyncEntry[];
+				options?: CookieSyncOptions;
+				id?: string;
+			};
+
+			if (payload.options?.clear) {
+				this.cookieJar.clear();
+			}
+
+			if (Array.isArray(payload.cookies)) {
+				for (const cookie of payload.cookies) {
+					if (
+						typeof cookie?.url !== "string" ||
+						typeof cookie.cookie !== "string"
+					) {
+						continue;
+					}
+
+					try {
+						this.cookieJar.setCookies(cookie.cookie, new URL(cookie.url));
+					} catch {
+						console.error("failed to set cookie... /ᐠ - ˕ -マ", cookie);
+					}
+				}
+			}
+
+			if (typeof payload.id === "string") {
+				const targetSw = serviceWorkerContainer?.controller ?? sw;
+				targetSw?.postMessage({
+					$sw$setCookieDone: {
+						id: payload.id,
+					},
+				});
+			}
+		};
+
+		serviceWorkerContainer?.addEventListener(
+			"message",
+			this.handleServiceWorkerCookieMessage
+		);
+
+		this.injectFolio();
+	}
+
+	injectFolio() {
+		const frame = this.global.frameElement as HTMLIFrameElement | null;
+		if (frame && !frame.name) {
+			window.name = frame.name = createFrameId();
+		}
+		let controllerFrame = frame?.[CONTROLLERFRAME];
+		let isTopLevel = true;
+		if (!controllerFrame) {
+			isTopLevel = false;
+			let currentwin = this.global.window;
+			while (currentwin.parent !== currentwin) {
+				const currentclient = (
+					currentwin as unknown as { [FOLIOCLIENT]?: FolioClient }
+				)[FOLIOCLIENT];
+				if (!currentclient) {
+					currentwin = currentwin.parent.window;
+					continue;
+				}
+				const currentFrame = currentclient.descriptors.get(
+					"window.frameElement",
+					currentwin
+				);
+				const frameHandle = (currentFrame as HTMLIFrameElement | null)?.[
+					CONTROLLERFRAME
+				];
+				if (frameHandle) {
+					controllerFrame = frameHandle;
+					break;
+				}
+				currentwin = currentwin.parent.window;
+			}
+		}
+		const context: FolioContext = {
+			config: this.init.flconfig,
+			prefix: this.init.prefix,
+			routePrefix: new URL(this.init.config.prefix, this.init.prefix),
+			cookieJar: this.cookieJar,
+			interface: {
+				getInjectScripts: this.init.yieldGetInjectScripts(
+					this.init.config,
+					this.init.flconfig,
+					this.init.prefix,
+					this.cookieJar,
+					this.init.codecEncode,
+					this.init.codecDecode
+				),
+				codecEncode: this.init.codecEncode,
+				codecDecode: this.init.codecDecode,
+			},
+		};
+		this.client = new FolioClient(this.global, {
+			context,
+			transport: this.transport,
+			sendSetCookie: async (cookies, options) => {
+				await this.transport.sendSetCookie(cookies, options);
+			},
+			shouldBlockMessageEvent: () => {
+				return false;
+			},
+			hookSubcontext: (frameself) => {
+				const context = new ExecutionContextWrapper(frameself, {
+					...this.init,
+					cookies: this.cookieJar.dump(),
+				});
+				return context.client;
+			},
+			initHeaders: this.init.initHeaders,
+			history: this.init.history,
+		});
+		const frameInitContext = {
+			window: this.global.window,
+			client: this.client,
+			isTopLevel,
+		};
+		if (controllerFrame)
+			Tap.dispatch(controllerFrame.hooks.init.pre, frameInitContext, {});
+		this.client.hook();
+		if (controllerFrame)
+			Tap.dispatch(controllerFrame.hooks.init.post, frameInitContext, {});
+	}
+}

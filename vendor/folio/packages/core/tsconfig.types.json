@@ -1,0 +1,18 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noEmitOnError": true,
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true
+	},
+	"include": ["src/index.ts", "src/global.ts", "src/typesEntry.ts"],
+	"exclude": [
+		"**/*.test.ts",
+		"node_modules",
+		"src/worker/**",
+		"src/client/entry.ts",
+		"src/client/dom/**",
+		"src/client/shared/**",
+		"src/shared/rewriters/**"
+	]
+}

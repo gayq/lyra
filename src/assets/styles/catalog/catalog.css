@@ -1,0 +1,349 @@
+.games-page,
+.anime-page {
+  display: none;
+  flex-direction: column;
+  gap: 18px;
+  padding: clamp(28px, 4vw, 36px) clamp(14px, 4vw, 44px) 60px;
+  box-sizing: border-box;
+  width: min(100%, calc(100vw - 32px));
+  max-width: 1280px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.games-page.is-visible,
+.anime-page.is-visible {
+  display: flex;
+}
+
+body.games-view,
+body.anime-view {
+  background-color: var(--bg-body);
+}
+
+body.games-view .meow,
+body.anime-view .meow {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+body.games-view .main-container,
+body.games-view #bookmarks-container,
+body.games-view #arrow-pointer,
+body.anime-view .main-container,
+body.anime-view #bookmarks-container,
+body.anime-view #arrow-pointer {
+  display: none !important;
+}
+
+.games-topbar,
+.anime-topbar {
+  position: sticky;
+  top: 51px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  z-index: 1004;
+  display: none;
+  padding: 12px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+body.games-view .games-topbar,
+body.anime-view .anime-topbar {
+  display: flex;
+}
+
+.catalog-search-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  pointer-events: auto;
+  justify-content: center;
+  margin-top: -53px;
+  width: 100%;
+  min-width: 0;
+  transition: opacity 0.1s ease, max-width 0.1s ease;
+  max-width: 520px;
+  contain: layout style;
+}
+
+.catalog-search-bar.is-sticky {
+  max-width: 380px;
+}
+
+.catalog-search-bar input[type="text"] {
+  width: calc(100% - 90px);
+  min-width: 0;
+  padding: 18px;
+  border-radius: 25px;
+  background-color: transparent;
+  border: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  position: relative;
+  z-index: 3;
+}
+
+.catalog-search-bar input[type="text"]::placeholder,
+.catalog-search-bar input[type="text"]::-moz-placeholder {
+  font-weight: 300;
+  color: var(--input-placeholder-search);
+  opacity: 1;
+}
+
+.games-search-icon,
+.anime-search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--game-search-icon);
+  font-size: 18px;
+  z-index: 4;
+}
+
+.games-search-bar:focus-within .games-search-icon,
+.anime-search-bar:focus-within .anime-search-icon {
+  color: var(--game-search-icon-focus);
+}
+
+body.games-view #left-icons,
+body.games-view #right-top-icons,
+body.anime-view #left-icons,
+body.anime-view #right-top-icons {
+  top: 25px;
+}
+
+body.games-view .games-page,
+body.anime-view .anime-page {
+  padding-top: 130px;
+}
+
+.game-grid-container,
+.anime-grid-container {
+  padding: 18px;
+  contain: layout style;
+}
+
+.game-card,
+.anime-card {
+  border-radius: 10px;
+  background-color: var(--game-card-bg);
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  display: block;
+  transition: transform 0.1s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  contain: layout style paint;
+  content-visibility: auto;
+  backface-visibility: hidden;
+}
+
+.catalog-virtual-spacer {
+  grid-column: 1 / -1;
+  min-width: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.game-card::before,
+.anime-card::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.4) 55%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.game-card::after,
+.anime-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--game-card-overlay);
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.game-card:hover::after,
+.anime-card:hover::after {
+  opacity: 1;
+}
+
+.game-card:focus-visible,
+.anime-card:focus-visible {
+  outline: 2px solid var(--accent-color, #fff);
+  outline-offset: 3px;
+}
+
+.game-cover,
+.poster-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.game-cover img,
+.poster-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  filter: brightness(var(--game-cover-brightness));
+  transition:
+    opacity 0.1s ease,
+    filter 0.1s ease,
+    transform 0.1s ease;
+}
+
+.game-cover.loaded img,
+.poster-cover.loaded img {
+  opacity: 1;
+}
+
+.game-card:hover .game-cover img,
+.anime-card:hover .poster-cover img {
+  filter: brightness(1);
+  transform: scale(1.05);
+}
+
+.game-info h1,
+.anime-info h1 {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 300;
+  color: var(--game-info-text);
+  line-height: 1.4;
+  text-align: left;
+}
+
+.game-cover.skeleton,
+.poster-cover.skeleton {
+  overflow: hidden;
+  background: var(--skeleton-alt-from);
+}
+
+.game-cover.skeleton::after,
+.poster-cover.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-alt-from) 0%,
+    var(--skeleton-alt-via) 50%,
+    var(--skeleton-alt-to) 100%
+  );
+  transform: translate3d(100%, 0, 0);
+  animation: skeleton-transform 1s infinite linear;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.game-card.skeleton-card,
+.anime-card.skeleton-card {
+  cursor: default;
+}
+
+.game-card.skeleton-card .game-cover,
+.anime-card.skeleton-card .poster-cover {
+  background-color: var(--bg-surface-3);
+}
+
+.game-card.skeleton-card:hover,
+.anime-card.skeleton-card:hover {
+  transform: none;
+}
+
+.game-card.skeleton-card:hover .game-cover img,
+.anime-card.skeleton-card:hover .poster-cover img {
+  transform: none;
+}
+
+.game-cover.no-cover,
+.poster-cover.no-cover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-cover.no-cover img,
+.poster-cover.no-cover img {
+  display: none;
+}
+
+.game-cover.no-cover::before,
+.poster-cover.no-cover::before {
+  content: none;
+}
+
+.no-cover-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--game-no-cover-line);
+  pointer-events: none;
+  line-height: 0;
+}
+
+.no-cover-icon svg {
+  display: block;
+}
+
+.no-results {
+  color: var(--color-result);
+  text-align: center;
+  margin: 18px 0 6px;
+}
+
+@media (max-width: 700px) {
+  .games-page,
+  .anime-page {
+    padding-bottom: 44px;
+  }
+
+  body.games-view .games-page,
+  body.anime-view .anime-page {
+    padding-top: 118px;
+  }
+
+  .game-grid-container,
+  .anime-grid-container {
+    padding: 10px 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .catalog-search-bar {
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .catalog-search-bar input[type="text"] {
+    text-overflow: ellipsis;
+  }
+}

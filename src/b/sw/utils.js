@@ -1,33 +1,23 @@
 async function coalescedFetch(key, fetchFn) {
   const existing = _inflight.get(key);
-  if (existing) return existing;
-  const p = fetchFn().finally(() => _inflight.delete(key));
-  _inflight.set(key, p);
-  return p;
+  if (existing) {
+    return existing.then((value) => {
+      try {
+        return value instanceof Response ? value.clone() : value;
+      } catch (e) {
+        return value;
+      }
+    });
+  }
+  const request = fetchFn().finally(() => _inflight.delete(key));
+  _inflight.set(key, request);
+  return request;
 }
 
-function estimateBandwidth(bytes, timeMs) {
-  if (timeMs <= 0) return DEFAULT_CHUNK;
-  const bps = (bytes * 8) / (timeMs / 1000);
-  _bandwidthHistory.push(bps);
-  if (_bandwidthHistory.length > BANDWIDTH_SIZE) {
-    _bandwidthHistory.shift();
-  }
-  return getAdaptiveChunkSize();
-}
-
-function getAdaptiveChunkSize() {
-  if (_bandwidthHistory.length === 0) return DEFAULT_CHUNK;
-  let total = 0;
-  for (let i = 0; i < _bandwidthHistory.length; i++) {
-    total += _bandwidthHistory[i];
-  }
-  const avgBps = total / _bandwidthHistory.length;
-  const targetTimeMs = 2000;
-  return Math.min(
-    MAX_CHUNK,
-    Math.max(MIN_CHUNK, Math.floor((avgBps * targetTimeMs) / 8)),
-  );
+function mochiCoalesceKey(request, target) {
+  const range = request.headers.get("Range") || "";
+  const accept = request.headers.get("Accept") || "";
+  return `${request.method}\n${target}\n${range}\n${accept}`;
 }
 
 function preconnectToOrigin(origin) {
@@ -40,7 +30,7 @@ function preconnectToOrigin(origin) {
   self.clients
     .matchAll({ type: "window" })
     .then((clients) => {
-      const payload = { type: "waves-preconnect", origin };
+      const payload = { type: "lyra-preconnect", origin };
       for (const client of clients) {
         try {
           client.postMessage(payload);
@@ -52,6 +42,10 @@ function preconnectToOrigin(origin) {
 
 async function capCache(cacheName, maxEntries) {
   if (_trimmingCaches.has(cacheName)) return;
+  const now = Date.now();
+  const lastTrim = _lastCacheTrim.get(cacheName) || 0;
+  if (now - lastTrim < CACHE_TRIM_INTERVAL_MS) return;
+  _lastCacheTrim.set(cacheName, now);
   _trimmingCaches.add(cacheName);
   try {
     const cache = await caches.open(cacheName);
@@ -67,10 +61,26 @@ async function capCache(cacheName, maxEntries) {
   }
 }
 
+function shouldRevalidateRuntime(request) {
+  const key = request.url;
+  const now = Date.now();
+  const last = _runtimeRevalidateTimes.get(key) || 0;
+  if (now - last < RUNTIME_REVALIDATE_MS) return false;
+  _runtimeRevalidateTimes.set(key, now);
+  if (_runtimeRevalidateTimes.size > MAX_RUNTIME * 2) {
+    const oldest = _runtimeRevalidateTimes.keys().next().value;
+    _runtimeRevalidateTimes.delete(oldest);
+  }
+  return true;
+}
+
 async function tryWithTimeout(promise, ms) {
   let timer;
   const timeoutP = new Promise((_, rej) => {
-    timer = setTimeout(() => rej(new Error("waves-timeout")), ms);
+    timer = setTimeout(
+      () => rej(new Error(swNegativeMessage("request timed out"))),
+      ms,
+    );
   });
   try {
     const out = await Promise.race([promise, timeoutP]);
@@ -82,20 +92,36 @@ async function tryWithTimeout(promise, ms) {
   }
 }
 
+async function fetchWithTimeout(input, init, ms) {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: abort.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function responseFitsCache(response) {
+  const raw = response.headers.get("content-length");
+  if (raw === null) return false;
+  const bytes = Number.parseInt(raw, 10);
+  return Number.isFinite(bytes) && bytes >= 0 && bytes < LARGE_SIZE_THRESHOLD;
+}
+
 function timeoutFallbackResponse(request, url) {
   const dest = request.destination;
   const path = (url.pathname || "").toLowerCase();
   const isScript =
     dest === "script" || path.endsWith(".js") || path.endsWith(".mjs");
   if (isScript) {
-    return new Response("/* upstream timeout! */", {
+    return new Response(`/* ${swNegativeMessage("upstream timeout")} */`, {
       status: 200,
       headers: { "Content-Type": "application/javascript; charset=utf-8" },
     });
   }
-  return new Response("gateway timeout", {
+  return new Response(swNegativeMessage("gateway timeout"), {
     status: 504,
-    statusText: "gateway timeout",
   });
 }
 
@@ -129,19 +155,6 @@ function isRangeRequest(request) {
   try {
     const rangeHeader = request.headers.get("Range");
     return !!rangeHeader && rangeHeader.startsWith("bytes=");
-  } catch (e) {
-    return false;
-  }
-}
-
-function faviconLike(candidate) {
-  if (!candidate) return false;
-  try {
-    const parsed =
-      typeof candidate === "string"
-        ? new URL(candidate, self.location.origin)
-        : candidate;
-    return /favicon(\.(ico|png|svg))?$/i.test(parsed.pathname || "");
   } catch (e) {
     return false;
   }

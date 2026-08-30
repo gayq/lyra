@@ -1,0 +1,62 @@
+import { rewriteJs } from "@rewriters/js";
+import { FolioClient, ProxyCtx, Proxy } from "@client/index";
+import { shouldBypassFingerprintPatches } from "@client/compat";
+
+function rewriteFunction<T extends string, U extends "construct" | "apply">(
+	ctx: ProxyCtx<T, U>,
+	client: FolioClient
+) {
+	const stringifiedFunction = ctx.call().toString();
+
+	// TODO: also check if the function comes from a weird realm. if so we need to completely block it or do something else weird
+	// not much point rewriting the javascript if it's executing in the top level
+
+	const content = rewriteJs(
+		`return ${stringifiedFunction}`,
+		"(function proxy)",
+		client.context,
+		client.meta
+	);
+	ctx.return(ctx.fn(content)());
+}
+
+export default function (client: FolioClient, _self: Self) {
+	if (shouldBypassFingerprintPatches(client)) return;
+
+	const handler: Proxy = {
+		apply(ctx: ProxyCtx) {
+			rewriteFunction(ctx, client);
+		},
+		construct(ctx) {
+			rewriteFunction(ctx, client);
+		},
+	};
+
+	client.Proxy("Function", handler);
+
+	const RawFunction = client.natives.call(
+		"eval",
+		null,
+		"(function () {})"
+	).constructor;
+	const RawAsyncFunction = client.natives.call(
+		"eval",
+		null,
+		"(async function () {})"
+	).constructor;
+	const RawGeneratorFunction = client.natives.call(
+		"eval",
+		null,
+		"(function* () {})"
+	).constructor;
+	const RawAsyncGeneratorFunction = client.natives.call(
+		"eval",
+		null,
+		"(async function* () {})"
+	).constructor;
+
+	client.RawProxy(RawFunction.prototype, "constructor", handler);
+	client.RawProxy(RawAsyncFunction.prototype, "constructor", handler);
+	client.RawProxy(RawGeneratorFunction.prototype, "constructor", handler);
+	client.RawProxy(RawAsyncGeneratorFunction.prototype, "constructor", handler);
+}

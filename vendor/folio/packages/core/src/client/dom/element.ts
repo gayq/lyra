@@ -1,0 +1,779 @@
+import { htmlRules } from "@/shared/htmlRules";
+import {
+	String,
+	TextEncoder_encode,
+	Object_keys,
+	Object_defineProperty,
+	atob,
+} from "@/shared/snapshot";
+import { bytesToBase64 } from "@/shared/util";
+import { rewriteCss, unrewriteCss } from "@rewriters/css";
+import { rewriteHtml, unrewriteHtml } from "@rewriters/html";
+import { rewriteJs } from "@rewriters/js";
+import { unrewriteUrl } from "@rewriters/url";
+import { FOLIOCLIENT } from "@/symbols";
+import { FolioClient } from "@client/index";
+import {
+	getScriptBlockTypeString,
+	isHtmlMimeType,
+	isModuleScriptType,
+	isScriptType,
+} from "@/shared/mime";
+import { ForeignContext } from "@/shared/rewriters/html";
+
+export function foreignContextForElement(
+	client: FolioClient,
+	element: Element
+): ForeignContext {
+	if (client.box.instanceof(element, "SVGElement")) return "svg";
+	if (client.box.instanceof(element, "MathMLElement")) return "math";
+	return "html";
+}
+
+// NOTE: NOT INCLUSIVE OF THE CURRENT ELEMENT
+export function insideForeignContext(
+	client: FolioClient,
+	element: Element | null
+): ForeignContext {
+	let current: Element | null = element.parentElement;
+
+	while (current) {
+		const context = foreignContextForElement(client, current);
+		if (context !== "html") return context;
+		// EXPLICITLY an html context, don't go up further
+		if (client.box.instanceof(current, "SVGForeignObjectElement"))
+			return "html";
+		current = current.parentElement;
+	}
+
+	return "html";
+}
+
+function scriptBlockTypeForElement(
+	client: FolioClient,
+	element: Element
+): string {
+	const hasType = client.natives.call(
+		"Element.prototype.hasAttribute",
+		element,
+		"type"
+	) as boolean;
+	const hasLanguage = client.natives.call(
+		"Element.prototype.hasAttribute",
+		element,
+		"language"
+	) as boolean;
+	const type = hasType
+		? (client.natives.call(
+				"Element.prototype.getAttribute",
+				element,
+				"type"
+			) as string | null)
+		: null;
+	const language = hasLanguage
+		? (client.natives.call(
+				"Element.prototype.getAttribute",
+				element,
+				"language"
+			) as string | null)
+		: null;
+	return getScriptBlockTypeString(type, language, hasType, hasLanguage);
+}
+
+// TODO: this is pretty bad. really this whole file sucks
+function collectAttributeMap(
+	client: FolioClient,
+	element: Element,
+	overrideName: string,
+	overrideValue: unknown
+) {
+	const attrs: Record<string, string | undefined> = {};
+	const attrNames =
+		client.natives.call("Element.prototype.getAttributeNames", element) ?? [];
+
+	for (const attrName of attrNames) {
+		if (String(attrName).startsWith("folio-attr")) continue;
+		const value = client.natives.call(
+			"Element.prototype.getAttribute",
+			element,
+			attrName
+		);
+		attrs[String(attrName).toLowerCase()] =
+			typeof value === "string" ? value : undefined;
+	}
+
+	attrs[String(overrideName).toLowerCase()] = String(overrideValue);
+	return attrs;
+}
+
+export default function (client: FolioClient, self: typeof window) {
+	const attrObject = {
+		nonce: [self.HTMLElement],
+		integrity: [self.HTMLScriptElement, self.HTMLLinkElement],
+		csp: [self.HTMLIFrameElement],
+		credentialless: [self.HTMLIFrameElement],
+		src: [
+			self.HTMLImageElement,
+			self.HTMLMediaElement,
+			self.HTMLIFrameElement,
+			self.HTMLFrameElement,
+			self.HTMLEmbedElement,
+			self.HTMLScriptElement,
+			self.HTMLSourceElement,
+		],
+		href: [self.HTMLAnchorElement, self.HTMLLinkElement],
+		data: [self.HTMLObjectElement],
+		action: [self.HTMLFormElement],
+		formaction: [self.HTMLButtonElement, self.HTMLInputElement],
+		srcdoc: [self.HTMLIFrameElement],
+		poster: [self.HTMLVideoElement],
+		imagesrcset: [self.HTMLLinkElement],
+	};
+
+	const urlinterfaces = [
+		self.HTMLAnchorElement.prototype,
+		self.HTMLAreaElement.prototype,
+	];
+	const originalhrefs = [
+		client.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			self.HTMLAnchorElement.prototype,
+			"href"
+		),
+		client.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			self.HTMLAreaElement.prototype,
+			"href"
+		),
+	];
+
+	const attrs = Object_keys(attrObject);
+
+	for (const attr of attrs) {
+		for (const element of attrObject[attr]) {
+			const descriptor = client.natives.call(
+				"Object.getOwnPropertyDescriptor",
+				null,
+				element.prototype,
+				attr
+			);
+			Object_defineProperty(element.prototype, attr, {
+				get() {
+					if (["src", "data", "href", "action", "formaction"].includes(attr)) {
+						return unrewriteUrl(descriptor.get.call(this), client.context);
+					}
+
+					return descriptor.get.call(this);
+				},
+
+				set(value) {
+					// if (
+					// 	this.tagName === "IFRAME" &&
+					// 	attr === "src" &&
+					// 	value === "about:blank"
+					// ) {
+					// 	this.setAttribute("srcdoc", "");
+					// 	return;
+					// }
+					return this.setAttribute(attr, value);
+				},
+			});
+		}
+	}
+
+	// note that href is not here
+	const urlprops = [
+		"protocol",
+		"hash",
+		"host",
+		"hostname",
+		"origin",
+		"pathname",
+		"port",
+		"search",
+	];
+	for (const prop of urlprops) {
+		for (const i in urlinterfaces) {
+			const target = urlinterfaces[i];
+			const desc = originalhrefs[i];
+			client.RawTrap(target, prop, {
+				get(ctx) {
+					const href = desc.get.call(ctx.this);
+					if (!href) return href;
+
+					const url = new URL(unrewriteUrl(href, client.context));
+
+					return url[prop];
+				},
+			});
+		}
+	}
+
+	client.Trap("Node.prototype.baseURI", {
+		get(ctx) {
+			const node = ctx.this as Node;
+			const doc = client.box.instanceof(node, "Document")
+				? (node as Document)
+				: node.ownerDocument;
+			const base = doc?.querySelector("base[href]") as HTMLBaseElement | null;
+
+			if (base) {
+				const href = base.getAttribute("href") || base.href;
+				if (href) return new URL(href, client.url.href).href;
+			}
+
+			return client.url.href;
+		},
+		set() {
+			return false;
+		},
+	});
+
+	client.Proxy("Element.prototype.getAttribute", {
+		apply(ctx) {
+			const [name] = ctx.args;
+
+			if (name.startsWith("folio-attr")) {
+				return ctx.return(null);
+			}
+
+			if (
+				client.natives.call(
+					"Element.prototype.hasAttribute",
+					ctx.this,
+					`folio-attr-${name}`
+				)
+			) {
+				const attrib = ctx.fn.call(ctx.this, `folio-attr-${name}`);
+				if (attrib === null) return ctx.return("");
+
+				return ctx.return(attrib);
+			}
+		},
+	});
+
+	client.Proxy("Element.prototype.getAttributeNames", {
+		apply(ctx) {
+			const attrNames = ctx.call() as string[];
+			const cleaned = attrNames.filter(
+				(attr) => !attr.startsWith("folio-attr")
+			);
+
+			ctx.return(cleaned);
+		},
+	});
+
+	client.Proxy("Element.prototype.getAttributeNode", {
+		apply(ctx) {
+			if (String(ctx.args[0]).startsWith("folio-attr"))
+				return ctx.return(null);
+		},
+	});
+
+	client.Proxy("Element.prototype.hasAttribute", {
+		apply(ctx) {
+			if (String(ctx.args[0]).startsWith("folio-attr"))
+				return ctx.return(false);
+		},
+	});
+
+	client.Proxy("Element.prototype.setAttribute", {
+		apply(ctx) {
+			let [name, value] = ctx.args;
+			const tagName = ctx.this.tagName.toLowerCase();
+
+			if (value != null) value = String(value);
+			ctx.args[1] = value;
+
+			const ruleList = htmlRules.find((rule) => {
+				const r = rule[name.toLowerCase()];
+				if (!r) return false;
+				if (r === "*") return true;
+				if (typeof r === "function") return false; // this can't happen but ts
+
+				return r.includes(tagName);
+			});
+
+			if (ruleList) {
+				const ret = ruleList.fn(
+					value,
+					client.context,
+					client.meta,
+					collectAttributeMap(client, ctx.this, name, value)
+				);
+				if (ret == null) {
+					client.natives.call(
+						"Element.prototype.removeAttribute",
+						ctx.this,
+						name
+					);
+					ctx.fn.call(ctx.this, `folio-attr-${name}`, value);
+					ctx.return(undefined);
+
+					return;
+				}
+				ctx.args[1] = ret;
+				ctx.fn.call(ctx.this, `folio-attr-${ctx.args[0]}`, value);
+			}
+		},
+	});
+
+	// i actually need to do something with this
+	client.Proxy("Element.prototype.setAttributeNode", {
+		apply(_ctx) {},
+	});
+
+	client.Proxy("Element.prototype.setAttributeNS", {
+		apply(ctx) {
+			// TODO: this could leak by like calling stringify twice or some dumb shit lol
+			const name = String(ctx.args[1]);
+			const value = String(ctx.args[2]);
+
+			const ruleList = htmlRules.find((rule) => {
+				const r = rule[String(name).toLowerCase()];
+				if (!r) return false;
+				if (r === "*") return true;
+				if (typeof r === "function") return false; // this can't happen but ts
+
+				return r.includes(ctx.this.tagName.toLowerCase());
+			});
+
+			if (ruleList) {
+				ctx.args[2] = ruleList.fn(
+					value,
+					client.context,
+					client.meta,
+					collectAttributeMap(client, ctx.this, name, value)
+				);
+				client.natives.call(
+					"Element.prototype.setAttribute",
+					ctx.this,
+					`folio-attr-${ctx.args[1]}`,
+					value
+				);
+			}
+		},
+	});
+
+	// this is separate from the regular href handlers because it returns an SVGAnimatedString
+	client.Trap("SVGAnimatedString.prototype.baseVal", {
+		get(ctx) {
+			const href = ctx.get() as string;
+			if (!href) return href;
+
+			return unrewriteUrl(href, client.context);
+		},
+		set(ctx, val: string) {
+			ctx.set(client.rewriteUrl(val));
+		},
+	});
+	client.Trap("SVGAnimatedString.prototype.animVal", {
+		get(ctx) {
+			const href = ctx.get() as string;
+			if (!href) return href;
+
+			return unrewriteUrl(href, client.context);
+		},
+		// it has no setter
+	});
+
+	client.Proxy("Element.prototype.removeAttribute", {
+		apply(ctx) {
+			const name = String(ctx.args[0]);
+			if (name.startsWith("folio-attr")) return ctx.return(undefined);
+			if (
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, name)
+			) {
+				ctx.fn.call(ctx.this, `folio-attr-${ctx.args[0]}`);
+			}
+		},
+	});
+
+	client.Proxy("Element.prototype.toggleAttribute", {
+		apply(ctx) {
+			const name = String(ctx.args[0]);
+			if (name.startsWith("folio-attr")) return ctx.return(false);
+			if (
+				client.natives.call("Element.prototype.hasAttribute", ctx.this, name)
+			) {
+				ctx.fn.call(ctx.this, `folio-attr-${ctx.args[0]}`);
+			}
+		},
+	});
+
+	client.Trap("Element.prototype.innerHTML", {
+		set(ctx, value: string) {
+			// null specifically becomes "" and not "null". undefined does not
+			if (value === null) return;
+			const html = String(value);
+			let newval;
+			const scriptBlockType = client.box.instanceof(
+				ctx.this,
+				"HTMLScriptElement"
+			)
+				? scriptBlockTypeForElement(client, ctx.this)
+				: null;
+			if (
+				client.box.instanceof(ctx.this, "HTMLScriptElement") &&
+				isScriptType(scriptBlockType)
+			) {
+				newval = rewriteJs(
+					html,
+					"(anonymous script element)",
+					client.context,
+					client.meta,
+					isModuleScriptType(scriptBlockType)
+				);
+				client.natives.call(
+					"Element.prototype.setAttribute",
+					ctx.this,
+					"folio-attr-script-source-src",
+					bytesToBase64(TextEncoder_encode(newval))
+				);
+			} else if (client.box.instanceof(ctx.this, "HTMLStyleElement")) {
+				newval = rewriteCss(html, client.context, client.meta);
+			} else {
+				try {
+					newval = rewriteHtml(html, client.context, client.meta, {
+						loadScripts: false,
+						inline: true,
+						source: client.url.href,
+						apisource: "set Element.prototype.innerHTML",
+						foreignContext: foreignContextForElement(client, ctx.this),
+					});
+				} catch {
+					newval = html;
+				}
+			}
+
+			ctx.set(newval);
+		},
+		get(ctx) {
+			if (client.box.instanceof(ctx.this, "HTMLScriptElement")) {
+				const scriptSource = client.natives.call(
+					"Element.prototype.getAttribute",
+					ctx.this,
+					"folio-attr-script-source-src"
+				);
+
+				if (scriptSource) {
+					return atob(scriptSource);
+				}
+
+				return ctx.get();
+			}
+			if (client.box.instanceof(ctx.this, "HTMLStyleElement")) {
+				return ctx.get();
+			}
+
+			return unrewriteHtml(
+				ctx.get(),
+				foreignContextForElement(client, ctx.this)
+			);
+		},
+	});
+
+	const rewriteTextForElement = (element: Element, value: string) => {
+		const scriptBlockType = client.box.instanceof(element, "HTMLScriptElement")
+			? scriptBlockTypeForElement(client, element)
+			: null;
+
+		if (
+			client.box.instanceof(element, "HTMLScriptElement") &&
+			isScriptType(scriptBlockType)
+		) {
+			const newval: string = rewriteJs(
+				value,
+				"(anonymous script element)",
+				client.context,
+				client.meta,
+				isModuleScriptType(scriptBlockType)
+			) as string;
+			client.natives.call(
+				"Element.prototype.setAttribute",
+				element,
+				"folio-attr-script-source-src",
+				bytesToBase64(TextEncoder_encode(value))
+			);
+
+			return newval;
+		} else if (client.box.instanceof(element, "HTMLStyleElement")) {
+			return rewriteCss(value, client.context, client.meta);
+		} else {
+			return value;
+		}
+	};
+	const getTextForElement = (element: Element, text: string) => {
+		if (client.box.instanceof(element, "HTMLScriptElement")) {
+			const scriptSource = client.natives.call(
+				"Element.prototype.getAttribute",
+				element,
+				"folio-attr-script-source-src"
+			);
+			if (scriptSource) return atob(scriptSource);
+			return text;
+		}
+		if (client.box.instanceof(element, "HTMLStyleElement")) {
+			return unrewriteCss(text, client.context);
+		}
+		return text;
+	};
+
+	client.Trap(
+		["Node.prototype.textContent", "HTMLScriptElement.prototype.textContent"],
+		{
+			set(ctx, value) {
+				const text = String(value);
+				return ctx.set(rewriteTextForElement(ctx.this, text));
+			},
+			get(ctx) {
+				return getTextForElement(ctx.this, ctx.get());
+			},
+		}
+	);
+	client.Trap(["HTMLElement.prototype.innerText", "HTMLScriptElement.prototype.innerText"], {
+		set(ctx, value: string) {
+			const text = String(value);
+			return ctx.set(rewriteTextForElement(ctx.this, text));
+		},
+		get(ctx) {
+			return getTextForElement(ctx.this, ctx.get());
+		},
+	});
+
+	client.Trap("Element.prototype.outerHTML", {
+		set(ctx, value: string) {
+			const html = String(value);
+			ctx.set(
+				rewriteHtml(html, client.context, client.meta, {
+					loadScripts: false,
+					inline: true,
+					source: client.url.href,
+					apisource: "set Element.prototype.outerHTML",
+					foreignContext: insideForeignContext(client, ctx.this),
+				})
+			);
+		},
+		get(ctx) {
+			return unrewriteHtml(ctx.get(), insideForeignContext(client, ctx.this));
+		},
+	});
+
+	client.Proxy("Element.prototype.setHTMLUnsafe", {
+		apply(ctx) {
+			const html = String(ctx.args[0]);
+			ctx.args[0] = rewriteHtml(html, client.context, client.meta, {
+				loadScripts: false,
+				inline: true,
+				source: client.url.href,
+				apisource: "set Element.prototype.setHTMLUnsafe",
+				foreignContext: foreignContextForElement(client, ctx.this),
+			});
+		},
+	});
+
+	client.Proxy("Element.prototype.getHTML", {
+		apply(ctx) {
+			ctx.return(unrewriteHtml(ctx.call()));
+		},
+	});
+
+	client.Proxy("Element.prototype.insertAdjacentHTML", {
+		apply(ctx) {
+			const html = String(ctx.args[1]);
+			ctx.args[1] = rewriteHtml(html, client.context, client.meta, {
+				loadScripts: false,
+				inline: true,
+				source: client.url.href,
+				apisource: "set Element.prototype.insertAdjacentHTML",
+				foreignContext: foreignContextForElement(client, ctx.this),
+			});
+		},
+	});
+
+	// TODO: this needs to be done for all insert methods
+	// client.Proxy(["Element.prototype.appendChild", "Element.prototype.append"], {
+	// 	apply(ctx) {
+	// 		if (ctx.this instanceof self.HTMLStyleElement) {
+	// 			for (const node of ctx.args) {
+	// 				if (node instanceof self.Text) {
+	// 					node.data = rewriteCss(
+	// 						ctx.args[0].data,
+	// 						client.context,
+	// 						client.meta
+	// 					);
+	// 				}
+	// 			}
+	// 		} else if (ctx.this instanceof self.HTMLScriptElement) {
+	// 			for (const node of ctx.args) {
+	// 				if (node instanceof self.Text) {
+	// 					const newval: string = rewriteJs(
+	// 						node.data,
+	// 						"(anonymous script element)",
+	// 						client.context,
+	// 						client.meta
+	// 					) as string;
+	// 					client.natives.call(
+	// 						"Element.prototype.setAttribute",
+	// 						ctx.this,
+	// 						"folio-attr-script-source-src",
+	// 						bytesToBase64(encoder.encode(newval))
+	// 					);
+	// 					node.data = newval;
+	// 				}
+	// 			}
+	// 		}
+	// 	},
+	// });
+
+	client.Proxy("Audio", {
+		construct(ctx) {
+			if (ctx.args[0]) ctx.args[0] = client.rewriteUrl(ctx.args[0]);
+		},
+	});
+	client.Proxy("Text.prototype.appendData", {
+		apply(ctx) {
+			const text = String(ctx.args[0]);
+			const parent = client.descriptors.get(
+				"Node.prototype.parentElement",
+				ctx.this
+			);
+			ctx.args[0] = rewriteTextForElement(parent, text);
+		},
+	});
+
+	client.Proxy("Text.prototype.insertData", {
+		apply(ctx) {
+			const text = String(ctx.args[1]);
+			const parent = client.descriptors.get(
+				"Node.prototype.parentElement",
+				ctx.this
+			);
+			ctx.args[1] = rewriteTextForElement(parent, text);
+		},
+	});
+
+	client.Proxy("Text.prototype.replaceData", {
+		apply(ctx) {
+			const text = String(ctx.args[2]);
+			const parent = client.descriptors.get(
+				"Node.prototype.parentElement",
+				ctx.this
+			);
+			ctx.args[2] = rewriteTextForElement(parent, text);
+		},
+	});
+
+	client.Trap("Text.prototype.wholeText", {
+		get(ctx) {
+			const parent = client.descriptors.get(
+				"Node.prototype.parentElement",
+				ctx.this
+			);
+			return getTextForElement(parent, ctx.get());
+		},
+		set(ctx, v) {
+			const text = String(v);
+			const parent = client.descriptors.get(
+				"Node.prototype.parentElement",
+				ctx.this
+			);
+			return ctx.set(rewriteTextForElement(parent, text));
+		},
+	});
+
+	client.Proxy("HTMLAnchorElement.prototype.toString", {
+		apply(ctx) {
+			const href = ctx.call();
+			if (!href) return href;
+			return ctx.return(unrewriteUrl(href, client.context));
+		}
+	});
+
+	client.Trap(
+		[
+			"HTMLIFrameElement.prototype.contentWindow",
+			"HTMLFrameElement.prototype.contentWindow",
+			"HTMLObjectElement.prototype.contentWindow",
+			"HTMLEmbedElement.prototype.contentWindow",
+		],
+		{
+			get(ctx) {
+				const realwin = ctx.get() as Window;
+				if (!realwin) return realwin;
+
+				try {
+					if (!(FOLIOCLIENT in realwin)) {
+						// hook the iframe before the client can start to steal globals out of it
+						client.init.hookSubcontext(realwin as Self, ctx.this);
+					}
+				} catch {
+					// cross-origin iframe, can't do anything here
+					return realwin;
+				}
+
+				return realwin;
+			},
+		}
+	);
+
+	client.Trap(
+		[
+			"HTMLIFrameElement.prototype.contentDocument",
+			"HTMLFrameElement.prototype.contentDocument",
+			"HTMLObjectElement.prototype.contentDocument",
+			"HTMLEmbedElement.prototype.contentDocument",
+		],
+		{
+			get(ctx) {
+				const realwin = client.descriptors.get(
+					`${ctx.this.constructor.name}.prototype.contentWindow`,
+					ctx.this
+				);
+				if (!realwin) return realwin;
+
+				if (!(FOLIOCLIENT in realwin)) {
+					client.init.hookSubcontext(realwin, ctx.this);
+				}
+
+				return realwin.document;
+			},
+		}
+	);
+
+	client.Proxy(
+		[
+			"HTMLIFrameElement.prototype.getSVGDocument",
+			"HTMLObjectElement.prototype.getSVGDocument",
+			"HTMLEmbedElement.prototype.getSVGDocument",
+		],
+		{
+			apply(ctx) {
+				const doc = ctx.call();
+				if (doc) {
+					// we trap the contentDocument, this is really the folio version
+					return ctx.return(
+						"contentDocument" in ctx.this ? ctx.this.contentDocument : doc
+					);
+				}
+			},
+		}
+	);
+
+	client.Proxy("DOMParser.prototype.parseFromString", {
+		apply(ctx) {
+			const html = String(ctx.args[0]);
+			const mime = String(ctx.args[1]);
+			// TODO: what do we do if it's xml/svg?
+			if (!isHtmlMimeType(mime)) return;
+			ctx.args[0] = rewriteHtml(html, client.context, client.meta, {
+				loadScripts: false,
+				inline: true,
+				source: client.url.href,
+				apisource: "DOMParser.prototype.parseFromString",
+			});
+		},
+	});
+}

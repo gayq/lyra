@@ -9,24 +9,21 @@ if (
 }
 
 const scope = self.registration.scope;
-const isScramjet = scope.endsWith("/b/s/r/");
-const isUltraviolet = scope.endsWith("/b/u/r/");
-const UV_PREFIX = "/b/u/r/";
+const isFolio = scope.endsWith("/b/fl/r/");
 const MOCHI_PREFIX = "/!!/";
-const CACHE_VERSION = "__BUILD_ID__";
-const SHELL_CACHE = "waves-shell-" + CACHE_VERSION;
-const RUNTIME_CACHE = "waves-runtime-" + CACHE_VERSION;
-const PREFETCH_CACHE = "waves-prefetch-nav-" + CACHE_VERSION;
-const LARGE_CACHE = "waves-large-files-" + CACHE_VERSION;
+const BUILD_FINGERPRINT = "__BUILD_ID__";
+const SHELL_CACHE = "lyra-shell-" + BUILD_FINGERPRINT;
+const RUNTIME_CACHE = "lyra-runtime-" + BUILD_FINGERPRINT;
+const PREFETCH_CACHE = "lyra-prefetch-nav-" + BUILD_FINGERPRINT;
+const LARGE_CACHE = "lyra-large-files-" + BUILD_FINGERPRINT;
 const MAX_PREFETCH_ENTRIES = 48;
 const MAX_LARGE_CACHE_ENTRIES = 20;
 const MAX_RUNTIME = 300;
 const MAX_MEM = 10;
-const MAX_PRELOADED = 5;
 const MAX_PRECONNECTED = 10;
 const PRECACHE = [
   "/",
-  "/assets/images/icons/favicon.ico",
+  "/assets/images/icons/favicon.svg",
   ..."__PRECACHE_ASSETS__",
 ];
 
@@ -54,13 +51,19 @@ const LARGE_EXTENSIONS = new Set([
 const LARGE_SIZE_THRESHOLD = 50 * 1024 * 1024;
 const LARGE_TIMEOUT_MS = 60000;
 const PREFETCH_VALIDITY = 30000;
-const BANDWIDTH_SIZE = 10;
-const DEFAULT_CHUNK = 2 * 1024 * 1024;
-const MIN_CHUNK = 512 * 1024;
-const MAX_CHUNK = 10 * 1024 * 1024;
 const MOCHI_TIMEOUT_MS = 15000;
 const PROXY_NAV_TIMEOUT_MS = 12000;
 const PROXY_SUBRESOURCE_TIMEOUT_MS = 8000;
-const MOCHI_SECONDARY_MS = 12000;
-const PREFETCH_HEADER = "x-waves-prefetch";
+const RUNTIME_REVALIDATE_MS = 5 * 60 * 1000;
+const CACHE_TRIM_INTERVAL_MS = 4000;
+const PREFETCH_HEADER = "x-lyra-prefetch";
 const MAX_HTML_INJECT_BYTES = 4_500_000;
+const NEGATIVE = "... /ᐠ - ˕ -マ";
+
+function swNegativeMessage(message) {
+  let base = String(message).trimEnd();
+  while (base.endsWith(NEGATIVE)) {
+    base = base.slice(0, -NEGATIVE.length).trimEnd();
+  }
+  return `${base.replace(/[.!]+$/u, "")}${NEGATIVE}`;
+}

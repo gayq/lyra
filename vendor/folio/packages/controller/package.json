@@ -1,0 +1,36 @@
+{
+	"name": "@mercuryworkshop/folio-controller",
+	"version": "0.0.14",
+	"type": "module",
+	"packageManager": "pnpm@10.12.1",
+	"license": "AGPL-3.0-only",
+	"main": "./dist/controller-external.mjs",
+	"module": "./dist/controller-external.mjs",
+	"types": "./dist/types/typesEntry.d.ts",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/MercuryWorkshop/folio.git",
+		"directory": "packages/controller"
+	},
+	"scripts": {
+		"build": "cd ../.. && rspack build --mode production --config-name folio-esmodule --config-name folio-controller",
+		"prepack": "pnpm build"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/types/typesEntry.d.ts",
+			"default": "./dist/controller-external.mjs"
+		}
+	},
+	"peerDependencies": {
+		"@mercuryworkshop/folio": "*"
+	},
+	"dependencies": {
+		"@fastify/deepmerge": "^3.2.1",
+		"@mercuryworkshop/proxy-transports": "catalog:"
+	},
+	"devDependencies": {
+		"@mercuryworkshop/folio": "workspace:*",
+		"@mercuryworkshop/rpc": "workspace:*"
+	}
+}

@@ -1,28 +1,31 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 if [ -z "${BASH_VERSION:-}" ]; then
   if command -v bash >/dev/null 2>&1; then
     exec bash "$0" "$@"
   fi
-  echo "bash is required!"
+  echo "bash is required... /ᐠ - ˕ -マ"
   exit 1
 fi
 
 set -euo pipefail
-trap 'echo "[setup] error at line $LINENO: $BASH_COMMAND" >&2' ERR
 
-AUTO_YES=0
-for arg in "$@"; do
-  case "$arg" in
-    -y|--yes|--non-interactive)
-      AUTO_YES=1
-      ;;
-  esac
-done
+NEGATIVE="... /ᐠ - ˕ -マ"
+POSITIVE="!! (˵◝ ⩊  ◜˵マ"
 
 log() {
-  echo "[setup] $*"
+  printf '[setup] %s\n' "$*"
 }
+
+fail() {
+  printf '[setup] %s%s\n' "$*" "$NEGATIVE" >&2
+}
+
+success() {
+  printf '[setup] %s%s\n' "$*" "$POSITIVE"
+}
+
+trap 'fail "setup failed at line $LINENO"' ERR
 
 retry() {
   local attempts="$1"
@@ -40,28 +43,28 @@ retry() {
 require_cmd() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    log "$cmd is required but was not found!"
+    fail "$cmd is required but was not found"
     exit 1
   fi
 }
 
 case "$(uname -s)" in
-  Linux) ;;
-  *)
-    log "this setup needs apt + systemd!"
-    log "detected os: $(uname -s)"
-    exit 1
-    ;;
+Linux) ;;
+*)
+  fail "this setup needs apt + systemd"
+  log "detected os: $(uname -s)"
+  exit 1
+  ;;
 esac
 
 if [ ! -f /etc/os-release ]; then
-  log "can't detect distro (/etc/os-release missing)!"
+  fail "can't detect distro (/etc/os-release missing)"
   exit 1
 fi
 
 . /etc/os-release
 if [ "${ID:-}" != "debian" ] && [ "${ID:-}" != "ubuntu" ] && [[ "${ID_LIKE:-}" != *debian* ]]; then
-  log "unsupported distro for this setup: ${PRETTY_NAME:-unknown}!"
+  fail "unsupported distro for this setup: ${PRETTY_NAME:-unknown}"
   exit 1
 fi
 
@@ -71,7 +74,7 @@ require_cmd systemctl
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   sudo() { "$@"; }
 elif ! command -v sudo >/dev/null 2>&1; then
-  log "sudo is required when not root!"
+  fail "sudo is required when not root"
   exit 1
 fi
 
@@ -80,116 +83,188 @@ cd "$ROOT"
 
 export DEBIAN_FRONTEND=noninteractive
 
+log "the setup process is about to start; support is available at discord.gg/dJvdkPRheV"
+success "setup started"
+
+stop_pm2() {
+  local candidate
+  local pm2_bin=""
+  local candidates=()
+
+  if command -v pm2 >/dev/null 2>&1; then
+    candidates+=("$(command -v pm2)")
+  fi
+  candidates+=("$HOME/.bun/bin/pm2" "$ROOT/node_modules/.bin/pm2")
+
+  for candidate in "${candidates[@]}"; do
+    if [ -x "$candidate" ]; then
+      pm2_bin="$candidate"
+      break
+    fi
+  done
+
+  if [ -n "$pm2_bin" ]; then
+    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" stop all >/dev/null 2>&1 || true
+    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" delete all >/dev/null 2>&1 || true
+    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" kill >/dev/null 2>&1 || true
+  fi
+}
+
+kill_service_processes() {
+  local name
+  local pattern
+  local signal
+  local used=0
+  local names=(tls-approval lyra nuru mochi cloudsync isao caddy eturnal coturn turnserver anubis)
+  local patterns=(
+    '[s]ervices/tls-approval/server\.js'
+    '[s]erver/prod\.mjs'
+    '[s]erver/dev\.mjs'
+    '[n]uru-route\.sh'
+  )
+
+  if ! command -v pkill >/dev/null 2>&1; then
+    return
+  fi
+
+  for signal in TERM KILL; do
+    for name in "${names[@]}"; do
+      sudo pkill -"$signal" -x "$name" 2>/dev/null || true
+    done
+    for pattern in "${patterns[@]}"; do
+      sudo pkill -"$signal" -f "$pattern" 2>/dev/null || true
+    done
+    if [ "$signal" = TERM ]; then
+      sleep 1
+    fi
+  done
+
+  for name in "${names[@]}"; do
+    if sudo pgrep -x "$name" >/dev/null 2>&1; then
+      fail "service process $name is still running"
+      used=1
+    fi
+  done
+  for pattern in "${patterns[@]}"; do
+    if sudo pgrep -f "$pattern" >/dev/null 2>&1; then
+      fail "a managed service process is still running"
+      used=1
+    fi
+  done
+
+  [ "$used" -eq 0 ]
+}
+
+release_service_ports() {
+  local port
+  local protocol
+  local used=0
+  local ports=(3001 4000 4001 4002 4003 4005 4444 6001 8923 3478 "${TURN_PORT:-3478}")
+
+  if ! command -v fuser >/dev/null 2>&1; then
+    return
+  fi
+
+  for port in "${ports[@]}"; do
+    for protocol in tcp udp; do
+      sudo fuser -k "$port/$protocol" >/dev/null 2>&1 || true
+    done
+  done
+
+  sleep 1
+  for port in "${ports[@]}"; do
+    if sudo fuser "$port/tcp" >/dev/null 2>&1 || sudo fuser "$port/udp" >/dev/null 2>&1; then
+      fail "service port $port is still in use"
+      used=1
+    fi
+  done
+
+  [ "$used" -eq 0 ]
+}
+
 log "stopping all running services..."
-if command -v pm2 >/dev/null 2>&1; then
-    pm2 stop ask 2>/dev/null || true
-    pm2 stop waves 2>/dev/null || true
-    pm2 stop mochi 2>/dev/null || true
-    pm2 stop cloudsync 2>/dev/null || true
-    pm2 stop nuru 2>/dev/null || true
-    pm2 delete ask 2>/dev/null || true
-    pm2 delete waves 2>/dev/null || true
-    pm2 delete mochi 2>/dev/null || true
-    pm2 delete cloudsync 2>/dev/null || true
-    pm2 delete nuru 2>/dev/null || true
-fi
-for svc in nuru nuru-route.timer nuru-route wg-quick@wg0 caddy anubis eturnal; do
-    sudo systemctl stop "$svc" 2>/dev/null || true
-    sudo systemctl disable "$svc" 2>/dev/null || true
+sudo systemctl stop "pm2-$USER.service" 2>/dev/null || true
+stop_pm2
+for svc in tls-approval lyra waves ask cloudsync isao mochi nuru nuru-route.timer nuru-route wg-quick@wg0 caddy anubis eturnal coturn; do
+  sudo systemctl stop "$svc" 2>/dev/null || true
+  sudo systemctl disable "$svc" 2>/dev/null || true
 done
 if command -v docker >/dev/null 2>&1; then
-    sudo docker stop anubis 2>/dev/null || true
-    sudo docker rm anubis 2>/dev/null || true
+  if sudo docker compose version >/dev/null 2>&1 && [ -f "$ROOT/services/turn/compose.yml" ]; then
+    sudo docker compose -f "$ROOT/services/turn/compose.yml" down --remove-orphans >/dev/null 2>&1 || true
+  fi
+  sudo docker stop anubis 2>/dev/null || true
+  sudo docker rm anubis 2>/dev/null || true
 fi
 if command -v wg-quick >/dev/null 2>&1; then
-    sudo wg-quick down wg0 2>/dev/null || true
+  sudo wg-quick down wg0 2>/dev/null || true
 fi
 if command -v ip >/dev/null 2>&1; then
-    sudo ip link delete veth0-global 2>/dev/null || true
-    sudo ip link delete wg0 2>/dev/null || true
+  sudo ip link delete veth0-global 2>/dev/null || true
+  sudo ip link delete wg0 2>/dev/null || true
 fi
-pkill -f nuru-route.sh 2>/dev/null || true
-log "all services stopped!"
-
-log "the setup process is about to start, if you have any issues join discord.gg/dJvdkPRheV for support!"
-if [ "$AUTO_YES" -eq 1 ]; then
-  log "non-interactive mode enabled, starting setup..."
-elif [ ! -t 0 ]; then
-  log "stdin is not interactive. re-run with --yes for unattended setup!"
-  exit 1
-else
-  log "type 'ok' to continue or 'cancel' to abort!"
-  while true; do
-    read -r -p "> " user_input
-    case "$user_input" in
-      ok)
-        log "starting setup..."
-        break
-        ;;
-      cancel)
-        log "setup aborted!"
-        exit 0
-        ;;
-      *)
-        log "please type 'ok' or 'cancel'!"
-        ;;
-    esac
-  done
-fi
+kill_service_processes
+release_service_ports
+success "all services stopped"
 
 WG_ENABLED=0
 WG_REUSE=0
+WG_CONFIG_EXISTS=0
 
 if sudo [ -f /etc/wireguard/wg0.conf ]; then
-    WG_ENABLED=1
-    WG_REUSE=1
-    log "detected existing wireguard config!"
+  WG_CONFIG_EXISTS=1
+  log "detected existing wireguard config"
 fi
 
-if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
-    if [ "$WG_REUSE" -eq 1 ]; then
-        log "type 'k' to keep existing config or 'r' to replace it!"
-        while true; do
-            read -r -p "> " keep_choice
-            case "$keep_choice" in
-                k|keep)
-                    break
-                    ;;
-                r|replace)
-                    WG_REUSE=0
-                    break
-                    ;;
-                *)
-                    log "please type 'k' or 'r'"
-                    ;;
-            esac
-        done
-    else
-        log "route nuru through wireguard vpn?"
-        log "(helps avoid ip blocks)"
-        log "type 'y' to configure or 'n' to skip!"
-        while true; do
-            read -r -p "> " ws_choice
-            case "$ws_choice" in
-                yes|y)
-                    WG_ENABLED=1
-                    break
-                    ;;
-                no|n)
-                    WG_ENABLED=0
-                    break
-                    ;;
-                *)
-                    log "please type 'y' or 'n'"
-                    ;;
-            esac
-        done
-    fi
+if [ -t 0 ]; then
+  log "route mochi and nuru through a wireguard vpn?"
+  fail "all outbound traffic from both services will use the vpn and may be slower"
+  if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+    log "type 'y' to use wireguard or 'n' to keep both services on the server's direct connection"
+  else
+    log "type 'y' to configure wireguard or 'n' to use the server's direct connection"
+  fi
+  while true; do
+    read -r -p "> " ws_choice
+    case "$ws_choice" in
+    yes | y)
+      WG_ENABLED=1
+      break
+      ;;
+    no | n)
+      WG_ENABLED=0
+      break
+      ;;
+    *)
+      fail "please type 'y' or 'n'"
+      ;;
+    esac
+  done
 
-    if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
-        while true; do
-            WG_CONFIG_FILE="/tmp/wg0-config-paste"
-            cat > "$WG_CONFIG_FILE" <<'WGEOF'
+  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+    log "type 'k' to keep existing config or 'r' to replace it"
+    while true; do
+      read -r -p "> " keep_choice
+      case "$keep_choice" in
+      k | keep)
+        WG_REUSE=1
+        break
+        ;;
+      r | replace)
+        WG_REUSE=0
+        break
+        ;;
+      *)
+        fail "please type 'k' or 'r'"
+        ;;
+      esac
+    done
+  fi
+
+  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
+    while true; do
+      WG_CONFIG_FILE="/tmp/wg0-config-paste"
+      cat >"$WG_CONFIG_FILE" <<'WGEOF'
 # paste your wireguard config below then save and exit!
 #
 # example:
@@ -204,84 +279,174 @@ if [ "$AUTO_YES" -eq 0 ] && [ -t 0 ]; then
 # Endpoint = ...
 # PresharedKey = ...
 WGEOF
-            nano "$WG_CONFIG_FILE" </dev/tty >/dev/tty 2>&1 || true
-            if [ ! -s "$WG_CONFIG_FILE" ]; then
-                log "empty config!"
-                log "type 'r' to retry or 'c' to cancel vpn setup"
-                read -r -p "> " retry
-                case "$retry" in
-                    r|retry) continue ;;
-                    *) WG_ENABLED=0; break ;;
-                esac
-            elif ! grep -q '\[Interface\]' "$WG_CONFIG_FILE" 2>/dev/null; then
-                log "invalid config (missing [Interface] section)!"
-                log "type 'r' to retry or 'c' to cancel vpn setup"
-                read -r -p "> " retry
-                case "$retry" in
-                    r|retry) continue ;;
-                    *) WG_ENABLED=0; break ;;
-                esac
-            else
-                log "wireguard config looks valid!"
-                break
-            fi
-        done
+      nano "$WG_CONFIG_FILE" </dev/tty >/dev/tty 2>&1 || true
+      if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$WG_CONFIG_FILE" 2>/dev/null; then
+        fail "empty config"
+        log "type 'r' to retry or 'c' to cancel vpn setup"
+        read -r -p "> " retry
+        case "$retry" in
+        r | retry) continue ;;
+        *)
+          WG_ENABLED=0
+          break
+          ;;
+        esac
+      elif ! grep -Eq '^[[:space:]]*\[Interface\][[:space:]]*$' "$WG_CONFIG_FILE" 2>/dev/null; then
+        fail "invalid config (missing [Interface] section)"
+        log "type 'r' to retry or 'c' to cancel vpn setup"
+        read -r -p "> " retry
+        case "$retry" in
+        r | retry) continue ;;
+        *)
+          WG_ENABLED=0
+          break
+          ;;
+        esac
+      else
+        success "wireguard config is valid"
+        break
+      fi
+    done
+  fi
+else
+  case "${LYRA_WIREGUARD:-no}" in
+  1 | true | yes | y)
+    if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+      WG_ENABLED=1
+      WG_REUSE=1
+      success "wireguard routing enabled by LYRA_WIREGUARD using the existing config"
+    else
+      fail "LYRA_WIREGUARD requested, but /etc/wireguard/wg0.conf is missing; using the direct connection"
     fi
+    ;;
+  *)
+    log "wireguard routing mode: direct connection"
+    ;;
+  esac
 fi
 
 if [ "$WG_ENABLED" -eq 0 ]; then
-    sudo systemctl stop nuru 2>/dev/null || true
-    sudo systemctl disable nuru 2>/dev/null || true
-    sudo systemctl stop nuru-route.timer 2>/dev/null || true
-    sudo systemctl disable nuru-route.timer 2>/dev/null || true
-    sudo systemctl stop wg-quick@wg0 2>/dev/null || true
-    sudo systemctl disable wg-quick@wg0 2>/dev/null || true
-    sudo wg-quick down wg0 2>/dev/null || true
+  sudo systemctl stop nuru 2>/dev/null || true
+  sudo systemctl disable nuru 2>/dev/null || true
+  sudo systemctl stop nuru-route.timer 2>/dev/null || true
+  sudo systemctl disable nuru-route.timer 2>/dev/null || true
+  sudo systemctl stop wg-quick@wg0 2>/dev/null || true
+  sudo systemctl disable wg-quick@wg0 2>/dev/null || true
+  sudo wg-quick down wg0 2>/dev/null || true
+  sudo rm -f /etc/systemd/system/nuru-route.service /etc/systemd/system/nuru-route.timer /usr/local/bin/nuru-route.sh
+  sudo systemctl daemon-reload
 fi
 
 if command -v ip >/dev/null 2>&1; then
-    sudo ip link delete veth0-global 2>/dev/null || true
+  sudo ip link delete veth0-global 2>/dev/null || true
 fi
 if command -v modprobe >/dev/null 2>&1; then
-    sudo modprobe nf_conntrack || true
+  sudo modprobe nf_conntrack || true
 fi
 retry 3 sudo apt-get update -y
-retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io libjemalloc2 ca-certificates curl gnupg lsb-release openssl
+retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git nodejs debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
+release_service_ports
 
 if [ "$WG_ENABLED" -eq 1 ]; then
-    if ! command -v wg-quick >/dev/null 2>&1; then
-        log "installing wireguard-tools..."
-        retry 3 sudo apt-get install -y --no-install-recommends wireguard-tools || {
-            log "wireguard-tools installation failed! skipping vpn setup..."
-            WG_ENABLED=0
-        }
+  RESOLV_CONF_BACKUP=""
+  if ! command -v wg-quick >/dev/null 2>&1; then
+    log "installing wireguard-tools..."
+    if ! retry 3 sudo apt-get install -y --no-install-recommends wireguard-tools; then
+      fail "wireguard-tools installation failed"
+      exit 1
     fi
-    if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
-        log "installing wireguard config..."
-        sed -i '/^[[:space:]]*#/d' "$WG_CONFIG_FILE"
-        sed -i -E 's/[0-9a-f]*:[0-9a-f:.]+\/[0-9]+//g' "$WG_CONFIG_FILE"
-        sed -i -E 's/,\s*,/, /g' "$WG_CONFIG_FILE"
-        sed -i -E 's/=\s*,/ = /g' "$WG_CONFIG_FILE"
-        sed -i -E 's/,\s*$//' "$WG_CONFIG_FILE"
-        PHYS_DEV=$(ip -4 route show default 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' | head -1)
-        if [ -n "$PHYS_DEV" ]; then
-            PHYS_MTU=$(ip link show "$PHYS_DEV" 2>/dev/null | sed -n 's/.*mtu \([0-9]*\).*/\1/p')
-        fi
-        WG_MTU=$(( ${PHYS_MTU:-1500} - 80 ))
-        [ "$WG_MTU" -lt 1280 ] && WG_MTU=1280
-        sed -i '/^\[Interface\]/a Table = off' "$WG_CONFIG_FILE"
-        sed -i "/^\[Interface\]/a MTU = $WG_MTU" "$WG_CONFIG_FILE"
-        sed -i '/^\[Interface\]/a PostUp = wg set %i fwmark 0xca6c' "$WG_CONFIG_FILE"
-        sudo mkdir -p /etc/wireguard
-        sudo cp "$WG_CONFIG_FILE" /etc/wireguard/wg0.conf
-        sudo chmod 600 /etc/wireguard/wg0.conf
-        rm -f "$WG_CONFIG_FILE"
-        log "wireguard config installed at /etc/wireguard/wg0.conf (MTU: $WG_MTU, fwmark: 0xca6c)!"
+  fi
+  if ! command -v resolvconf >/dev/null 2>&1; then
+    if ! retry 3 getent ahosts registry.npmjs.org >/dev/null 2>&1; then
+      fail "dns resolution is unavailable before resolver setup"
+      exit 1
     fi
-    if [ "$WG_ENABLED" -eq 1 ]; then
-        sudo systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
-        [ "$WG_REUSE" -eq 1 ] && log "reusing existing wireguard config at /etc/wireguard/wg0.conf"
+    RESOLV_CONF_BACKUP="$(mktemp)"
+    cp -L /etc/resolv.conf "$RESOLV_CONF_BACKUP"
+    RESOLVER_PACKAGE="openresolv"
+    if ! apt-cache show "$RESOLVER_PACKAGE" >/dev/null 2>&1; then
+      RESOLVER_PACKAGE="systemd-resolved"
     fi
+    log "installing $RESOLVER_PACKAGE..."
+    if ! retry 3 sudo apt-get install -y --no-install-recommends "$RESOLVER_PACKAGE"; then
+      fail "dns resolver installation failed"
+      exit 1
+    fi
+  fi
+  require_cmd wg
+  require_cmd wg-quick
+  require_cmd resolvconf
+  if ! retry 3 getent ahosts registry.npmjs.org >/dev/null 2>&1; then
+    if [ -n "$RESOLV_CONF_BACKUP" ] && [ -s "$RESOLV_CONF_BACKUP" ]; then
+      if ! sudo cp --remove-destination "$RESOLV_CONF_BACKUP" /etc/resolv.conf || ! sudo chmod 644 /etc/resolv.conf; then
+        fail "dns resolver setup failed and the previous configuration could not be restored"
+        exit 1
+      fi
+      rm -f "$RESOLV_CONF_BACKUP"
+      fail "dns resolver setup failed; the previous configuration was restored"
+      exit 1
+    fi
+    fail "dns resolution is unavailable"
+    exit 1
+  fi
+  [ -z "$RESOLV_CONF_BACKUP" ] || rm -f "$RESOLV_CONF_BACKUP"
+  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
+    log "installing wireguard config..."
+    sed -i '/^[[:space:]]*#/d' "$WG_CONFIG_FILE"
+    sed -i -E 's/[0-9a-f]*:[0-9a-f:.]+\/[0-9]+//g' "$WG_CONFIG_FILE"
+    sed -i -E 's/,\s*,/, /g' "$WG_CONFIG_FILE"
+    sed -i -E 's/=\s*,/ = /g' "$WG_CONFIG_FILE"
+    sed -i -E 's/,\s*$//' "$WG_CONFIG_FILE"
+    PHYS_DEV=$(ip -4 route show default 2>/dev/null | sed -n 's/.*dev \([^ ]*\).*/\1/p' | head -1)
+    if [ -n "$PHYS_DEV" ]; then
+      PHYS_MTU=$(ip link show "$PHYS_DEV" 2>/dev/null | sed -n 's/.*mtu \([0-9]*\).*/\1/p')
+    fi
+    WG_MTU=$((${PHYS_MTU:-1500} - 80))
+    [ "$WG_MTU" -lt 1280 ] && WG_MTU=1280
+    sed -i "/^\[Interface\]/a MTU = $WG_MTU" "$WG_CONFIG_FILE"
+    sudo mkdir -p /etc/wireguard
+    sudo cp "$WG_CONFIG_FILE" /etc/wireguard/wg0.conf
+    sudo chmod 600 /etc/wireguard/wg0.conf
+    rm -f "$WG_CONFIG_FILE"
+    success "wireguard config installed at /etc/wireguard/wg0.conf (mtu: $WG_MTU)"
+  fi
+  if [ "$WG_ENABLED" -eq 1 ]; then
+    # Keep wg-quick from installing a second full-tunnel routing policy. The
+    # explicit mark lets encrypted WireGuard packets escape through the main
+    # table while service traffic continues to use table 200.
+    WG_FWMARK=$(sudo sed -n -E \
+      's/^[[:space:]]*FwMark[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' \
+      /etc/wireguard/wg0.conf | head -1)
+    if ! [[ "$WG_FWMARK" =~ ^(0[xX][[:xdigit:]]+|[[:digit:]]+)$ ]]; then
+      WG_FWMARK=0xca6c
+    fi
+    sudo sed -i -E \
+      -e '/^[[:space:]]*Table[[:space:]]*=/Id' \
+      -e '/^[[:space:]]*FwMark[[:space:]]*=/Id' \
+      -e '/^[[:space:]]*PostUp[[:space:]]*=[[:space:]]*wg[[:space:]]+set[[:space:]]+%i[[:space:]]+fwmark[[:space:]]+0xca6c[[:space:]]*$/Id' \
+      /etc/wireguard/wg0.conf
+    sudo sed -i \
+      "/^[[:space:]]*\[Interface\][[:space:]]*$/a\\
+FwMark = $WG_FWMARK\\
+Table = off
+" \
+      /etc/wireguard/wg0.conf
+    sudo chmod 600 /etc/wireguard/wg0.conf
+    success "wireguard policy routing normalized"
+
+    # This setup uses policy routing so only nuru and mochi enter the tunnel.
+    # A wg-quick DNS directive changes the resolver for the entire host, leaving
+    # direct-routed processes such as Docker unable to reach a VPN-only DNS
+    # server. Keep the value in the config for nuru, but hide it from wg-quick.
+    if sudo grep -Eq '^[[:space:]]*DNS[[:space:]]*=' /etc/wireguard/wg0.conf; then
+      sudo sed -i -E \
+        's|^[[:space:]]*DNS[[:space:]]*=[[:space:]]*(.*)$|# LyraVPNDNS = \1|' \
+        /etc/wireguard/wg0.conf
+      success "wireguard dns reserved for routed services; host dns left unchanged"
+    fi
+    sudo systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
+    [ "$WG_REUSE" -eq 1 ] && log "reusing existing wireguard config at /etc/wireguard/wg0.conf"
+  fi
 fi
 
 if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl ]; then
@@ -290,28 +455,41 @@ if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl
   rm -f /tmp/eturnal-install.sh
 fi
 if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl ]; then
-  log "eturnal installation failed!"
+  fail "eturnal installation failed"
   exit 1
 fi
 export PATH="/opt/eturnal/bin:$PATH"
 
-if ! command -v bun >/dev/null 2>&1; then
-  curl -fsSL https://bun.sh/install | bash
+BUN_VERSION="1.4.0"
+BUN_CURRENT_VERSION="$(bun --version 2>/dev/null || true)"
+if [ "$BUN_CURRENT_VERSION" != "$BUN_VERSION" ]; then
+  log "installing bun $BUN_VERSION"
+  curl -fsSL https://bun.sh/install | bash -s -- "bun-v$BUN_VERSION"
   export PATH="$HOME/.bun/bin:$PATH"
 fi
 
 if ! command -v bun >/dev/null 2>&1; then
-  log "bun installation failed!"
+  fail "bun installation failed"
   exit 1
 fi
 require_cmd bun
 
 BUN_BIN="$(command -v bun)"
+if [ "$("$BUN_BIN" --version)" != "$BUN_VERSION" ]; then
+  fail "bun $BUN_VERSION is required"
+  exit 1
+fi
 
 if ! "$BUN_BIN" pm -g ls | grep -q "pm2@"; then
-  "$BUN_BIN" add -g pm2
+  if ! retry 3 "$BUN_BIN" add -g pm2; then
+    fail "pm2 installation failed"
+    exit 1
+  fi
 else
-  "$BUN_BIN" update -g pm2
+  if ! retry 3 "$BUN_BIN" update -g pm2; then
+    fail "pm2 update failed"
+    exit 1
+  fi
 fi
 
 PM2_BIN="$(command -v pm2 || true)"
@@ -319,7 +497,7 @@ if [ -z "$PM2_BIN" ] && [ -x "$HOME/.bun/bin/pm2" ]; then
   PM2_BIN="$HOME/.bun/bin/pm2"
 fi
 if [ -z "$PM2_BIN" ]; then
-  log "pm2 installation failed!"
+  fail "pm2 installation failed"
   exit 1
 fi
 
@@ -329,26 +507,41 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
-  log "cargo installation failed!"
+  fail "cargo installation failed"
   exit 1
 fi
 require_cmd cargo
 
 CARGO_BIN="$(command -v cargo)"
 
+RUST_NIGHTLY="nightly-2026-06-30"
+if ! rustup run "$RUST_NIGHTLY" rustc --version >/dev/null 2>&1; then
+  rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src
+else
+  rustup component add rust-src --toolchain "$RUST_NIGHTLY"
+fi
+
+if ! command -v wasm-bindgen >/dev/null 2>&1 || [ "$(wasm-bindgen --version)" != "wasm-bindgen 0.2.105" ]; then
+  "$CARGO_BIN" install wasm-bindgen-cli --version 0.2.105 --locked
+fi
+
+if ! command -v wasm-snip >/dev/null 2>&1; then
+  "$CARGO_BIN" install wasm-snip --version 0.4.0 --locked
+fi
+
 if ! dpkg-query -W -f='${Status}' caddy 2>/dev/null | grep -q "install ok installed"; then
   sudo mkdir -p /usr/share/keyrings /etc/apt/sources.list.d
-  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/deb.debian.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list
   retry 3 sudo apt-get update -y
   retry 3 sudo apt-get install -y --no-install-recommends caddy
 fi
 
-if [ -f /etc/sysctl.d/99-waves-optimizations.conf ]; then
-  sudo cp /etc/sysctl.d/99-waves-optimizations.conf /etc/sysctl.d/99-waves-optimizations.conf.bak.$(date +%s)
+if [ -f /etc/sysctl.d/99-lyra-optimizations.conf ]; then
+  sudo cp /etc/sysctl.d/99-lyra-optimizations.conf /etc/sysctl.d/99-lyra-optimizations.conf.bak.$(date +%s)
 fi
 
-cat <<EOF | sudo tee /etc/sysctl.d/99-waves-optimizations.conf
+cat <<EOF | sudo tee /etc/sysctl.d/99-lyra-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 10
@@ -394,7 +587,7 @@ net.ipv4.conf.all.send_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 net.ipv4.conf.default.send_redirects = 0
 EOF
-sudo sysctl -p /etc/sysctl.d/99-waves-optimizations.conf || true
+sudo sysctl -p /etc/sysctl.d/99-lyra-optimizations.conf || true
 
 if ! grep -q "^\* soft nofile" /etc/security/limits.conf; then
   echo "* soft nofile 1048576" | sudo tee -a /etc/security/limits.conf
@@ -403,41 +596,61 @@ if ! grep -q "^\* hard nofile" /etc/security/limits.conf; then
   echo "* hard nofile 1048576" | sudo tee -a /etc/security/limits.conf
 fi
 
-if [ -d "nuru" ]; then
-    cd nuru
-  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+if [ -d "$ROOT/services/nuru" ]; then
+  (
+    cd "$ROOT/services/nuru"
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
     sudo cp target/release/nuru /usr/local/bin/nuru
-  sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
-    cd ..
+    sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
+  )
 else
-    log "nuru directory not found!"
-    exit 1
+  fail "nuru service directory not found"
+  exit 1
 fi
 
-if [ "$WG_ENABLED" -eq 1 ]; then
-    id -u nuru >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin nuru
-    sudo chown nuru:nuru /usr/local/bin/nuru
-    sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
+id -u mochi >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin mochi
 
-    cat <<'NRSCRIPT' | sudo tee /usr/local/bin/nuru-route.sh > /dev/null
+if [ "$WG_ENABLED" -eq 0 ]; then
+  MOCHI_UID=$(id -u mochi 2>/dev/null || echo "")
+  NURU_UID=$(id -u nuru 2>/dev/null || echo "")
+  [ -n "$MOCHI_UID" ] && sudo ip rule del uidrange "$MOCHI_UID"-"$MOCHI_UID" lookup 200 2>/dev/null || true
+  [ -n "$NURU_UID" ] && sudo ip rule del uidrange "$NURU_UID"-"$NURU_UID" lookup 200 2>/dev/null || true
+fi
+
+JEMALLOC_PATH=""
+for jemalloc_candidate in /usr/lib/*-linux-gnu/libjemalloc.so.2; do
+  if [ -f "$jemalloc_candidate" ]; then
+    JEMALLOC_PATH="$jemalloc_candidate"
+    break
+  fi
+done
+
+if [ "$WG_ENABLED" -eq 1 ]; then
+  id -u nuru >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin nuru
+  sudo chown nuru:nuru /usr/local/bin/nuru
+  sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
+
+  cat <<'NRSCRIPT' | sudo tee /usr/local/bin/nuru-route.sh >/dev/null
 #!/bin/bash
 set -euo pipefail
 
 if [ "${EUID:-$(id -u)}" -ne 0 ]; then
-    echo "[nuru-route] must run as root!" >&2
+    echo "[nuru-route] must run as root... /ᐠ - ˕ -マ" >&2
     exit 0
 fi
 
 log() { echo "[nuru-route] $(date '+%H:%M:%S') $*"; }
+fail() { log "$*... /ᐠ - ˕ -マ"; }
+success() { log "$*!! (˵◝ ⩊  ◜˵マ"; }
 
 NURU_UID=$(id -u nuru 2>/dev/null || echo "")
-[ -z "$NURU_UID" ] && { log "nuru user not found!"; exit 0; }
+[ -z "$NURU_UID" ] && { fail "nuru user not found"; exit 0; }
+MOCHI_UID=$(id -u mochi 2>/dev/null || echo "")
+[ -z "$MOCHI_UID" ] && { fail "mochi user not found"; exit 0; }
 
 WG_IFACES=()
 if command -v wg >/dev/null 2>&1; then
-    while IFS= read -r line; do
-        WG_IFACES+=("$line")
-    done < <(wg show interfaces 2>/dev/null || true)
+    IFS=' ' read -r -a WG_IFACES < <(wg show interfaces 2>/dev/null || true) || true
 fi
 
 if [ ${#WG_IFACES[@]} -eq 0 ]; then
@@ -451,6 +664,15 @@ if [ ${#WG_IFACES[@]} -eq 0 ]; then
 fi
 
 log "detected wireguard interfaces: ${WG_IFACES[*]:-none}"
+
+VPN_IF=""
+for iface in "${WG_IFACES[@]}"; do
+    if [ "$iface" = "wg0" ]; then
+        VPN_IF="$iface"
+        break
+    fi
+    [ -n "$VPN_IF" ] || VPN_IF="$iface"
+done
 
 MAIN_DEF=""
 while read -r route; do
@@ -473,10 +695,32 @@ if [ -z "$MAIN_DEF" ]; then
         [ -n "$PHYS_GW" ] && MAIN_DEF="default via $PHYS_GW dev $PHYS_IF"
     fi
 fi
-[ -z "$MAIN_DEF" ] && { log "cannot determine physical default route!"; exit 0; }
+[ -z "$MAIN_DEF" ] && { fail "cannot determine physical default route"; exit 0; }
 
-ip rule del fwmark 0xca6c/0xca6c lookup main 2>/dev/null || true
+WG_MARK=0xca6c
+if [ -n "$VPN_IF" ]; then
+    CURRENT_WG_MARK=$(wg show "$VPN_IF" fwmark 2>/dev/null || true)
+    if [[ "$CURRENT_WG_MARK" =~ ^(0[xX][[:xdigit:]]+|[[:digit:]]+)$ ]]; then
+        WG_MARK="$CURRENT_WG_MARK"
+    else
+        wg set "$VPN_IF" fwmark "$WG_MARK"
+    fi
+    RULES=$(ip rule list 2>/dev/null || true)
+    TABLE_DEFAULT=$(ip route show table 200 default 2>/dev/null || true)
+    if echo "$RULES" | grep -Eq "^[[:space:]]*500:.*fwmark ${WG_MARK}(/[^[:space:]]+)?[[:space:]].*lookup main" \
+        && echo "$RULES" | grep -Eq "^[[:space:]]*1000:.*uidrange ${NURU_UID}-${NURU_UID}.*lookup 200" \
+        && echo "$RULES" | grep -Eq "^[[:space:]]*1001:.*uidrange ${MOCHI_UID}-${MOCHI_UID}.*lookup 200" \
+        && echo "$TABLE_DEFAULT" | grep -Fq " dev $VPN_IF" \
+        && ! ip route show default 2>/dev/null | grep -qE 'dev (utun|tun|wg)'; then
+        success "vpn policy routing already configured"
+        exit 0
+    fi
+fi
+
+ip rule del fwmark 0xca6c/0xca6c lookup main priority 500 2>/dev/null || true
+ip rule del fwmark "$WG_MARK" lookup main priority 500 2>/dev/null || true
 ip rule del uidrange "$NURU_UID"-"$NURU_UID" lookup 200 2>/dev/null || true
+ip rule del uidrange "$MOCHI_UID"-"$MOCHI_UID" lookup 200 2>/dev/null || true
 ip route flush table 200 2>/dev/null || true
 while read -r route; do
     ip route del $route 2>/dev/null || true
@@ -485,51 +729,50 @@ ip route replace $MAIN_DEF 2>/dev/null || true
 
 log "main table default: $MAIN_DEF"
 
-ip rule add fwmark 0xca6c/0xca6c lookup main priority 500 2>/dev/null || true
+ip rule add fwmark "$WG_MARK" lookup main priority 500 2>/dev/null || true
 ip rule add uidrange "$NURU_UID"-"$NURU_UID" lookup 200 priority 1000 2>/dev/null || true
+ip rule add uidrange "$MOCHI_UID"-"$MOCHI_UID" lookup 200 priority 1001 2>/dev/null || true
 
-if [ ${#WG_IFACES[@]} -gt 0 ]; then
-    VPN_IF="${WG_IFACES[0]}"
-    log "routing nuru through $VPN_IF"
+if [ -n "$VPN_IF" ]; then
+    log "routing nuru and mochi through $VPN_IF"
 
     VPN_DEF=$(ip route show default dev "$VPN_IF" 2>/dev/null | head -1 || true)
     if [ -n "$VPN_DEF" ]; then
-        ip route add $VPN_DEF table 200 2>/dev/null || true
+        ip route replace $VPN_DEF table 200 2>/dev/null || true
     else
-        ip route add default dev "$VPN_IF" table 200 2>/dev/null || true
+        ip route replace default dev "$VPN_IF" table 200 2>/dev/null || true
     fi
 
     ip route show dev "$VPN_IF" 2>/dev/null | while read -r route; do
-        [ -n "$route" ] && ip route add $route table 200 2>/dev/null || true
+        [ -n "$route" ] && ip route replace $route table 200 2>/dev/null || true
     done
 
-    log "table 200 configured via $VPN_IF"
+    success "table 200 configured via $VPN_IF"
 else
-    log "no vpn: nuru using physical ip"
-    ip route add $MAIN_DEF table 200 2>/dev/null || true
+    log "no vpn: routed services using physical ip"
+    ip route replace $MAIN_DEF table 200 2>/dev/null || true
 fi
 
 log "--- policy routing rules ---"
 ip rule list 2>/dev/null | head -10 || true
 exit 0
 NRSCRIPT
-    sudo chmod 755 /usr/local/bin/nuru-route.sh
+  sudo chmod 755 /usr/local/bin/nuru-route.sh
 
-    if [ -f /etc/wireguard/wg0.conf ]; then
-        log "bringing up wg0..."
-        sudo wg-quick up wg0 2>&1 || true
-        sleep 2
-        sudo /usr/local/bin/nuru-route.sh || true
+  if [ -f /etc/wireguard/wg0.conf ]; then
+    log "bringing up wg0..."
+    if ! sudo systemctl restart wg-quick@wg0; then
+      fail "wireguard interface failed to start"
+      exit 1
     fi
-
-    JEMALLOC_PATH=""
-    if [ -f /usr/lib/x86_64-linux-gnu/libjemalloc.so.2 ]; then
-        JEMALLOC_PATH="/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
-    elif [ -f /usr/lib/aarch64-linux-gnu/libjemalloc.so.2 ]; then
-        JEMALLOC_PATH="/usr/lib/aarch64-linux-gnu/libjemalloc.so.2"
+    if ! sudo wg show wg0 >/dev/null 2>&1; then
+      fail "wireguard interface is unavailable after startup"
+      exit 1
     fi
+    sudo /usr/local/bin/nuru-route.sh
+  fi
 
-    cat <<NURUSVC | sudo tee /etc/systemd/system/nuru.service > /dev/null
+  cat <<NURUSVC | sudo tee /etc/systemd/system/nuru.service >/dev/null
 [Unit]
 Description=nuru proxy
 After=network-online.target nss-lookup.target wg-quick@wg0.service
@@ -546,17 +789,17 @@ KillMode=mixed
 TimeoutStopSec=10
 Environment=RUST_LOG=off
 NURUSVC
-    if [ -n "$JEMALLOC_PATH" ]; then
-        echo "Environment=LD_PRELOAD=$JEMALLOC_PATH" | sudo tee -a /etc/systemd/system/nuru.service > /dev/null
-    fi
-    cat <<NURUSVC2 | sudo tee -a /etc/systemd/system/nuru.service > /dev/null
+  if [ -n "$JEMALLOC_PATH" ]; then
+    echo "Environment=LD_PRELOAD=$JEMALLOC_PATH" | sudo tee -a /etc/systemd/system/nuru.service >/dev/null
+  fi
+  cat <<NURUSVC2 | sudo tee -a /etc/systemd/system/nuru.service >/dev/null
 LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
 NURUSVC2
 
-    cat <<NRROUTE | sudo tee /etc/systemd/system/nuru-route.service > /dev/null
+  cat <<NRROUTE | sudo tee /etc/systemd/system/nuru-route.service >/dev/null
 [Unit]
 Description=setup nuru vpn routing
 After=network-online.target
@@ -567,7 +810,7 @@ Type=oneshot
 ExecStart=/usr/local/bin/nuru-route.sh
 NRROUTE
 
-    cat <<NRTIMER | sudo tee /etc/systemd/system/nuru-route.timer > /dev/null
+  cat <<NRTIMER | sudo tee /etc/systemd/system/nuru-route.timer >/dev/null
 [Unit]
 Description=nuru vpn routing check
 
@@ -580,10 +823,10 @@ AccuracySec=5
 WantedBy=timers.target
 NRTIMER
 
-    sudo systemctl daemon-reload
-    sudo systemctl enable nuru-route.timer >/dev/null 2>&1 || true
-    sudo systemctl start nuru-route.timer 2>/dev/null || true
-    sudo systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
+  sudo systemctl daemon-reload
+  sudo systemctl enable nuru-route.timer >/dev/null 2>&1 || true
+  sudo systemctl start nuru-route.timer 2>/dev/null || true
+  sudo systemctl enable wg-quick@wg0 >/dev/null 2>&1 || true
 fi
 
 PUBLIC_IP="$(curl -s4 --max-time 8 ifconfig.me || true)"
@@ -591,26 +834,31 @@ PUBLIC_IP="$(curl -s4 --max-time 8 ifconfig.me || true)"
 [ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $7; exit}' || true)"
 
 if [ -z "$PUBLIC_IP" ]; then
-  log "couldn't detect public ip!"
+  fail "couldn't detect public ip"
   exit 1
 fi
+
+TURN_HOST="${TURN_HOST:-turn.lyra.moe}"
+TURN_PORT="${TURN_PORT:-3478}"
+TURN_USERNAME="${TURN_USERNAME:-lyly}"
+TURN_CREDENTIAL="${TURN_CREDENTIAL:-$(openssl rand -hex 24)}"
 
 if [ -f /etc/eturnal.yml ]; then
   sudo cp /etc/eturnal.yml /etc/eturnal.yml.bak.$(date +%s)
 fi
 
-sudo tee /etc/eturnal.yml <<EOF
+sudo tee /etc/eturnal.yml >/dev/null <<EOF
 eturnal:
   credentials:
-    enniuu: enni
-  realm: waves.lat
+    "$TURN_USERNAME": "$TURN_CREDENTIAL"
+  realm: "$TURN_HOST"
   relay_ipv4_addr: "$PUBLIC_IP"
   listen:
     - ip: "0.0.0.0"
-      port: 3478
+      port: $TURN_PORT
       transport: udp
     - ip: "0.0.0.0"
-      port: 3478
+      port: $TURN_PORT
       transport: tcp
   relay_min_port: 49152
   relay_max_port: 65535
@@ -620,9 +868,9 @@ eturnal:
     mod_log_stun: {}
 EOF
 if [ -f /etc/eturnal.yml ]; then
-  log "/etc/eturnal.yml applied!"
+  success "/etc/eturnal.yml applied"
 else
-  log "error: /etc/eturnal.yml not found!"
+  fail "/etc/eturnal.yml was not created"
   exit 1
 fi
 
@@ -630,14 +878,14 @@ sudo chown eturnal:eturnal /etc/eturnal.yml
 sudo chmod 640 /etc/eturnal.yml
 sudo systemctl stop coturn 2>/dev/null || true
 sudo systemctl disable coturn 2>/dev/null || true
-sudo fuser -k 3478/tcp 2>/dev/null || true
-sudo fuser -k 3478/udp 2>/dev/null || true
+sudo fuser -k "$TURN_PORT"/tcp 2>/dev/null || true
+sudo fuser -k "$TURN_PORT"/udp 2>/dev/null || true
 sudo systemctl daemon-reload
 sudo systemctl enable eturnal
 sudo systemctl restart eturnal
 
 if ! systemctl is-active --quiet eturnal; then
-  log "error: eturnal failed to start!"
+  fail "eturnal failed to start"
   sudo journalctl -u eturnal --no-pager -n 20 >&2
   exit 1
 fi
@@ -645,7 +893,7 @@ fi
 sudo systemctl enable docker >/dev/null 2>&1 || true
 sudo systemctl start docker >/dev/null 2>&1 || true
 if ! sudo docker info >/dev/null 2>&1; then
-  log "docker daemon is not ready!"
+  fail "docker daemon is not ready"
   exit 1
 fi
 require_cmd docker
@@ -660,23 +908,88 @@ else
   "$BUN_BIN" install
 fi
 
-if [ -d "mochi" ]; then
-    cd mochi
-  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
-    cd ..
+if [ -d "$ROOT/services/mochi" ]; then
+  (
+    cd "$ROOT/services/mochi"
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+  )
 fi
 
-if [ -d "cloudsync" ]; then
-    cd cloudsync
-  RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
-    cd ..
+if [ -d "$ROOT/services/cloudsync" ]; then
+  (
+    cd "$ROOT/services/cloudsync"
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+  )
 fi
+
+if [ -d "$ROOT/services/isao" ]; then
+  (
+    cd "$ROOT/services/isao"
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+  )
+fi
+
+sudo cp "$ROOT/services/mochi/target/release/mochi" /usr/local/bin/mochi
+sudo chmod 755 /usr/local/bin/mochi
+sudo mkdir -p /var/cache/lyra-mochi/cache/stream
+sudo chown -R mochi:mochi /var/cache/lyra-mochi
+CACHE_AVAILABLE_KB=$(df -Pk /var/cache/lyra-mochi | awk 'NR == 2 { print $4 }')
+if [[ ! "$CACHE_AVAILABLE_KB" =~ ^[1-9][0-9]*$ ]]; then
+  fail "available cache disk space could not be determined"
+  exit 1
+fi
+ANIME_CACHE_GB=$((CACHE_AVAILABLE_KB / 1048576 / 5))
+if [ "$ANIME_CACHE_GB" -lt 1 ]; then
+  ANIME_CACHE_GB=1
+elif [ "$ANIME_CACHE_GB" -gt 100 ]; then
+  ANIME_CACHE_GB=100
+fi
+if [ "$ANIME_CACHE_GB" -lt 20 ]; then
+  ANIME_CACHE_TTL_DAYS=3
+elif [ "$ANIME_CACHE_GB" -lt 50 ]; then
+  ANIME_CACHE_TTL_DAYS=5
+else
+  ANIME_CACHE_TTL_DAYS=7
+fi
+log "anime cache configured at ${ANIME_CACHE_GB} gb with ${ANIME_CACHE_TTL_DAYS} day retention"
+MOCHI_VPN_AFTER=""
+MOCHI_VPN_PRESTART=""
+if [ "$WG_ENABLED" -eq 1 ]; then
+  MOCHI_VPN_AFTER=" wg-quick@wg0.service"
+  MOCHI_VPN_PRESTART="ExecStartPre=!-/usr/local/bin/nuru-route.sh"
+fi
+sudo tee /etc/systemd/system/mochi.service <<EOF
+[Unit]
+Description=mochi reverse proxy and anime stream cache
+After=network-online.target$MOCHI_VPN_AFTER
+Wants=network-online.target
+
+[Service]
+User=mochi
+Group=mochi
+Type=simple
+WorkingDirectory=/var/cache/lyra-mochi
+$MOCHI_VPN_PRESTART
+ExecStart=/usr/local/bin/mochi
+Restart=always
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=15
+Environment=RUST_LOG=warn
+Environment=MOCHI_PORT=4000
+Environment=MOCHI_STREAM_CACHE_GB=$ANIME_CACHE_GB
+Environment=MOCHI_STREAM_CACHE_TTL_DAYS=$ANIME_CACHE_TTL_DAYS
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 retry 3 sudo docker pull "ghcr.io/techarohq/anubis:latest"
 
 if sudo docker ps -a | grep -q "anubis"; then
-    sudo docker stop anubis 2>/dev/null || true
-    sudo docker rm anubis 2>/dev/null || true
+  sudo docker stop anubis 2>/dev/null || true
+  sudo docker rm anubis 2>/dev/null || true
 fi
 
 cat <<'EOF' | sudo tee /etc/anubis-policy.yaml
@@ -684,20 +997,20 @@ bots:
   - import: (data)/meta/default-config.yaml
 EOF
 if [ -f /etc/anubis-policy.yaml ]; then
-  log "/etc/anubis-policy.yaml applied!"
+  success "/etc/anubis-policy.yaml applied"
 else
-  log "error: /etc/anubis-policy.yaml not found!"
+  fail "/etc/anubis-policy.yaml was not created"
   exit 1
 fi
 
 sudo docker run -d --name anubis \
-    --network="host" \
-    --restart unless-stopped \
-    -e TARGET="http://127.0.0.1:3000" \
-    -e OG_PASSTHROUGH="true" \
-    -e POLICY_FNAME=/botPolicies.yaml \
-    -v /etc/anubis-policy.yaml:/botPolicies.yaml \
-    "ghcr.io/techarohq/anubis:latest"
+  --network="host" \
+  --restart unless-stopped \
+  -e TARGET="http://127.0.0.1:4444" \
+  -e OG_PASSTHROUGH="true" \
+  -e POLICY_FNAME=/botPolicies.yaml \
+  -v /etc/anubis-policy.yaml:/botPolicies.yaml \
+  "ghcr.io/techarohq/anubis:latest"
 
 "$BUN_BIN" --bun run build
 
@@ -705,24 +1018,25 @@ sudo mkdir -p /etc/nuru /etc/systemd/system/caddy.service.d
 
 if [ -f /etc/systemd/system/caddy.service.d/override.conf ]; then
   sudo cp /etc/systemd/system/caddy.service.d/override.conf /etc/systemd/system/caddy.service.d/override.conf.bak.$(date +%s)
-  log "backed up existing caddy override config!"
+  success "existing caddy override config backed up"
 fi
 
 sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
 [Service]
 Environment="NO_PROXY=127.0.0.1"
+LimitNOFILE=1048576
 EOF
 sudo systemctl daemon-reload
 
 if [ -f /etc/caddy/Caddyfile ]; then
   sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%s)
-  log "backed up existing caddy config!"
+  success "existing caddy config backed up"
 fi
 
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
-    
+
     servers {
         protocols h1 h2 h3
     }
@@ -737,12 +1051,15 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         on_demand
     }
 
-    encode zstd gzip
+    @compressible {
+        not path /stream/*
+    }
+    encode @compressible zstd gzip
 
     @nuru_routes {
         path /w/*
     }
-    reverse_proxy @nuru_routes 127.0.0.1:8080 {
+    reverse_proxy @nuru_routes 127.0.0.1:4001 {
         lb_policy least_conn
         fail_duration 10s
         max_fails 4
@@ -760,7 +1077,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     @mochi_routes {
-        path /!!/* /!cover!/*
+        path /!!raw/* /!!/* /!!folio/* /!cover!/* /stream/*
+        not path /stream/anime*
     }
     reverse_proxy @mochi_routes 127.0.0.1:4000 {
         lb_policy least_conn
@@ -768,23 +1086,50 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         max_fails 4
         header_up Host {upstream_hostport}
         header_up X-Real-IP {remote_host}
+        flush_interval -1
         transport http {
             keepalive 120s
             keepalive_idle_conns 4096
             keepalive_idle_conns_per_host 1024
             dial_timeout 5s
-            response_header_timeout 60s
+            response_header_timeout 30s
         }
     }
 
+    @static_assets {
+        path /assets/* /b/* /bmux/* /epoxy/* /libcurl/*
+    }
+    reverse_proxy @static_assets 127.0.0.1:4444 {
+        header_up X-Real-IP {remote_host}
+    }
+
     handle /api/auth/* {
-        reverse_proxy 127.0.0.1:5000 {
+        reverse_proxy 127.0.0.1:4005 {
             header_up X-Real-IP {remote_host}
         }
     }
 
     handle /api/sync/* {
-        reverse_proxy 127.0.0.1:5000 {
+        reverse_proxy 127.0.0.1:4005 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /api/anime/* {
+        reverse_proxy 127.0.0.1:6001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    @lyra_player {
+        path /stream/anime*
+    }
+    reverse_proxy @lyra_player 127.0.0.1:4444 {
+        header_up X-Real-IP {remote_host}
+    }
+
+    handle /s {
+        reverse_proxy 127.0.0.1:4444 {
             header_up X-Real-IP {remote_host}
         }
     }
@@ -805,41 +1150,41 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 }
 EOF
 if [ -f /etc/caddy/Caddyfile ]; then
-  log "/etc/caddy/Caddyfile applied!"
+  success "/etc/caddy/Caddyfile applied"
 else
-  log "error: /etc/caddy/Caddyfile not found!"
+  fail "/etc/caddy/Caddyfile was not created"
   exit 1
 fi
 
-if [ ! -f "$ROOT/nuru/config.toml" ]; then
-    log "nuru config not found at $ROOT/nuru/config.toml !"
-    exit 1
+if [ ! -f "$ROOT/services/nuru/config.toml" ]; then
+  fail "nuru config was not found at $ROOT/services/nuru/config.toml"
+  exit 1
 fi
 if [ "$WG_ENABLED" -eq 1 ] && [ -f /etc/wireguard/wg0.conf ]; then
-    VPN_DNS_LIST=$(grep -i '^DNS\s*=' /etc/wireguard/wg0.conf 2>/dev/null | sed 's/^DNS\s*=\s*//' | tr -d ' ' | tr ',' '\n' | grep -v '^$' || true)
-    if [ -n "$VPN_DNS_LIST" ]; then
-        DNS_TOML="["
-        first=true
-        while IFS= read -r dns; do
-            if [ -n "$dns" ]; then
-                [ "$first" = false ] && DNS_TOML+=", "
-                DNS_TOML+="\"$dns\""
-                first=false
-            fi
-        done <<< "$VPN_DNS_LIST"
-        DNS_TOML+="]"
-        sed -i "s|^dns_servers = \[.*\]|dns_servers = $DNS_TOML|" "$ROOT/nuru/config.toml"
-        log "updated nuru DNS to use VPN DNS: $DNS_TOML"
-    fi
+  VPN_DNS_LIST=$(sed -n -E 's/^[[:space:]]*(DNS|#[[:space:]]*LyraVPNDNS)[[:space:]]*=[[:space:]]*(.*)$/\2/ip' /etc/wireguard/wg0.conf 2>/dev/null | tr -d ' ' | tr ',' '\n' | grep -v '^$' || true)
+  if [ -n "$VPN_DNS_LIST" ]; then
+    DNS_TOML="["
+    first=true
+    while IFS= read -r dns; do
+      if [ -n "$dns" ]; then
+        [ "$first" = false ] && DNS_TOML+=", "
+        DNS_TOML+="\"$dns\""
+        first=false
+      fi
+    done <<<"$VPN_DNS_LIST"
+    DNS_TOML+="]"
+    sed -i "s|^dns_servers = \[.*\]|dns_servers = $DNS_TOML|" "$ROOT/services/nuru/config.toml"
+    success "nuru dns updated to use vpn dns: $DNS_TOML"
+  fi
 fi
-sudo cp "$ROOT/nuru/config.toml" /etc/nuru/config.toml
+sudo cp "$ROOT/services/nuru/config.toml" /etc/nuru/config.toml
 if [ -f /etc/nuru/config.toml ]; then
-  log "/etc/nuru/config.toml applied!"
+  success "/etc/nuru/config.toml applied"
   if [ "$WG_ENABLED" -eq 1 ]; then
-      sudo chown -R nuru:nuru /etc/nuru
+    sudo chown -R nuru:nuru /etc/nuru
   fi
 else
-  log "error: /etc/nuru/config.toml not found!"
+  fail "/etc/nuru/config.toml was not created"
   exit 1
 fi
 
@@ -848,28 +1193,28 @@ TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null
 
 calc_mem() {
   local pct=$1 min=$2 max=$3
-  local val=$(( TOTAL_RAM_MB * pct / 100 ))
+  local val=$((TOTAL_RAM_MB * pct / 100))
   [ "$val" -lt "$min" ] && val=$min
   [ "$val" -gt "$max" ] && val=$max
   echo "$val"
 }
 
-WAVES_MEM="$(calc_mem 16 256 2560)M"
-MOCHI_MEM="$(calc_mem 24 384 5120)M"
+LYRA_MEM="$(calc_mem 16 256 2560)M"
 CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
 NURU_MEM="$(calc_mem 22 512 4608)M"
-log "memory limits — waves: $WAVES_MEM, mochi: $MOCHI_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM"
+ISAO_MEM="$(calc_mem 8 128 768)M"
+log "memory limits — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
 
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
 
-tee ecosystem.config.cjs <<EOF
+tee ecosystem.config.cjs >/dev/null <<EOF
 module.exports = {
   apps: [
     {
-      name: "ask",
+      name: "tls-approval",
       script: "$BUN_BIN",
-      args: "run ask.js",
+      args: "run services/tls-approval/server.js",
       interpreter: "none",
       exec_mode: "fork",
       instances: 1,
@@ -879,9 +1224,9 @@ module.exports = {
       max_memory_restart: "256M"
     },
     {
-      name: "waves",
+      name: "lyra",
       script: "$BUN_BIN",
-      args: "start",
+      args: "server/prod.mjs",
       interpreter: "none",
       exec_mode: "fork",
       instances: 1,
@@ -889,36 +1234,26 @@ module.exports = {
       max_restarts: 5,
       min_uptime: 15000,
       kill_timeout: 10000,
-      max_memory_restart: "$WAVES_MEM",
+      max_memory_restart: "$LYRA_MEM",
       env: {
         NODE_ENV: "production",
-        PORT: "3000",
-        UV_THREADPOOL_SIZE: "32"
-      }
-    },
-    {
-      name: "mochi",
-      script: "./mochi/target/release/mochi", 
-      interpreter: "none", 
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      max_restarts: 10,
-      min_uptime: 10000,
-      kill_timeout: 5000,
-      max_memory_restart: "$MOCHI_MEM",
-      env: {
-        RUST_LOG: "warn",
-        MOCHI_PORT: "4000"
+        PORT: "4444",
+        MOCHI_ORIGIN: "http://127.0.0.1:4000",
+        WEBRTC_TURN_ENABLED: "1",
+        WEBRTC_FORCE_RELAY: "1",
+        TURN_HOST: "$TURN_HOST",
+        TURN_PORT: "$TURN_PORT",
+        TURN_USERNAME: "$TURN_USERNAME",
+        TURN_CREDENTIAL: "$TURN_CREDENTIAL"
       }
     },
     {
       name: "cloudsync",
-      script: "./target/release/cloudsync", 
-      cwd: "./cloudsync",
-      interpreter: "none", 
+      script: "./target/release/cloudsync",
+      cwd: "$ROOT/services/cloudsync",
+      interpreter: "none",
       exec_mode: "fork",
-      instances: 1, 
+      instances: 1,
       autorestart: true,
       max_memory_restart: "$CLOUDSYNC_MEM",
       max_restarts: 10,
@@ -926,17 +1261,17 @@ module.exports = {
       kill_timeout: 5000,
       env: {
         RUST_LOG: "warn",
-        CLOUDSYNC_DB_PATH: "$ROOT/cloudsync/.db"
+        CLOUDSYNC_DB_PATH: "$ROOT/services/cloudsync/.db"
       }
     },
 EOF
 if [ "$WG_ENABLED" -eq 0 ]; then
-    tee -a ecosystem.config.cjs <<EOF
+  tee -a ecosystem.config.cjs >/dev/null <<EOF
     {
       name: "nuru",
-      script: "/usr/local/bin/nuru", 
-      args: ["/etc/nuru/config.toml"], 
-      interpreter: "none", 
+      script: "/usr/local/bin/nuru",
+      args: ["/etc/nuru/config.toml"],
+      interpreter: "none",
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
@@ -946,15 +1281,34 @@ if [ "$WG_ENABLED" -eq 0 ]; then
       kill_timeout: 5000,
       env: {
         RUST_LOG: "off",
-        LD_PRELOAD: "/usr/lib/x86_64-linux-gnu/libjemalloc.so.2"
+        LD_PRELOAD: "$JEMALLOC_PATH"
       }
     },
 EOF
 fi
-tee -a ecosystem.config.cjs <<'EOF'
+tee -a ecosystem.config.cjs >/dev/null <<EOF
+    {
+      name: "isao",
+      script: "$ROOT/services/isao/target/release/isao",
+      interpreter: "none",
+      exec_mode: "fork",
+      instances: 1,
+      autorestart: true,
+      max_memory_restart: "$ISAO_MEM",
+      max_restarts: 10,
+      min_uptime: 10000,
+      kill_timeout: 5000,
+      env: {
+        RUST_LOG: "warn",
+        ISAO_PORT: "6001"
+      }
+    },
+EOF
+tee -a ecosystem.config.cjs >/dev/null <<'EOF'
   ]
 };
 EOF
+chmod 600 ecosystem.config.cjs
 
 sudo caddy fmt --overwrite /etc/caddy/Caddyfile
 sudo caddy validate --config /etc/caddy/Caddyfile
@@ -962,87 +1316,109 @@ sudo systemctl enable caddy >/dev/null 2>&1 || true
 sudo systemctl restart caddy
 
 if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-    sudo ufw allow 443/udp
-    sudo ufw allow 3478/tcp
-    sudo ufw allow 3478/udp
-    sudo ufw allow 49152:65535/udp
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw allow 443/udp
+  sudo ufw allow "$TURN_PORT"/tcp
+  sudo ufw allow "$TURN_PORT"/udp
+  sudo ufw allow 49152:65535/udp
 fi
-
 
 if [ ! -f .env ]; then
-    JWT_SECRET=$(openssl rand -hex 64)
-    SYNC_SECRET=$(openssl rand -hex 32)
-    echo "JWT_SECRET=$JWT_SECRET" > .env
-    echo "SYNC_SECRET=$SYNC_SECRET" >> .env
-    chmod 600 .env
+  JWT_SECRET=$(openssl rand -hex 64)
+  SYNC_SECRET=$(openssl rand -hex 32)
+  echo "JWT_SECRET=$JWT_SECRET" >.env
+  echo "SYNC_SECRET=$SYNC_SECRET" >>.env
+  chmod 600 .env
 else
-    if ! grep -q "JWT_SECRET" .env; then
-        JWT_SECRET=$(openssl rand -hex 64)
-        echo "" >> .env
-        echo "JWT_SECRET=$JWT_SECRET" >> .env
-    else
-        JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d '=' -f2)
-    fi
+  if ! grep -q "JWT_SECRET" .env; then
+    JWT_SECRET=$(openssl rand -hex 64)
+    echo "" >>.env
+    echo "JWT_SECRET=$JWT_SECRET" >>.env
+  else
+    JWT_SECRET=$(grep "^JWT_SECRET=" .env | cut -d '=' -f2)
+  fi
 
-    if ! grep -q "SYNC_SECRET" .env; then
-        SYNC_SECRET=$(openssl rand -hex 32)
-        echo "SYNC_SECRET=$SYNC_SECRET" >> .env
-    else
-        SYNC_SECRET=$(grep "^SYNC_SECRET=" .env | cut -d '=' -f2)
-    fi
+  if ! grep -q "SYNC_SECRET" .env; then
+    SYNC_SECRET=$(openssl rand -hex 32)
+    echo "SYNC_SECRET=$SYNC_SECRET" >>.env
+  else
+    SYNC_SECRET=$(grep "^SYNC_SECRET=" .env | cut -d '=' -f2)
+  fi
 fi
 
-if [ -d "cloudsync" ]; then
-    echo "JWT_SECRET=$JWT_SECRET" > cloudsync/.env
-    echo "SYNC_SECRET=$SYNC_SECRET" >> cloudsync/.env
-    echo "COOKIE_SECURE=true" >> cloudsync/.env
-    chmod 600 cloudsync/.env
-    if [ -f cloudsync/.env ]; then
-      log "cloudsync/.env applied!"
-    else
-      log "error: cloudsync/.env not found!"
-      exit 1
-    fi
+chmod 600 .env
+
+if [ -d "$ROOT/services/cloudsync" ]; then
+  echo "JWT_SECRET=$JWT_SECRET" >"$ROOT/services/cloudsync/.env"
+  echo "SYNC_SECRET=$SYNC_SECRET" >>"$ROOT/services/cloudsync/.env"
+  echo "COOKIE_SECURE=true" >>"$ROOT/services/cloudsync/.env"
+  chmod 600 "$ROOT/services/cloudsync/.env"
+  if [ -f "$ROOT/services/cloudsync/.env" ]; then
+    success "cloudsync environment applied"
+  else
+    fail "cloudsync environment was not created"
+    exit 1
+  fi
 fi
 
-if [ ! -f "cloudsync/.db" ]; then
-    touch cloudsync/.db
+if [ ! -f "$ROOT/services/cloudsync/.db" ]; then
+  touch "$ROOT/services/cloudsync/.db"
 fi
 
-if [ -f "cloudsync/.db" ]; then
-    chmod 600 cloudsync/.db
-  chmod 600 cloudsync/.db-shm 2>/dev/null || true
-  chmod 600 cloudsync/.db-wal 2>/dev/null || true
+if [ -f "$ROOT/services/cloudsync/.db" ]; then
+  chmod 600 "$ROOT/services/cloudsync/.db"
+  chmod 600 "$ROOT/services/cloudsync/.db-shm" 2>/dev/null || true
+  chmod 600 "$ROOT/services/cloudsync/.db-wal" 2>/dev/null || true
+fi
+
+sudo systemctl daemon-reload
+sudo systemctl enable mochi >/dev/null 2>&1
+sudo systemctl restart mochi
+if ! systemctl is-active --quiet mochi; then
+  fail "mochi failed to start"
+  sudo journalctl -u mochi --no-pager -n 30 >&2
+  exit 1
 fi
 
 "$PM2_BIN" start ecosystem.config.cjs --update-env
 "$PM2_BIN" save
 sudo env PATH="$PATH:$HOME/.bun/bin" "$PM2_BIN" startup systemd -u "$USER" --hp "$HOME" || true
+PM2_SYSTEMD_SERVICE="pm2-$USER.service"
+if systemctl cat "$PM2_SYSTEMD_SERVICE" >/dev/null 2>&1; then
+  sudo mkdir -p "/etc/systemd/system/$PM2_SYSTEMD_SERVICE.d"
+  cat <<EOF | sudo tee "/etc/systemd/system/$PM2_SYSTEMD_SERVICE.d/limits.conf" >/dev/null
+[Service]
+LimitNOFILE=1048576
+EOF
+  sudo systemctl daemon-reload
+  sudo systemctl restart "$PM2_SYSTEMD_SERVICE"
+fi
 
 if [ "$WG_ENABLED" -eq 1 ]; then
-    log "starting nuru systemd service..."
-    sudo systemctl daemon-reload
-    sudo systemctl enable nuru >/dev/null 2>&1 || true
-    sudo systemctl restart nuru 2>/dev/null || true
-    sleep 2
-    if systemctl is-active --quiet nuru; then
-        log "nuru systemd service running!"
-    else
-        log "warning: nuru systemd service failed to start!"
-        sudo journalctl -u nuru --no-pager -n 10 >&2
-    fi
+  log "starting nuru systemd service..."
+  sudo systemctl daemon-reload
+  sudo systemctl enable nuru >/dev/null 2>&1 || true
+  sudo systemctl restart nuru 2>/dev/null || true
+  sleep 2
+  if systemctl is-active --quiet nuru; then
+    success "nuru systemd service is running"
+  else
+    fail "nuru systemd service failed to start"
+    sudo journalctl -u nuru --no-pager -n 10 >&2
+  fi
 fi
 
+PM2_SVCS=(tls-approval lyra cloudsync isao)
 if [ "$WG_ENABLED" -eq 0 ]; then
-    PM2_SVCS="ask|waves|mochi|cloudsync|nuru"
-else
-    PM2_SVCS="ask|waves|mochi|cloudsync"
+  PM2_SVCS+=(nuru)
 fi
-if ! "$PM2_BIN" list | grep -Eq "$PM2_SVCS"; then
-  log "pm2 processes did not start correctly!"
-  exit 1
-fi
+for svc in "${PM2_SVCS[@]}"; do
+  if ! "$PM2_BIN" jlist | jq -e --arg name "$svc" \
+    '.[] | select(.name == $name and .pm2_env.status == "online")' >/dev/null; then
+    fail "pm2 service failed to start: $svc"
+    exit 1
+  fi
+done
 
-log "all done! your waves instance is now all setup and ready to be used!!!!"
+success "all don!! lyra is now up and running!!!!"

@@ -1,0 +1,229 @@
+#bookmarks-container {
+  margin-top: -55px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  z-index: 10;
+}
+
+.bookmarks-header {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 600px;
+  padding: 0 clamp(16px, 8vw, 59px);
+  margin-bottom: 10px;
+  margin-top: 5px;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+#bookmarks-title {
+  font-size: 15px;
+  color: var(--color-label);
+  font-weight: 400;
+  margin: 0;
+}
+
+#bookmarks-edit-toggle {
+  background-color: var(--bg-surface-3);
+  border: none;
+  color: var(--color-tab);
+  font-size: 11px;
+  font-weight: 400;
+  cursor: pointer;
+  padding: 5.5px 10px;
+  border-radius: 10px;
+  transition: color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+  user-select: none;
+}
+
+#bookmarks-edit-toggle:hover {
+  color: var(--text-white);
+  background-color: var(--active-bg);
+  transform: scale(1.05);
+}
+
+#bookmarks-edit-toggle:active {
+  transform: scale(1);
+}
+
+.bookmarks-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 739px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+#bookmarks-list {
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 10px clamp(16px, 17vw, 130px);
+  margin: 0;
+  list-style: none;
+  width: max-content;
+  min-width: 100%;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.bookmark-item,
+.bookmark-item-add {
+  position: relative;
+  list-style: none;
+}
+
+.bookmark-link {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 78px;
+  height: 78px;
+  background-color: var(--bg-surface-3);
+  border-radius: 15px;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.1s ease, transform 0.1s ease;
+  padding: 5px;
+  word-break: break-all;
+}
+
+.bookmark-link:hover {
+  background-color: var(--bg-surface-5);
+  transform: scale(1.05);
+}
+
+.bookmark-icon {
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  background-color: var(--bg-surface-7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.bookmark-icon-img {
+  width: 50%;
+  height: 50%;
+  object-fit: contain;
+  display: block;
+  image-rendering: auto;
+}
+
+.bookmark-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 10px;
+  max-width: 70px;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.bookmark-delete-trigger,
+.bookmark-edit-trigger {
+  display: none;
+  position: absolute;
+  top: -7px;
+  background: var(--bg-surface-5);
+  border: none;
+  color: var(--color-close-btn);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 11px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.1s ease, transform 0.1s ease;
+  z-index: 10;
+}
+
+.bookmark-delete-trigger {
+  right: -6px;
+}
+
+.bookmark-edit-trigger {
+  right: 20px;
+}
+
+.bookmark-delete-trigger:hover,
+.bookmark-edit-trigger:hover {
+  color: var(--text-white);
+  transform: scale(1.1);
+}
+
+.bookmarks-edit-mode .bookmark-delete-trigger,
+.bookmarks-edit-mode .bookmark-edit-trigger {
+  display: flex;
+}
+
+.bookmarks-edit-mode .bookmark-link {
+  pointer-events: none;
+  opacity: 0.6;
+  transition: opacity 0.1s ease;
+}
+
+#add-bookmark-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  background-color: #0c0c0c00;
+  border: 1.5px dashed var(--border-dashed);
+  border-radius: 20px;
+  color: var(--color-tab);
+  cursor: pointer;
+  transition: border-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
+  font-size: 24px;
+  position: relative;
+}
+
+#add-bookmark-btn:hover {
+  border: 1.5px dashed var(--border-dashed-hover);
+  color: var(--text-white);
+  transform: scale(1.05);
+}
+
+.bookmark-icon.skeleton {
+  position: relative;
+  background: var(--skeleton-from);
+}
+
+.bookmark-icon.skeleton::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--skeleton-from) 0%, var(--skeleton-via) 50%, var(--skeleton-to) 100%);
+  transform: translate3d(100%, 0, 0);
+  animation: skeleton-transform 1s infinite linear;
+  will-change: transform;
+}
+
+.bookmark-icon img {
+  transition: opacity 0.1s ease;
+  opacity: 0;
+}
+
+.bookmark-icon:not(.skeleton) img {
+  opacity: 1;
+}

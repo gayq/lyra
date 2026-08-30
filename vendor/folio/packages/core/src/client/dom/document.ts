@@ -1,0 +1,141 @@
+import { IncrementalHtmlRewriter, rewriteHtml } from "@rewriters/html";
+import { FolioClient } from "@client/index";
+import { String, _URL } from "@/shared/snapshot";
+import { createReferrerString } from "@/fetch/util";
+
+export default function (client: FolioClient, _self: Self) {
+	function resetDocumentWriter(document: Document) {
+		client.box.writeRewriters.delete(document);
+	}
+
+	function getDocumentWriter(document: Document) {
+		let writer = client.box.writeRewriters.get(document);
+		if (!writer) {
+			writer = new IncrementalHtmlRewriter(client.context, client.meta, {
+				loadScripts: false,
+				inline: true,
+				source: client.url.href,
+				apisource: "Document.prototype.write",
+			});
+			client.box.writeRewriters.set(document, writer);
+		}
+
+		return writer;
+	}
+
+	client.Proxy("Document.prototype.open", {
+		apply(ctx) {
+			resetDocumentWriter(ctx.this);
+		},
+	});
+
+	client.Proxy("Document.prototype.write", {
+		apply(ctx) {
+			const writer = getDocumentWriter(ctx.this);
+			ctx.return(
+				client.natives.call(
+					"Document.prototype.write",
+					ctx.this,
+					writer.write(ctx.args.join(""))
+				)
+			);
+		},
+	});
+
+	client.Proxy("Document.prototype.writeln", {
+		apply(ctx) {
+			const writer = getDocumentWriter(ctx.this);
+			ctx.return(
+				client.natives.call(
+					"Document.prototype.write",
+					ctx.this,
+					writer.write(ctx.args.join("") + "\n")
+				)
+			);
+		},
+	});
+
+	client.Proxy("Document.prototype.close", {
+		apply(ctx) {
+			const writer = client.box.writeRewriters.get(ctx.this);
+			if (!writer) {
+				return;
+			}
+
+			try {
+				const remaining = writer.end();
+				if (remaining) {
+					client.natives.call("Document.prototype.write", ctx.this, remaining);
+				}
+			} finally {
+				resetDocumentWriter(ctx.this);
+			}
+		},
+	});
+
+	client.Proxy("Document.parseHTMLUnsafe", {
+		apply(ctx) {
+			const html = String(ctx.args[0]);
+			ctx.args[0] = rewriteHtml(html, client.context, client.meta, {
+				loadScripts: false,
+				inline: true,
+				source: client.url.href,
+				apisource: "Document.prototype.parseHTMLUnsafe",
+			});
+		},
+	});
+	
+	client.Trap("Document.prototype.domain", {
+		get() {
+			return client.url.hostname;
+		},
+		set() {
+			return false;
+		},
+	});
+
+	client.Trap("Document.prototype.documentURI", {
+		get() {
+			return client.url.href;
+		},
+		set() {
+			return false;
+		},
+	});
+
+	client.Trap("Document.prototype.URL", {
+		get() {
+			return client.url.href;
+		},
+		set() {
+			return false;
+		},
+	});
+
+	client.Trap("Document.prototype.referrer", {
+		get() {
+			if (!client.history) return "";
+			if (client.history.length < 2) return "";
+			const lastState = client.history[client.history.length - 2];
+			const referrerURL = new _URL(lastState.url);
+			return createReferrerString(
+				referrerURL,
+				client.url,
+				lastState.refererPolicy
+			);
+		},
+	});
+
+	client.Proxy(
+		["Document.prototype.querySelector", "Document.prototype.querySelectorAll"],
+		{
+			apply(ctx) {
+				ctx.args[0] = String(ctx.args[0]).replace(
+					/((?:^|\s)\b\w+\[(?:src|href|data-href))[\^]?(=['"]?(?:https?[:])?\/\/)/,
+					"$1*$2"
+				);
+			},
+		}
+	);
+
+}

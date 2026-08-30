@@ -1,10 +1,10 @@
+
 importScripts(
   "./sw/constants.js",
   "./sw/state.js",
   "./sw/init.js",
   "./sw/utils.js",
   "./sw/decode.js",
-  "./sw/adblock.js",
   "./sw/inject.js",
   "./sw/network.js",
   "./sw/messaging.js",

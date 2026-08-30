@@ -1,0 +1,37 @@
+{
+	"name": "@mercuryworkshop/folio-utils",
+	"version": "0.0.3",
+	"description": "Utilities for Folio proxy integrations",
+	"type": "module",
+	"packageManager": "pnpm@10.12.1",
+	"license": "AGPL-3.0-only",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/MercuryWorkshop/folio.git",
+		"directory": "packages/utils"
+	},
+	"main": "./dist/folio-utils-external.mjs",
+	"module": "./dist/folio-utils-external.mjs",
+	"types": "./dist/types/typesEntry.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/types/typesEntry.d.ts",
+			"default": "./dist/folio-utils-external.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "cd ../.. && rspack build --mode production",
+		"prepack": "pnpm run build"
+	},
+	"peerDependencies": {
+		"@mercuryworkshop/folio": "*",
+		"@mercuryworkshop/folio-controller": "*"
+	},
+	"devDependencies": {
+		"@mercuryworkshop/folio": "workspace:*",
+		"@mercuryworkshop/folio-controller": "workspace:*"
+	}
+}

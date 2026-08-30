@@ -1,0 +1,46 @@
+body.games-view .games-topbar {
+  justify-content: center;
+}
+
+.game-grid-container {
+  margin-top: -80px;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(130px, 100%), 1fr));
+  gap: 8px;
+}
+
+.game-card {
+  min-height: 70px;
+  aspect-ratio: 1 / 1.05;
+  contain-intrinsic-size: 100px 105px;
+}
+
+.game-info h1 {
+  position: relative;
+  z-index: 2;
+}
+
+.game-info {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 8px;
+  box-sizing: border-box;
+  opacity: 1;
+  transition: opacity 100ms ease;
+  z-index: 2;
+}
+
+.game-card:hover .game-info {
+  opacity: 1;
+}
+
+.game-card.skeleton-card .game-info {
+  opacity: 1;
+  gap: 6px;
+}

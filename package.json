@@ -1,33 +1,43 @@
 {
-  "name": "waves",
-  "version": "3.6.4",
+  "name": "lyra",
+  "version": "0.0.1",
   "description": "a really cool web-proxy",
   "type": "module",
-  "packageManager": "bun@1.2.17",
+  "license": "AGPL-3.0-or-later",
+  "packageManager": "bun@1.4.0",
   "engines": {
-    "bun": ">=1.0.0"
+    "bun": ">=1.4.0 <1.5.0"
   },
   "scripts": {
-    "start": "UV_THREADPOOL_SIZE=32 NODE_ENV=production bun index.mjs",
-    "dev": "UV_THREADPOOL_SIZE=32 NODE_ENV=development bun index.mjs",
+    "build-folio": "bun scripts/build-folio.mjs",
+    "build-rivet": "bun scripts/build-rivet.mjs",
+    "build-proxy": "bun run build-folio && bun run build-rivet",
+    "audit-build": "bun scripts/audit-build.mjs",
+    "bench:backend": "bun scripts/backend-load.mjs",
+    "dev:turn": "docker compose -f services/turn/compose.yml up",
+    "start": "bun run build-proxy && NODE_ENV=production bun server/prod.mjs",
+    "dev": "bun run build-proxy && NODE_ENV=development bun server/dev.mjs",
+    "dev:web": "bun run build-proxy && DEV_AUTOSTART=0 NODE_ENV=development bun server/dev.mjs",
+    "typecheck": "tsc --noEmit && bun run typecheck:rivet && bun run typecheck:folio",
+    "typecheck:rivet": "tsc --noEmit --project packages/rivet/tsconfig.json && tsc --noEmit --project packages/rivet/tsconfig.worker.json",
+    "typecheck:folio": "tsc --noEmit --project vendor/folio/tsconfig.json && tsc --noEmit --emitDeclarationOnly false --project vendor/folio/packages/core/tsconfig.json && bun run typecheck:folio:core-api && tsc --project vendor/folio/packages/controller/tsconfig.json && bun run typecheck:folio:controller-api && tsc --project vendor/folio/packages/utils/tsconfig.json",
+    "typecheck:folio:core-api": "tsc --project vendor/folio/packages/core/tsconfig.types.json && vendor/folio/node_modules/.bin/tsc-alias --project vendor/folio/packages/core/tsconfig.types.json",
+    "typecheck:folio:controller-api": "tsc --project vendor/folio/packages/controller/tsconfig.types.json",
     "lint": "eslint .",
-    "build": "vite build --config vite.config.js",
-    "build:legacy": "bun build.mjs",
-    "postinstall": "bun others/patch.js"
+    "build": "bun run build-proxy && vite build --config vite.config.js && bun run audit-build",
+    "postinstall": "bun scripts/patch-dependencies.mjs"
   },
   "dependencies": {
     "@mercuryworkshop/bare-mux": "latest",
     "@mercuryworkshop/epoxy-transport": "latest",
     "@mercuryworkshop/libcurl-transport": "latest",
+    "@mercuryworkshop/proxy-transports": "1.0.2",
     "@preact/preset-vite": "^2.10.5",
     "@preact/signals": "^2.9.0",
-    "compression": "^1.7.4",
-    "cookie-parser": "^1.4.7",
     "dotenv": "^16.4.5",
     "express": "^5.0.0-beta.3",
-    "express-rate-limit": "^7.3.1",
-    "helmet": "^7.1.0",
-    "lru-cache": "^11.1.0",
+    "hls.js": "^1.6.17",
+    "jszip": "^3.10.1",
     "preact": "^10.29.1",
     "vite": "^8.0.8",
     "zustand": "^5.0.12"
@@ -35,8 +45,8 @@
   "devDependencies": {
     "eslint": "^9.5.0",
     "javascript-obfuscator": "^5.0.1",
-    "prettier": "^3.8.2",
+    "knip": "^6.33.0",
     "terser": "^5.46.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

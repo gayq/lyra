@@ -1,0 +1,35 @@
+import { rewriteBlob, unrewriteBlob } from "@rewriters/url";
+import { FolioClient } from "@client/index";
+import { String } from "@/shared/snapshot";
+
+export default function (client: FolioClient) {
+	// hide the origin from object urls from the page
+	client.Proxy("URL.createObjectURL", {
+		apply(ctx) {
+			const url = ctx.call();
+			if (url.startsWith("blob:")) {
+				ctx.return(rewriteBlob(url, client.context, client.meta));
+			} else {
+				ctx.return(url);
+			}
+		},
+	});
+
+	client.Proxy("URL.revokeObjectURL", {
+		apply(ctx) {
+			setTimeout(() => {
+				// folio rewrites blob urls to pass through the service worker first
+				// this is neccesary if rewrites need to be applied to the blob
+				// the issue is that if you call revokeObjectURL immediately after using the blob
+				// the service worker will not have had time to download the blob
+				// for some reason this is not an issue natively
+				// simple delay is enough
+				// TODO: find a way to make this not necessary
+				const url = String(ctx.args[0]);
+				ctx.args[0] = unrewriteBlob(url, client.context, client.meta);
+				ctx.call();
+			}, 1000);
+			ctx.return(undefined);
+		},
+	});
+}

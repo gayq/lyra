@@ -1,0 +1,53 @@
+.episode-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 6px;
+}
+
+.episode-selector-button {
+  min-height: 0;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color 0.1s ease,
+    transform 0.1s ease;
+}
+
+.episode-selector-button:not(:disabled):hover {
+  position: relative;
+  z-index: 1;
+  background: color-mix(in srgb, var(--accent-color) 8%, transparent);
+  transform: scale(1.05);
+}
+
+.episode-selector-button:active {
+  transform: scale(1);
+}
+
+.episode-selector-button.is-active {
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--text-primary);
+}
+
+.episode-selector-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+  transform: none;
+}
+
+.episode-selector-button:disabled:hover {
+  background: var(--bg-surface-2);
+  transform: none;
+}

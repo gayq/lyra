@@ -1,8 +1,16 @@
-if (isScramjet) {
-  importScripts("/b/s/jetty.all.js");
-  const { ScramjetServiceWorker } = $scramjetLoadWorker();
-  scramjet = new ScramjetServiceWorker();
-} else if (isUltraviolet) {
-  importScripts("/b/u/bunbun.js", "/b/u/concon.js", "/b/u/serser.js");
-  uv = new UVServiceWorker();
+if (isFolio) {
+  importScripts("/b/fl/controller.sw.js");
+  folio = self.$folioController;
+}
+
+let rivetRouter = null;
+try {
+  importScripts("/b/rv/router.js");
+  rivetRouter = self.$rivetRouter || null;
+} catch (error) {
+  console.error(
+    "failed to load rivet service-worker router:",
+    error,
+    NEGATIVE,
+  );
 }

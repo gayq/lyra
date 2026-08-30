@@ -1,26 +1,68 @@
 import path from "path";
-import { readdir } from "fs/promises";
-import { brotliCompressSync, constants as zlibConstants } from "zlib";
+import { cp, mkdir, readFile, readdir, writeFile } from "fs/promises";
+import { brotliCompressSync, constants as zlibConstants, gzipSync, } from "zlib";
+import { createHash } from "crypto";
 import JavaScriptObfuscator from "javascript-obfuscator";
+import { createSourceBuildId } from "./build-id.mjs";
 
 const { obfuscate } = JavaScriptObfuscator;
 
-const CONFIG = {
+const SENSITIVE_TERM = /(games?|anime|proxy|rivet|folio|lyra)/i;
+const SENSITIVE_STRING_PATTERN =
+  "[Gg]ames?|[Aa]nime|[Pp]roxy|[Rr]ivet|[Ff]olio|[Ll]yra";
+const ZERO_MATCH_TERM = /games?|proxy/gi;
+
+const OBFUSCATION_OPTIONS = {
   compact: true,
   controlFlowFlattening: false,
   deadCodeInjection: false,
   debugProtection: false,
-  disableConsoleOutput: true,
+  disableConsoleOutput: false,
+  forceTransformStrings: [SENSITIVE_STRING_PATTERN],
   identifierNamesGenerator: "mangled",
   log: false,
   renameGlobals: true,
   renameVariables: true,
   selfDefending: false,
-  stringArray: false,
+  stringArray: true,
+  stringArrayCallsTransform: false,
+  stringArrayEncoding: ["base64"],
+  stringArrayThreshold: 1,
   splitStrings: false,
   transformObjectKeys: false,
   unicodeEscapeSequence: false,
 };
+
+const RUNTIME_OBFUSCATION_OPTIONS = {
+  ...OBFUSCATION_OPTIONS,
+  renameGlobals: false,
+  renameVariables: false,
+};
+
+const BASIC_OBFUSCATION_OPTIONS = {
+  ...OBFUSCATION_OPTIONS,
+  forceTransformStrings: [],
+  stringArray: false,
+  stringArrayEncoding: [],
+};
+
+const RUNTIME_ASSETS = [
+  { logicalPath: "/b/fl/folio.js", source: ["public", "b", "fl", "folio.js"] },
+  {
+    logicalPath: "/b/fl/controller.inject.js",
+    source: ["public", "b", "fl", "controller.inject.js"],
+  },
+  {
+    logicalPath: "/b/fl/controller.sw.js",
+    source: ["public", "b", "fl", "controller.sw.js"],
+  },
+  { logicalPath: "/b/fl/folio.wasm", source: ["public", "b", "fl", "folio.wasm"] },
+  { logicalPath: "/b/rv/router.js", source: ["public", "b", "rv", "router.js"] },
+  {
+    logicalPath: "/b/rivet/ublock.crx",
+    source: ["packages", "rivet", "extensions", "ublock.crx"],
+  },
+];
 
 const SW_MODULES = [
   "constants.js",
@@ -28,26 +70,140 @@ const SW_MODULES = [
   "init.js",
   "utils.js",
   "decode.js",
-  "adblock.js",
   "inject.js",
   "network.js",
   "messaging.js",
   "handler.js",
 ];
 
-export default function wavesPlugin() {
-  const buildId = new Bun.CryptoHasher("sha1").update(Date.now() + Math.random().toString()).digest("hex").slice(0, 8);
-  let distDir;
-  let swSrcDir;
+function stripSourceMapComments(source) {
+  return source
+    .replace(/^\s*\/\/[#@]\s*sourceMappingURL=.*$/gm, "")
+    .replace(/\/\*[#@]\s*sourceMappingURL=.*?\*\//gs, "");
+}
+
+export function encodeBuildLexemes(source) {
+  return source.replace(ZERO_MATCH_TERM, (match) => {
+    const escapedCharacter = match.charCodeAt(1).toString(16).padStart(4, "0");
+    return `${match[0]}\\u${escapedCharacter}${match.slice(2)}`;
+  });
+}
+
+export function obfuscateSource(source, options, identifiersPrefix) {
+  const compatibleSource = source.replaceAll("(?i:url)", "[uU][rR][lL]");
+  return encodeBuildLexemes(
+    obfuscate(compatibleSource, {
+      ...options,
+      ...(identifiersPrefix ? { identifiersPrefix } : {}),
+    }).getObfuscatedCode(),
+  );
+}
+
+function obfuscationPrefix(buildId, scope) {
+  return `x${createHash("sha256")
+    .update(`${buildId}\0${scope}\0obfuscation`)
+    .digest("hex")
+    .slice(0, 10)}`;
+}
+
+function opaqueFileName(logicalPath, buildId) {
+  const extension = path.extname(logicalPath);
+  const hash = createHash("sha256")
+    .update(`${buildId}\0${logicalPath}`)
+    .digest("hex")
+    .slice(0, 12);
+  return `b/${hash}${extension}`;
+}
+
+function addSensitiveToken(tokens, token) {
+  if (SENSITIVE_TERM.test(token)) tokens.add(token);
+}
+
+export function createCssTokenMap(cssSources, salt) {
+  const tokens = new Set();
+
+  for (const source of cssSources) {
+    for (const match of source.matchAll(/([^{}]+)\{/g)) {
+      const header = match[1].trim();
+      if (header.startsWith("@")) continue;
+      for (const selector of header.matchAll(/[.#]([_a-zA-Z][\w-]*)/g)) {
+        addSensitiveToken(tokens, selector[1]);
+      }
+    }
+
+    for (const customProperty of source.matchAll(/--([_a-zA-Z][\w-]*)/g)) {
+      addSensitiveToken(tokens, `--${customProperty[1]}`);
+    }
+    for (const keyframes of source.matchAll(
+      /@(?:-webkit-)?keyframes\s+([_a-zA-Z][\w-]*)/g,
+    )) {
+      addSensitiveToken(tokens, keyframes[1]);
+    }
+  }
+
+  return new Map(
+    [...tokens].map((token) => {
+      const hash = createHash("sha256")
+        .update(`${salt}\0${token}`)
+        .digest("hex")
+        .slice(0, 10);
+      return [token, token.startsWith("--") ? `--x${hash}` : `x${hash}`];
+    }),
+  );
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function rewriteBuildTokens(source, tokenMap, pathAliases = new Map()) {
+  let rewritten = source;
+  for (const [logicalPath, emittedPath] of pathAliases) {
+    rewritten = rewritten.split(logicalPath).join(emittedPath);
+  }
+  for (const [token, replacement] of [...tokenMap].sort(
+    ([left], [right]) => right.length - left.length,
+  )) {
+    rewritten = rewritten.replace(
+      new RegExp(
+        `(?<![A-Za-z0-9_-])${escapeRegExp(token)}(?![A-Za-z0-9_-])`,
+        "g",
+      ),
+      replacement,
+    );
+  }
+  return rewritten;
+}
+
+function containsAppCode(chunk, projectRoot) {
+  const appRoot = path.join(projectRoot, "src") + path.sep;
+  const rivetRoot = path.join(projectRoot, "packages", "rivet") + path.sep;
+  return Object.keys(chunk.modules ?? {}).some(
+    (moduleId) => moduleId.startsWith(appRoot) || moduleId.startsWith(rivetRoot),
+  );
+}
+
+export default function lyraPlugin() {
+  const buildId = createSourceBuildId(process.cwd());
+  let outputDirectory;
+  let serviceWorkerSourceDirectory;
   let projectRoot;
 
   return {
-    name: "waves-build",
+    name: "lyra-build",
     enforce: "post",
 
+    config(_config, { command }) {
+      return {
+        define: {
+          __LYRA_BUILD_ID__: JSON.stringify(command === "build" ? buildId : ""),
+        },
+      };
+    },
+
     configResolved(config) {
-      distDir = path.resolve(config.root, config.build.outDir);
-      swSrcDir = path.join(config.root, "b", "sw");
+      outputDirectory = path.resolve(config.root, config.build.outDir);
+      serviceWorkerSourceDirectory = path.join(config.root, "b", "sw");
       projectRoot = path.resolve(config.root, "..");
     },
 
@@ -63,70 +219,189 @@ export default function wavesPlugin() {
         }
       }
 
-      const modSources = await Promise.all(
-        SW_MODULES.map((mod) => Bun.file(path.join(swSrcDir, mod)).text()),
+      await mkdir(path.join(outputDirectory, "b"), { recursive: true });
+
+      const cssFiles = Object.entries(bundle)
+        .filter(
+          ([fileName, output]) =>
+            output.type === "asset" && fileName.endsWith(".css"),
+        )
+        .map(([fileName]) => path.join(outputDirectory, fileName));
+      const cssSources = await Promise.all(
+        cssFiles.map((filePath) => readFile(filePath, "utf8")),
       );
-      let swCode = modSources.join("\n");
-      swCode = swCode
+      const cssTokenMap = createCssTokenMap(cssSources, buildId);
+
+      const pathAliases = new Map(
+        RUNTIME_ASSETS.map(({ logicalPath }) => [
+          logicalPath,
+          `/${opaqueFileName(logicalPath, buildId)}`,
+        ]),
+      );
+      const runtimeBundleFileName = opaqueFileName("/b/all.js", buildId);
+      pathAliases.set("/b/all.js", `/${runtimeBundleFileName}`);
+
+      for (const { logicalPath, source } of RUNTIME_ASSETS) {
+        const sourcePath = path.join(projectRoot, ...source);
+        const emittedPath = path.join(
+          outputDirectory,
+          pathAliases.get(logicalPath).slice(1),
+        );
+        let contents;
+        try {
+          contents = await readFile(sourcePath);
+        } catch {
+          throw new Error("required runtime artifact is missing... /ᐠ - ˕ -マ");
+        }
+
+        if (logicalPath.endsWith(".js")) {
+          const sourceCode = rewriteBuildTokens(
+            stripSourceMapComments(contents.toString("utf8")),
+            cssTokenMap,
+            pathAliases,
+          );
+          contents = obfuscateSource(
+            sourceCode,
+            RUNTIME_OBFUSCATION_OPTIONS,
+            obfuscationPrefix(buildId, logicalPath),
+          );
+        }
+        await writeFile(emittedPath, contents);
+      }
+
+      const bundleInputPaths = [
+        path.join(
+          projectRoot,
+          "node_modules",
+          "@mercuryworkshop",
+          "bare-mux",
+          "dist",
+          "index.js",
+        ),
+        path.join(projectRoot, "public", "b", "fl", "folio.js"),
+        path.join(projectRoot, "public", "b", "fl", "controller.api.js"),
+        path.join(projectRoot, "public", "b", "fl", "folio-utils.js"),
+      ];
+      const bundleParts = [];
+      for (const bundleInputPath of bundleInputPaths) {
+        try {
+          const sourceCode = stripSourceMapComments(
+            (await readFile(bundleInputPath, "utf8")).replace(/\r\n/g, "\n"),
+          ).trim();
+          bundleParts.push(sourceCode);
+        } catch {
+          throw new Error("required runtime bundle is missing... /ᐠ - ˕ -マ");
+        }
+      }
+      const runtimeBundle = rewriteBuildTokens(
+        bundleParts.join(";\n"),
+        cssTokenMap,
+        pathAliases,
+      );
+      await writeFile(
+        path.join(outputDirectory, runtimeBundleFileName),
+        obfuscateSource(
+          runtimeBundle,
+          RUNTIME_OBFUSCATION_OPTIONS,
+          obfuscationPrefix(buildId, "/b/all.js"),
+        ),
+      );
+
+      const moduleSources = await Promise.all(
+        SW_MODULES.map((moduleName) =>
+          readFile(path.join(serviceWorkerSourceDirectory, moduleName), "utf8"),
+        ),
+      );
+      let serviceWorkerCode = moduleSources.join("\n");
+      serviceWorkerCode = serviceWorkerCode
         .replace(/__BUILD_ID__/g, buildId)
         .replace(
           /(['"])__PRECACHE_ASSETS__\1/g,
           JSON.stringify(precacheAssets),
         );
+      serviceWorkerCode = rewriteBuildTokens(
+        serviceWorkerCode,
+        cssTokenMap,
+        pathAliases,
+      );
 
-      const swObf = obfuscate(swCode, CONFIG).getObfuscatedCode();
-      const swHash = new Bun.CryptoHasher("md5")
-        .update(swObf)
+      const obfuscatedServiceWorker = obfuscateSource(
+        serviceWorkerCode,
+        OBFUSCATION_OPTIONS,
+        obfuscationPrefix(buildId, "/b/sw.js"),
+      );
+      const serviceWorkerHash = createHash("md5")
+        .update(obfuscatedServiceWorker)
         .digest("hex")
         .slice(0, 10);
-      const swFileName = `b/${swHash}.js`;
+      const serviceWorkerFileName = `b/${serviceWorkerHash}.js`;
+      pathAliases.set("/b/sw.js", `/${serviceWorkerFileName}`);
 
-      await Bun.write(path.join(distDir, "build-meta.json"), JSON.stringify({ build: buildId }));
-      await Bun.write(path.join(distDir, swFileName), swObf);
+      await writeFile(
+        path.join(outputDirectory, "build-meta.json"),
+        JSON.stringify({ build: buildId }),
+      );
+      await writeFile(
+        path.join(outputDirectory, serviceWorkerFileName),
+        obfuscatedServiceWorker,
+      );
 
       for (const [fileName, chunk] of Object.entries(bundle)) {
+        if (chunk.type === "asset" && /\.(css|html)$/.test(fileName)) {
+          const filePath = path.join(outputDirectory, fileName);
+          const sourceCode = await readFile(filePath, "utf8");
+          await writeFile(
+            filePath,
+            rewriteBuildTokens(sourceCode, cssTokenMap, pathAliases),
+          );
+          continue;
+        }
         if (chunk.type !== "chunk") continue;
-        const filePath = path.join(distDir, fileName);
-        let code;
+        const filePath = path.join(outputDirectory, fileName);
+        let sourceCode;
         try {
-          code = await Bun.file(filePath).text();
+          sourceCode = await readFile(filePath, "utf8");
         } catch {
           continue;
         }
 
-        code = obfuscate(code, {
-          ...CONFIG,
-          reservedStrings: ["./b/sw.js", "/b/sw.js"],
-        }).getObfuscatedCode();
+        sourceCode = rewriteBuildTokens(
+          sourceCode,
+          cssTokenMap,
+          pathAliases,
+        );
+        sourceCode = obfuscateSource(
+          sourceCode,
+          containsAppCode(chunk, projectRoot)
+            ? OBFUSCATION_OPTIONS
+            : BASIC_OBFUSCATION_OPTIONS,
+          obfuscationPrefix(buildId, fileName),
+        );
 
-        code = code
-          .replace(/(['"`])\.\/b\/sw\.js\1/g, `$1./${swFileName}$1`)
-          .replace(/(['"`])\/b\/sw\.js\1/g, `$1/${swFileName}$1`);
-
-        await Bun.write(filePath, code);
+        await writeFile(filePath, sourceCode);
       }
 
-      const compressJobs = [];
+      const compressionJobs = [];
 
-      async function scanDir(dir) {
-        const entries = await readdir(dir, { withFileTypes: true });
+      async function collectCompressionJobs(directory) {
+        const entries = await readdir(directory, { withFileTypes: true });
         await Promise.all(
           entries.map(async (entry) => {
-            const fullPath = path.join(dir, entry.name);
+            const filePath = path.join(directory, entry.name);
             if (entry.isDirectory()) {
-              await scanDir(fullPath);
+              await collectCompressionJobs(filePath);
             } else if (/\.(js|css|html|mjs)$/.test(entry.name)) {
-              const buf = await Bun.file(fullPath).arrayBuffer();
-              compressJobs.push(
+              const contents = await readFile(filePath);
+              compressionJobs.push(
                 Promise.resolve().then(async () => {
-                  const br = brotliCompressSync(new Uint8Array(buf), {
+                  const brotli = brotliCompressSync(contents, {
                     params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
                   });
-                  await Bun.write(fullPath + ".br", br);
+                  await writeFile(filePath + ".br", brotli);
                 }),
                 Promise.resolve().then(async () => {
-                  const gz = Bun.gzipSync(buf, { level: 9 });
-                  await Bun.write(fullPath + ".gz", gz);
+                  const gzip = gzipSync(contents, { level: 9 });
+                  await writeFile(filePath + ".gz", gzip);
                 }),
               );
             }
@@ -134,32 +409,25 @@ export default function wavesPlugin() {
         );
       }
 
-      const bundleInputs = [
-        path.join(projectRoot, "node_modules", "@mercuryworkshop", "bare-mux", "dist", "index.js"),
-        path.join(projectRoot, "public", "b", "s", "jetty.all.js"),
-        path.join(projectRoot, "public", "b", "u", "bunbun.js"),
-        path.join(projectRoot, "public", "b", "u", "concon.js"),
-      ];
-      const pieces = [];
-      for (const p of bundleInputs) {
-        try {
-          let code = await Bun.file(p).text();
-          code = code.replace(/\r\n/g, "\n");
-          code = code.replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim();
-          pieces.push(code);
-        } catch {}
-      }
-      if (pieces.length > 0) {
-        await Bun.write(path.join(distDir, "b", "all.js"), pieces.join(";\n"));
-      }
+      await Promise.all(
+        ["images"].map(async (assetDirectory) => {
+          try {
+            await cp(
+              path.join(projectRoot, "src", "assets", assetDirectory),
+              path.join(outputDirectory, "assets", assetDirectory),
+              { recursive: true },
+            );
+          } catch {}
+        }),
+      );
 
-      await scanDir(distDir);
-      await Promise.all(compressJobs);
+      await collectCompressionJobs(outputDirectory);
+      await Promise.all(compressionJobs);
 
-      console.log(`\nbuild id:  ${buildId}`);
-      console.log(`sw:        /${swFileName}`);
-      console.log(`bundle:    ${pieces.length === 4 ? "concatenated" : pieces.length + "/4"}`);
-      console.log(`precache:  ${precacheAssets.length} asset(s)`);
+      console.log(`\nbuild id: ${buildId}`);
+      console.log(`sw: /${serviceWorkerFileName}`);
+      console.log(`bundle: /${runtimeBundleFileName}`);
+      console.log(`precache: ${precacheAssets.length} asset(s)`);
     },
   };
 }

@@ -1,0 +1,106 @@
+import { rewriteCss, unrewriteCss } from "@rewriters/css";
+import { FolioClient } from "@client/index";
+import { Reflect_apply, Reflect_get, Reflect_set } from "@/shared/snapshot";
+
+export default function (client: FolioClient) {
+	client.Proxy("CSSStyleDeclaration.prototype.setProperty", {
+		apply(ctx) {
+			if (!ctx.args[1]) return;
+			ctx.args[1] = rewriteCss(ctx.args[1], client.context, client.meta);
+		},
+	});
+
+	client.Proxy("CSSStyleDeclaration.prototype.getPropertyValue", {
+		apply(ctx) {
+			const v = ctx.call();
+			if (!v) return v;
+			ctx.return(unrewriteCss(v, client.context));
+		},
+	});
+
+	client.Trap("CSSStyleDeclaration.prototype.cssText", {
+		set(ctx, value: string) {
+			ctx.set(rewriteCss(value, client.context, client.meta));
+		},
+		get(ctx) {
+			return unrewriteCss(ctx.get(), client.context);
+		},
+	});
+
+	client.Proxy("CSSStyleSheet.prototype.insertRule", {
+		apply(ctx) {
+			ctx.args[0] = rewriteCss(ctx.args[0], client.context, client.meta);
+		},
+	});
+
+	client.Proxy("CSSStyleSheet.prototype.replace", {
+		apply(ctx) {
+			ctx.args[0] = rewriteCss(ctx.args[0], client.context, client.meta);
+		},
+	});
+
+	client.Proxy("CSSStyleSheet.prototype.replaceSync", {
+		apply(ctx) {
+			ctx.args[0] = rewriteCss(ctx.args[0], client.context, client.meta);
+		},
+	});
+
+	client.Trap("CSSRule.prototype.cssText", {
+		set(ctx, value: string) {
+			ctx.set(rewriteCss(value, client.context, client.meta));
+		},
+		get(ctx) {
+			return unrewriteCss(ctx.get(), client.context);
+		},
+	});
+
+	client.Proxy("CSSStyleValue.parse", {
+		apply(ctx) {
+			if (!ctx.args[1]) return;
+			ctx.args[1] = rewriteCss(ctx.args[1], client.context, client.meta);
+		},
+	});
+
+	client.Trap("HTMLElement.prototype.style", {
+		get(ctx) {
+			// unfortunate and dumb hack. we have to trap every property of this
+			// since the prototype chain is fucked
+
+			const style = ctx.get() as CSSStyleDeclaration;
+
+			return new Proxy(style, {
+				get(target, prop) {
+					const value = Reflect_get(target, prop);
+
+					if (typeof value === "function") {
+						return new Proxy(value, {
+							apply(target, that, args) {
+								return Reflect_apply(target, style, args);
+							},
+						});
+					}
+
+					if (prop in CSSStyleDeclaration.prototype) return value;
+					if (!value) return value;
+
+					return unrewriteCss(value, client.context);
+				},
+				set(target, prop, value) {
+					if (prop == "cssText" || value == "" || typeof value !== "string") {
+						return Reflect_set(target, prop, value);
+					}
+
+					return Reflect_set(
+						target,
+						prop,
+						rewriteCss(value, client.context, client.meta)
+					);
+				},
+			});
+		},
+		set(ctx, value) {
+			// this will actually run the trap for cssText. don't rewrite it here
+			ctx.set(value);
+		},
+	});
+}

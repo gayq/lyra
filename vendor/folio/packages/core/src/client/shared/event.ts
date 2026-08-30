@@ -1,0 +1,215 @@
+import { iswindow } from "@client/entry";
+import { FolioClient } from "@client/index";
+import { getOwnPropertyDescriptorHandler } from "@client/helpers";
+import {
+	Object_defineProperty,
+	Reflect_apply,
+	Reflect_get,
+	Reflect_ownKeys,
+	Symbol_for,
+} from "@/shared/snapshot";
+
+const realOnEvent = Symbol_for("folio original onevent function");
+
+export default function (client: FolioClient, self: Self) {
+	const handlers = {
+		message: {
+			_init() {
+				if (client.init.shouldBlockMessageEvent?.(this)) {
+					return false;
+				}
+
+				return true;
+			},
+			ports() {
+				// don't know why i have to do this?
+				return this.ports;
+			},
+			source() {
+				if (this.source === null) return null;
+
+				// const scram: FolioClient = this.source[FOLIOCLIENT];
+
+				// if (scram) return scram.globalProxy;
+
+				return this.source;
+			},
+			origin() {
+				if (!iswindow) return "";
+				if (typeof this.data === "object" && "$folio$origin" in this.data)
+					return this.data.$folio$origin;
+
+				return client.url.origin;
+			},
+			data() {
+				if (typeof this.data === "object" && "$folio$data" in this.data)
+					return this.data.$folio$data;
+
+				return this.data;
+			},
+		},
+		hashchange: {
+			oldURL() {
+				return client.unrewriteUrl(this.oldURL);
+			},
+			newURL() {
+				return client.unrewriteUrl(this.newURL);
+			},
+		},
+		storage: {
+			_init() {
+				return this.key.startsWith(client.url.host + "@");
+			},
+			key() {
+				return this.key.substring(this.key.indexOf("@") + 1);
+			},
+			url() {
+				return client.unrewriteUrl(this.url);
+			},
+		},
+	};
+
+	function wraplistener(listener: EventListener): EventListener {
+		return new Proxy(listener, {
+			apply(target, that, args) {
+				const realEvent: Event = args[0];
+
+				// we only need to handle events dispatched from the browser
+				if (realEvent.isTrusted) {
+					const type = realEvent.type;
+
+					if (type in handlers) {
+						const handler = handlers[type];
+
+						if (handler._init) {
+							// if _init returns false, we skip the event, and it never dispatches to listeners
+							if (handler._init.call(realEvent) === false) return;
+						}
+
+						args[0] = new Proxy(realEvent, {
+							get(target, prop, reciever) {
+								const value = Reflect_get(target, prop);
+								if (prop in handler) {
+									return handler[prop].call(target);
+								}
+
+								if (typeof value === "function") {
+									return new Proxy(value, {
+										apply(target, that, args) {
+											if (that === reciever) {
+												return Reflect_apply(target, realEvent, args);
+											}
+
+											return Reflect_apply(target, that, args);
+										},
+									});
+								}
+
+								return value;
+							},
+							getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
+						});
+					}
+				}
+
+				if (!self.event) {
+					Object_defineProperty(self, "event", {
+						get() {
+							return args[0];
+						},
+						configurable: true,
+					});
+				}
+
+				const rv = Reflect_apply(target, that, args);
+
+				return rv;
+			},
+			getOwnPropertyDescriptor: getOwnPropertyDescriptorHandler,
+		});
+	}
+
+	client.Proxy("EventTarget.prototype.addEventListener", {
+		apply(ctx) {
+			if (typeof ctx.args[1] !== "function") return;
+
+			const origlistener = ctx.args[1];
+			const proxylistener = wraplistener(origlistener);
+
+			ctx.args[1] = proxylistener;
+
+			let arr = client.eventcallbacks.get(ctx.this);
+			arr ||= [];
+			arr.push({
+				event: ctx.args[0] as string,
+				originalCallback: origlistener,
+				proxiedCallback: proxylistener,
+			});
+			client.eventcallbacks.set(ctx.this, arr);
+		},
+	});
+
+	client.Proxy("EventTarget.prototype.removeEventListener", {
+		apply(ctx) {
+			if (typeof ctx.args[1] !== "function") return;
+
+			const arr = client.eventcallbacks.get(ctx.this);
+			if (!arr) return;
+
+			const i = arr.findIndex(
+				(e) => e.event === ctx.args[0] && e.originalCallback === ctx.args[1]
+			);
+			if (i === -1) return;
+
+			const r = arr.splice(i, 1);
+			client.eventcallbacks.set(ctx.this, arr);
+
+			ctx.args[1] = r[0].proxiedCallback;
+		},
+	});
+
+	const targets = [
+		self.self,
+		self.MessagePort.prototype,
+		self.BroadcastChannel.prototype,
+	] as Array<any>;
+	if (iswindow) targets.push(self.HTMLElement.prototype);
+	if (self.Worker) targets.push(self.Worker.prototype);
+
+	for (const target of targets) {
+		const keys = Reflect_ownKeys(target);
+
+		for (const key of keys) {
+			if (
+				typeof key === "string" &&
+				key.startsWith("on") &&
+				handlers[key.slice(2)]
+			) {
+				const descriptor = client.natives.call(
+					"Object.getOwnPropertyDescriptor",
+					null,
+					target,
+					key
+				);
+				if (!descriptor.get || !descriptor.set || !descriptor.configurable)
+					continue;
+
+				// these are the `onmessage`, `onclick`, etc. properties
+				client.RawTrap(target, key, {
+					get(ctx) {
+						if (this[realOnEvent]) return this[realOnEvent];
+
+						return ctx.get();
+					},
+					set(ctx, value: any) {
+						this[realOnEvent] = value;
+
+						if (typeof value !== "function") return ctx.set(value);
+
+						ctx.set(wraplistener(value));
+					},
+				});
+			}
+		}
+	}
+}

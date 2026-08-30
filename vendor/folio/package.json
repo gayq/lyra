@@ -1,0 +1,29 @@
+{
+	"name": "folio-root",
+	"version": "1.0.0",
+	"description": "",
+	"type": "module",
+	"keywords": [],
+	"author": "Mercury Workshop",
+	"license": "AGPL-3.0-only",
+	"packageManager": "pnpm@10.12.1",
+	"scripts": {
+		"test:package": "ava tests/ci/packageValidation.js",
+		"preinstall": "npx only-allow pnpm"
+	},
+	"ava": {
+		"files": [
+			"tests/ci/**/*.js"
+		],
+		"verbose": true
+	},
+	"devDependencies": {
+		"@rspack/cli": "^1.5.8",
+		"@rspack/core": "^1.5.8",
+		"@types/node": "^26.2.0",
+		"@types/serviceworker": "^0.0.200",
+		"@types/yargs": "^17.0.35",
+		"ava": "^6.4.1",
+		"tsc-alias": "^1.8.16"
+	}
+}

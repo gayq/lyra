@@ -1,48 +1,51 @@
 async function broadcastMeta() {
-  await new Promise((r) => setTimeout(r, 0));
-  while (metaPending) {
-    const job = metaPending;
-    metaPending = null;
-    const clients = await self.clients.matchAll({
-      includeUncontrolled: true,
-      type: "window",
-    });
-    for (let i = 0; i < clients.length; i++) {
-      const client = clients[i];
-      if (job.sourceId && client.id === job.sourceId) continue;
-      try {
-        client.postMessage(job.payload);
-      } catch (e) {}
+  try {
+    await new Promise((r) => setTimeout(r, 0));
+    while (metaPending) {
+      const pendingMeta = metaPending;
+      metaPending = null;
+      const clients = await self.clients.matchAll({
+        includeUncontrolled: true,
+        type: "window",
+      });
+      for (let i = 0; i < clients.length; i++) {
+        const client = clients[i];
+        if (pendingMeta.sourceId && client.id === pendingMeta.sourceId) continue;
+        try {
+          client.postMessage(pendingMeta.payload);
+        } catch (e) {}
+      }
     }
+  } finally {
+    metaFlush = null;
   }
-  metaFlush = null;
 }
 
 self.addEventListener("message", (event) => {
-  const data = event?.data;
-  if (!data) return;
+  const message = event?.data;
+  if (!message) return;
 
   if (
-    data.type === "mochi-base" &&
-    typeof data.base === "string" &&
-    data.base.startsWith("http")
+    message.type === "mochi-base" &&
+    typeof message.base === "string" &&
+    message.base.startsWith("http")
   ) {
-    self.__MOCHI_BASE__ = data.base.replace(/\/+$/, "") + "/";
+    self.__MOCHI_BASE__ = message.base.replace(/\/+$/, "") + "/";
     return;
   }
 
-  if (data.type === "open-new-tab" && data.url) {
-    const sanitizedUrl = typeof data.url === "string" ? data.url : null;
+  if (message.type === "open-new-tab" && message.url) {
+    const sanitizedUrl = typeof message.url === "string" ? message.url : null;
     if (!sanitizedUrl) return;
     const payload = {
       type: "open-new-tab",
       url: sanitizedUrl,
       decodedUrl:
-        typeof data.decodedUrl === "string" ? data.decodedUrl : sanitizedUrl,
-      openerUrl: typeof data.openerUrl === "string" ? data.openerUrl : null,
-      tabId: data.tabId || null,
-      isTopFrame: !!data.isTopFrame,
-      cause: data.cause || null,
+        typeof message.decodedUrl === "string" ? message.decodedUrl : sanitizedUrl,
+      openerUrl: typeof message.openerUrl === "string" ? message.openerUrl : null,
+      tabId: message.tabId || null,
+      isTopFrame: !!message.isTopFrame,
+      cause: message.cause || null,
     };
     event.waitUntil(
       (async () => {
@@ -56,24 +59,26 @@ self.addEventListener("message", (event) => {
     return;
   }
 
-  if (data.type === "page-meta") {
+  if (message.type === "page-meta") {
     const payload = {
       type: "page-meta",
-      url: data.url || data.href || null,
-      decodedUrl: data.decodedUrl || data.url || data.href || null,
-      title: typeof data.title === "string" ? data.title : "",
-      favicon: data.favicon || data.rawFavicon || null,
-      rawFavicon: data.rawFavicon || data.favicon || null,
-      tabId: data.tabId || null,
-      isTopFrame: !!data.isTopFrame,
+      url: message.url || message.href || null,
+      decodedUrl: message.decodedUrl || message.url || message.href || null,
+      title: typeof message.title === "string" ? message.title : "",
+      favicon: message.favicon || message.rawFavicon || null,
+      rawFavicon: message.rawFavicon || message.favicon || null,
+      tabId: message.tabId || null,
+      isTopFrame: !!message.isTopFrame,
       clientId: event.source && "id" in event.source ? event.source.id : null,
       collectedAt: Date.now(),
-      encoded: !!data.encoded,
+      encoded: !!message.encoded,
     };
     const sourceId =
       event.source && "id" in event.source ? event.source.id : null;
     if (event.source && typeof event.source.postMessage === "function") {
-      event.source.postMessage(payload);
+      try {
+        event.source.postMessage(payload);
+      } catch (e) {}
     }
     metaPending = { payload, sourceId };
     if (!metaFlush) {
@@ -83,7 +88,7 @@ self.addEventListener("message", (event) => {
     return;
   }
 
-  if (data.type === "waves-prefetch" && typeof data.url === "string") {
-    event.waitUntil(prefetchProxiedNavFromClient(data.url));
+  if (message.type === "lyra-prefetch" && typeof message.url === "string") {
+    event.waitUntil(prefetchProxiedNavFromClient(message.url));
   }
 });

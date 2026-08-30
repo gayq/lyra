@@ -1,0 +1,924 @@
+import {
+	BareCompatibleClient,
+	ProxyTransport,
+	RawHeaders,
+} from "@mercuryworkshop/proxy-transports";
+import { FOLIOCLIENT } from "@/symbols";
+import { getOwnPropertyDescriptorHandler } from "@client/helpers";
+import { createLocationProxy } from "@client/location";
+import { createWrapFn } from "@client/shared/wrap";
+import { LifecycleHooks } from "@client/events";
+import {
+	rewriteUrl,
+	RewriteUrlOptions,
+	unrewriteUrl,
+	type URLMeta,
+} from "@rewriters/url";
+import {
+	flagEnabled,
+	HtmlRewriterHooks,
+	FolioContext,
+	FolioHeaders,
+} from "@/shared";
+import { iswindow } from "./entry";
+import { SingletonBox } from "./singletonbox";
+import { FolioConfig } from "@/types";
+import { Tap } from "@/Tap";
+import {
+	type CookieSyncEntry,
+	type CookieSyncOptions,
+	TrackedHistoryState,
+} from "@/fetch";
+import { AnyFunction } from "@/types";
+import {
+	_URL,
+	Error,
+	String,
+	Reflect_get,
+	Array_isArray,
+	Reflect_has,
+	Reflect_apply,
+	Reflect_construct,
+	Object_getOwnPropertyDescriptor,
+	Object_defineProperty,
+	Object_defineProperties,
+	_Map,
+} from "@/shared/snapshot";
+
+// https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650
+type IfEquals<T, U, Y = unknown, N = never> =
+	(<G>() => G extends T ? 1 : 2) extends <G>() => G extends U ? 1 : 2 ? Y : N;
+// thank you psm (https://github.com/psmpm) <3
+type Traverse<
+	O extends Record<any, any>,
+	P extends string,
+> = P extends `${infer K}.${infer R}` ? Traverse<O[K], R> : O[P];
+type GlobalTraverse<P extends string> = Traverse<
+	GlobalThis & Record<string, any>,
+	P
+>;
+type ProxyApplyThis<T extends string> =
+	unknown extends ThisParameterType<Extract<GlobalTraverse<T>, AnyFunction>>
+		? T extends `${infer ClassName}.prototype.${string}`
+			? GlobalTraverse<ClassName> extends { prototype: infer Proto }
+				? Proto
+				: unknown
+			: unknown
+		: ThisParameterType<Extract<GlobalTraverse<T>, AnyFunction>>;
+type Callable = (...args: never[]) => unknown;
+type OverloadedReturn<T extends Callable> = T extends {
+	(...args: infer A1): infer R1;
+	(...args: infer A2): infer R2;
+	(...args: infer A3): infer R3;
+	(...args: infer A4): infer R4;
+}
+	? R1 | R2 | R3 | R4
+	: ReturnType<T>;
+
+export type FolioClientInit = {
+	context: FolioContext;
+	transport: ProxyTransport;
+	sendSetCookie: (
+		cookies: CookieSyncEntry[],
+		options?: CookieSyncOptions
+	) => Promise<void>;
+	shouldBlockMessageEvent?: (ev: MessageEvent) => boolean;
+	hookSubcontext: (self: Self, frame?: HTMLIFrameElement) => FolioClient;
+	initHeaders: RawHeaders;
+	history: TrackedHistoryState[];
+};
+type NativeStore = {
+	store: Record<string, any>;
+	construct: <T extends string>(target: T, ...args: ConstructorParameters<GlobalTraverse<T>>) => InstanceType<GlobalTraverse<T>>;
+	call: <T extends string>(target: T, that: ProxyApplyThis<T>, ...args: Parameters<GlobalTraverse<T>>) => OverloadedReturn<Extract<GlobalTraverse<T>, Callable>>;
+};
+type DescriptorStore = {
+	store: Record<string, PropertyDescriptor>;
+	get: <T extends string>(target: T, that: any) => GlobalTraverse<T>;
+	set: <T extends string>(target: T, that: any, value: GlobalTraverse<T>) => void;
+};
+
+export type ProxyCtx<
+	T extends string = string,
+	U extends "construct" | "apply" = "apply",
+> = {
+	fn: GlobalTraverse<T>;
+	this: IfEquals<U, "construct", null, ProxyApplyThis<T>>;
+	args: IfEquals<
+		U,
+		"construct",
+		ConstructorParameters<GlobalTraverse<T>>,
+		Parameters<GlobalTraverse<T>>
+	>;
+	newTarget: IfEquals<U, "construct", GlobalTraverse<T>, null>;
+	return: (
+		r: IfEquals<
+			U,
+			"construct",
+			InstanceType<GlobalTraverse<T>>,
+			OverloadedReturn<Extract<GlobalTraverse<T>, Callable>>
+		>
+	) => void;
+	call: () => IfEquals<
+		U,
+		"construct",
+		InstanceType<GlobalTraverse<T>>,
+		OverloadedReturn<Extract<GlobalTraverse<T>, Callable>>
+	>;
+};
+export type Proxy<T extends string = string> = {
+	construct?(ctx: ProxyCtx<T, "construct">): any;
+	apply?(ctx: ProxyCtx<T, "apply">): any;
+};
+
+export type TrapCtx<T extends string> = {
+	this: any;
+	get: () => GlobalTraverse<T>;
+	set: (v: GlobalTraverse<T>) => void;
+};
+export type Trap<T extends string> = {
+	writable?: boolean;
+	value?: any;
+	enumerable?: boolean;
+	configurable?: boolean;
+	get?: (ctx: TrapCtx<T>) => GlobalTraverse<T>;
+	set?: (ctx: TrapCtx<T>, v: GlobalTraverse<T>) => void;
+};
+
+export type FolioModule = {
+	enabled: (client: FolioClient) => boolean | undefined;
+	disabled: (client: FolioClient, self: GlobalThis) => void | undefined;
+	order: number | undefined;
+	default: (client: FolioClient, self: GlobalThis) => void;
+};
+
+function findBox(global: Window, seen: Window[]): SingletonBox | null {
+	if (seen.includes(global)) return null;
+	seen.push(global);
+
+	try {
+		if ((FOLIOCLIENT in global) as any) {
+			return global[FOLIOCLIENT].box;
+		}
+	} catch {}
+
+	try {
+		const b = findBox(global.parent, seen);
+		if (b) return b;
+	} catch {}
+
+	try {
+		const b = findBox(global.top, seen);
+		if (b) return b;
+	} catch {}
+
+	try {
+		if (global.opener) {
+			const b = findBox(global.opener, seen);
+			if (b) return b;
+		}
+	} catch {}
+
+	for (let i = 0; i < global.length; i++) {
+		try {
+			const b = findBox(global[i], seen);
+			if (b) return b;
+		} catch {}
+	}
+
+	return null;
+}
+
+export class FolioClient {
+	locationProxy: any;
+	serviceWorker: ServiceWorkerContainer;
+	bare: BareCompatibleClient;
+
+	natives: NativeStore;
+	descriptors: DescriptorStore;
+	wrapfn: (i: any, ...args: any) => any;
+
+	eventcallbacks: Map<
+		EventTarget,
+		Array<{
+			event: string;
+			originalCallback: EventListener;
+			proxiedCallback: EventListener;
+		}>
+	> = new _Map();
+
+	meta: URLMeta;
+
+	box: SingletonBox;
+
+	context: FolioContext;
+
+	initHeaders: FolioHeaders;
+
+	history: TrackedHistoryState[];
+
+	private flagCache = new _Map<keyof FolioConfig["flags"], boolean>();
+
+	hooks = {
+		rewriter: {
+			html: Tap.create<HtmlRewriterHooks>(),
+		},
+		lifecycle: Tap.create<LifecycleHooks>(),
+	};
+
+	constructor(
+		public global: GlobalThis,
+		public init: FolioClientInit
+	) {
+		if (FOLIOCLIENT in global) {
+			dbg.error(
+				"attempted to initialize a folio client, but one is already loaded - this is very bad"
+			);
+			throw new Error();
+		}
+
+		if (iswindow) {
+			const b = findBox(global as unknown as Window, []);
+			if (b) {
+				this.box = b;
+			}
+		}
+
+		if (!this.box) {
+			this.box = new SingletonBox(this);
+		}
+
+		this.box.registerClient(this, global as Self);
+
+		this.context = init.context;
+		if (init.initHeaders)
+			this.initHeaders = FolioHeaders.fromRawHeaders(init.initHeaders);
+		this.history = init.history;
+		this.context.hooks = {
+			rewriter: this.hooks.rewriter,
+		};
+
+		this.bare = new BareCompatibleClient(init.transport);
+
+		this.serviceWorker = this.global.navigator.serviceWorker;
+
+		if (iswindow) {
+			global.document[FOLIOCLIENT] = this;
+		}
+
+		this.wrapfn = createWrapFn(this, global);
+		this.natives = {
+			store: new Proxy(
+				{},
+				{
+					get: (target, prop: string) => {
+						if (prop in target) {
+							return target[prop];
+						}
+
+						const split = prop.split(".");
+						const realProp = split.pop();
+						const realTarget = split.reduce((a, b) => a?.[b], this.global);
+
+						if (!realTarget) return;
+
+						const original = Reflect_get(realTarget, realProp);
+						target[prop] = original;
+
+						return target[prop];
+					},
+				}
+			),
+			construct(target, ...args) {
+				const original = this.store[target];
+				if (!original) return null;
+
+				return new original(...args);
+			},
+			call(target, that, ...args) {
+				const original = this.store[target];
+				if (!original) return null;
+
+				return original.call(that, ...args);
+			},
+		};
+		this.descriptors = {
+			store: new Proxy(
+				{},
+				{
+					get: (target, prop: string) => {
+						if (prop in target) {
+							return target[prop];
+						}
+
+						const split = prop.split(".");
+						const realProp = split.pop();
+						const realTarget = split.reduce((a, b) => a?.[b], this.global);
+
+						if (!realTarget) return;
+
+						const original = client.natives.call(
+							"Object.getOwnPropertyDescriptor",
+							null,
+							realTarget,
+							realProp
+						);
+						target[prop] = original;
+
+						return target[prop];
+					},
+				}
+			),
+			get(target, that) {
+				const original = this.store[target];
+				if (!original) return null;
+
+				return original.get!.call(that);
+			},
+			set(target, that, value) {
+				const original = this.store[target];
+				if (!original) return null;
+
+				original.set!.call(that, value);
+			},
+		};
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
+		const client = this;
+		this.meta = {
+			get origin() {
+				return client.url;
+			},
+			get base() {
+				if (iswindow) {
+					const base = client.natives.call(
+						"Document.prototype.querySelector",
+						client.global.document,
+						"base"
+					);
+					if (base) {
+						let url = base.getAttribute("href");
+						if (!url) return client.url;
+						const frag = url.indexOf("#");
+						url = url.substring(0, frag === -1 ? undefined : frag);
+						if (!url) return client.url;
+
+						return new _URL(url, client.url.origin);
+					}
+				}
+
+				return client.url;
+			},
+			// TODO: very bad assumptions made here, window.parent never throws
+			get topFrameName() {
+				if (!iswindow)
+					throw new Error("topFrameName was called from a worker?");
+
+				let currentWin = client.global;
+
+				try {
+					if (currentWin.parent.window == currentWin.window) {
+						// we're top level & we don't have a frame name
+						return null;
+					}
+				} catch {
+					// accessing parent was blocked by CORS, we're in a frame but the parent is cross origin
+				}
+
+				try {
+					// find the topmost frame that's controlled by folio, stopping before the real top frame
+					while (currentWin.parent.window !== currentWin.window) {
+						if (!currentWin.parent.window[FOLIOCLIENT]) break;
+						currentWin = currentWin.parent.window;
+					}
+				} catch {
+					// doesn't matter if it throws here just means we found the topmost one
+				}
+
+				const curclient = currentWin[FOLIOCLIENT];
+				const frame = curclient.descriptors.get(
+					"window.frameElement",
+					currentWin
+				);
+				if (!frame) {
+					// we're inside an iframe, but the top frame is folio-controlled and top level, so we can't get a top frame name
+					// or we're cross-origin and frameElement doesn't exist. that's a TODO because this won't work
+					return null;
+				}
+				if (!frame.name) {
+					// the top frame is folio-controlled, but it has no name. this is user error
+					dbg.error(
+						"YOU NEED TO USE `new FolioFrame()`! DIRECT IFRAMES WILL NOT WORK"
+					);
+
+					return null;
+				}
+
+				return frame.name;
+			},
+			get parentFrameName() {
+				if (!iswindow)
+					throw new Error("parentFrameName was called from a worker?");
+
+				try {
+					try {
+						if (client.global.parent.window == client.global.window) {
+							// we're top level & we don't have a frame name
+							return null;
+						}
+					} catch {
+						// accessing parent was blocked by CORS, we're in a frame but the parent is cross origin
+						return null;
+					}
+
+					const parentWin = client.global.parent.window;
+					if (parentWin[FOLIOCLIENT]) {
+						// we're inside an iframe, and the parent is folio-controlled
+						const parentClient = parentWin[FOLIOCLIENT];
+						const frame = parentClient.descriptors.get(
+							"window.frameElement",
+							parentWin
+						);
+
+						if (!frame) {
+							// parent is folio controlled and top-level. there is no parent frame name
+							return null;
+						}
+
+						const frameName = frame.getAttribute("name");
+						if (!frameName) {
+							// the parent frame is folio-controlled, but it has no name. this is user error
+							dbg.error(
+								"direct iframes are unsupported; use new FolioFrame() /ᐠ - ˕ -マ"
+							);
+
+							return null;
+						}
+
+						return frameName;
+					} else {
+						// we're inside an iframe, and the parent is not folio-controlled
+						// return our own frame name
+						const frame = client.descriptors.get(
+							"window.frameElement",
+							client.global
+						);
+						const frameName = frame.getAttribute("name");
+						if (!frameName) {
+							// the parent frame is not folio-controlled, so we can't get a parent frame name
+							dbg.error(
+								"direct iframes are unsupported; use new FolioFrame() /ᐠ - ˕ -マ"
+							);
+
+							return null;
+						}
+
+						return frameName;
+					}
+				} catch {
+					return null;
+				}
+			},
+			get referrerPolicy(): string | undefined {
+				if (client.initHeaders && client.initHeaders.has("referrer-policy")) {
+					return client.initHeaders.get("referrer-policy");
+				}
+				if (!iswindow) return "";
+
+				// TODO: need to nullify the actual meta tag so it still sends unsafe-url
+				const meta = [
+					...client.natives.call(
+						"Document.prototype.querySelectorAll",
+						client.global.document,
+						"meta[name='referrer']"
+					),
+					...client.natives.call(
+						"Document.prototype.querySelectorAll",
+						client.global.document,
+						"meta[name='referrer-policy']"
+					),
+					...client.natives.call(
+						"Document.prototype.querySelectorAll",
+						client.global.document,
+						"meta[http-equiv='referrer-policy']"
+					),
+				];
+				const last = meta[meta.length - 1];
+				if (last) {
+					return last.getAttribute("content");
+				}
+
+				return "";
+			},
+		};
+		this.locationProxy = createLocationProxy(this, global);
+
+		global[FOLIOCLIENT] = this;
+	}
+
+	/** Apply document injection init when a client was already installed (e.g. early contentWindow). */
+	syncDocumentInit(init: {
+		initHeaders: RawHeaders;
+		history: TrackedHistoryState[];
+		cookies?: string;
+	}) {
+		this.initHeaders = FolioHeaders.fromRawHeaders(init.initHeaders);
+		this.history = init.history;
+		if (init.cookies !== undefined) {
+			this.context.cookieJar.load(init.cookies);
+		}
+	}
+
+	hook() {
+		const context = import.meta.webpackContext(".", {
+			recursive: true,
+		});
+
+		const modules: FolioModule[] = [];
+
+		for (const key of context.keys()) {
+			const module = context(key) as FolioModule;
+			if (!key.endsWith(".ts")) continue;
+			if (
+				(key.startsWith("./dom/") && "window" in this.global) ||
+				(key.startsWith("./worker/") && "WorkerGlobalScope" in this.global) ||
+				key.startsWith("./shared/")
+			) {
+				modules.push(module);
+			}
+		}
+
+		modules.sort((a, b) => {
+			const aorder = a.order || 0;
+			const border = b.order || 0;
+
+			return aorder - border;
+		});
+
+		for (const module of modules) {
+			if (!module.enabled || module.enabled(this))
+				module.default(this, this.global);
+			else if (module.disabled) module.disabled(this, this.global);
+		}
+	}
+
+	get url(): _URL {
+		return new _URL(this.unrewriteUrl(this.global.location.href));
+	}
+
+	set url(url: _URL | string) {
+		url = this.resolveNavigationUrl(url);
+
+		Tap.dispatch(
+			this.hooks.lifecycle.navigate,
+			{
+				type: "location",
+			},
+			{
+				url,
+			}
+		);
+
+		this.global.location.href = this.rewriteUrl(url, {
+			navigateType: "location",
+		});
+	}
+
+	resolveNavigationUrl(url: _URL | string): string {
+		url = String(url);
+
+		try {
+			return new _URL(url, this.url.href).href;
+		} catch {
+			return url;
+		}
+	}
+
+	// below are the utilities for proxying and trapping dom APIs
+	// you don't have to understand this it just makes the rest easier
+	// i'll document it eventually
+	Proxy<T extends string>(name: T, handler: Proxy<T>): void;
+	Proxy<const T extends readonly string[]>(
+		name: T,
+		handler: Proxy<T[number]>
+	): void;
+	Proxy(name: string | string[], handler: Proxy<any>): void {
+		if (Array_isArray(name)) {
+			for (const n of name) {
+				this.Proxy(n, handler);
+			}
+
+			return;
+		}
+
+		const split = name.split(".");
+		const prop = split.pop();
+		const target = split.reduce((a, b) => a?.[b], this.global);
+		if (!target) return;
+		if (!prop) return;
+
+		if (!(name in this.natives.store)) {
+			const original = Reflect_get(target, prop);
+			this.natives.store[name] = original;
+		}
+
+		this.RawProxy(target, prop, handler, name);
+	}
+	RawProxy(target: any, prop: string, handler: Proxy<any>, debugname?: string) {
+		if (!target) return;
+		if (!prop) return;
+		if (!Reflect_has(target, prop)) return;
+
+		const value = Reflect_get(target, prop);
+		const originalDescriptor = Object_getOwnPropertyDescriptor(target, prop);
+		delete target[prop];
+
+		const h: ProxyHandler<any> = {};
+
+		let applyFn: typeof Reflect_apply;
+		let constructFn: typeof Reflect_construct;
+		if (this.flagEnabled("debugTrampolines")) {
+			let fnName: string;
+			if (debugname) {
+				fnName = debugname;
+			} else if (typeof value === "function" && value.name) {
+				fnName = `Function ${value.name} -> ${prop}`;
+			} else if (typeof value === "object" && value.constructor) {
+				fnName = `Object ${value.constructor.name} -> ${prop}`;
+			} else {
+				fnName = `${typeof value} -> ${prop}`;
+			}
+			let windowName = this.descriptors.get("window.name", this.global);
+			if (!windowName) windowName = "<unnamed window>";
+			let location = this.url.href;
+
+			// sanitize newlines just in case somehow
+			location = location.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+			windowName = windowName.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+			fnName = fnName.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+			const sourceURL = debugname ? `${debugname}.fl` : "rawproxy.fl";
+
+			const { construct, apply } = this.natives.call(
+				"Function",
+				null,
+				`"use strict";
+
+// FOLIO FUNCTION INTERCEPT
+// target: ${fnName}
+// frame: ${windowName}
+// location: ${location}
+
+function apply(fn, that, args) {
+	return Reflect.apply(fn, that, args);
+}
+
+function construct(fn, args, newTarget) {
+	return Reflect.construct(fn, args, newTarget);
+}
+
+return { apply, construct };
+
+//# sourceURL=${sourceURL}`
+			)();
+
+			applyFn = apply;
+			constructFn = construct;
+		} else {
+			applyFn = Reflect_apply;
+			constructFn = Reflect_construct;
+		}
+
+		if (handler.construct) {
+			h.construct = function (
+				constructor: any,
+				args: any[],
+				newTarget: AnyFunction
+			) {
+				let returnValue: any = undefined;
+				let earlyreturn = false;
+
+				const ctx: ProxyCtx<any, "construct"> = {
+					fn: constructor,
+					this: null,
+					args,
+					newTarget: newTarget,
+					return: (r: any) => {
+						earlyreturn = true;
+						returnValue = r;
+					},
+					call: () => {
+						earlyreturn = true;
+						returnValue = constructFn(ctx.fn, ctx.args, ctx.newTarget);
+
+						return returnValue;
+					},
+				};
+
+				handler.construct(ctx);
+
+				if (earlyreturn) {
+					return returnValue;
+				}
+
+				return constructFn(ctx.fn, ctx.args, ctx.newTarget);
+			};
+		}
+
+		if (handler.apply) {
+			h.apply = (fn: any, that: any, args: any[]) => {
+				let returnValue: any = undefined;
+				let earlyreturn = false;
+
+				const ctx: ProxyCtx<any, "apply"> = {
+					fn,
+					this: that,
+					args,
+					newTarget: null,
+					return: (r: any) => {
+						earlyreturn = true;
+						returnValue = r;
+					},
+					call: () => {
+						earlyreturn = true;
+						returnValue = applyFn(ctx.fn, ctx.this, ctx.args);
+
+						return returnValue;
+					},
+				};
+				if (
+					!this.flagEnabled("debugTrampolines") &&
+					this.flagEnabled("allowFailedIntercepts")
+				) {
+					// fast path, no error detection
+					handler.apply(ctx);
+
+					if (earlyreturn) {
+						return returnValue;
+					}
+					return applyFn(ctx.fn, ctx.this, ctx.args);
+				}
+
+				const pst = Error.prepareStackTrace;
+
+				// eslint-disable-next-line @typescript-eslint/no-this-alias
+				const client = this;
+				Error.prepareStackTrace = function (err, s) {
+					if (
+						s[0].getFileName() &&
+						!s[0].getFileName().startsWith(client.context.prefix.href)
+					) {
+						return { stack: err.stack };
+					}
+				};
+
+				try {
+					handler.apply(ctx);
+				} catch (err) {
+					if (this.box.instanceof(err, "Error")) {
+						if (this.box.instanceof(err.stack, "Object")) {
+							//i'm not going to explain this
+							err.stack = err.stack.stack;
+							// eslint-disable-next-line folio-core/no-globals
+							console.error("ERROR FROM FOLIO INTERNALS", err);
+							if (!this.flagEnabled("allowFailedIntercepts")) {
+								Error.prepareStackTrace = pst;
+								throw err;
+							}
+						} else {
+							Error.prepareStackTrace = pst;
+							throw err;
+						}
+					} else {
+						Error.prepareStackTrace = pst;
+						throw err;
+					}
+				}
+
+				Error.prepareStackTrace = pst;
+
+				if (earlyreturn) {
+					return returnValue;
+				}
+
+				return applyFn(ctx.fn, ctx.this, ctx.args);
+			};
+		}
+
+		const proxy = new Proxy(value, h);
+		this.box.unproxy.set(proxy, value);
+		h.getOwnPropertyDescriptor = getOwnPropertyDescriptorHandler;
+		// Preserve original property descriptor (enumerable, configurable, etc.)
+		Object_defineProperty(target, prop, {
+			value: proxy,
+			writable: originalDescriptor?.writable ?? true,
+			enumerable: originalDescriptor?.enumerable ?? false,
+			configurable: originalDescriptor?.configurable ?? true,
+		});
+	}
+	Trap<T extends string>(name: T, handler: Trap<T>): void;
+	Trap<const T extends readonly string[]>(
+		name: T,
+		handler: Trap<T[number]>
+	): void;
+	Trap(name: string | string[], descriptor: Trap<any>): void {
+		if (Array_isArray(name)) {
+			for (const n of name) {
+				this.Trap(n, descriptor);
+			}
+
+			return;
+		}
+
+		const split = name.split(".");
+		const prop = split.pop();
+		const target = split.reduce((a, b) => a?.[b], this.global);
+		if (!target) return;
+		if (!prop) return;
+
+		const original = this.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			target,
+			prop
+		);
+		this.descriptors.store[name] = original;
+
+		this.RawTrap(target, prop, descriptor);
+	}
+	RawTrap(target: any, prop: string, descriptor: Trap<any>) {
+		if (!target) return;
+		if (!prop) return;
+		if (!Reflect_has(target, prop)) return;
+
+		const oldDescriptor = this.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			target,
+			prop
+		);
+
+		const ctx: TrapCtx<any> = {
+			this: null,
+			get: function () {
+				return oldDescriptor && oldDescriptor.get.call(this.this);
+			},
+			set: function (v: any) {
+				// eslint-disable-next-line @typescript-eslint/no-unused-expressions
+				oldDescriptor && oldDescriptor.set.call(this.this, v);
+			},
+		};
+
+		delete target[prop];
+
+		const desc: PropertyDescriptor = {};
+
+		if (descriptor.get) {
+			desc.get = function () {
+				ctx.this = this;
+
+				return descriptor.get(ctx);
+			};
+		} else if (oldDescriptor?.get) {
+			desc.get = oldDescriptor.get;
+		}
+
+		if (descriptor.set) {
+			desc.set = function (v: any) {
+				ctx.this = this;
+
+				descriptor.set(ctx, v);
+			};
+		} else if (oldDescriptor?.set) {
+			desc.set = oldDescriptor.set;
+		}
+
+		if (descriptor.enumerable) desc.enumerable = descriptor.enumerable;
+		else if (oldDescriptor?.enumerable)
+			desc.enumerable = oldDescriptor.enumerable;
+		if (descriptor.configurable) desc.configurable = descriptor.configurable;
+		else if (oldDescriptor?.configurable)
+			desc.configurable = oldDescriptor.configurable;
+
+		Object_defineProperty(target, prop, desc);
+	}
+
+	rewriteUrl(url: string | URL, options?: RewriteUrlOptions): string {
+		return rewriteUrl(url, this.context, this.meta, options);
+	}
+
+	unrewriteUrl(url: string | URL): string {
+		return unrewriteUrl(url, this.context);
+	}
+
+	flagEnabled(flag: keyof FolioConfig["flags"]): boolean {
+		const cached = this.flagCache.get(flag);
+		if (cached !== undefined) return cached;
+
+		const result = flagEnabled(flag, this.context, this.url);
+		this.flagCache.set(flag, result);
+		return result;
+	}
+
+	get config(): FolioConfig {
+		return this.context.config;
+	}
+}

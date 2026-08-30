@@ -1,0 +1,22 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"declarationDir": "./dist/types",
+		"noEmitOnError": true,
+		"noEmit": false
+	},
+	"include": [
+		"src/index.ts",
+		"src/version.ts",
+		"src/url-watcher.ts",
+		"src/http-cache-plugin.ts",
+		"src/catch-escaped-links.ts",
+		"src/alwaysLastBubble.ts",
+		"src/event-handler-plugin.ts",
+		"src/link-handler-plugin.ts",
+		"src/global.d.ts",
+		"src/typesEntry.ts"
+	]
+}

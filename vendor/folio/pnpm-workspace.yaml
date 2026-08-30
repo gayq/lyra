@@ -1,0 +1,20 @@
+packages:
+  - packages/core
+  - packages/rpc
+  - packages/controller
+  - packages/utils
+
+overrides:
+  htmlparser2: 12.0.0
+
+catalog:
+  "@mercuryworkshop/proxy-transports": 1.0.2
+  htmlparser2: 12.0.0
+
+patchedDependencies:
+  htmlparser2@12.0.0: patches/htmlparser2@12.0.0.patch
+
+allowBuilds:
+  bufferutil: set this to true or false
+  core-js: set this to true or false
+  esbuild: set this to true or false

@@ -1,0 +1,67 @@
+body.anime-view .games-page,
+body.anime-view footer {
+  display: none !important;
+}
+
+body.anime-view .anime-topbar {
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.anime-grid-container {
+  margin-top: -80px;
+}
+
+.anime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
+  gap: 12px;
+}
+
+.anime-card {
+  aspect-ratio: 2 / 3;
+  contain-intrinsic-size: 150px 225px;
+}
+
+.anime-card:hover {
+  transform: scale(1.04);
+  z-index: 5;
+}
+
+.anime-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px;
+  box-sizing: border-box;
+  z-index: 2;
+}
+
+.anime-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--game-info-text);
+  margin-top: 2px;
+}
+
+.anime-year {
+  font-weight: 400;
+}
+
+.anime-rating {
+  font-weight: 600;
+}
+
+.anime-adult-badge {
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+}

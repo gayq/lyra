@@ -1,26 +1,42 @@
-# waves!!
+# lyra :3
 a really cool web-proxy
 
 [![join our discord](https://invidget.switchblade.xyz/dJvdkPRheV)](https://discord.gg/dJvdkPRheV)
 
 ## features
-- very clean and nice looking ui
-- support for thousands of games from different game sources
-- insanely fast
-- cloud syncing system that sync games data, browsing data, settings, and basically everything else
-- customization options
+- nice ui
+- thousands of games aggregated from multiple sources
+- free anime streaming
+- cloud syncing
+- functional chrome extensions support
+- very efficient
+- private by design
 
-## live instance
-- https://waves.lat/
+## self-hosting
+```bash
+# clone
+git clone https://github.com/gayq/lyra
+
+# run setup file
+cd lyra
+bash setup.sh
+```
+
+## local development
+```bash
+bun i
+bun dev
+```
 
 ## credits
+- [edurocks](https://www.edurocks.org/) - game source
 - [selenite](https://selenite.cc/) - game source
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
-- [edurocks](https://edurocks.org/) - game source
+- [wasm.rip](https://wasm.rip/) - game source
 - [velara](https://velara.cc/) - game source
 - [truffled](https://truffled.lol/) - game source
-- [titanium network](https://github.com/titaniumnetwork-dev/ultraviolet/) - ultraviolet
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
+- [sapphire](https://github.com/x8rr/sapphire) - rivet's base
 
 ## license
-this project is licensed under the [WPL-1.0 license](LICENSE)!
+this project is licensed under [GNU AGPLv3](./LICENSE)
