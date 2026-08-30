@@ -411,9 +411,6 @@ if [ "$WG_ENABLED" -eq 1 ]; then
     success "wireguard config installed at /etc/wireguard/wg0.conf (mtu: $WG_MTU)"
   fi
   if [ "$WG_ENABLED" -eq 1 ]; then
-    # Keep wg-quick from installing a second full-tunnel routing policy. The
-    # explicit mark lets encrypted WireGuard packets escape through the main
-    # table while service traffic continues to use table 200.
     WG_FWMARK=$(sudo sed -n -E \
       's/^[[:space:]]*FwMark[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' \
       /etc/wireguard/wg0.conf | head -1)
@@ -433,11 +430,6 @@ Table = off
       /etc/wireguard/wg0.conf
     sudo chmod 600 /etc/wireguard/wg0.conf
     success "wireguard policy routing normalized"
-
-    # This setup uses policy routing so only nuru and mochi enter the tunnel.
-    # A wg-quick DNS directive changes the resolver for the entire host, leaving
-    # direct-routed processes such as Docker unable to reach a VPN-only DNS
-    # server. Keep the value in the config for nuru, but hide it from wg-quick.
     if sudo grep -Eq '^[[:space:]]*DNS[[:space:]]*=' /etc/wireguard/wg0.conf; then
       sudo sed -i -E \
         's|^[[:space:]]*DNS[[:space:]]*=[[:space:]]*(.*)$|# LyraVPNDNS = \1|' \
@@ -501,10 +493,14 @@ if [ -z "$PM2_BIN" ]; then
   exit 1
 fi
 
-if ! command -v cargo >/dev/null 2>&1; then
+export PATH="$HOME/.cargo/bin:$PATH"
+
+if ! command -v rustup >/dev/null 2>&1; then
   curl https://sh.rustup.rs -sSf | sh -s -- -y
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
+
+require_cmd rustup
 
 if ! command -v cargo >/dev/null 2>&1; then
   fail "cargo installation failed"
@@ -1421,4 +1417,4 @@ for svc in "${PM2_SVCS[@]}"; do
   fi
 done
 
-success "all don!! lyra is now up and running!!!!"
+success "all done!! lyra is now up and running!!!!"

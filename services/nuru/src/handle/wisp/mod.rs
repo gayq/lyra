@@ -20,7 +20,7 @@ use wisp_mux::{
 use wispnet::route_wispnet;
 
 use crate::{
-    route::{WispResult, WispStreamWrite, WispWsStreamWrite},
+    route::{WispResult, WispStreamWrite},
     stream::{ClientStream, ResolvedPacket},
     CLIENTS, CONFIG, NEGATIVE, POSITIVE,
 };
@@ -60,21 +60,9 @@ async fn copy_fast(
         let mut tcp_write = write_limit.limit(tcp_write);
         let mut tcp_read = tokio::io::BufReader::with_capacity(CONFIG.stream.buffer_size, tcp_read);
 
-        let mut mux_to_tcp =
-            tokio::spawn(async move { tokio::io::copy_buf(&mut mux_read, &mut tcp_write).await });
-        let mut tcp_to_mux =
-            tokio::spawn(async move { tokio::io::copy(&mut tcp_read, &mut mux_write).await });
-
-        let first_result = select! {
-            task_result = &mut mux_to_tcp => task_result,
-            task_result = &mut tcp_to_mux => task_result,
-        };
-        mux_to_tcp.abort();
-        tcp_to_mux.abort();
-
-        match first_result {
-            Ok(copy_result) => copy_result.map(|_| ()),
-            Err(join_error) => Err(std::io::Error::other(join_error)),
+        select! {
+            result = tokio::io::copy_buf(&mut mux_read, &mut tcp_write) => result.map(|_| ()),
+            result = tokio::io::copy(&mut tcp_read, &mut mux_write) => result.map(|_| ()),
         }
     }
 }
@@ -171,35 +159,26 @@ async fn forward_stream(
             let mut write = write.into_async_write().compat_write();
 
             let forwarding_result: anyhow::Result<()> = async move {
-                let stream_recv = Arc::new(stream);
-                let stream_send = stream_recv.clone();
-
-                let mut udp_to_mux = tokio::spawn(async move {
+                let udp_to_mux = async {
                     let mut datagram = vec![0u8; 65507];
                     loop {
-                        let size = stream_recv.recv(&mut datagram).await?;
+                        let size = stream.recv(&mut datagram).await?;
                         write.write_all(&datagram[..size]).await?;
                     }
                     #[allow(unreachable_code)]
                     anyhow::Ok(())
-                });
+                };
 
-                let mut mux_to_udp = tokio::spawn(async move {
+                let mux_to_udp = async {
                     while let Some(frame) = read.next().await {
-                        stream_send.send(&frame?).await?;
+                        stream.send(&frame?).await?;
                     }
                     anyhow::Ok(())
-                });
-
-                let first_result = select! {
-                    task_result = &mut udp_to_mux => task_result,
-                    task_result = &mut mux_to_udp => task_result,
                 };
-                udp_to_mux.abort();
-                mux_to_udp.abort();
-                match first_result {
-                    Ok(forwarding_result) => forwarding_result,
-                    Err(join_error) => Err(anyhow::anyhow!(join_error)),
+
+                select! {
+                    result = udp_to_mux => result,
+                    result = mux_to_udp => result,
                 }
             }
             .await;
@@ -389,11 +368,8 @@ pub async fn handle_wisp(stream: WispResult, is_v2: bool, id: String) -> anyhow:
         let send_ping = || async {
             let mut locked = ping_mux.lock_ws().await?;
             if let Either::Left(ws) = &mut *locked {
-                <WispWsStreamWrite as SinkExt<tokio_websockets::Message>>::send(
-                    ws,
-                    tokio_websockets::Message::ping(&[] as &[u8]),
-                )
-                .await?;
+                ws.send(tokio_websockets::Message::ping(&[] as &[u8]))
+                    .await?;
             }
             anyhow::Ok(())
         };

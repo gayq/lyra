@@ -2,13 +2,14 @@
 #![deny(clippy::todo)]
 #![allow(unexpected_cfgs)]
 
-use std::{fs::read_to_string, future::Future, net::IpAddr, pin::Pin, time::Duration};
+use std::{fs::read_to_string, net::IpAddr, time::Duration};
 
 use adaptive_capacity::{spawn_rebalancer, AdaptiveGate, CapacityTarget, Workload};
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use config::{validate_config_cache, BindAddr, Cli, Config, RuntimeFlavor, StatsEndpoint};
-use futures_util::{future::select_all, FutureExt, TryFutureExt};
+use config::{
+    validate_config_cache, BindAddr, Cli, Config, RuntimeFlavor, SocketType, StatsEndpoint,
+};
 use handle::{handle_wisp, handle_wsproxy, wisp::wispnet::handle_wispnet};
 use hickory_resolver::{
     config::{NameServerConfigGroup, ResolverConfig},
@@ -18,7 +19,7 @@ use hickory_resolver::{
 };
 use lazy_static::lazy_static;
 use listener::ServerListener;
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use route::{route_stats, ServerRouteResult};
 use stats::generate_stats;
 #[cfg(not(target_os = "windows"))]
@@ -26,7 +27,7 @@ use tokio::signal::unix::{signal, SignalKind};
 
 use dashmap::DashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::{runtime, sync::oneshot};
+use tokio::{runtime, task::JoinSet};
 use uuid::Uuid;
 use wisp_mux::packet::ConnectPacket;
 
@@ -206,22 +207,26 @@ fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
+    let cores = tuning::get_specs().cpu_cores;
     let mut builder: runtime::Builder = match CONFIG.server.runtime {
         RuntimeFlavor::SingleThread => runtime::Builder::new_current_thread(),
-        RuntimeFlavor::MultiThread => runtime::Builder::new_multi_thread(),
+        RuntimeFlavor::MultiThread | RuntimeFlavor::ThreadPerCore => {
+            let mut builder = runtime::Builder::new_multi_thread();
+            builder.worker_threads(cores);
+            builder
+        }
         #[cfg(tokio_unstable)]
-        RuntimeFlavor::MultiThreadAlt => runtime::Builder::new_multi_thread_alt(),
-
-        RuntimeFlavor::ThreadPerCore => return threadpercore_main(),
+        RuntimeFlavor::MultiThreadAlt => {
+            let mut builder = runtime::Builder::new_multi_thread_alt();
+            builder.worker_threads(cores);
+            builder
+        }
     };
 
     builder.enable_all();
     let rt = builder.build()?;
 
-    rt.block_on(async move {
-        tokio::spawn(async_main()).await??;
-        Ok(())
-    })
+    rt.block_on(async_main())
 }
 
 #[doc(hidden)]
@@ -233,72 +238,6 @@ async fn async_init() {
     init_capacity();
 
     info!("nuru listening on {}{}", CONFIG.server.bind.1, POSITIVE);
-}
-
-#[doc(hidden)]
-fn threadpercore_main() -> Result<()> {
-    let rt = runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
-
-    rt.block_on(async_init());
-
-    let cores = std::thread::available_parallelism()?.get();
-
-    let mut threads = Vec::with_capacity(cores);
-
-    for _ in 1..cores {
-        threads.push(Box::pin(
-            threadpercore_init_thread(listen_wisp())
-                .map_err(|join_error| anyhow!(join_error))
-                .map(|task_result| task_result?),
-        ) as Pin<Box<dyn Future<Output = Result<()>>>>);
-    }
-
-    rt.block_on(async move {
-        tokio::spawn(listen_stats_cli());
-
-        if let Some(bind_addr) = CONFIG
-            .server
-            .stats_endpoint
-            .as_ref()
-            .and_then(StatsEndpoint::get_bindaddr)
-        {
-            tokio::spawn(listen_stats(bind_addr));
-        }
-
-        let wisp = Box::pin(
-            tokio::spawn(listen_wisp())
-                .map_err(|join_error| anyhow!(join_error))
-                .map(|task_result| task_result?),
-        ) as Pin<Box<dyn Future<Output = Result<()>>>>;
-
-        select_all(threads.into_iter().chain(std::iter::once(wisp)))
-            .await
-            .0
-    })
-}
-
-#[doc(hidden)]
-fn threadpercore_init_thread<T: Send + 'static>(
-    func: impl Future<Output = Result<T>> + Sync + Send + 'static,
-) -> oneshot::Receiver<Result<T>> {
-    let (sender, receiver) = oneshot::channel();
-    std::thread::spawn(move || {
-        let worker_result = (|| {
-            let rt = runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-
-            debug!("created thread-per-core worker{}", POSITIVE);
-
-            rt.block_on(func)
-        })();
-
-        let _ =
-            sender.send(worker_result.context(negative_message!("thread-per-core worker failed")));
-    });
-    receiver
 }
 
 #[doc(hidden)]
@@ -316,7 +255,42 @@ async fn async_main() -> Result<()> {
         tokio::spawn(listen_stats(bind_addr));
     }
 
-    listen_wisp().await
+    listen_wisp_shards().await
+}
+
+#[doc(hidden)]
+fn wisp_listener_shards() -> usize {
+    listener_shards(
+        &CONFIG.server.runtime,
+        CONFIG.server.bind.0,
+        tuning::get_specs().cpu_cores,
+    )
+}
+
+#[doc(hidden)]
+fn listener_shards(runtime: &RuntimeFlavor, socket_type: SocketType, cores: usize) -> usize {
+    if runtime.is_thread_per_core()
+        && matches!(socket_type, SocketType::Tcp | SocketType::TlsTcp)
+        && !cfg!(target_os = "windows")
+    {
+        cores.max(1)
+    } else {
+        1
+    }
+}
+
+#[doc(hidden)]
+async fn listen_wisp_shards() -> Result<()> {
+    let mut listeners = JoinSet::new();
+    for _ in 0..wisp_listener_shards() {
+        listeners.spawn(listen_wisp());
+    }
+
+    match listeners.join_next().await {
+        Some(Ok(result)) => result,
+        Some(Err(error)) => Err(anyhow!(error)),
+        None => Ok(()),
+    }
 }
 
 #[doc(hidden)]
@@ -452,8 +426,8 @@ fn handle_stream(stream: ServerRouteResult, id: String) {
 }
 
 #[cfg(test)]
-mod message_tests {
-    use super::{NEGATIVE, POSITIVE};
+mod tests {
+    use super::{listener_shards, RuntimeFlavor, SocketType, NEGATIVE, POSITIVE};
 
     #[test]
     fn runtime_endings_are_exact() {
@@ -463,5 +437,25 @@ mod message_tests {
         );
         assert_eq!(NEGATIVE, "... /ᐠ - ˕ -マ");
         assert_eq!(POSITIVE, "!! (˵◝ ⩊  ◜˵マ");
+    }
+
+    #[test]
+    fn listener_sharding_is_safe_for_the_transport() {
+        assert_eq!(
+            listener_shards(&RuntimeFlavor::MultiThread, SocketType::Tcp, 8),
+            1
+        );
+        assert_eq!(
+            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Unix, 8),
+            1
+        );
+        assert_eq!(
+            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Tcp, 0),
+            1
+        );
+        assert_eq!(
+            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Tcp, 8),
+            if cfg!(target_os = "windows") { 1 } else { 8 }
+        );
     }
 }
