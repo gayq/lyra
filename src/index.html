@@ -92,12 +92,14 @@
     </script>
     <script>
       (function () {
+        const recoveryUrl = new URL(window.location.href);
+        let recoveryAttempted = recoveryUrl.searchParams.has("lyra-recovery");
+
         window.__lyraRecoverAsset = function () {
-          const now = Date.now();
+          if (recoveryAttempted) return;
+          recoveryAttempted = true;
           const target = new URL(window.location.href);
-          const previous = Number(target.searchParams.get("lyra-recovery"));
-          if (Number.isFinite(previous) && now - previous < 30_000) return;
-          target.searchParams.set("lyra-recovery", String(now));
+          target.searchParams.set("lyra-recovery", "1");
           window.location.replace(target.href);
         };
         window.addEventListener(
