@@ -17,12 +17,19 @@ pub struct CloudSyncTuning {
 pub fn detect() -> CloudSyncTuning {
     let mut sys = System::new();
     sys.refresh_memory();
-    let ram_mb = sys.total_memory() / (1024 * 1024);
+    let host_ram_mb = sys.total_memory() / (1024 * 1024);
+    let configured_ram_mb = std::env::var("CLOUDSYNC_MEMORY_MB")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value >= 128);
+    let ram_mb = configured_ram_mb
+        .map(|limit| limit.min(host_ram_mb))
+        .unwrap_or(host_ram_mb);
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2);
 
-    tracing::info!("detected system: {}mb ram, {} cores", ram_mb, cores);
+    tracing::info!("detected system: {}mb usable ram, {} cores", ram_mb, cores);
 
     compute(ram_mb, cores)
 }
@@ -31,12 +38,13 @@ fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
     let db_pool_max = (cores as u32).clamp(4, 12);
     let db_pool_min_idle = (db_pool_max / 6).max(1);
 
-    let body_limit_mb = (ram_mb / 128).clamp(8, 64) as usize;
+    let body_limit_mb = (ram_mb / 24).clamp(16, 64) as usize;
     let auth_work_min = 1;
     let auth_work_max = cores.clamp(2, 32);
     let auth_work_permits = cores.div_ceil(2).clamp(auth_work_min, auth_work_max);
     let sync_work_min = 1;
-    let sync_memory_bound = (ram_mb as usize / body_limit_mb.saturating_mul(6)).max(1);
+    let sync_memory_budget_mb = (ram_mb as usize).saturating_mul(3) / 5;
+    let sync_memory_bound = (sync_memory_budget_mb / 192).max(1);
     let sync_work_max = cores
         .saturating_mul(2)
         .min(sync_memory_bound)
@@ -80,10 +88,18 @@ mod tests {
 
     #[test]
     fn heavy_work_and_database_limits_stay_bounded() {
+        let minimum = compute(128, 1);
+        assert_eq!(minimum.body_limit_mb, 16);
+
         let tiny = compute(256, 1);
         assert_eq!(tiny.sync_work_permits, 1);
         assert_eq!(tiny.db_pool_max, 4);
-        assert_eq!(tiny.body_limit_mb, 8);
+        assert_eq!(tiny.body_limit_mb, 16);
+
+        let production_budget = compute(768, 8);
+        assert_eq!(production_budget.body_limit_mb, 32);
+        assert_eq!(production_budget.sync_work_permits, 2);
+        assert_eq!(production_budget.sync_work_max, 2);
 
         let large = compute(65_536, 64);
         assert_eq!(large.sync_work_permits, 16);

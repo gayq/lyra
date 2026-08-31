@@ -1,12 +1,16 @@
 import { negativeMessage } from "../../core/runtime/messages.ts";
 
-const SYNC_SCHEMA_VERSION = 2 as const;
+const SYNC_SCHEMA_VERSION = 3 as const;
+const LEGACY_SYNC_SCHEMA_VERSION = 2 as const;
 
 const FOLIO_DB = "__folio_controller";
 const FOLIO_STORE = "state";
 const FOLIO_COOKIE_KEY = "cookies";
 const FOLIO_CHANNEL = "__folio_controller_channel";
 const IDB_REGISTRY_KEY = "lyra-sync-idb-names";
+const MAX_SITE_RECORD_BYTES = 1024 * 1024;
+
+const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
 
 const LOCAL_ONLY_KEYS = new Set([
   "auth_user",
@@ -110,7 +114,9 @@ interface SyncCookie {
 }
 
 export interface SyncSnapshot {
-  schemaVersion: typeof SYNC_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof LEGACY_SYNC_SCHEMA_VERSION
+    | typeof SYNC_SCHEMA_VERSION;
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
   cookies: SyncCookie[];
@@ -197,6 +203,72 @@ export function isSensitiveSyncName(name: string): boolean {
   return normalizedParts(originalLeaf).some((part) => SENSITIVE_PARTS.has(part));
 }
 
+function isSiteStorageName(name: string): boolean {
+  const separator = name.lastIndexOf("@");
+  return separator > 0 && separator < name.length - 1;
+}
+
+function isSiteDatabaseName(name: string): boolean {
+  const separator = name.lastIndexOf("@");
+  if (separator < 1 || separator === name.length - 1) return false;
+  const origin = name.slice(0, separator).toLowerCase();
+  return origin.startsWith("https://") || origin.startsWith("http://");
+}
+
+function allowsSensitiveDatabase(name: string): boolean {
+  return (
+    name === FOLIO_DB ||
+    name === "rivet_extensions" ||
+    isSiteDatabaseName(name)
+  );
+}
+
+export function canSyncIndexedDBStore(
+  databaseName: string,
+  storeName: string,
+): boolean {
+  return (
+    databaseName !== "rivet_extensions" ||
+    !LOCAL_ONLY_RIVET_STORES.has(storeName)
+  );
+}
+
+export function containsLocalOnlySiteData(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value) ||
+    (typeof Blob !== "undefined" && value instanceof Blob)
+  ) {
+    return true;
+  }
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value) || value instanceof Set) {
+    for (const entry of value) {
+      if (containsLocalOnlySiteData(entry, seen)) return true;
+    }
+    return false;
+  }
+  if (value instanceof Map) {
+    for (const [key, entry] of value) {
+      if (
+        containsLocalOnlySiteData(key, seen) ||
+        containsLocalOnlySiteData(entry, seen)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return Object.values(value).some((entry) =>
+    containsLocalOnlySiteData(entry, seen),
+  );
+}
+
 function looksLikeJwt(value: string): boolean {
   const parts = value.trim().split(".");
   return (
@@ -277,6 +349,13 @@ function isSensitiveSyncText(
   } catch {
     return false;
   }
+}
+
+export function canSyncStorageValue(name: string, value: string): boolean {
+  return (
+    isSiteStorageName(name) ||
+    (!isSensitiveSyncName(name) && !isSensitiveSyncText(value))
+  );
 }
 
 function bytesContainSensitiveText(bytes: Uint8Array): boolean {
@@ -445,6 +524,7 @@ function typedArray(
 async function encodeValue(
   value: unknown,
   state: EncodeState,
+  allowSensitive = false,
 ): Promise<EncodedValue> {
   if (value === null) return { type: "null" };
   if (value === undefined) return { type: "undefined" };
@@ -500,7 +580,7 @@ async function encodeValue(
       id,
       value: {
         name,
-        buffer: await encodeValue(value.buffer, state),
+        buffer: await encodeValue(value.buffer, state, allowSensitive),
         byteOffset: value.byteOffset,
         length,
       },
@@ -532,39 +612,57 @@ async function encodeValue(
     return {
       type: "array",
       id,
-      value: await Promise.all(value.map((entry) => encodeValue(entry, state))),
+      value: await Promise.all(
+        value.map((entry) => encodeValue(entry, state, allowSensitive)),
+      ),
     };
   }
   if (value instanceof Map) {
     const entries: Array<[EncodedValue, EncodedValue]> = [];
     for (const [key, entry] of value) {
-      if (typeof key === "string" && isSensitiveSyncName(key)) continue;
+      if (
+        !allowSensitive &&
+        typeof key === "string" &&
+        isSensitiveSyncName(key)
+      ) {
+        continue;
+      }
       entries.push([
-        await encodeValue(key, state),
-        await encodeValue(entry, state),
+        await encodeValue(key, state, allowSensitive),
+        await encodeValue(entry, state, allowSensitive),
       ]);
     }
     return { type: "map", id, value: entries };
   }
   if (value instanceof Set) {
     const entries: EncodedValue[] = [];
-    for (const entry of value) entries.push(await encodeValue(entry, state));
+    for (const entry of value) {
+      entries.push(await encodeValue(entry, state, allowSensitive));
+    }
     return { type: "set", id, value: entries };
   }
 
   const entries: Record<string, EncodedValue> = Object.create(null);
   for (const key of Object.keys(value).sort()) {
-    if (isSensitiveSyncName(key)) continue;
+    if (!allowSensitive && isSensitiveSyncName(key)) continue;
     entries[key] = await encodeValue(
       (value as Record<string, unknown>)[key],
       state,
+      allowSensitive,
     );
   }
   return { type: "object", id, value: entries };
 }
 
-function encodeBrowserValue(value: unknown): Promise<EncodedValue> {
-  return encodeValue(value, { ids: new WeakMap(), nextId: 1 });
+function encodeBrowserValue(
+  value: unknown,
+  allowSensitive = false,
+): Promise<EncodedValue> {
+  return encodeValue(
+    value,
+    { ids: new WeakMap(), nextId: 1 },
+    allowSensitive,
+  );
 }
 
 function decodeValue(
@@ -694,9 +792,10 @@ function exportStorage(storage: StorageLike): Record<string, string> {
     if (key !== null) keys.add(key);
   }
   for (const key of [...keys].sort()) {
-    if (isSensitiveSyncName(key)) continue;
     const value = storage.getItem(key);
-    if (value !== null && !isSensitiveSyncText(value)) values[key] = value;
+    if (value !== null && canSyncStorageValue(key, value)) {
+      values[key] = value;
+    }
   }
   return values;
 }
@@ -853,9 +952,56 @@ function parseFolioCookies(value: unknown): Record<string, FolioCookie> {
   if (typeof value !== "string") return {};
   try {
     const parsed = JSON.parse(value);
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as Record<string, FolioCookie>)
-      : {};
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    const cookies: Record<string, FolioCookie> = {};
+    for (const [id, entry] of Object.entries(parsed)) {
+      if (
+        id.length > 2048 ||
+        typeof entry !== "object" ||
+        entry === null ||
+        Array.isArray(entry)
+      ) {
+        continue;
+      }
+      const cookie = entry as FolioCookie;
+      if (
+        typeof cookie.name !== "string" ||
+        cookie.name.length > 256 ||
+        typeof cookie.value !== "string" ||
+        cookie.value.length > 4096 ||
+        Object.keys(cookie).length > 32 ||
+        ["domain", "path", "sameSite"].some(
+          (field) =>
+            field in cookie && typeof cookie[field] !== "string",
+        ) ||
+        ["hostOnly", "secure", "httpOnly", "partitioned"].some(
+          (field) =>
+            field in cookie && typeof cookie[field] !== "boolean",
+        ) ||
+        ["expires", "maxAge"].some(
+          (field) =>
+            field in cookie && typeof cookie[field] !== "number",
+        ) ||
+        (typeof cookie.domain === "string" && cookie.domain.length > 253) ||
+        (typeof cookie.path === "string" &&
+          (!cookie.path.startsWith("/") || cookie.path.length > 1024)) ||
+        (typeof cookie.sameSite === "string" && cookie.sameSite.length > 64) ||
+        Object.entries(cookie).some(
+          ([key, field]) =>
+            key.length > 256 ||
+            !(
+              field === null ||
+              ["string", "number", "boolean"].includes(typeof field)
+            ),
+        )
+      ) {
+        continue;
+      }
+      cookies[id] = cookie;
+    }
+    return cookies;
   } catch {
     return {};
   }
@@ -882,16 +1028,27 @@ function splitFolioCookies(value: unknown): {
   return { safe, local };
 }
 
-function sanitizeFolioCookieState(value: unknown): unknown {
+function sanitizeFolioCookieState(
+  value: unknown,
+  includeSensitive: boolean,
+): unknown {
   if (typeof value !== "object" || value === null) return value;
   const cookies = (value as Record<string, unknown>).cookies;
   return {
     updatedAt: 0,
-    cookies: JSON.stringify(splitFolioCookies(cookies).safe),
+    cookies: JSON.stringify(
+      includeSensitive
+        ? parseFolioCookies(cookies)
+        : splitFolioCookies(cookies).safe,
+    ),
   };
 }
 
-function mergeFolioCookieState(remote: unknown, local: unknown): unknown {
+function mergeFolioCookieState(
+  remote: unknown,
+  local: unknown,
+  includeSensitive: boolean,
+): unknown {
   const remoteCookies =
     typeof remote === "object" && remote !== null
       ? (remote as Record<string, unknown>).cookies
@@ -900,10 +1057,12 @@ function mergeFolioCookieState(remote: unknown, local: unknown): unknown {
     typeof local === "object" && local !== null
       ? (local as Record<string, unknown>).cookies
       : undefined;
-  const merged = {
-    ...splitFolioCookies(remoteCookies).safe,
-    ...splitFolioCookies(localCookies).local,
-  };
+  const merged = includeSensitive
+    ? parseFolioCookies(remoteCookies)
+    : {
+        ...splitFolioCookies(remoteCookies).safe,
+        ...splitFolioCookies(localCookies).local,
+      };
   const localUpdatedAt =
     typeof local === "object" &&
     local !== null &&
@@ -931,30 +1090,39 @@ function registeredDatabaseNames(): Set<string> {
     const parsed = stored ? JSON.parse(stored) : [];
     if (Array.isArray(parsed)) {
       for (const name of parsed) {
-        if (typeof name === "string" && name && !isSensitiveSyncName(name)) {
+        if (
+          typeof name === "string" &&
+          name &&
+          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name))
+        ) {
           names.add(name);
         }
       }
     }
-  } catch {
-    
-  }
+  } catch {}
   return names;
 }
 
 function saveDatabaseNames(names: Iterable<string>): void {
   try {
     const safe = [...new Set(names)]
-      .filter((name) => name && !isSensitiveSyncName(name))
+      .filter(
+        (name) =>
+          name &&
+          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
+      )
       .sort();
     globalThis.localStorage?.setItem(IDB_REGISTRY_KEY, JSON.stringify(safe));
-  } catch {
-    
-  }
+  } catch {}
 }
 
 export function rememberIndexedDBName(name: string): void {
-  if (!name || isSensitiveSyncName(name)) return;
+  if (
+    !name ||
+    (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))
+  ) {
+    return;
+  }
   const names = registeredDatabaseNames();
   names.add(name);
   saveDatabaseNames(names);
@@ -972,7 +1140,9 @@ async function databaseNames(factory: IDBFactory): Promise<string[]> {
       .map((database) => database.name)
       .filter(
         (name): name is string =>
-          typeof name === "string" && name.length > 0 && !isSensitiveSyncName(name),
+          typeof name === "string" &&
+          name.length > 0 &&
+          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
       )
       .sort();
     saveDatabaseNames(names);
@@ -985,9 +1155,7 @@ async function databaseNames(factory: IDBFactory): Promise<string[]> {
       const database = await openExistingDatabase(factory, name);
       database.close();
       names.push(name);
-    } catch {
-      
-    }
+    } catch {}
   }
   return names;
 }
@@ -1029,13 +1197,14 @@ async function readRawRecords(store: IDBObjectStore): Promise<Array<{ key: IDBVa
 async function exportStore(
   database: IDBDatabase,
   storeName: string,
+  allowSensitive: boolean,
 ): Promise<SyncStore> {
   const transaction = database.transaction(storeName, "readonly");
   const done = transactionDone(transaction);
   const store = transaction.objectStore(storeName);
   const indexes: Record<string, SyncIndex> = {};
   for (const indexName of Array.from(store.indexNames).sort()) {
-    if (isSensitiveSyncName(indexName)) continue;
+    if (!allowSensitive && isSensitiveSyncName(indexName)) continue;
     const index = store.index(indexName);
     indexes[indexName] = {
       keyPath: keyPath(index.keyPath),
@@ -1043,22 +1212,34 @@ async function exportStore(
       multiEntry: index.multiEntry,
     };
   }
+  if (!canSyncIndexedDBStore(database.name, storeName)) {
+    await done;
+    return {
+      keyPath: keyPath(store.keyPath),
+      autoIncrement: store.autoIncrement,
+      indexes,
+      records: [],
+    };
+  }
   const rawRecords = await readRawRecords(store);
   await done;
   const records: SyncRecord[] = [];
   for (const record of rawRecords) {
-    if (isSensitiveSyncName(String(record.key))) continue;
+    if (!allowSensitive && isSensitiveSyncName(String(record.key))) continue;
     const value =
       database.name === FOLIO_DB &&
       storeName === FOLIO_STORE &&
       record.key === FOLIO_COOKIE_KEY
-        ? sanitizeFolioCookieState(record.value)
+        ? sanitizeFolioCookieState(record.value, allowSensitive)
         : record.value;
-    if (await containsSensitiveTextValue(value)) continue;
-    records.push({
-      key: await encodeBrowserValue(record.key),
-      value: await encodeBrowserValue(value),
-    });
+    if (!allowSensitive && (await containsSensitiveTextValue(value))) continue;
+    const encoded = await encodeRecord(
+      database.name,
+      record.key,
+      value,
+      allowSensitive,
+    );
+    if (encoded) records.push(encoded);
   }
   return {
     keyPath: keyPath(store.keyPath),
@@ -1068,16 +1249,57 @@ async function exportStore(
   };
 }
 
+async function encodeRecord(
+  databaseName: string,
+  key: IDBValidKey,
+  value: unknown,
+  allowSensitive: boolean,
+): Promise<SyncRecord | null> {
+  if (
+    isSiteDatabaseName(databaseName) &&
+    (containsLocalOnlySiteData(key) || containsLocalOnlySiteData(value))
+  ) {
+    return null;
+  }
+  try {
+    const record = {
+      key: await encodeBrowserValue(key, allowSensitive),
+      value: await encodeBrowserValue(value, allowSensitive),
+    };
+    if (
+      !validEncodedValue(record.key, new Set<number>(), allowSensitive) ||
+      !validEncodedValue(record.value, new Set<number>(), allowSensitive)
+    ) {
+      return null;
+    }
+    if (
+      isSiteDatabaseName(databaseName) &&
+      new TextEncoder().encode(JSON.stringify(record)).byteLength >
+        MAX_SITE_RECORD_BYTES
+    ) {
+      return null;
+    }
+    return record;
+  } catch {
+    return null;
+  }
+}
+
 async function exportDatabase(
   factory: IDBFactory,
   name: string,
 ): Promise<SyncDatabase> {
   const database = await openExistingDatabase(factory, name);
   try {
+    const allowSensitive = allowsSensitiveDatabase(name);
     const stores: Record<string, SyncStore> = {};
     for (const storeName of Array.from(database.objectStoreNames).sort()) {
-      if (isSensitiveSyncName(storeName)) continue;
-      stores[storeName] = await exportStore(database, storeName);
+      if (!allowSensitive && isSensitiveSyncName(storeName)) continue;
+      stores[storeName] = await exportStore(
+        database,
+        storeName,
+        allowSensitive,
+      );
     }
     return { stores };
   } finally {
@@ -1138,13 +1360,18 @@ function validKeyPath(value: unknown): value is KeyPath {
   );
 }
 
-function validEncodedValue(value: unknown, ids = new Set<number>()): value is EncodedValue {
+function validEncodedValue(
+  value: unknown,
+  ids = new Set<number>(),
+  allowSensitive = false,
+): value is EncodedValue {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   if (value.type === "null" || value.type === "undefined") return true;
   if (value.type === "boolean") return typeof value.value === "boolean";
   if (value.type === "string") {
     return (
-      typeof value.value === "string" && !isSensitiveSyncText(value.value)
+      typeof value.value === "string" &&
+      (allowSensitive || !isSensitiveSyncText(value.value))
     );
   }
   if (value.type === "bigint") {
@@ -1165,7 +1392,10 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
     return typeof value.value === "string";
   }
   if (value.type === "array_buffer") {
-    return typeof value.value === "string" && validEncodedBytes(value.value);
+    return (
+      typeof value.value === "string" &&
+      (allowSensitive || validEncodedBytes(value.value))
+    );
   }
   if (value.type === "regexp") {
     return (
@@ -1177,7 +1407,9 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
   if (value.type === "array" || value.type === "set") {
     return (
       Array.isArray(value.value) &&
-      value.value.every((entry) => validEncodedValue(entry, ids))
+      value.value.every((entry) =>
+        validEncodedValue(entry, ids, allowSensitive),
+      )
     );
   }
   if (value.type === "object") {
@@ -1185,7 +1417,8 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
       isRecord(value.value) &&
       Object.entries(value.value).every(
         ([key, entry]) =>
-          !isSensitiveSyncName(key) && validEncodedValue(entry, ids),
+          (allowSensitive || !isSensitiveSyncName(key)) &&
+          validEncodedValue(entry, ids, allowSensitive),
       )
     );
   }
@@ -1196,14 +1429,14 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
         (entry) =>
           Array.isArray(entry) &&
           entry.length === 2 &&
-          !(
+          (allowSensitive || !(
             isRecord(entry[0]) &&
             entry[0].type === "string" &&
             typeof entry[0].value === "string" &&
             isSensitiveSyncName(entry[0].value)
-          ) &&
-          validEncodedValue(entry[0], ids) &&
-          validEncodedValue(entry[1], ids),
+          )) &&
+          validEncodedValue(entry[0], ids, allowSensitive) &&
+          validEncodedValue(entry[1], ids, allowSensitive),
       )
     );
   }
@@ -1214,7 +1447,7 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
       TYPED_ARRAY_NAMES.has(value.value.name) &&
       typeof value.value.byteOffset === "number" &&
       typeof value.value.length === "number" &&
-      validEncodedValue(value.value.buffer, ids)
+      validEncodedValue(value.value.buffer, ids, allowSensitive)
     );
   }
   if (value.type === "blob") {
@@ -1222,7 +1455,7 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
       isRecord(value.value) &&
       typeof value.value.mediaType === "string" &&
       typeof value.value.bytes === "string" &&
-      validEncodedBytes(value.value.bytes)
+      (allowSensitive || validEncodedBytes(value.value.bytes))
     );
   }
   if (value.type === "file") {
@@ -1232,7 +1465,7 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
       typeof value.value.mediaType === "string" &&
       typeof value.value.lastModified === "number" &&
       typeof value.value.bytes === "string" &&
-      validEncodedBytes(value.value.bytes)
+      (allowSensitive || validEncodedBytes(value.value.bytes))
     );
   }
   return false;
@@ -1241,20 +1474,24 @@ function validEncodedValue(value: unknown, ids = new Set<number>()): value is En
 function isSyncSnapshot(value: unknown): value is SyncSnapshot {
   if (
     !isRecord(value) ||
-    value.schemaVersion !== SYNC_SCHEMA_VERSION ||
+    ![
+      LEGACY_SYNC_SCHEMA_VERSION,
+      SYNC_SCHEMA_VERSION,
+    ].includes(value.schemaVersion as 2 | 3) ||
     Object.keys(value).length !== 5
   ) {
     return false;
   }
+  const includeSensitive = value.schemaVersion === SYNC_SCHEMA_VERSION;
   for (const field of ["localStorage", "sessionStorage"] as const) {
     const entries = value[field];
     if (
       !isRecord(entries) ||
       Object.entries(entries).some(
         ([key, entry]) =>
-          isSensitiveSyncName(key) ||
           typeof entry !== "string" ||
-          isSensitiveSyncText(entry),
+          (!includeSensitive || !isSiteStorageName(key)) &&
+            (isSensitiveSyncName(key) || isSensitiveSyncText(entry)),
       )
     ) {
       return false;
@@ -1290,10 +1527,22 @@ function isSyncSnapshot(value: unknown): value is SyncSnapshot {
   }
   if (!isRecord(value.indexedDB)) return false;
   return Object.entries(value.indexedDB).every(([databaseName, database]) => {
-    if (isSensitiveSyncName(databaseName) || !isRecord(database)) return false;
+    const allowSensitive =
+      includeSensitive && allowsSensitiveDatabase(databaseName);
+    if (
+      (!allowSensitive && isSensitiveSyncName(databaseName)) ||
+      !isRecord(database)
+    ) {
+      return false;
+    }
     if (!isRecord(database.stores)) return false;
     return Object.entries(database.stores).every(([storeName, store]) => {
-      if (isSensitiveSyncName(storeName) || !isRecord(store)) return false;
+      if (
+        (!allowSensitive && isSensitiveSyncName(storeName)) ||
+        !isRecord(store)
+      ) {
+        return false;
+      }
       if (
         !validKeyPath(store.keyPath) ||
         typeof store.autoIncrement !== "boolean" ||
@@ -1314,8 +1563,8 @@ function isSyncSnapshot(value: unknown): value is SyncSnapshot {
         store.records.every(
           (record) =>
             isRecord(record) &&
-            validEncodedValue(record.key) &&
-            validEncodedValue(record.value),
+            validEncodedValue(record.key, new Set<number>(), allowSensitive) &&
+            validEncodedValue(record.value, new Set<number>(), allowSensitive),
         )
       );
     });
@@ -1325,6 +1574,7 @@ function isSyncSnapshot(value: unknown): value is SyncSnapshot {
 function replaceStorage(
   storage: StorageLike,
   remote: Record<string, string>,
+  includeSensitive: boolean,
 ): void {
   const currentKeys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
@@ -1333,9 +1583,11 @@ function replaceStorage(
   }
   for (const key of currentKeys) {
     const current = storage.getItem(key);
+    const replaceSensitive = includeSensitive && isSiteStorageName(key);
     if (
-      !isSensitiveSyncName(key) &&
-      !(current !== null && isSensitiveSyncText(current)) &&
+      (replaceSensitive ||
+        (!isSensitiveSyncName(key) &&
+          !(current !== null && isSensitiveSyncText(current)))) &&
       !hasOwn(remote, key)
     ) {
       storage.removeItem(key);
@@ -1427,7 +1679,11 @@ function sameKeyPath(left: KeyPath, right: KeyPath): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function sameStoreSchema(store: IDBObjectStore, snapshot: SyncStore): boolean {
+function sameStoreSchema(
+  store: IDBObjectStore,
+  snapshot: SyncStore,
+  allowSensitive: boolean,
+): boolean {
   if (
     !sameKeyPath(keyPath(store.keyPath), snapshot.keyPath) ||
     store.autoIncrement !== snapshot.autoIncrement
@@ -1435,7 +1691,7 @@ function sameStoreSchema(store: IDBObjectStore, snapshot: SyncStore): boolean {
     return false;
   }
   const names = Array.from(store.indexNames).filter(
-    (name) => !isSensitiveSyncName(name),
+    (name) => allowSensitive || !isSensitiveSyncName(name),
   );
   if (names.length !== Object.keys(snapshot.indexes).length) return false;
   return names.every((name) => {
@@ -1476,21 +1732,25 @@ async function reconcileDatabase(
   name: string,
   snapshot: SyncDatabase,
   exists: boolean,
+  includeSensitive: boolean,
 ): Promise<IDBDatabase> {
   if (!exists) return openNewDatabase(factory, name, snapshot);
+  const allowSensitive =
+    includeSensitive && allowsSensitiveDatabase(name);
   let database = await openExistingDatabase(factory, name);
-  const safeStores = Array.from(database.objectStoreNames).filter(
-    (storeName) => !isSensitiveSyncName(storeName),
+  const syncStores = Array.from(database.objectStoreNames).filter(
+    (storeName) => allowSensitive || !isSensitiveSyncName(storeName),
   );
   let schemaMatches =
-    safeStores.length === Object.keys(snapshot.stores).length &&
-    safeStores.every((storeName) => hasOwn(snapshot.stores, storeName));
-  if (schemaMatches && safeStores.length > 0) {
-    const transaction = database.transaction(safeStores, "readonly");
-    schemaMatches = safeStores.every((storeName) =>
+    syncStores.length === Object.keys(snapshot.stores).length &&
+    syncStores.every((storeName) => hasOwn(snapshot.stores, storeName));
+  if (schemaMatches && syncStores.length > 0) {
+    const transaction = database.transaction(syncStores, "readonly");
+    schemaMatches = syncStores.every((storeName) =>
       sameStoreSchema(
         transaction.objectStore(storeName),
         snapshot.stores[storeName]!,
+        allowSensitive,
       ),
     );
   }
@@ -1504,7 +1764,7 @@ async function reconcileDatabase(
       const upgraded = request.result;
       for (const storeName of Array.from(upgraded.objectStoreNames)) {
         if (
-          !isSensitiveSyncName(storeName) &&
+          (allowSensitive || !isSensitiveSyncName(storeName)) &&
           !hasOwn(snapshot.stores, storeName)
         ) {
           upgraded.deleteObjectStore(storeName);
@@ -1515,7 +1775,7 @@ async function reconcileDatabase(
       )) {
         if (upgraded.objectStoreNames.contains(storeName)) {
           const store = request.transaction!.objectStore(storeName);
-          if (!sameStoreSchema(store, storeSnapshot)) {
+          if (!sameStoreSchema(store, storeSnapshot, allowSensitive)) {
             upgraded.deleteObjectStore(storeName);
             createStore(upgraded, storeName, storeSnapshot);
           }
@@ -1549,7 +1809,11 @@ async function replaceRecords(
   databaseName: string,
   storeName: string,
   snapshot: SyncStore,
+  includeSensitive: boolean,
 ): Promise<number | null> {
+  if (!canSyncIndexedDBStore(databaseName, storeName)) return null;
+  const replaceSensitive =
+    includeSensitive && allowsSensitiveDatabase(databaseName);
   const readTransaction = database.transaction(storeName, "readonly");
   const readDone = transactionDone(readTransaction);
   const localRecords = await readRawRecords(
@@ -1566,14 +1830,25 @@ async function replaceRecords(
   );
   const remoteByKey = new Map(remoteRecords.map((record) => [record.keyId, record]));
   for (const localRecord of localRecords) {
-    const encodedKey = await encodeBrowserValue(localRecord.key);
+    const encodedKey = await encodeBrowserValue(
+      localRecord.key,
+      replaceSensitive,
+    );
     const keyId = JSON.stringify(encodedKey);
     const remote = remoteByKey.get(keyId);
-    if (remote) {
+    if (remote && !replaceSensitive) {
       remote.value = mergeLocalSecrets(remote.value, localRecord.value);
     } else if (
-      isSensitiveSyncName(String(localRecord.key)) ||
-        (await containsSensitiveTextValue(localRecord.value, true))
+      !remote &&
+      ((await encodeRecord(
+        databaseName,
+        localRecord.key,
+        localRecord.value,
+        replaceSensitive,
+      )) === null ||
+        (!replaceSensitive &&
+          (isSensitiveSyncName(String(localRecord.key)) ||
+            (await containsSensitiveTextValue(localRecord.value, true)))))
     ) {
       remoteRecords.push({
         key: localRecord.key,
@@ -1588,7 +1863,11 @@ async function replaceRecords(
     const remote = remoteRecords.find((record) => record.key === FOLIO_COOKIE_KEY);
     const local = localRecords.find((record) => record.key === FOLIO_COOKIE_KEY);
     if (remote) {
-      remote.value = mergeFolioCookieState(remote.value, local?.value);
+      remote.value = mergeFolioCookieState(
+        remote.value,
+        local?.value,
+        replaceSensitive,
+      );
       folioUpdatedAt = (remote.value as { updatedAt: number }).updatedAt;
     }
   }
@@ -1619,12 +1898,18 @@ function deleteDatabase(factory: IDBFactory, name: string): Promise<void> {
 
 async function restoreIndexedDB(
   remote: Record<string, SyncDatabase>,
+  includeSensitive: boolean,
 ): Promise<void> {
   const factory = globalThis.indexedDB;
   if (!factory) throw syncError("indexeddb is unavailable");
   const currentNames = await databaseNames(factory);
   for (const name of currentNames) {
-    if (!isSensitiveSyncName(name) && !hasOwn(remote, name)) {
+    const replaceSensitive =
+      includeSensitive && allowsSensitiveDatabase(name);
+    if (
+      (replaceSensitive || !isSensitiveSyncName(name)) &&
+      !hasOwn(remote, name)
+    ) {
       await deleteDatabase(factory, name);
     }
   }
@@ -1636,6 +1921,7 @@ async function restoreIndexedDB(
       databaseName,
       databaseSnapshot,
       currentNames.includes(databaseName),
+      includeSensitive,
     );
     try {
       for (const [storeName, storeSnapshot] of Object.entries(
@@ -1646,6 +1932,7 @@ async function restoreIndexedDB(
           databaseName,
           storeName,
           storeSnapshot,
+          includeSensitive,
         );
         if (updatedAt !== null) folioUpdatedAt = updatedAt;
       }
@@ -1716,13 +2003,19 @@ async function normalizeLegacySnapshot(value: unknown): Promise<SyncSnapshot | n
   const localStorage: Record<string, string> = {};
   const sessionStorage: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value.localStorage)) {
-    if (!isSensitiveSyncName(key) && typeof entry === "string") {
+    if (
+      typeof entry === "string" &&
+      (isSiteStorageName(key) || !isSensitiveSyncName(key))
+    ) {
       localStorage[key] = entry;
     }
   }
   if (isRecord(value.sessionStorage)) {
     for (const [key, entry] of Object.entries(value.sessionStorage)) {
-      if (!isSensitiveSyncName(key) && typeof entry === "string") {
+      if (
+        typeof entry === "string" &&
+        (isSiteStorageName(key) || !isSensitiveSyncName(key))
+      ) {
         sessionStorage[key] = entry;
       }
     }
@@ -1730,10 +2023,21 @@ async function normalizeLegacySnapshot(value: unknown): Promise<SyncSnapshot | n
 
   const indexedDB: Record<string, SyncDatabase> = {};
   for (const [databaseName, legacyDatabase] of Object.entries(value.indexedDB)) {
-    if (isSensitiveSyncName(databaseName) || !isRecord(legacyDatabase)) continue;
+    const allowSensitive = allowsSensitiveDatabase(databaseName);
+    if (
+      (!allowSensitive && isSensitiveSyncName(databaseName)) ||
+      !isRecord(legacyDatabase)
+    ) {
+      continue;
+    }
     const stores: Record<string, SyncStore> = {};
     for (const [storeName, legacyStore] of Object.entries(legacyDatabase)) {
-      if (isSensitiveSyncName(storeName) || !isRecord(legacyStore)) continue;
+      if (
+        (!allowSensitive && isSensitiveSyncName(storeName)) ||
+        !isRecord(legacyStore)
+      ) {
+        continue;
+      }
       const records = Array.isArray(legacyStore.data) ? legacyStore.data : [];
       const usesOutOfLineKeys = legacyStore.usesOutOfLineKeys === true;
       const schema = legacyStoreSchema(
@@ -1762,17 +2066,17 @@ async function normalizeLegacySnapshot(value: unknown): Promise<SyncSnapshot | n
               ? legacyRecord.id
               : index + 1;
         }
-        if (isSensitiveSyncName(String(recordKey))) continue;
+        if (!allowSensitive && isSensitiveSyncName(String(recordKey))) continue;
         if (
           databaseName === FOLIO_DB &&
           storeName === FOLIO_STORE &&
           recordKey === FOLIO_COOKIE_KEY
         ) {
-          recordValue = sanitizeFolioCookieState(recordValue);
+          recordValue = sanitizeFolioCookieState(recordValue, allowSensitive);
         }
         normalizedRecords.push({
-          key: await encodeBrowserValue(recordKey),
-          value: await encodeBrowserValue(recordValue),
+          key: await encodeBrowserValue(recordKey, allowSensitive),
+          value: await encodeBrowserValue(recordValue, allowSensitive),
         });
       }
       stores[storeName] = {
@@ -1820,14 +2124,23 @@ export async function importSyncSnapshot(
   if (!snapshot || !isSyncSnapshot(snapshot)) {
     throw syncError("invalid sync snapshot");
   }
+  const includeSensitive = snapshot.schemaVersion === SYNC_SCHEMA_VERSION;
   progress("restoring local storage...");
-  replaceStorage(globalThis.localStorage, snapshot.localStorage);
+  replaceStorage(
+    globalThis.localStorage,
+    snapshot.localStorage,
+    includeSensitive,
+  );
   progress("restoring session storage...");
-  replaceStorage(globalThis.sessionStorage, snapshot.sessionStorage);
+  replaceStorage(
+    globalThis.sessionStorage,
+    snapshot.sessionStorage,
+    includeSensitive,
+  );
   progress("restoring cookies...");
   await replaceCookies(snapshot.cookies);
   progress("restoring indexeddb...");
-  await restoreIndexedDB(snapshot.indexedDB);
+  await restoreIndexedDB(snapshot.indexedDB, includeSensitive);
 }
 
 export async function payloadFingerprint(payload: string): Promise<string> {

@@ -1201,7 +1201,7 @@ LYRA_MEM="$(calc_mem 16 256 2560)M"
 CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
 NURU_MEM="$(calc_mem 22 512 4608)M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
-log "memory limits - lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
+log "memory limits — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
 
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
@@ -1257,10 +1257,11 @@ module.exports = {
       max_restarts: 10,
       min_uptime: 10000,
       kill_timeout: 5000,
-      env: {
-        RUST_LOG: "warn",
-        CLOUDSYNC_DB_PATH: "$ROOT/services/cloudsync/.db"
-      }
+       env: {
+         RUST_LOG: "warn",
+         CLOUDSYNC_DB_PATH: "$ROOT/services/cloudsync/.db",
+         CLOUDSYNC_MEMORY_MB: "${CLOUDSYNC_MEM%M}"
+       }
     },
 EOF
 if [ "$WG_ENABLED" -eq 0 ]; then

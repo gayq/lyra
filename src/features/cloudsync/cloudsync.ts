@@ -69,6 +69,50 @@ function fetchWithTimeout(
   }).finally(() => clearTimeout(id));
 }
 
+async function uploadSnapshot(body: string): Promise<Response> {
+  const rawHeaders = { "Content-Type": "application/json" };
+  if (body.length < 32 * 1024 || typeof CompressionStream === "undefined") {
+    return fetchWithTimeout(
+      "/api/sync/upload",
+      { method: "POST", headers: rawHeaders, body },
+      SYNC_TIMEOUT,
+    );
+  }
+
+  try {
+    const raw = new Blob([body]);
+    const compressed = await new Response(
+      raw.stream().pipeThrough(new CompressionStream("gzip")),
+    ).arrayBuffer();
+    if (compressed.byteLength >= raw.size) {
+      return fetchWithTimeout(
+        "/api/sync/upload",
+        { method: "POST", headers: rawHeaders, body },
+        SYNC_TIMEOUT,
+      );
+    }
+    const response = await fetchWithTimeout(
+      "/api/sync/upload",
+      {
+        method: "POST",
+        headers: {
+          ...rawHeaders,
+          "Content-Encoding": "gzip",
+        },
+        body: compressed,
+      },
+      SYNC_TIMEOUT,
+    );
+    if (response.status !== 415 && response.status !== 422) return response;
+  } catch {}
+
+  return fetchWithTimeout(
+    "/api/sync/upload",
+    { method: "POST", headers: rawHeaders, body },
+    SYNC_TIMEOUT,
+  );
+}
+
 export class CloudSync {
   user: AuthUser;
   syncMeta: SyncMeta;
@@ -117,25 +161,13 @@ export class CloudSync {
   }
 
   async init(): Promise<void> {
-    if (!this.user || Object.keys(this.user).length === 0) {
-      this.isAuthenticated = false;
-      this.updateModalState();
-
-      document.addEventListener("toggleCloudSyncModal", () =>
-        this.toggleCloudSyncModal(),
-      );
-      this.hookStorage();
-      return;
-    }
-
     let needsLoadingScreen = false;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const [authResponse, metadataResponse] = await Promise.all([
-        fetchWithTimeout("/api/auth/me", { cache: "no-store" }),
-        fetchWithTimeout("/api/sync/meta", { cache: "no-store" }),
-      ]);
+      const authResponse = await fetchWithTimeout("/api/auth/me", {
+        cache: "no-store",
+      });
 
       if (authResponse.ok) {
         const authPayload = await authResponse.json();
@@ -149,11 +181,19 @@ export class CloudSync {
       }
       this.updateModalState();
 
-      if (this.isAuthenticated && metadataResponse.ok) {
+      if (this.isAuthenticated) {
+        const metadataResponse = await fetchWithTimeout("/api/sync/meta", {
+          cache: "no-store",
+        });
+        if (!metadataResponse.ok) {
+          throw new Error(negativeMessage("sync metadata unavailable"));
+        }
         const syncMetadata = await metadataResponse.json();
         const serverUpdatedAt: string = syncMetadata.updated_at;
 
-        if (this.syncMeta.dirty) {
+        if (this.syncMeta.dirty || !serverUpdatedAt) {
+          this.syncMeta.dirty = true;
+          this.saveMeta();
           await this.syncData(true);
         } else if (
           serverUpdatedAt &&
@@ -222,7 +262,9 @@ export class CloudSync {
       const metaData = await metaRes.json();
       const serverUpdatedAt: string = metaData.updated_at;
 
-      if (this.syncMeta.dirty) {
+      if (this.syncMeta.dirty || !serverUpdatedAt) {
+        this.syncMeta.dirty = true;
+        this.saveMeta();
         await this.syncData(true);
       } else if (
         serverUpdatedAt &&
@@ -480,17 +522,7 @@ export class CloudSync {
       const body = JSON.stringify(snapshot);
       const fingerprint = await payloadFingerprint(body);
 
-      const response = await fetchWithTimeout(
-        "/api/sync/upload",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body,
-        },
-        SYNC_TIMEOUT,
-      );
+      const response = await uploadSnapshot(body);
 
       if (response.ok) {
         const uploadResult = await response.json();
@@ -537,8 +569,21 @@ export class CloudSync {
           return;
         }
         this._uploadRetries = 0;
-        this.updateStatus("sync failed... /ᐠ - ˕ -マ", "error");
-        this.onSyncError();
+        if (response.status === 401) {
+          await this.checkAuthStatus();
+          this.stopPolling();
+          this.updateStatus("sign in again to sync... /ᐠ - ˕ -マ", "error");
+        } else if (response.status === 413) {
+          this.updateStatus("sync data is too large... /ᐠ - ˕ -マ", "error");
+        } else if (response.status === 400 || response.status === 422) {
+          this.updateStatus(
+            "some browser data could not be synced... /ᐠ - ˕ -マ",
+            "error",
+          );
+        } else {
+          this.updateStatus("sync failed... /ᐠ - ˕ -マ", "error");
+        }
+        if (this.isAuthenticated) this.onSyncError();
       }
     } catch {
       console.error("sync failed... /ᐠ - ˕ -マ");
@@ -660,9 +705,10 @@ export class CloudSync {
           window.location.reload();
         }
       } else if (response.status === 404) {
-        if (!silent) {
-          this.updateStatus("no synced data found... /ᐠ - ˕ -マ", "error");
-        }
+        this.syncMeta.dirty = true;
+        this.saveMeta();
+        this.updateStatus("syncing...", "loading");
+        setTimeout(() => void this.syncData(true), 0);
       }
     } catch {
       console.error("restore failed... /ᐠ - ˕ -マ");
@@ -739,7 +785,7 @@ export class CloudSync {
 
                     <div style="margin-bottom: 20px;">
                         <span id="sync-status-indicator" style="color: var(--text-muted); font-size: 14px;">
-                            ${svgIcon("IconCheckmark1", { style: "color: var(--text-white)" })} synced!! (˵◝ ⩊  ◜˵マ
+                            synced!! (˵◝ ⩊  ◜˵マ
                         </span>
                     </div>
 
@@ -936,13 +982,7 @@ export class CloudSync {
       this._lastStatusText = text;
       this._lastStatusType = cls;
 
-      if (cls === "loading") {
-        el.innerHTML = `${svgIcon("IconArrowRotateClockwise", { style: "color: var(--text-white)" })} ${text}`;
-      } else if (cls === "error") {
-      el.innerHTML = `${svgIcon("IconExclamationTriangle", { style: "color: var(--status-error-text)" })} ${text}`;
-      } else {
-        el.innerHTML = `${svgIcon("IconCheckmark1", { style: "color: var(--text-white)" })} ${text}`;
-      }
+      el.textContent = text;
     };
 
     updateEl(ind);

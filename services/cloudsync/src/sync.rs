@@ -6,7 +6,10 @@ use aes_gcm::{
 use axum::{
     body::Bytes,
     extract::{rejection::BytesRejection, Json, State},
-    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
+    http::{
+        header::{CONTENT_ENCODING, CONTENT_TYPE},
+        HeaderMap, StatusCode,
+    },
     response::{IntoResponse, Response},
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -23,7 +26,8 @@ use std::{
 };
 use tower_cookies::Cookies;
 
-const SCHEMA_VERSION: u64 = 2;
+const SCHEMA_VERSION: u64 = 3;
+const LEGACY_STRUCTURED_SCHEMA_VERSION: u64 = 2;
 const IV_LENGTH: usize = 12;
 const BLOB_MAGIC: &[u8; 4] = b"wcs1";
 const MAX_JSON_DEPTH: usize = 120;
@@ -59,6 +63,7 @@ enum SyncError {
     Unauthorized,
     InvalidPayload,
     UnsupportedMediaType,
+    UnsupportedEncoding,
     Unprocessable,
     TooDeep,
     TooLarge,
@@ -73,7 +78,9 @@ impl SyncError {
         match self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::InvalidPayload | Self::TooDeep => StatusCode::BAD_REQUEST,
-            Self::UnsupportedMediaType => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            Self::UnsupportedMediaType | Self::UnsupportedEncoding => {
+                StatusCode::UNSUPPORTED_MEDIA_TYPE
+            }
             Self::Unprocessable => StatusCode::UNPROCESSABLE_ENTITY,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Missing => StatusCode::NOT_FOUND,
@@ -87,6 +94,7 @@ impl SyncError {
             Self::Unauthorized => "unauthorized",
             Self::InvalidPayload => "invalid_sync_payload",
             Self::UnsupportedMediaType => "invalid_sync_content_type",
+            Self::UnsupportedEncoding => "invalid_sync_content_encoding",
             Self::Unprocessable => "invalid_sync_payload",
             Self::TooDeep => "sync_payload_too_deep",
             Self::TooLarge => "sync_payload_too_large",
@@ -102,6 +110,7 @@ impl SyncError {
             Self::Unauthorized => "unauthorized",
             Self::InvalidPayload => "invalid sync payload",
             Self::UnsupportedMediaType => "sync content type is unsupported",
+            Self::UnsupportedEncoding => "sync content encoding is unsupported",
             Self::Unprocessable => "invalid sync payload",
             Self::TooDeep => "sync payload is too deeply nested",
             Self::TooLarge => "sync payload is too large",
@@ -321,6 +330,27 @@ fn sensitive_name(name: &str) -> bool {
                 | "xsrf"
         )
     })
+}
+
+fn site_storage_name(name: &str) -> bool {
+    name.rsplit_once('@')
+        .is_some_and(|(scope, key)| !scope.is_empty() && !key.is_empty())
+}
+
+fn site_database_name(name: &str) -> bool {
+    name.rsplit_once('@').is_some_and(|(origin, database)| {
+        !database.is_empty()
+            && (origin
+                .get(..8)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+                || origin
+                    .get(..7)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://")))
+    })
+}
+
+fn allows_sensitive_database(name: &str) -> bool {
+    matches!(name, "__folio_controller" | "rivet_extensions") || site_database_name(name)
 }
 
 fn looks_like_jwt(value: &str) -> bool {
@@ -611,7 +641,7 @@ fn valid_key_path(value: &Value) -> bool {
             .is_some_and(|entries| entries.iter().all(Value::is_string))
 }
 
-fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
+fn valid_encoded(value: &Value, ids: &mut HashSet<u64>, allow_sensitive: bool) -> bool {
     let Some(map) = value.as_object() else {
         return false;
     };
@@ -628,7 +658,7 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                 && map
                     .get("value")
                     .and_then(Value::as_str)
-                    .is_some_and(|value| !sensitive_text(value, true))
+                    .is_some_and(|value| allow_sensitive || !sensitive_text(value, true))
         }
         "bigint" => {
             exact_fields(map, &["type", "value"])
@@ -668,7 +698,7 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                 && map
                     .get("value")
                     .and_then(Value::as_str)
-                    .is_some_and(safe_encoded_bytes)
+                    .is_some_and(|value| allow_sensitive || safe_encoded_bytes(value))
         }
         "regexp" => {
             if !exact_fields(map, &["type", "id", "value"]) || take_id(map, ids).is_none() {
@@ -688,7 +718,11 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
             }
             map.get("value")
                 .and_then(Value::as_array)
-                .is_some_and(|entries| entries.iter().all(|entry| valid_encoded(entry, ids)))
+                .is_some_and(|entries| {
+                    entries
+                        .iter()
+                        .all(|entry| valid_encoded(entry, ids, allow_sensitive))
+                })
         }
         "object" => {
             if !exact_fields(map, &["type", "id", "value"]) || take_id(map, ids).is_none() {
@@ -697,9 +731,10 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
             map.get("value")
                 .and_then(Value::as_object)
                 .is_some_and(|entries| {
-                    entries
-                        .iter()
-                        .all(|(key, entry)| !sensitive_name(key) && valid_encoded(entry, ids))
+                    entries.iter().all(|(key, entry)| {
+                        (allow_sensitive || !sensitive_name(key))
+                            && valid_encoded(entry, ids, allow_sensitive)
+                    })
                 })
         }
         "map" => {
@@ -712,9 +747,10 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                     entries.iter().all(|entry| {
                         entry.as_array().is_some_and(|pair| {
                             pair.len() == 2
-                                && encoded_string(&pair[0]).is_none_or(|key| !sensitive_name(key))
-                                && valid_encoded(&pair[0], ids)
-                                && valid_encoded(&pair[1], ids)
+                                && encoded_string(&pair[0])
+                                    .is_none_or(|key| allow_sensitive || !sensitive_name(key))
+                                && valid_encoded(&pair[0], ids, allow_sensitive)
+                                && valid_encoded(&pair[1], ids, allow_sensitive)
                         })
                     })
                 })
@@ -751,7 +787,7 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                         && typed.get("length").and_then(Value::as_u64).is_some()
                         && typed
                             .get("buffer")
-                            .is_some_and(|buffer| valid_encoded(buffer, ids))
+                            .is_some_and(|buffer| valid_encoded(buffer, ids, allow_sensitive))
                 })
         }
         "blob" => {
@@ -766,7 +802,7 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                         && blob
                             .get("bytes")
                             .and_then(Value::as_str)
-                            .is_some_and(safe_encoded_bytes)
+                            .is_some_and(|value| allow_sensitive || safe_encoded_bytes(value))
                 })
         }
         "file" => {
@@ -783,7 +819,7 @@ fn valid_encoded(value: &Value, ids: &mut HashSet<u64>) -> bool {
                         && file
                             .get("bytes")
                             .and_then(Value::as_str)
-                            .is_some_and(safe_encoded_bytes)
+                            .is_some_and(|value| allow_sensitive || safe_encoded_bytes(value))
                 })
         }
         _ => false,
@@ -797,7 +833,50 @@ fn encoded_string(value: &Value) -> Option<&str> {
         .flatten()
 }
 
-fn validate_folio_cookies(record: &Record) -> bool {
+fn valid_folio_cookie(cookie: &Value, allow_sensitive: bool) -> bool {
+    let Some(cookie) = cookie.as_object() else {
+        return false;
+    };
+    let Some(name) = cookie.get("name").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(value) = cookie.get("value").and_then(Value::as_str) else {
+        return false;
+    };
+    if name.len() > 256 || value.len() > 4096 || cookie.len() > 32 {
+        return false;
+    }
+    if cookie
+        .get("domain")
+        .is_none_or(|domain| domain.as_str().is_some_and(|value| value.len() <= 253))
+        && cookie.get("path").is_none_or(|path| {
+            path.as_str()
+                .is_some_and(|value| value.starts_with('/') && value.len() <= 1024)
+        })
+        && cookie
+            .get("sameSite")
+            .is_none_or(|same_site| same_site.as_str().is_some_and(|value| value.len() <= 64))
+        && ["hostOnly", "secure", "httpOnly", "partitioned"]
+            .iter()
+            .all(|field| cookie.get(*field).is_none_or(Value::is_boolean))
+        && ["expires", "maxAge"]
+            .iter()
+            .all(|field| cookie.get(*field).is_none_or(Value::is_number))
+        && cookie.iter().all(|(key, value)| {
+            key.len() <= 256
+                && (value.is_null() || value.is_string() || value.is_boolean() || value.is_number())
+        })
+        && (allow_sensitive
+            || (cookie.get("httpOnly").and_then(Value::as_bool) != Some(true)
+                && !sensitive_name(name)
+                && !sensitive_text(value, true)))
+    {
+        return true;
+    }
+    false
+}
+
+fn validate_folio_cookies(record: &Record, allow_sensitive: bool) -> bool {
     if encoded_string(&record.key) != Some("cookies") {
         return true;
     }
@@ -813,35 +892,57 @@ fn validate_folio_cookies(record: &Record) -> bool {
     let Ok(cookies) = serde_json::from_str::<HashMap<String, Value>>(cookie_dump) else {
         return false;
     };
-    cookies.values().all(|cookie| {
-        let Some(cookie) = cookie.as_object() else {
-            return false;
-        };
-        cookie.get("httpOnly").and_then(Value::as_bool) != Some(true)
-            && cookie
-                .get("name")
-                .and_then(Value::as_str)
-                .is_none_or(|name| !sensitive_name(name))
-            && cookie
-                .get("value")
-                .and_then(Value::as_str)
-                .is_none_or(|value| !sensitive_text(value, true))
-    })
+    cookies.len() <= 20_000
+        && cookies
+            .iter()
+            .all(|(id, cookie)| id.len() <= 2048 && valid_folio_cookie(cookie, allow_sensitive))
 }
 
-#[cfg(test)]
 fn validate_raw_size(size: usize) -> SyncResult<()> {
     (size <= MAX_RAW_SIZE)
         .then_some(())
         .ok_or(SyncError::TooLarge)
 }
 
+fn decode_upload_payload(headers: &HeaderMap, payload: &[u8]) -> SyncResult<Snapshot> {
+    let encoding = headers
+        .get(CONTENT_ENCODING)
+        .map(|value| value.to_str().map_err(|_| SyncError::UnsupportedEncoding))
+        .transpose()?
+        .unwrap_or("identity")
+        .trim();
+    let decoded;
+    let payload = if encoding.eq_ignore_ascii_case("identity") || encoding.is_empty() {
+        validate_raw_size(payload.len())?;
+        payload
+    } else if encoding.eq_ignore_ascii_case("gzip") {
+        let decoder = flate2::read::GzDecoder::new(payload);
+        let mut limited = decoder.take((MAX_RAW_SIZE + 1) as u64);
+        decoded = {
+            let mut bytes = Vec::new();
+            limited
+                .read_to_end(&mut bytes)
+                .map_err(|_| SyncError::Unprocessable)?;
+            validate_raw_size(bytes.len())?;
+            bytes
+        };
+        decoded.as_slice()
+    } else {
+        return Err(SyncError::UnsupportedEncoding);
+    };
+    let snapshot =
+        serde_json::from_slice::<Snapshot>(payload).map_err(|_| SyncError::Unprocessable)?;
+    validate_decoded_snapshot(&snapshot)?;
+    Ok(snapshot)
+}
+
 fn validate_decoded_snapshot(snapshot: &Snapshot) -> SyncResult<()> {
+    let include_sensitive = snapshot.schema_version == SCHEMA_VERSION;
     for values in [&snapshot.local_storage, &snapshot.session_storage] {
-        if values
-            .iter()
-            .any(|(key, value)| sensitive_name(key) || sensitive_text(value, true))
-        {
+        if values.iter().any(|(key, value)| {
+            let allow_sensitive = include_sensitive && site_storage_name(key);
+            !allow_sensitive && (sensitive_name(key) || sensitive_text(value, true))
+        }) {
             return Err(SyncError::InvalidPayload);
         }
     }
@@ -853,7 +954,7 @@ fn validate_decoded_snapshot(snapshot: &Snapshot) -> SyncResult<()> {
                 return Err(SyncError::InvalidPayload);
             }
         }
-        (SCHEMA_VERSION, CookiePayload::Current(cookies)) => {
+        (LEGACY_STRUCTURED_SCHEMA_VERSION | SCHEMA_VERSION, CookiePayload::Current(cookies)) => {
             if cookies.len() > 1024 || cookies.iter().any(|cookie| !valid_cookie(cookie)) {
                 return Err(SyncError::InvalidPayload);
             }
@@ -876,18 +977,19 @@ fn validate_decoded_snapshot(snapshot: &Snapshot) -> SyncResult<()> {
         _ => return Err(SyncError::InvalidPayload),
     }
     for (database_name, database) in &snapshot.indexed_db {
-        if sensitive_name(database_name) {
+        let allow_sensitive = include_sensitive && allows_sensitive_database(database_name);
+        if !allow_sensitive && sensitive_name(database_name) {
             return Err(SyncError::InvalidPayload);
         }
         for (store_name, store) in &database.stores {
-            if sensitive_name(store_name)
+            if (!allow_sensitive && sensitive_name(store_name))
                 || !valid_key_path(&store.key_path)
                 || (store.auto_increment && store.key_path.is_array())
             {
                 return Err(SyncError::InvalidPayload);
             }
             for (index_name, index) in &store.indexes {
-                if sensitive_name(index_name)
+                if (!allow_sensitive && sensitive_name(index_name))
                     || !valid_key_path(&index.key_path)
                     || index.key_path.is_null()
                     || (index.multi_entry && index.key_path.is_array())
@@ -902,12 +1004,12 @@ fn validate_decoded_snapshot(snapshot: &Snapshot) -> SyncResult<()> {
                 }
                 let mut key_ids = HashSet::new();
                 let mut value_ids = HashSet::new();
-                if !valid_encoded(&record.key, &mut key_ids)
-                    || !valid_encoded(&record.value, &mut value_ids)
-                    || encoded_string(&record.key).is_some_and(sensitive_name)
+                if !valid_encoded(&record.key, &mut key_ids, allow_sensitive)
+                    || !valid_encoded(&record.value, &mut value_ids, allow_sensitive)
+                    || (!allow_sensitive && encoded_string(&record.key).is_some_and(sensitive_name))
                     || (database_name == "__folio_controller"
                         && store_name == "state"
-                        && !validate_folio_cookies(record))
+                        && !validate_folio_cookies(record, allow_sensitive))
                 {
                     return Err(SyncError::InvalidPayload);
                 }
@@ -1176,10 +1278,7 @@ pub async fn upload(
         None => return response(false, None, None, Some(SyncError::Busy)),
     };
     let payload = match tokio::task::spawn_blocking(move || {
-        let payload =
-            serde_json::from_slice::<Snapshot>(&payload).map_err(|_| SyncError::Unprocessable)?;
-        validate_decoded_snapshot(&payload)?;
-        Ok::<_, SyncError>(payload)
+        decode_upload_payload(&headers, &payload)
     })
     .await
     {
@@ -1236,7 +1335,7 @@ mod tests {
 
     fn snapshot() -> Value {
         json!({
-            "schemaVersion": 2,
+            "schemaVersion": SCHEMA_VERSION,
             "localStorage": {
                 "gameSource": "gn-math",
                 "lyra-bookmarks": "[]",
@@ -1340,10 +1439,80 @@ mod tests {
                 .is_string()
         );
 
+        let mut structured_legacy = snapshot();
+        structured_legacy["schemaVersion"] = Value::Number(LEGACY_STRUCTURED_SCHEMA_VERSION.into());
+        assert_eq!(validate_snapshot(&structured_legacy), Ok(()));
+
         let mut legacy = snapshot();
         legacy["schemaVersion"] = Value::Number(1.into());
         legacy["cookies"] = json!({ "theme_hint": "dark" });
         assert_eq!(validate_snapshot(&legacy), Ok(()));
+    }
+
+    #[test]
+    fn accepts_gzip_uploads_and_rejects_unknown_content_encodings() {
+        let payload = snapshot();
+        let raw = serde_json::to_vec(&payload).unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_ENCODING, "gzip".parse().unwrap());
+        assert_eq!(
+            decode_upload_payload(&headers, &compressed)
+                .unwrap()
+                .schema_version,
+            SCHEMA_VERSION
+        );
+
+        headers.insert(CONTENT_ENCODING, "br".parse().unwrap());
+        assert!(matches!(
+            decode_upload_payload(&headers, &compressed),
+            Err(SyncError::UnsupportedEncoding)
+        ));
+    }
+
+    #[tokio::test]
+    async fn new_account_can_upload_and_download_a_compressed_snapshot() {
+        let state = Arc::new(state());
+        let cookies = Cookies::default();
+        let registration = crate::auth::register(
+            State(state.clone()),
+            cookies.clone(),
+            Ok(Json(crate::auth::RegisterRequest {
+                username: "fresh_user".into(),
+                password: "not a real cloudsync password".into(),
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(registration.status(), StatusCode::CREATED);
+
+        let payload = snapshot();
+        let raw = serde_json::to_vec(&payload).unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(&raw).unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
+        headers.insert(CONTENT_ENCODING, "gzip".parse().unwrap());
+        let uploaded = upload(
+            State(state.clone()),
+            cookies.clone(),
+            headers,
+            Ok(Bytes::from(encoder.finish().unwrap())),
+        )
+        .await
+        .into_response();
+        assert_eq!(uploaded.status(), StatusCode::OK);
+
+        let downloaded = download(State(state), cookies).await.into_response();
+        assert_eq!(downloaded.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(downloaded.into_body(), MAX_RAW_SIZE)
+            .await
+            .unwrap();
+        let body: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["data"]["schemaVersion"], SCHEMA_VERSION);
+        assert_eq!(body["data"]["localStorage"]["gameSource"], "gn-math");
     }
 
     #[test]
@@ -1454,9 +1623,27 @@ mod tests {
             validate_snapshot(&binary_secret),
             Err(SyncError::InvalidPayload)
         );
+    }
 
-        let mut folio_secret = snapshot();
-        folio_secret["indexedDB"] = json!({
+    #[test]
+    fn accepts_credentials_only_in_browser_scoped_containers() {
+        let mut payload = snapshot();
+        payload["localStorage"]["example.com@password"] =
+            Value::String("correct horse battery staple".into());
+        payload["sessionStorage"]["example.com@auth_token"] =
+            Value::String("eyJabcdefgh.eyJabcdefgh.abcdefghijk".into());
+        payload["indexedDB"] = json!({
+            "https://example.com@auth": { "stores": { "credentials": {
+                "keyPath": null,
+                "autoIncrement": false,
+                "indexes": {},
+                "records": [{
+                    "key": { "type": "string", "value": "password" },
+                    "value": { "type": "object", "id": 1, "value": {
+                        "access_token": { "type": "string", "value": "eyJabcdefgh.eyJabcdefgh.abcdefghijk" }
+                    } }
+                }]
+            } } },
             "__folio_controller": { "stores": { "state": {
                 "keyPath": null,
                 "autoIncrement": false,
@@ -1465,15 +1652,19 @@ mod tests {
                     "key": { "type": "string", "value": "cookies" },
                     "value": { "type": "object", "id": 1, "value": {
                         "updatedAt": { "type": "number", "value": 0 },
-                        "cookies": { "type": "string", "value": "{\"id\":{\"name\":\"session\",\"httpOnly\":true}}" }
+                        "cookies": { "type": "string", "value": "{\".example.com@/@session\":{\"name\":\"session\",\"value\":\"opaque-login-cookie\",\"domain\":\".example.com\",\"path\":\"/\",\"hostOnly\":false,\"secure\":true,\"httpOnly\":true,\"sameSite\":\"lax\"}}" }
                     } }
                 }]
             } } }
         });
-        assert_eq!(
-            validate_snapshot(&folio_secret),
-            Err(SyncError::InvalidPayload)
-        );
+        assert_eq!(validate_snapshot(&payload), Ok(()));
+
+        let mut legacy = payload.clone();
+        legacy["schemaVersion"] = Value::Number(LEGACY_STRUCTURED_SCHEMA_VERSION.into());
+        assert_eq!(validate_snapshot(&legacy), Err(SyncError::InvalidPayload));
+
+        payload["cookies"][0]["name"] = Value::String("session".into());
+        assert_eq!(validate_snapshot(&payload), Err(SyncError::InvalidPayload));
     }
 
     #[test]
@@ -1482,6 +1673,7 @@ mod tests {
             SyncError::Unauthorized,
             SyncError::InvalidPayload,
             SyncError::UnsupportedMediaType,
+            SyncError::UnsupportedEncoding,
             SyncError::Unprocessable,
             SyncError::TooDeep,
             SyncError::TooLarge,
@@ -1498,6 +1690,14 @@ mod tests {
             assert!(!message.contains("aes"));
             assert!(!message.contains("brotli"));
         }
+        assert_eq!(
+            SyncError::UnsupportedEncoding.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            SyncError::UnsupportedEncoding.code(),
+            "invalid_sync_content_encoding"
+        );
     }
 
     #[tokio::test]
