@@ -72,7 +72,6 @@ try {
   packageData = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 } catch {}
 
-const location = process.env.DEV_LOCATION || "local";
 function turnConfigForRequest(req) {
   if (process.env.WEBRTC_TURN_ENABLED === "0") {
     return { enabled: false, forceRelay: false, iceServers: [] };
@@ -382,7 +381,6 @@ app.get("/api/stuff", (req, res) => {
   res.json({
     version: packageData.version,
     build: buildFingerprint(),
-    location,
     turn: turnConfigForRequest(req),
   });
 });

@@ -63,6 +63,13 @@ impl Display for ServerRouteResult {
 }
 
 type Body = Full<Bytes>;
+
+fn health_resp() -> anyhow::Result<Response<Body>> {
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body(Body::new("oki".into()))?)
+}
+
 fn non_ws_resp() -> anyhow::Result<Response<Body>> {
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -116,6 +123,10 @@ where
     let is_upgrade = is_upgrade_request(&req);
 
     if !is_upgrade {
+        if req.uri().path() == "/health" {
+            return health_resp();
+        }
+
         if let Some(stats_endpoint) = stats_endpoint {
             if req.uri().path() == stats_endpoint {
                 return send_stats().await;

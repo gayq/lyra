@@ -162,7 +162,7 @@ export class MochiTransport implements ProxyTransport {
       const abort = new AbortController();
       const timeout = setTimeout(() => abort.abort(), 3_000);
       try {
-        const response = await fetch(endpoint(this.base, "health"), {
+        const response = await fetch(endpoint(this.base, "capabilities"), {
           cache: "no-store",
           credentials: "omit",
           signal: abort.signal,

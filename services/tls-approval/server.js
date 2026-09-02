@@ -4,6 +4,7 @@ const PORT = 3001;
 const NEGATIVE = '... /ᐠ - ˕ -マ';
 const POSITIVE = '!! (˵◝ ⩊  ◜˵マ';
 const YES = `yes${POSITIVE}`;
+const OK = 'oki';
 const NO = `no${NEGATIVE}`;
 const MISSING = `missing domain${NEGATIVE}`;
 const INVALID = `invalid domain${NEGATIVE}`;
@@ -165,6 +166,8 @@ function reply(body, status) {
 }
 
 export function handleApproval(req) {
+  if (new URL(req.url).pathname === '/health') return reply(OK, 200);
+
   const now = Date.now();
   const domain = extractDomain(req.url);
   if (!domain) return reply(MISSING, 400);

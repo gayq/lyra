@@ -1054,6 +1054,60 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
     encode @compressible zstd gzip
 
+    handle /lyra/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:4444 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /tls-approval/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:3001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /cloudsync/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:4005 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /isao/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:6001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /mochi/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:4000 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /nuru/health {
+        rewrite * /health
+        reverse_proxy 127.0.0.1:4001 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /eturnal/health {
+        reverse_proxy 127.0.0.1:4444 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle /health {
+        reverse_proxy 127.0.0.1:4444 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
     @nuru_routes {
         path /w/*
     }
@@ -1417,6 +1471,27 @@ for svc in "${PM2_SVCS[@]}"; do
   if ! "$PM2_BIN" jlist | jq -e --arg name "$svc" \
     '.[] | select(.name == $name and .pm2_env.status == "online")' >/dev/null; then
     fail "pm2 service failed to start: $svc"
+    exit 1
+  fi
+done
+
+SERVICE_HEALTH_CHECKS=(
+  "tls-approval|http://127.0.0.1:3001/health"
+  "lyra|http://127.0.0.1:4444/health"
+  "cloudsync|http://127.0.0.1:4005/health"
+  "isao|http://127.0.0.1:6001/health"
+  "mochi|http://127.0.0.1:4000/health"
+  "nuru|http://127.0.0.1:4001/health"
+  "eturnal|http://127.0.0.1:4444/eturnal/health"
+)
+health_ok() {
+  [ "$(curl --fail --silent --show-error --max-time 3 "$1")" = "oki" ]
+}
+for health_check in "${SERVICE_HEALTH_CHECKS[@]}"; do
+  service_name="${health_check%%|*}"
+  service_url="${health_check#*|}"
+  if ! retry 10 health_ok "$service_url"; then
+    fail "$service_name health check failed"
     exit 1
   fi
 done

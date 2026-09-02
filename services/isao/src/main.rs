@@ -43,6 +43,7 @@ fn negative_message(message: &str) -> String {
     format!("{}{NEGATIVE}", message_base(message))
 }
 
+#[cfg(test)]
 fn positive_message(message: &str) -> String {
     format!("{}{POSITIVE}", message_base(message))
 }
@@ -142,7 +143,7 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/health", get(|| async { positive_message("ok") }))
+        .route("/health", get(|| async { "oki" }))
         .route("/api/anime/episodes/:mal_id", get(episodes_handler))
         .route("/api/anime/relations/:mal_id", get(relations_handler))
         .route("/api/anime/alttitles/:anilist_id", get(alttitles_handler))

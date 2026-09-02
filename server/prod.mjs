@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import fs from "fs";
+import net from "net";
 import path from "path";
 import { availableParallelism, totalmem } from "os";
 import { httpError } from "./errors.mjs";
@@ -27,6 +28,9 @@ let shuttingDown = false;
 
 const ROOT = process.cwd();
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
+const TURN_HEALTH_HOST = process.env.TURN_HEALTH_HOST || "127.0.0.1";
+const TURN_HEALTH_PORT = Number.parseInt(process.env.TURN_PORT || "3478", 10);
+const TURN_HEALTH_TIMEOUT_MS = 2_000;
 const packageJsonPath = path.join(ROOT, "package.json");
 const distPath = path.join(ROOT, "dist");
 const publicPath = path.join(ROOT, "public");
@@ -108,19 +112,6 @@ let packageData = null;
 try {
   packageData = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
 } catch {}
-
-let location = "unknown";
-const geoCtrl = new AbortController();
-const geoTimeout = setTimeout(() => geoCtrl.abort(), 2500);
-fetch("https://get.geojs.io/v1/ip/geo.json", { signal: geoCtrl.signal })
-  .then((response) => response.json())
-  .then((locationPayload) => {
-    if (locationPayload?.country_code && locationPayload?.region) {
-      location = `${locationPayload.country_code}, ${locationPayload.region}`;
-    }
-  })
-  .catch(() => {})
-  .finally(() => clearTimeout(geoTimeout));
 
 function turnConfigForRequest(req) {
   if (process.env.WEBRTC_TURN_ENABLED === "0") {
@@ -329,6 +320,37 @@ function jsonResponse(body, status = 200, headers = {}) {
   });
 }
 
+function healthResponse(status = 200) {
+  return new Response("oki", {
+    status,
+    headers: baseHeaders(NO_STORE_CACHE_CONTROL, {
+      "Content-Type": "text/plain; charset=utf-8",
+    }),
+  });
+}
+
+function probeEturnal() {
+  if (!Number.isInteger(TURN_HEALTH_PORT) || TURN_HEALTH_PORT < 1 || TURN_HEALTH_PORT > 65_535) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: TURN_HEALTH_HOST, port: TURN_HEALTH_PORT });
+    let settled = false;
+    const finish = (healthy) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(healthy);
+    };
+
+    socket.setTimeout(TURN_HEALTH_TIMEOUT_MS);
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.once("timeout", () => finish(false));
+  });
+}
+
 function getClientIp(req, server) {
   const peer = server.requestIP(req)?.address || "";
   const loopback = peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
@@ -526,7 +548,13 @@ async function proxyToMochi(req) {
 }
 
 async function appFetch(req, server) {
+  const url = new URL(req.url);
+  const pathname = url.pathname;
+
   if (shuttingDown) {
+    if (pathname === "/health" || pathname === "/eturnal/health") {
+      return healthResponse(503);
+    }
     return new Response(negativeMessage("server is shutting down"), {
       status: 503,
       headers: baseHeaders(NO_STORE_CACHE_CONTROL, {
@@ -535,10 +563,16 @@ async function appFetch(req, server) {
     });
   }
 
-  const url = new URL(req.url);
-  const pathname = url.pathname;
   const method = req.method;
   const canServeBody = method === "GET" || method === "HEAD";
+
+  if (pathname === "/health" && canServeBody) {
+    return healthResponse();
+  }
+
+  if (pathname === "/eturnal/health" && canServeBody) {
+    return healthResponse((await probeEturnal()) ? 200 : 503);
+  }
 
   if (pathname.startsWith("/api/")) {
     const limited = rateLimitApi(req, server);
@@ -566,7 +600,6 @@ async function appFetch(req, server) {
     return jsonResponse({
       version: packageData.version,
       build: buildFingerprint,
-      location,
       turn: turnConfigForRequest(req),
     });
   }

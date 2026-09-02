@@ -9,7 +9,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::{
     header::{REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS, X_XSS_PROTECTION},
-    HeaderValue,
+    HeaderValue, StatusCode,
 };
 use axum::{response::Response, Router};
 use mimalloc::MiMalloc;
@@ -288,9 +288,9 @@ async fn main() {
                     let pool_ok = health_pool.try_get().is_some();
                     async move {
                         if pool_ok {
-                            positive_message("ok")
+                            (StatusCode::OK, "oki")
                         } else {
-                            negative_message("degraded")
+                            (StatusCode::SERVICE_UNAVAILABLE, "oki")
                         }
                     }
                 }

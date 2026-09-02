@@ -31,6 +31,7 @@ pub(crate) fn negative_message(message: &str) -> String {
     format!("{}{NEGATIVE}", message_base(message))
 }
 
+#[cfg(test)]
 pub(crate) fn positive_message(message: &str) -> String {
     format!("{}{POSITIVE}", message_base(message))
 }
@@ -306,14 +307,11 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         );
 
     let app = Router::new()
-        .route(
-            "/health",
-            axum::routing::get(|| async { positive_message("ok") }),
-        )
+        .route("/health", axum::routing::get(|| async { "oki" }))
         .route("/metrics", axum::routing::get(proxy::metrics_handler))
         .route(
-            &format!("{}health", folio::PREFIX),
-            axum::routing::get(folio::health_handler),
+            &format!("{}capabilities", folio::PREFIX),
+            axum::routing::get(folio::capabilities_handler),
         )
         .route(
             &format!("{}metrics", folio::PREFIX),
