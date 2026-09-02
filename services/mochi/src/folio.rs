@@ -65,7 +65,7 @@ impl Drop for ActiveRequestGuard {
     }
 }
 
-pub async fn health_handler() -> impl IntoResponse {
+pub async fn capabilities_handler() -> impl IntoResponse {
     axum::Json(serde_json::json!({ "ok": true, "protocol": 1 }))
 }
 
