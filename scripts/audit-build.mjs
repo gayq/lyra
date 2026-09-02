@@ -105,7 +105,9 @@ const invalidAssetNames = distFiles
   .map((filePath) => path.relative(distPath, filePath).replaceAll(path.sep, "/"))
   .filter(
     (fileName) =>
-      !/^assets\/[A-Za-z0-9_-]{12}\.(?:css|js)$/.test(fileName) &&
+      !new RegExp(
+        `^assets/${buildMetadata.build}/[A-Za-z0-9_-]{12}\\.(?:css|js)$`,
+      ).test(fileName) &&
       !/^b\/[a-f0-9]{10,12}\.js$/.test(fileName),
   );
 if (invalidAssetNames.length > 0) {

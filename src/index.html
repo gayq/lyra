@@ -114,10 +114,11 @@
           "error",
           function (event) {
             const element = event.target;
+            const tagName = element?.tagName?.toLowerCase();
             const assetUrl =
-              element instanceof HTMLScriptElement
+              tagName === "script"
                 ? element.src
-                : element instanceof HTMLLinkElement &&
+                : tagName === "link" &&
                     (element.rel === "modulepreload" ||
                       element.rel === "stylesheet")
                   ? element.href
@@ -126,7 +127,7 @@
             const failedUrl = new URL(assetUrl, window.location.href);
             if (
               failedUrl.origin === window.location.origin &&
-              /^\/assets\/[^/]+$/.test(failedUrl.pathname)
+              /^\/assets\/[a-f0-9]{12}\/[^/]+$/.test(failedUrl.pathname)
             ) {
               window.__lyraRecoverAsset();
             }

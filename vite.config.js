@@ -1,15 +1,18 @@
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import lyraPlugin from "./build.js";
+import { createSourceBuildId } from "./build-id.mjs";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
+const buildId = createSourceBuildId(__dirname);
+const assetPath = `assets/${buildId}/[hash:12]`;
 
 export default defineConfig({
   plugins: [
     preact(),
-    lyraPlugin(),
+    lyraPlugin(buildId),
   ],
   root: "src",
   publicDir: false,
@@ -41,9 +44,9 @@ export default defineConfig({
         "player": resolve(__dirname, "src/player.html"),
       },
       output: {
-        entryFileNames: "assets/[hash:12].js",
-        chunkFileNames: "assets/[hash:12].js",
-        assetFileNames: "assets/[hash:12][extname]",
+        entryFileNames: `${assetPath}.js`,
+        chunkFileNames: `${assetPath}.js`,
+        assetFileNames: `${assetPath}[extname]`,
         minifyInternalExports: true,
         manualChunks(id) {
           if (id.includes("components/icons/paths")) return "paths";
