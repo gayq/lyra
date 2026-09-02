@@ -1,0 +1,13 @@
+.DS_Store
+.env
+*.db
+*.db-shm
+*.db-wal
+node_modules/
+dist/
+target/
+**/target/
+bun.lock
+/pnpm-lock.yaml
+Cargo.lock
+public/b/fl/
