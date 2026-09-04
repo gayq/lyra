@@ -32,6 +32,7 @@
          }
          h1 {
          font-size: 40px;
+         font-weight: 400;
          margin-bottom: 15px;
          color: #e7e7e7;
          }
@@ -47,17 +48,16 @@
    <body>
       <div class="container" id="msgBox">
          <h1>404</h1>
-         <p style="font-size: 14px; font-weight: bold; color: #dbdbdb; margin-top: -15px;">
+         <p style="font-size: 14px; color: #dbdbdb; margin-top: -15px;">
             this page does not exist... /ᐠ - ˕ -マ
          </p>
-         <p>i couldn't find this page anywhere... /ᐠ - ˕ -マ</p>
       </div>
 
       <script>
          if (window.top !== window.self) {
              const box = document.getElementById('msgBox');
              box.innerHTML = `
-                 <p style="font-size: 14px; font-weight: bold; color: #dbdbdb; margin-top: 25px; max-width: 400px;">one sec! your content will be available very soon...</p>
+                 <p style="font-size: 14px; color: #dbdbdb; margin-top: 25px; max-width: 400px;">one sec! your content will be available very soon...</p>
              `;
          }
       </script>

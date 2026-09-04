@@ -16,6 +16,7 @@ jsonwebtoken = "9"
 aes-gcm = "0.10"
 rand = "0.8"
 brotli = "8.0.4"
+flate2 = "1"
 tower-cookies = "0.10"
 tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.5", features = ["set-header"] }
@@ -31,7 +32,6 @@ mimalloc = "0.1"
 dashmap = "6"
 sysinfo = "0.32"
 zeroize = "1"
-flate2 = "1"
 
 [profile.release]
 lto = "fat"

@@ -84,7 +84,6 @@ const BookmarkIcon = memo(function BookmarkIcon({
       return (
         <div
           class="bookmark-icon"
-          style="display:flex;align-items:center;justify-content:center;color:#fff"
           data-bookmark-url={bookmark.url}
         >
           <Icon />
@@ -97,7 +96,6 @@ const BookmarkIcon = memo(function BookmarkIcon({
     return (
       <div
         class="bookmark-icon"
-        style="display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;color:#fff"
       >
         {bookmark.name.charAt(0).toUpperCase()}
       </div>
@@ -114,7 +112,6 @@ const BookmarkIcon = memo(function BookmarkIcon({
         class="bookmark-icon-img"
         loading="lazy"
         decoding="async"
-        draggable={false}
         ref={image.imgRef}
         src={image.src}
         onLoad={image.onLoad}
@@ -231,7 +228,6 @@ export default function Bookmarks() {
               <a
                 href="#"
                 class="bookmark-link"
-                draggable={false}
                 onClick={(e) => {
                   e.preventDefault();
                   (window.Lyra as any)?.handleSearch(bookmark.url);

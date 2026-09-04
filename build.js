@@ -94,6 +94,7 @@ export function obfuscateSource(source, options, identifiersPrefix) {
   return encodeBuildLexemes(
     obfuscate(compatibleSource, {
       ...options,
+      seed: identifiersPrefix || "lyra-build",
       ...(identifiersPrefix ? { identifiersPrefix } : {}),
     }).getObfuscatedCode(),
   );
@@ -183,8 +184,9 @@ function containsAppCode(chunk, projectRoot) {
   );
 }
 
-export default function lyraPlugin() {
-  const buildId = createSourceBuildId(process.cwd());
+export default function lyraPlugin(
+  buildId = createSourceBuildId(process.cwd()),
+) {
   let outputDirectory;
   let serviceWorkerSourceDirectory;
   let projectRoot;
