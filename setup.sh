@@ -454,11 +454,11 @@ if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl
 fi
 export PATH="/opt/eturnal/bin:$PATH"
 
-BUN_VERSION="1.4.0"
+BUN_VERSION="1.4.1"
 BUN_CURRENT_VERSION="$(bun --version 2>/dev/null || true)"
 if [ "$BUN_CURRENT_VERSION" != "$BUN_VERSION" ]; then
   log "installing bun $BUN_VERSION"
-  curl -fsSL https://bun.sh/install | bash -s -- "bun-v$BUN_VERSION"
+  curl -fsSL https://bun.com/install | bash -s -- "bun-v$BUN_VERSION"
   export PATH="$HOME/.bun/bin:$PATH"
 fi
 
@@ -900,8 +900,8 @@ require_cmd caddy
 export PATH="$HOME/.bun/bin:$PATH"
 export IP="$PUBLIC_IP"
 
-if [ -f bun.lock ] || [ -f bun.lockb ]; then
-  "$BUN_BIN" install --frozen-lockfile || "$BUN_BIN" install
+if [ -f bun.lock ]; then
+  "$BUN_BIN" install --frozen-lockfile --prefer-offline || "$BUN_BIN" install
 else
   "$BUN_BIN" install
 fi
@@ -1056,7 +1056,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     handle /lyra/health {
         rewrite * /health
-        reverse_proxy 127.0.0.1:4444 {
+        reverse_proxy h2c://127.0.0.1:4444 {
             header_up X-Real-IP {remote_host}
         }
     }
@@ -1097,13 +1097,13 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 
     handle /eturnal/health {
-        reverse_proxy 127.0.0.1:4444 {
+        reverse_proxy h2c://127.0.0.1:4444 {
             header_up X-Real-IP {remote_host}
         }
     }
 
     handle /health {
-        reverse_proxy 127.0.0.1:4444 {
+        reverse_proxy h2c://127.0.0.1:4444 {
             header_up X-Real-IP {remote_host}
         }
     }
@@ -1151,7 +1151,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @static_assets {
         path /assets/* /b/* /bmux/* /epoxy/* /libcurl/*
     }
-    reverse_proxy @static_assets 127.0.0.1:4444 {
+    reverse_proxy @static_assets h2c://127.0.0.1:4444 {
         header_up X-Real-IP {remote_host}
     }
 
@@ -1176,12 +1176,12 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @lyra_player {
         path /stream/anime*
     }
-    reverse_proxy @lyra_player 127.0.0.1:4444 {
+    reverse_proxy @lyra_player h2c://127.0.0.1:4444 {
         header_up X-Real-IP {remote_host}
     }
 
     handle /s {
-        reverse_proxy 127.0.0.1:4444 {
+        reverse_proxy h2c://127.0.0.1:4444 {
             header_up X-Real-IP {remote_host}
         }
     }

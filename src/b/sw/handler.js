@@ -227,9 +227,15 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
     path.startsWith("/epoxy/") ||
     path.startsWith("/libcurl/")
   ) {
+    const isFirstPartyAsset =
+      path.startsWith("/assets/") ||
+      path.startsWith("/b/") ||
+      path.startsWith("/bmux/") ||
+      path.startsWith("/epoxy/") ||
+      path.startsWith("/libcurl/");
     const isHashed = HASHED_ASSET_REGEX.test(path);
     const cached = await caches.match(request);
-    if (cached) {
+    if (cached && !isFirstPartyAsset) {
       if (!isHashed) {
         fetch(request)
           .then((response) => {
@@ -280,6 +286,7 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         }
       } catch (e) {}
     }
+    if (cached) return cached;
     if (response) return response;
   }
   return await fetch(request);

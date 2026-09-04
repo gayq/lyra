@@ -4,9 +4,9 @@
   "description": "a really cool web-proxy",
   "type": "module",
   "license": "AGPL-3.0-or-later",
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.1",
   "engines": {
-    "bun": ">=1.4.0 <1.5.0"
+    "bun": "1.4.1"
   },
   "scripts": {
     "build-folio": "bun scripts/build-folio.mjs",
@@ -19,7 +19,8 @@
     "dev": "bun run build-proxy && NODE_ENV=development bun server/dev.mjs",
     "dev:web": "bun run build-proxy && DEV_AUTOSTART=0 NODE_ENV=development bun server/dev.mjs",
     "sync:prod": "bash scripts/sync-prod.sh",
-    "test:sync-prod": "bun test scripts/sync-prod.test.mjs",
+    "test": "bun test --isolate scripts src",
+    "test:sync-prod": "bun test --isolate scripts/sync-prod.test.mjs",
     "typecheck": "tsc --noEmit && bun run typecheck:rivet && bun run typecheck:folio",
     "typecheck:rivet": "tsc --noEmit --project packages/rivet/tsconfig.json && tsc --noEmit --project packages/rivet/tsconfig.worker.json",
     "typecheck:folio": "tsc --noEmit --project vendor/folio/tsconfig.json && tsc --noEmit --emitDeclarationOnly false --project vendor/folio/packages/core/tsconfig.json && bun run typecheck:folio:core-api && tsc --project vendor/folio/packages/controller/tsconfig.json && bun run typecheck:folio:controller-api && tsc --project vendor/folio/packages/utils/tsconfig.json",
@@ -45,6 +46,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@types/bun": "1.4.1",
     "eslint": "^9.5.0",
     "javascript-obfuscator": "^5.0.1",
     "knip": "^6.33.0",

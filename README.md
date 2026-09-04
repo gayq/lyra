@@ -21,7 +21,6 @@ git clone https://github.com/gayq/lyra
 cd lyra
 bash setup.sh
 ```
-
 ## local development
 ```bash
 bun i

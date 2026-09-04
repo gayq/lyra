@@ -1,5 +1,4 @@
-const pendingActions: Partial<Record<string, ReturnType<typeof setInterval>>> =
-  {};
+const pendingActions: Partial<Record<string, number>> = {};
 
 export function invokeWindowAction(name: string): void {
   const action = window[name as keyof Window];

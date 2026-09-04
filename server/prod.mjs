@@ -680,6 +680,7 @@ async function appFetch(req, server) {
 
 const server = Bun.serve({
   port: PORT,
+  http2: true,
   idleTimeout: 60,
   fetch: appFetch,
 });
@@ -696,4 +697,4 @@ async function gracefulShutdown() {
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
 
-console.log(positiveMessage(`prod server listening on ${PORT}`));
+console.log(positiveMessage(`prod server listening on ${server.port}`));

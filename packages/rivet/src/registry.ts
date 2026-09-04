@@ -403,7 +403,7 @@ export class RivetRegistry {
       if (filter.types?.length && !filter.types.includes(details.type)) continue;
       if (filter.urls?.length && !filter.urls.some((pattern) => matchPattern(pattern, details.url))) continue;
       try {
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        let timer: number | undefined;
         const result = await Promise.race([
           Promise.resolve().then(() => entry.listener(details)),
           new Promise<undefined>((resolve) => {

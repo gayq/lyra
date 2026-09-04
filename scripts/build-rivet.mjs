@@ -24,6 +24,7 @@ async function buildRouter() {
     target: "browser",
     format: "iife",
     minify: true,
+    deprecatedNamespaceObjectSetters: false,
   });
   if (!result.success) {
     console.error("rivet router build failed:", result.logs, NEGATIVE);
