@@ -50,6 +50,27 @@ require_cmd() {
   fi
 }
 
+MOCHI_INSTANCES="${MOCHI_INSTANCES-1}"
+NURU_INSTANCES="${NURU_INSTANCES-1}"
+for count in "$MOCHI_INSTANCES" "$NURU_INSTANCES"; do
+  if ! [[ "$count" =~ ^([1-9]|[12][0-9]|3[0-2])$ ]]; then
+    fail "proxy instance counts must be integers from 1 to 32"
+    exit 1
+  fi
+done
+MOCHI_UPSTREAMS=""
+NURU_UPSTREAMS=""
+MOCHI_SERVICES=()
+NURU_SERVICES=()
+for ((i = 0; i < MOCHI_INSTANCES; i++)); do
+  MOCHI_UPSTREAMS+=" 127.0.0.1:$((4100 + i))"
+  MOCHI_SERVICES+=("mochi@$i")
+done
+for ((i = 0; i < NURU_INSTANCES; i++)); do
+  NURU_UPSTREAMS+=" 127.0.0.1:$((4200 + i))"
+  NURU_SERVICES+=("nuru@$i")
+done
+
 case "$(uname -s)" in
 Linux) ;;
 *)
@@ -185,6 +206,17 @@ release_service_ports() {
 }
 
 log "stopping all running services..."
+while read -r unit _; do
+  if [[ "$unit" =~ ^(mochi|nuru)@[0-9]+\.service$ ]]; then
+    sudo systemctl stop "$unit"
+    sudo systemctl disable "$unit"
+  fi
+done < <(
+  {
+    systemctl list-unit-files --type=service --no-legend
+    systemctl list-units --all --plain --type=service --no-legend
+  } | awk '{print $1}' | sort -u
+)
 sudo systemctl stop "pm2-$USER.service" 2>/dev/null || true
 stop_pm2
 for svc in tls-approval lyra waves ask cloudsync isao mochi nuru nuru-route.timer nuru-route wg-quick@wg0 caddy anubis eturnal coturn; do
@@ -770,7 +802,7 @@ NRSCRIPT
     sudo /usr/local/bin/nuru-route.sh
   fi
 
-  cat <<NURUSVC | sudo tee /etc/systemd/system/nuru.service >/dev/null
+  cat <<NURUSVC | sudo tee /etc/systemd/system/nuru@.service >/dev/null
 [Unit]
 Description=nuru proxy
 After=network-online.target nss-lookup.target wg-quick@wg0.service
@@ -779,18 +811,19 @@ Wants=network-online.target wg-quick@wg0.service
 [Service]
 User=nuru
 Type=simple
-ExecStartPre=!-/usr/local/bin/nuru-route.sh
-ExecStart=/usr/local/bin/nuru /etc/nuru/config.toml
+ExecStartPre=!/usr/bin/flock /run/lyra-vpn-route.lock /usr/local/bin/nuru-route.sh
+ExecStart=/usr/local/bin/nuru /etc/nuru/config-%i.toml
 Restart=always
 RestartSec=5
 KillMode=mixed
 TimeoutStopSec=10
 Environment=RUST_LOG=off
+Environment=NURU_INSTANCES=$NURU_INSTANCES
 NURUSVC
   if [ -n "$JEMALLOC_PATH" ]; then
-    echo "Environment=LD_PRELOAD=$JEMALLOC_PATH" | sudo tee -a /etc/systemd/system/nuru.service >/dev/null
+    echo "Environment=LD_PRELOAD=$JEMALLOC_PATH" | sudo tee -a /etc/systemd/system/nuru@.service >/dev/null
   fi
-  cat <<NURUSVC2 | sudo tee -a /etc/systemd/system/nuru.service >/dev/null
+  cat <<NURUSVC2 | sudo tee -a /etc/systemd/system/nuru@.service >/dev/null
 LimitNOFILE=1048576
 
 [Install]
@@ -805,7 +838,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/nuru-route.sh
+ExecStart=/usr/bin/flock /run/lyra-vpn-route.lock /usr/local/bin/nuru-route.sh
 NRROUTE
 
   cat <<NRTIMER | sudo tee /etc/systemd/system/nuru-route.timer >/dev/null
@@ -929,7 +962,7 @@ fi
 
 sudo cp "$ROOT/services/mochi/target/release/mochi" /usr/local/bin/mochi
 sudo chmod 755 /usr/local/bin/mochi
-sudo mkdir -p /var/cache/lyra-mochi/cache/stream
+sudo mkdir -p /var/cache/lyra-mochi
 sudo chown -R mochi:mochi /var/cache/lyra-mochi
 CACHE_AVAILABLE_KB=$(df -Pk /var/cache/lyra-mochi | awk 'NR == 2 { print $4 }')
 if [[ ! "$CACHE_AVAILABLE_KB" =~ ^[1-9][0-9]*$ ]]; then
@@ -942,6 +975,11 @@ if [ "$ANIME_CACHE_GB" -lt 1 ]; then
 elif [ "$ANIME_CACHE_GB" -gt 100 ]; then
   ANIME_CACHE_GB=100
 fi
+ANIME_CACHE_GB=$((ANIME_CACHE_GB / MOCHI_INSTANCES))
+if [ "$ANIME_CACHE_GB" -lt 1 ]; then
+  fail "insufficient cache space for the requested mochi instance count"
+  exit 1
+fi
 if [ "$ANIME_CACHE_GB" -lt 20 ]; then
   ANIME_CACHE_TTL_DAYS=3
 elif [ "$ANIME_CACHE_GB" -lt 50 ]; then
@@ -949,14 +987,18 @@ elif [ "$ANIME_CACHE_GB" -lt 50 ]; then
 else
   ANIME_CACHE_TTL_DAYS=7
 fi
-log "anime cache configured at ${ANIME_CACHE_GB} gb with ${ANIME_CACHE_TTL_DAYS} day retention"
+log "anime cache per instance: ${ANIME_CACHE_GB} gb with ${ANIME_CACHE_TTL_DAYS} day retention"
 MOCHI_VPN_AFTER=""
 MOCHI_VPN_PRESTART=""
 if [ "$WG_ENABLED" -eq 1 ]; then
   MOCHI_VPN_AFTER=" wg-quick@wg0.service"
-  MOCHI_VPN_PRESTART="ExecStartPre=!-/usr/local/bin/nuru-route.sh"
+  MOCHI_VPN_PRESTART="ExecStartPre=!/usr/bin/flock /run/lyra-vpn-route.lock /usr/local/bin/nuru-route.sh"
 fi
-sudo tee /etc/systemd/system/mochi.service <<EOF
+for ((i = 0; i < MOCHI_INSTANCES; i++)); do
+  sudo mkdir -p "/var/cache/lyra-mochi/instance-$i/cache/stream"
+  sudo chown -R mochi:mochi "/var/cache/lyra-mochi/instance-$i"
+done
+sudo tee /etc/systemd/system/mochi@.service <<EOF
 [Unit]
 Description=mochi reverse proxy and anime stream cache
 After=network-online.target$MOCHI_VPN_AFTER
@@ -966,7 +1008,8 @@ Wants=network-online.target
 User=mochi
 Group=mochi
 Type=simple
-WorkingDirectory=/var/cache/lyra-mochi
+WorkingDirectory=/var/cache/lyra-mochi/instance-%i
+EnvironmentFile=/etc/mochi/instance-%i.env
 $MOCHI_VPN_PRESTART
 ExecStart=/usr/local/bin/mochi
 Restart=always
@@ -974,7 +1017,8 @@ RestartSec=3
 KillMode=mixed
 TimeoutStopSec=15
 Environment=RUST_LOG=warn
-Environment=MOCHI_PORT=4000
+Environment=MOCHI_HOST=127.0.0.1
+Environment=MOCHI_INSTANCES=$MOCHI_INSTANCES
 Environment=MOCHI_STREAM_CACHE_GB=$ANIME_CACHE_GB
 Environment=MOCHI_STREAM_CACHE_TTL_DAYS=$ANIME_CACHE_TTL_DAYS
 LimitNOFILE=1048576
@@ -982,6 +1026,10 @@ LimitNOFILE=1048576
 [Install]
 WantedBy=multi-user.target
 EOF
+sudo mkdir -p /etc/mochi
+for ((i = 0; i < MOCHI_INSTANCES; i++)); do
+  printf 'MOCHI_PORT=%s\n' "$((4100 + i))" | sudo tee "/etc/mochi/instance-$i.env" >/dev/null
+done
 
 retry 3 sudo docker pull "ghcr.io/techarohq/anubis:latest"
 
@@ -1044,6 +1092,28 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 }
 
+http://127.0.0.1:4000 {
+    bind 127.0.0.1
+    reverse_proxy $MOCHI_UPSTREAMS {
+        lb_policy least_conn
+        health_uri /health
+        health_interval 10s
+        fail_duration 10s
+        flush_interval -1
+    }
+}
+
+http://127.0.0.1:4001 {
+    bind 127.0.0.1
+    reverse_proxy $NURU_UPSTREAMS {
+        lb_policy least_conn
+        health_uri /health
+        health_interval 10s
+        fail_duration 10s
+        flush_interval -1
+    }
+}
+
 :443 {
     tls {
         on_demand
@@ -1084,14 +1154,18 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
     handle /mochi/health {
         rewrite * /health
-        reverse_proxy 127.0.0.1:4000 {
+        reverse_proxy $MOCHI_UPSTREAMS {
+            lb_policy least_conn
+            health_uri /health
             header_up X-Real-IP {remote_host}
         }
     }
 
     handle /nuru/health {
         rewrite * /health
-        reverse_proxy 127.0.0.1:4001 {
+        reverse_proxy $NURU_UPSTREAMS {
+            lb_policy least_conn
+            health_uri /health
             header_up X-Real-IP {remote_host}
         }
     }
@@ -1111,8 +1185,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     @nuru_routes {
         path /w/*
     }
-    reverse_proxy @nuru_routes 127.0.0.1:4001 {
+    reverse_proxy @nuru_routes $NURU_UPSTREAMS {
         lb_policy least_conn
+        health_uri /health
+        health_interval 10s
         fail_duration 10s
         max_fails 4
         header_up Host {upstream_hostport}
@@ -1132,8 +1208,10 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         path /!!raw/* /!!/* /!!folio/* /!cover!/* /stream/*
         not path /stream/anime*
     }
-    reverse_proxy @mochi_routes 127.0.0.1:4000 {
+    reverse_proxy @mochi_routes $MOCHI_UPSTREAMS {
         lb_policy least_conn
+        health_uri /health
+        health_interval 10s
         fail_duration 10s
         max_fails 4
         header_up Host {upstream_hostport}
@@ -1230,6 +1308,10 @@ if [ "$WG_ENABLED" -eq 1 ] && [ -f /etc/wireguard/wg0.conf ]; then
   fi
 fi
 sudo cp "$ROOT/services/nuru/config.toml" /etc/nuru/config.toml
+for ((i = 0; i < NURU_INSTANCES; i++)); do
+  sed "s|^bind = .*|bind = [\"tcp\", \"127.0.0.1:$((4200 + i))\"]|" \
+    /etc/nuru/config.toml | sudo tee "/etc/nuru/config-$i.toml" >/dev/null
+done
 if [ -f /etc/nuru/config.toml ]; then
   success "/etc/nuru/config.toml applied"
   if [ "$WG_ENABLED" -eq 1 ]; then
@@ -1253,7 +1335,7 @@ calc_mem() {
 
 LYRA_MEM="$(calc_mem 16 256 2560)M"
 CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
-NURU_MEM="$(calc_mem 22 512 4608)M"
+NURU_MEM="$(( $(calc_mem 22 512 4608) / NURU_INSTANCES ))M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
 log "memory limits — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
 
@@ -1319,11 +1401,12 @@ module.exports = {
     },
 EOF
 if [ "$WG_ENABLED" -eq 0 ]; then
-  tee -a ecosystem.config.cjs >/dev/null <<EOF
+  for ((i = 0; i < NURU_INSTANCES; i++)); do
+    tee -a ecosystem.config.cjs >/dev/null <<EOF
     {
-      name: "nuru",
+      name: "nuru@$i",
       script: "/usr/local/bin/nuru",
-      args: ["/etc/nuru/config.toml"],
+      args: ["/etc/nuru/config-$i.toml"],
       interpreter: "none",
       exec_mode: "fork",
       instances: 1,
@@ -1334,10 +1417,12 @@ if [ "$WG_ENABLED" -eq 0 ]; then
       kill_timeout: 5000,
       env: {
         RUST_LOG: "off",
+        NURU_INSTANCES: "$NURU_INSTANCES",
         LD_PRELOAD: "$JEMALLOC_PATH"
       }
     },
 EOF
+  done
 fi
 tee -a ecosystem.config.cjs >/dev/null <<EOF
     {
@@ -1426,13 +1511,15 @@ if [ -f "$ROOT/services/cloudsync/.db" ]; then
 fi
 
 sudo systemctl daemon-reload
-sudo systemctl enable mochi >/dev/null 2>&1
-sudo systemctl restart mochi
-if ! systemctl is-active --quiet mochi; then
-  fail "mochi failed to start"
-  sudo journalctl -u mochi --no-pager -n 30 >&2
-  exit 1
-fi
+sudo systemctl enable "${MOCHI_SERVICES[@]}" >/dev/null 2>&1
+sudo systemctl restart "${MOCHI_SERVICES[@]}"
+for svc in "${MOCHI_SERVICES[@]}"; do
+  if ! systemctl is-active --quiet "$svc"; then
+    fail "mochi instance failed to start"
+    sudo journalctl -u "$svc" --no-pager -n 30 >&2
+    exit 1
+  fi
+done
 
 "$PM2_BIN" start ecosystem.config.cjs --update-env
 "$PM2_BIN" save
@@ -1452,20 +1539,22 @@ fi
 if [ "$WG_ENABLED" -eq 1 ]; then
   log "starting nuru systemd service..."
   sudo systemctl daemon-reload
-  sudo systemctl enable nuru >/dev/null 2>&1 || true
-  sudo systemctl restart nuru 2>/dev/null || true
+  sudo systemctl enable "${NURU_SERVICES[@]}" >/dev/null 2>&1
+  sudo systemctl restart "${NURU_SERVICES[@]}"
   sleep 2
-  if systemctl is-active --quiet nuru; then
-    success "nuru systemd service is running"
-  else
-    fail "nuru systemd service failed to start"
-    sudo journalctl -u nuru --no-pager -n 10 >&2
-  fi
+  for svc in "${NURU_SERVICES[@]}"; do
+    if ! systemctl is-active --quiet "$svc"; then
+      fail "nuru instance failed to start"
+      sudo journalctl -u "$svc" --no-pager -n 10 >&2
+      exit 1
+    fi
+  done
+  success "nuru instances are running"
 fi
 
 PM2_SVCS=(tls-approval lyra cloudsync isao)
 if [ "$WG_ENABLED" -eq 0 ]; then
-  PM2_SVCS+=(nuru)
+  PM2_SVCS+=("${NURU_SERVICES[@]}")
 fi
 for svc in "${PM2_SVCS[@]}"; do
   if ! "$PM2_BIN" jlist | jq -e --arg name "$svc" \
@@ -1484,6 +1573,12 @@ SERVICE_HEALTH_CHECKS=(
   "nuru|http://127.0.0.1:4001/health"
   "eturnal|http://127.0.0.1:4444/eturnal/health"
 )
+for ((i = 0; i < MOCHI_INSTANCES; i++)); do
+  SERVICE_HEALTH_CHECKS+=("mochi@$i|http://127.0.0.1:$((4100 + i))/health")
+done
+for ((i = 0; i < NURU_INSTANCES; i++)); do
+  SERVICE_HEALTH_CHECKS+=("nuru@$i|http://127.0.0.1:$((4200 + i))/health")
+done
 health_ok() {
   [ "$(curl --fail --silent --show-error --max-time 3 "$1")" = "oki" ]
 }

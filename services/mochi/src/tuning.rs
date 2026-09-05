@@ -29,10 +29,16 @@ pub struct MochiTuning {
 pub fn detect() -> MochiTuning {
     let mut sys = System::new();
     sys.refresh_memory();
-    let ram_mb = sys.total_memory() / (1024 * 1024);
+    let instances = std::env::var("MOCHI_INSTANCES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|count| (1..=32).contains(count))
+        .unwrap_or(1);
+    let ram_mb = sys.total_memory() / (1024 * 1024) / instances;
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(2);
+        .unwrap_or(2)
+        .div_ceil(instances as usize);
 
     let disks = Disks::new_with_refreshed_list();
     let current_dir = std::env::current_dir().unwrap_or_default();

@@ -14,10 +14,16 @@ pub fn get_specs() -> &'static SystemSpecs {
 fn detect() -> SystemSpecs {
     let mut sys = sysinfo::System::new();
     sys.refresh_memory();
-    let total_ram_mb = sys.total_memory() / (1024 * 1024);
+    let instances = std::env::var("NURU_INSTANCES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|count| (1..=32).contains(count))
+        .unwrap_or(1);
+    let total_ram_mb = sys.total_memory() / (1024 * 1024) / instances;
     let cpu_cores = std::thread::available_parallelism()
         .map(|n| n.get())
-        .unwrap_or(2);
+        .unwrap_or(2)
+        .div_ceil(instances as usize);
 
     log::info!(
         "detected system: {}mb ram, {} cores",
