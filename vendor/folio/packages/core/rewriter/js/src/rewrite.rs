@@ -56,7 +56,7 @@ pub(crate) enum RewriteType<'alloc: 'data, 'data> {
 
 	// dead code only if debug is disabled
 	#[allow(dead_code)]
-	/// `$folioerr(name)`
+	/// a call to the configured error hook
 	ScramErr {
 		ident: Atom<'data>,
 	},

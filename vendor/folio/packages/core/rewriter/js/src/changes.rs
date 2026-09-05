@@ -24,6 +24,55 @@ macro_rules! change {
 }
 pub(crate) use change;
 
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use transform::transform::TransformElement;
+
+	#[test]
+	fn configured_hooks() {
+		let cfg = Config {
+			prefix: String::new(),
+			wrapfn: String::new(),
+			wrappropertybase: String::new(),
+			wrappropertyfn: String::new(),
+			cleanrestfn: String::new(),
+			importfn: String::new(),
+			rewritefn: String::new(),
+			wrappostmessagefn: String::new(),
+			metafn: String::new(),
+			pushsourcemapfn: String::new(),
+			trysetfn: String::new(),
+			errfn: "x123".into(),
+			setrealmfn: "x456".into(),
+			templocid: String::new(),
+			tempunusedid: String::new(),
+		};
+		let flags = Flags {
+			base: String::new(),
+			sourcetag: String::new(),
+			is_module: false,
+			capture_errors: true,
+			scramitize: false,
+			do_sourcemaps: false,
+			disable_computed_wrap: false,
+			destructure_rewrites: false,
+		};
+		for (ty, expected) in [
+			(JsChangeType::ScramErrFn { ident: Atom::from("e") }, "x123(e);"),
+			(JsChangeType::SetRealmFn, "x456({})."),
+		] {
+			let change = JsChange::new(Span::new(0, 0), ty)
+				.into_low_level(&(&cfg, &flags), 0);
+			let source: String = change.change.iter().map(|part| match part {
+				TransformElement::Str(value) => (*value).to_owned(),
+				TransformElement::U32(value) => value.to_string(),
+			}).collect();
+			assert_eq!(source, expected);
+		}
+	}
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum JsChangeType<'alloc: 'data, 'data> {
 	/// insert `${cfg.wrapfn}(`
@@ -54,7 +103,7 @@ pub enum JsChangeType<'alloc: 'data, 'data> {
 	/// insert `$wrapPostMessage(`
 	WrapPostMessageLeft,
 
-	/// insert `$folioerr(ident);`
+	/// insert the configured error hook call
 	ScramErrFn {
 		ident: Atom<'data>,
 	},
@@ -261,7 +310,7 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 				}
 			}
 			Ty::WrapPostMessageLeft => LL::insert(transforms![&cfg.wrappostmessagefn, "("]),
-			Ty::ScramErrFn { ident } => LL::insert(transforms!["$folioerr(", ident, ");"]),
+			Ty::ScramErrFn { ident } => LL::insert(transforms![&cfg.errfn, "(", ident, ");"]),
 			Ty::ScramitizeFn => LL::insert(transforms![" $scramitize("]),
 			Ty::EvalRewriteFn => LL::insert(transforms![&cfg.rewritefn, "("]),
 			Ty::ShorthandObj { ident } => {
@@ -281,7 +330,7 @@ impl<'alloc: 'data, 'data> Transform<'data> for JsChange<'alloc, 'data> {
 				&flags.base,
 				"\")"
 			]),
-			Ty::SetRealmFn => LL::replace(transforms!["$folio$setrealmfn", "({})."]),
+			Ty::SetRealmFn => LL::replace(transforms![&cfg.setrealmfn, "({})."]),
 			Ty::AssignmentLeft { name, op } => LL::replace(transforms![
 				"((t)=>",
 				&cfg.trysetfn,

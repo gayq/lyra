@@ -27,6 +27,8 @@ pub struct Config {
 	pub pushsourcemapfn: String,
 
 	pub trysetfn: String,
+	pub errfn: String,
+	pub setrealmfn: String,
 	pub templocid: String,
 	pub tempunusedid: String,
 }

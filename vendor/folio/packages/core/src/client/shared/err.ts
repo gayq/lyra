@@ -30,7 +30,7 @@ export function argdbg(arg, recurse = []) {
 
 export default function (client: FolioClient, self: GlobalThis) {
 	const debug = console.debug;
-	self.$folioerr = function folioerr(e) {
+	self[client.config.globals.errfn] = function (e) {
 		if (client.flagEnabled("rewriterLogs")) {
 			debug("[folio captured error]", e);
 		}

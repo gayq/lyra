@@ -12,6 +12,30 @@ const SENSITIVE_STRING_PATTERN =
   "[Gg]ames?|[Aa]nime|[Pp]roxy|[Rr]ivet|[Ff]olio|[Ll]yra";
 const ZERO_MATCH_TERM = /games?|proxy/gi;
 
+export const FOLIO_RUNTIME_TOKENS = [
+  "$folio", "$folioController", "$folioUtils",
+  "$folio$wrap", "$folio__", "$folio$prop", "$folio$clean",
+  "$folio$import", "$folio$rewrite", "$folio$meta",
+  "$folio$wrappostmessage", "$folio$pushsourcemap", "$folio$tryset",
+  "$folio$temploc", "$folio$tempunused",
+  "$folioerr", "$folio$setrealmfn",
+  "$folio$messagetype", "$folio$origin", "$folio$data",
+  "folio client global", "folio realm pollutant",
+  "folio original onevent function", "controller frame handle",
+  "folio-injected",
+  "FolioClient", "FolioFetchHandler", "FolioFetchTrackedClient", "FolioHeaders",
+  "FOLIOCLIENT", "FOLIOCLIENTNAME", "assertRuntimeFolioVersion",
+  "ManagedPlugin", "CatchEscapedLinksPlugin", "EventHandlerPlugin",
+  "HttpCachePlugin", "LinkHandlerPlugin", "UrlWatcherPlugin",
+];
+
+export function createFolioTokenMap(buildId) {
+  return new Map(FOLIO_RUNTIME_TOKENS.map((token) => [
+    token,
+    `x${createHash("sha256").update(`${buildId}\0folio-runtime\0${token}`).digest("hex").slice(0, 20)}`,
+  ]));
+}
+
 const OBFUSCATION_OPTIONS = {
   compact: true,
   controlFlowFlattening: false,
@@ -167,7 +191,7 @@ export function rewriteBuildTokens(source, tokenMap, pathAliases = new Map()) {
   )) {
     rewritten = rewritten.replace(
       new RegExp(
-        `(?<![A-Za-z0-9_-])${escapeRegExp(token)}(?![A-Za-z0-9_-])`,
+        `(?<![A-Za-z0-9_$-])${escapeRegExp(token)}(?![A-Za-z0-9_$-])`,
         "g",
       ),
       replacement,
@@ -232,7 +256,12 @@ export default function lyraPlugin(
       const cssSources = await Promise.all(
         cssFiles.map((filePath) => readFile(filePath, "utf8")),
       );
-      const cssTokenMap = createCssTokenMap(cssSources, buildId);
+      // Apply the same names before obfuscation everywhere, including injected
+      // source strings and functions later serialized with toString().
+      const cssTokenMap = new Map([
+        ...createCssTokenMap(cssSources, buildId),
+        ...createFolioTokenMap(buildId),
+      ]);
 
       const pathAliases = new Map(
         RUNTIME_ASSETS.map(({ logicalPath }) => [

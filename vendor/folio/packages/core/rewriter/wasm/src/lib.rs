@@ -53,6 +53,8 @@ fn get_js_config(config: &Object) -> Result<Config> {
 		pushsourcemapfn: get_str(config, "pushsourcemapfn")?,
 
 		trysetfn: get_str(config, "trysetfn")?,
+		errfn: get_str(config, "errfn")?,
+		setrealmfn: get_str(config, "setrealmfn")?,
 		templocid: get_str(config, "templocid")?,
 		tempunusedid: get_str(config, "tempunusedid")?,
 	})

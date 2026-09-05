@@ -18,6 +18,25 @@ const sensitiveCssPatterns = [
   new RegExp(`@(?:-webkit-)?keyframes\\s+[_a-zA-Z][\\w-]*${sensitiveTerm}[\\w-]*`, "i"),
 ];
 const forbiddenText = [
+  "FolioClient",
+  "FolioFetchHandler",
+  "FolioFetchTrackedClient",
+  "FolioHeaders",
+  "FOLIOCLIENT",
+  "ManagedPlugin",
+  "CatchEscapedLinksPlugin",
+  "EventHandlerPlugin",
+  "HttpCachePlugin",
+  "LinkHandlerPlugin",
+  "UrlWatcherPlugin",
+  "assertRuntimeFolioVersion",
+  "$folioerr",
+  "$folio$setrealmfn",
+  "$folioController",
+  "$folioUtils",
+  "folio client global",
+  "folio original onevent function",
+  "folio-injected",
   "/b/all.js",
   "/b/fl/folio.js",
   "/b/fl/controller.inject.js",
@@ -118,6 +137,12 @@ const leakedFiles = [];
 const signalCounts = new Map(signalLimits.map(({ label }) => [label, 0]));
 for (const filePath of distFiles) {
   const extension = path.extname(filePath).toLowerCase();
+  if (extension === ".wasm") {
+    const binary = await readFile(filePath);
+    if (["$folioerr", "$folio$setrealmfn"].some((hook) => binary.includes(hook))) {
+      fail("production wasm contains legacy hook names");
+    }
+  }
   if (!textExtensions.has(extension)) continue;
   const source = await readFile(filePath, "utf8");
   const relativePath = path.relative(distPath, filePath).replaceAll(path.sep, "/");

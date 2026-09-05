@@ -42,6 +42,8 @@ export interface FolioConfig {
 		wrappostmessagefn: string;
 		pushsourcemapfn: string;
 		trysetfn: string;
+		errfn: string;
+		setrealmfn: string;
 		templocid: string;
 		tempunusedid: string;
 	};

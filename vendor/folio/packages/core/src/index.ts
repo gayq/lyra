@@ -28,6 +28,8 @@ export const defaultConfig: FolioConfig = {
 		wrappostmessagefn: "$folio$wrappostmessage",
 		pushsourcemapfn: "$folio$pushsourcemap",
 		trysetfn: "$folio$tryset",
+		errfn: "$folioerr",
+		setrealmfn: "$folio$setrealmfn",
 		templocid: "$folio$temploc",
 		tempunusedid: "$folio$tempunused",
 	},
