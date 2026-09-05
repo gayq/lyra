@@ -799,8 +799,8 @@ export default function SettingsModal({
           <div class="tab-content active">
             <div class="settings-item">
               <label>credits</label>
-              <p>edurocks - game source</p>
               <p>selenite - game source</p>
+              <p>edurocks - game source</p>
               <p>gn-math - game source</p>
               <p>wasm.rip - game source</p>
               <p>velara - game source</p>

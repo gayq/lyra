@@ -60,8 +60,8 @@ type GameSourceAdapter = {
 };
 
 const SOURCE_ORIGINS = {
-  edurocks: "https://d20q8iy6t6707a.cloudfront.net",
   selenite: "https://selenite.cc",
+  edurocks: "https://d20q8iy6t6707a.cloudfront.net",
   "gn-math": "https://gn-math.dev",
   "wasm.rip": "https://wasm.rip",
   velara: "https://velara.cc",

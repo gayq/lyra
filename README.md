@@ -28,8 +28,8 @@ bun dev
 ```
 
 ## credits
-- [edurocks](https://www.edurocks.org/) - game source
 - [selenite](https://selenite.cc/) - game source
+- [edurocks](https://www.edurocks.org/) - game source
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
 - [wasm.rip](https://wasm.rip/) - game source
 - [velara](https://velara.cc/) - game source

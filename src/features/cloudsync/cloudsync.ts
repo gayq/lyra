@@ -776,7 +776,7 @@ export class CloudSync {
                     </form>
 
                     <div style="margin-top: 15px; margin-bottom: -20px; font-size: 13px; color: var(--text-muted); text-align: center;" id="auth-switch-container">
-                        <span id="auth-prompt-text">don't have an account?</span> <span id="auth-action-text" class="link">create an account!</span>
+                        <span id="auth-prompt-text">don't have an account?</span> <span id="auth-action-text" class="link">create one!</span>
                     </div>
                     <div id="auth-error" style="color: var(--status-error-text); margin-top: 10px; font-size: 13px; min-height: 18px; text-align: center;"></div>
                 </div>
@@ -886,7 +886,7 @@ export class CloudSync {
         regForm.style.display = "none";
         authTitle.textContent = "login";
         promptText.textContent = "don't have an account?";
-        actionText.textContent = "create an account!";
+        actionText.textContent = "create one!";
       }
       this.showError("");
     });
