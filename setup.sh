@@ -50,26 +50,68 @@ require_cmd() {
   fi
 }
 
-MOCHI_INSTANCES="${MOCHI_INSTANCES-1}"
-NURU_INSTANCES="${NURU_INSTANCES-1}"
+PROXY_CPUS=$(nproc 2>/dev/null || echo 1)
+PROXY_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null || true)
+[[ "$PROXY_CPUS" =~ ^[1-9][0-9]*$ ]] || PROXY_CPUS=1
+[[ "$PROXY_RAM_MB" =~ ^[1-9][0-9]*$ ]] || PROXY_RAM_MB=2048
+AUTO_INSTANCES=$((PROXY_CPUS / 2))
+RAM_INSTANCES=$((PROXY_RAM_MB / 2048))
+[ "$AUTO_INSTANCES" -le "$RAM_INSTANCES" ] || AUTO_INSTANCES=$RAM_INSTANCES
+[ "$AUTO_INSTANCES" -ge 1 ] || AUTO_INSTANCES=1
+[ "$AUTO_INSTANCES" -le 32 ] || AUTO_INSTANCES=32
+MOCHI_AUTO=0
+[ "${MOCHI_INSTANCES+x}" ] || MOCHI_AUTO=1
+MOCHI_INSTANCES="${MOCHI_INSTANCES-$AUTO_INSTANCES}"
+NURU_AUTO_INSTANCES=$AUTO_INSTANCES
+[ "$NURU_AUTO_INSTANCES" -le 18 ] || NURU_AUTO_INSTANCES=18
+NURU_INSTANCES="${NURU_INSTANCES-$NURU_AUTO_INSTANCES}"
 for count in "$MOCHI_INSTANCES" "$NURU_INSTANCES"; do
   if ! [[ "$count" =~ ^([1-9]|[12][0-9]|3[0-2])$ ]]; then
     fail "proxy instance counts must be integers from 1 to 32"
     exit 1
   fi
 done
-MOCHI_UPSTREAMS=""
+configure_mochi_instances() {
+  MOCHI_UPSTREAMS=""
+  MOCHI_SERVICES=()
+  local i
+  for ((i = 0; i < MOCHI_INSTANCES; i++)); do
+    MOCHI_UPSTREAMS+=" 127.0.0.1:$((4100 + i))"
+    MOCHI_SERVICES+=("mochi@$i")
+  done
+}
+configure_mochi_instances
 NURU_UPSTREAMS=""
-MOCHI_SERVICES=()
 NURU_SERVICES=()
-for ((i = 0; i < MOCHI_INSTANCES; i++)); do
-  MOCHI_UPSTREAMS+=" 127.0.0.1:$((4100 + i))"
-  MOCHI_SERVICES+=("mochi@$i")
-done
 for ((i = 0; i < NURU_INSTANCES; i++)); do
   NURU_UPSTREAMS+=" 127.0.0.1:$((4200 + i))"
   NURU_SERVICES+=("nuru@$i")
 done
+
+configure_proxy_limits() {
+  MOCHI_MEMORY_MB=$((PROXY_RAM_MB * 30 / 100 / MOCHI_INSTANCES))
+  NURU_MEMORY_MB=$((PROXY_RAM_MB * 20 / 100 / NURU_INSTANCES))
+  MOCHI_REQUESTS=$((MOCHI_MEMORY_MB / 8))
+  NURU_REQUESTS=$((NURU_MEMORY_MB / 16))
+  [ "$MOCHI_REQUESTS" -ge 1 ] || MOCHI_REQUESTS=1
+  [ "$NURU_REQUESTS" -ge 1 ] || NURU_REQUESTS=1
+  [ "$MOCHI_REQUESTS" -le 256 ] || MOCHI_REQUESTS=256
+  [ "$NURU_REQUESTS" -le 128 ] || NURU_REQUESTS=128
+}
+configure_proxy_limits
+
+proxy_limits_active() {
+  local limit value
+  for limit in cpu.max memory.high memory.max memory.swap.max pids.max; do
+    read -r value _ < "$1/$limit" || return 1
+    [[ "$value" =~ ^[0-9]+$ ]] || return 1
+    if [ "$limit" = memory.swap.max ]; then
+      [ "$value" -eq 0 ] || return 1
+    else
+      [ "$value" -gt 0 ] || return 1
+    fi
+  done
+}
 
 case "$(uname -s)" in
 Linux) ;;
@@ -93,6 +135,17 @@ fi
 
 require_cmd apt-get
 require_cmd systemctl
+
+for controller in cpu memory pids; do
+  if ! grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers 2>/dev/null; then
+    fail "proxy resource limits require cgroup v2 with cpu, memory, and process controllers"
+    exit 1
+  fi
+done
+if [ "$MOCHI_MEMORY_MB" -lt 384 ] || [ "$NURU_MEMORY_MB" -lt 256 ]; then
+  fail "insufficient memory for the proxy worker counts"
+  exit 1
+fi
 
 if [ "${EUID:-$(id -u)}" -eq 0 ]; then
   sudo() { "$@"; }
@@ -149,7 +202,6 @@ kill_service_processes() {
   if ! command -v pkill >/dev/null 2>&1; then
     return
   fi
-
   for signal in TERM KILL; do
     for name in "${names[@]}"; do
       sudo pkill -"$signal" -x "$name" 2>/dev/null || true
@@ -639,6 +691,7 @@ else
 fi
 
 id -u mochi >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin mochi
+id -u nuru >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin nuru
 
 if [ "$WG_ENABLED" -eq 0 ]; then
   MOCHI_UID=$(id -u mochi 2>/dev/null || echo "")
@@ -656,7 +709,6 @@ for jemalloc_candidate in /usr/lib/*-linux-gnu/libjemalloc.so.2; do
 done
 
 if [ "$WG_ENABLED" -eq 1 ]; then
-  id -u nuru >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin nuru
   sudo chown nuru:nuru /usr/local/bin/nuru
   sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
 
@@ -801,34 +853,6 @@ NRSCRIPT
     fi
     sudo /usr/local/bin/nuru-route.sh
   fi
-
-  cat <<NURUSVC | sudo tee /etc/systemd/system/nuru@.service >/dev/null
-[Unit]
-Description=nuru proxy
-After=network-online.target nss-lookup.target wg-quick@wg0.service
-Wants=network-online.target wg-quick@wg0.service
-
-[Service]
-User=nuru
-Type=simple
-ExecStartPre=!/usr/bin/flock /run/lyra-vpn-route.lock /usr/local/bin/nuru-route.sh
-ExecStart=/usr/local/bin/nuru /etc/nuru/config-%i.toml
-Restart=always
-RestartSec=5
-KillMode=mixed
-TimeoutStopSec=10
-Environment=RUST_LOG=off
-Environment=NURU_INSTANCES=$NURU_INSTANCES
-NURUSVC
-  if [ -n "$JEMALLOC_PATH" ]; then
-    echo "Environment=LD_PRELOAD=$JEMALLOC_PATH" | sudo tee -a /etc/systemd/system/nuru@.service >/dev/null
-  fi
-  cat <<NURUSVC2 | sudo tee -a /etc/systemd/system/nuru@.service >/dev/null
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-NURUSVC2
 
   cat <<NRROUTE | sudo tee /etc/systemd/system/nuru-route.service >/dev/null
 [Unit]
@@ -975,6 +999,10 @@ if [ "$ANIME_CACHE_GB" -lt 1 ]; then
 elif [ "$ANIME_CACHE_GB" -gt 100 ]; then
   ANIME_CACHE_GB=100
 fi
+if [ "$MOCHI_AUTO" -eq 1 ] && [ "$MOCHI_INSTANCES" -gt "$ANIME_CACHE_GB" ]; then
+  MOCHI_INSTANCES=$ANIME_CACHE_GB
+  configure_mochi_instances
+fi
 ANIME_CACHE_GB=$((ANIME_CACHE_GB / MOCHI_INSTANCES))
 if [ "$ANIME_CACHE_GB" -lt 1 ]; then
   fail "insufficient cache space for the requested mochi instance count"
@@ -987,13 +1015,59 @@ elif [ "$ANIME_CACHE_GB" -lt 50 ]; then
 else
   ANIME_CACHE_TTL_DAYS=7
 fi
+log "proxy instances: mochi=$MOCHI_INSTANCES, nuru=$NURU_INSTANCES"
 log "anime cache per instance: ${ANIME_CACHE_GB} gb with ${ANIME_CACHE_TTL_DAYS} day retention"
+configure_proxy_limits
+sudo tee /etc/systemd/system/lyra-proxy.slice >/dev/null <<EOF
+[Unit]
+Description=lyra proxy resource budget
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+CPUQuota=$((PROXY_CPUS * 70))%
+MemoryHigh=40%
+MemoryMax=50%
+MemorySwapMax=0
+TasksMax=4096
+EOF
+
 MOCHI_VPN_AFTER=""
 MOCHI_VPN_PRESTART=""
 if [ "$WG_ENABLED" -eq 1 ]; then
   MOCHI_VPN_AFTER=" wg-quick@wg0.service"
   MOCHI_VPN_PRESTART="ExecStartPre=!/usr/bin/flock /run/lyra-vpn-route.lock /usr/local/bin/nuru-route.sh"
 fi
+sudo tee /etc/systemd/system/nuru@.service >/dev/null <<EOF
+[Unit]
+Description=nuru proxy
+After=network-online.target nss-lookup.target$MOCHI_VPN_AFTER
+Wants=network-online.target$MOCHI_VPN_AFTER
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+User=nuru
+Type=simple
+Slice=lyra-proxy.slice
+MemoryHigh=$((NURU_MEMORY_MB * 80 / 100))M
+MemoryMax=${NURU_MEMORY_MB}M
+OOMPolicy=kill
+$MOCHI_VPN_PRESTART
+ExecStart=/usr/local/bin/nuru /etc/nuru/config-%i.toml
+Restart=always
+RestartSec=10
+KillMode=mixed
+TimeoutStopSec=10
+Environment=RUST_LOG=off
+Environment=NURU_INSTANCES=$NURU_INSTANCES
+Environment=LD_PRELOAD=$JEMALLOC_PATH
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 for ((i = 0; i < MOCHI_INSTANCES; i++)); do
   sudo mkdir -p "/var/cache/lyra-mochi/instance-$i/cache/stream"
   sudo chown -R mochi:mochi "/var/cache/lyra-mochi/instance-$i"
@@ -1003,17 +1077,23 @@ sudo tee /etc/systemd/system/mochi@.service <<EOF
 Description=mochi reverse proxy and anime stream cache
 After=network-online.target$MOCHI_VPN_AFTER
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 User=mochi
 Group=mochi
 Type=simple
+Slice=lyra-proxy.slice
+MemoryHigh=$((MOCHI_MEMORY_MB * 80 / 100))M
+MemoryMax=${MOCHI_MEMORY_MB}M
+OOMPolicy=kill
 WorkingDirectory=/var/cache/lyra-mochi/instance-%i
 EnvironmentFile=/etc/mochi/instance-%i.env
 $MOCHI_VPN_PRESTART
 ExecStart=/usr/local/bin/mochi
 Restart=always
-RestartSec=3
+RestartSec=10
 KillMode=mixed
 TimeoutStopSec=15
 Environment=RUST_LOG=warn
@@ -1021,7 +1101,7 @@ Environment=MOCHI_HOST=127.0.0.1
 Environment=MOCHI_INSTANCES=$MOCHI_INSTANCES
 Environment=MOCHI_STREAM_CACHE_GB=$ANIME_CACHE_GB
 Environment=MOCHI_STREAM_CACHE_TTL_DAYS=$ANIME_CACHE_TTL_DAYS
-LimitNOFILE=1048576
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -1096,6 +1176,7 @@ http://127.0.0.1:4000 {
     bind 127.0.0.1
     reverse_proxy $MOCHI_UPSTREAMS {
         lb_policy least_conn
+        unhealthy_request_count $MOCHI_REQUESTS
         health_uri /health
         health_interval 10s
         fail_duration 10s
@@ -1107,6 +1188,7 @@ http://127.0.0.1:4001 {
     bind 127.0.0.1
     reverse_proxy $NURU_UPSTREAMS {
         lb_policy least_conn
+        unhealthy_request_count $NURU_REQUESTS
         health_uri /health
         health_interval 10s
         fail_duration 10s
@@ -1156,6 +1238,8 @@ http://127.0.0.1:4001 {
         rewrite * /health
         reverse_proxy $MOCHI_UPSTREAMS {
             lb_policy least_conn
+            unhealthy_request_count $MOCHI_REQUESTS
+            fail_duration 10s
             health_uri /health
             header_up X-Real-IP {remote_host}
         }
@@ -1165,6 +1249,8 @@ http://127.0.0.1:4001 {
         rewrite * /health
         reverse_proxy $NURU_UPSTREAMS {
             lb_policy least_conn
+            unhealthy_request_count $NURU_REQUESTS
+            fail_duration 10s
             health_uri /health
             header_up X-Real-IP {remote_host}
         }
@@ -1187,6 +1273,7 @@ http://127.0.0.1:4001 {
     }
     reverse_proxy @nuru_routes $NURU_UPSTREAMS {
         lb_policy least_conn
+        unhealthy_request_count $NURU_REQUESTS
         health_uri /health
         health_interval 10s
         fail_duration 10s
@@ -1210,6 +1297,7 @@ http://127.0.0.1:4001 {
     }
     reverse_proxy @mochi_routes $MOCHI_UPSTREAMS {
         lb_policy least_conn
+        unhealthy_request_count $MOCHI_REQUESTS
         health_uri /health
         health_interval 10s
         fail_duration 10s
@@ -1314,9 +1402,7 @@ for ((i = 0; i < NURU_INSTANCES; i++)); do
 done
 if [ -f /etc/nuru/config.toml ]; then
   success "/etc/nuru/config.toml applied"
-  if [ "$WG_ENABLED" -eq 1 ]; then
-    sudo chown -R nuru:nuru /etc/nuru
-  fi
+  sudo chown -R nuru:nuru /etc/nuru
 else
   fail "/etc/nuru/config.toml was not created"
   exit 1
@@ -1335,9 +1421,8 @@ calc_mem() {
 
 LYRA_MEM="$(calc_mem 16 256 2560)M"
 CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
-NURU_MEM="$(( $(calc_mem 22 512 4608) / NURU_INSTANCES ))M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
-log "memory limits — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, nuru: $NURU_MEM, isao: $ISAO_MEM"
+log "memory restart thresholds — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, isao: $ISAO_MEM"
 
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
@@ -1400,30 +1485,6 @@ module.exports = {
        }
     },
 EOF
-if [ "$WG_ENABLED" -eq 0 ]; then
-  for ((i = 0; i < NURU_INSTANCES; i++)); do
-    tee -a ecosystem.config.cjs >/dev/null <<EOF
-    {
-      name: "nuru@$i",
-      script: "/usr/local/bin/nuru",
-      args: ["/etc/nuru/config-$i.toml"],
-      interpreter: "none",
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      max_memory_restart: "$NURU_MEM",
-      max_restarts: 10,
-      min_uptime: 10000,
-      kill_timeout: 5000,
-      env: {
-        RUST_LOG: "off",
-        NURU_INSTANCES: "$NURU_INSTANCES",
-        LD_PRELOAD: "$JEMALLOC_PATH"
-      }
-    },
-EOF
-  done
-fi
 tee -a ecosystem.config.cjs >/dev/null <<EOF
     {
       name: "isao",
@@ -1511,6 +1572,12 @@ if [ -f "$ROOT/services/cloudsync/.db" ]; then
 fi
 
 sudo systemctl daemon-reload
+sudo systemctl start lyra-proxy.slice
+PROXY_CGROUP=$(systemctl show --property=ControlGroup --value lyra-proxy.slice)
+if [ -z "$PROXY_CGROUP" ] || ! proxy_limits_active "/sys/fs/cgroup$PROXY_CGROUP" 2>/dev/null; then
+  fail "proxy resource limits could not be activated"
+  exit 1
+fi
 sudo systemctl enable "${MOCHI_SERVICES[@]}" >/dev/null 2>&1
 sudo systemctl restart "${MOCHI_SERVICES[@]}"
 for svc in "${MOCHI_SERVICES[@]}"; do
@@ -1536,26 +1603,20 @@ EOF
   sudo systemctl restart "$PM2_SYSTEMD_SERVICE"
 fi
 
-if [ "$WG_ENABLED" -eq 1 ]; then
-  log "starting nuru systemd service..."
-  sudo systemctl daemon-reload
-  sudo systemctl enable "${NURU_SERVICES[@]}" >/dev/null 2>&1
-  sudo systemctl restart "${NURU_SERVICES[@]}"
-  sleep 2
-  for svc in "${NURU_SERVICES[@]}"; do
-    if ! systemctl is-active --quiet "$svc"; then
-      fail "nuru instance failed to start"
-      sudo journalctl -u "$svc" --no-pager -n 10 >&2
-      exit 1
-    fi
-  done
-  success "nuru instances are running"
-fi
+log "starting nuru systemd service..."
+sudo systemctl enable "${NURU_SERVICES[@]}" >/dev/null 2>&1
+sudo systemctl restart "${NURU_SERVICES[@]}"
+sleep 2
+for svc in "${NURU_SERVICES[@]}"; do
+  if ! systemctl is-active --quiet "$svc"; then
+    fail "nuru instance failed to start"
+    sudo journalctl -u "$svc" --no-pager -n 10 >&2
+    exit 1
+  fi
+done
+success "nuru instances are running"
 
 PM2_SVCS=(tls-approval lyra cloudsync isao)
-if [ "$WG_ENABLED" -eq 0 ]; then
-  PM2_SVCS+=("${NURU_SERVICES[@]}")
-fi
 for svc in "${PM2_SVCS[@]}"; do
   if ! "$PM2_BIN" jlist | jq -e --arg name "$svc" \
     '.[] | select(.name == $name and .pm2_env.status == "online")' >/dev/null; then
