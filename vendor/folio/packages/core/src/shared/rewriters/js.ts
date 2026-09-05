@@ -1,5 +1,5 @@
 import { flagEnabled, FolioContext } from "@/shared";
-import { URLMeta } from "@rewriters/url";
+import { rewriteUrl, URLMeta } from "@rewriters/url";
 
 import { getRewriter, JsRewriterOutput } from "@rewriters/wasm";
 import {
@@ -43,10 +43,10 @@ function rewriteJsWasm(
 			out = rewriter.rewrite_js(
 				{
 					...context.config.globals,
-					prefix: context.prefix.pathname,
+					prefix: "",
 				},
 				flagsobj,
-				context.interface.codecEncode,
+				(url: string, isModule: boolean) => rewriteUrl(url, context, meta, { isModule }),
 				input,
 				meta.base.href,
 				source || "(unknown)",
@@ -56,10 +56,10 @@ function rewriteJsWasm(
 			out = rewriter.rewrite_js_bytes(
 				{
 					...context.config.globals,
-					prefix: context.prefix.pathname,
+					prefix: "",
 				},
 				flagsobj,
-				context.interface.codecEncode,
+				(url: string, isModule: boolean) => rewriteUrl(url, context, meta, { isModule }),
 				input,
 				meta.base.href,
 				source || "(unknown)",

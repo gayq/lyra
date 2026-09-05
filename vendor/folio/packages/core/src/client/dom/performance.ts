@@ -7,7 +7,7 @@ export default function (client: FolioClient, _self: Self) {
 			// name is going to be a url typically
 			const name = String(ctx.get());
 
-			if (name && name.startsWith(client.context.prefix.href)) {
+			if (name) {
 				return client.unrewriteUrl(name);
 			}
 

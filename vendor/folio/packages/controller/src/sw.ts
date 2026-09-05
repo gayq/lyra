@@ -1,5 +1,7 @@
 /// <reference lib="WebWorker" />
 /// <reference types="@types/serviceworker" />
+import { openRoute, routeDestination } from "@mercuryworkshop/folio/route";
+export { routeDestination };
 import { RpcHelper } from "@mercuryworkshop/rpc";
 import type { Controllerbound, SWbound } from "./types";
 import type { RawHeaders } from "@mercuryworkshop/proxy-transports";
@@ -164,9 +166,12 @@ addEventListener("message", (e) => {
 });
 
 export function shouldRoute(event: FetchEvent): boolean {
-	const url = new URL(event.request.url);
-	const tab = tabs.find((tab) => url.pathname.startsWith(tab.prefix));
-	return tab !== undefined;
+	try {
+		const url = openRoute(event.request.url);
+		return tabs.some((tab) => url.pathname.startsWith(tab.prefix));
+	} catch {
+		return false;
+	}
 }
 
 export async function route(
@@ -174,7 +179,7 @@ export async function route(
 	timeoutMs?: number
 ): Promise<Response> {
 	try {
-		const url = new URL(event.request.url);
+		const url = openRoute(event.request.url);
 		const tab = tabs.find((tab) => url.pathname.startsWith(tab.prefix))!;
 		const client = await clients.get(event.clientId);
 
@@ -195,17 +200,17 @@ export async function route(
 				"request",
 				{
 					requestId,
-					rawUrl: event.request.url,
-					rawReferrer: event.request.referrer,
+					rawUrl: url.href,
+					rawReferrer: event.request.referrer ? openRoute(event.request.referrer).href : "",
 					destination: event.request.destination,
 					mode: event.request.mode,
-					referrer: event.request.referrer,
+					referrer: event.request.referrer ? openRoute(event.request.referrer).href : "",
 					method: event.request.method,
 					body,
 					cache: event.request.cache,
 					forceCrossOriginIsolated: false,
 					initialHeaders: rawheaders,
-					rawClientUrl: client ? client.url : undefined,
+					rawClientUrl: client ? openRoute(client.url).href : undefined,
 					clientId: event.clientId || event.resultingClientId,
 				},
 				body ? [body] : undefined

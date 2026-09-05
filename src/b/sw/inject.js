@@ -20,13 +20,8 @@ const SHARED_SCRIPT = `
         if(q.indexOf('http://')===0||q.indexOf('https://')===0)return q+u.search+u.hash;
         return q+u.search+u.hash
       }
-      if(S&&u.pathname.indexOf('/b/fl/')===0){
-        var raw=u.pathname.slice(5);
-        var httpIdx=raw.indexOf('http');
-        if(httpIdx!==-1){
-          try{return decodeURIComponent(raw.substring(httpIdx))}catch(e){return raw.substring(httpIdx)}
-        }
-        try{return decodeURIComponent(raw)}catch(e){return raw}
+      if(S&&u.pathname==='/f'&&window.$folio){
+        return window.$folio.routeDestination(u.href)||u.href
       }
       return u.href
     }catch(e){return h}
@@ -125,19 +120,10 @@ const HOVER_PREFETCH_SCRIPT = `
   if(!('serviceWorker'in navigator))return;
   var max=40,sent=Object.create(null),cnt=0,sw=null;
   function kH(h){try{return String(h||'').split('#')[0]}catch(e){return''}}
-  function oP(){try{var p=location.pathname||'';return p.indexOf('/b/fl/')===0}catch(e){return false}}
   function pU(abs){
     try{
       var u=new URL(abs,location.href);
-      if(u.origin===location.origin){
-        var p=u.pathname||'';
-        if(p.indexOf('/b/fl/r/')===0)return kH(u.href);
-        return null
-      }
-      if(!oP())return null;
-      if(u.protocol!=='http:'&&u.protocol!=='https:')return null;
-      var raw=kH(u.href);
-      if(S)return kH(location.origin+'/b/fl/r/'+raw);
+      if(u.origin===location.origin&&u.pathname==='/f'&&u.searchParams.has('s'))return kH(u.href);
       return null
     }catch(e){return null}
   }
@@ -217,7 +203,7 @@ const META_SCRIPT = `
   function oT(raw,cause){
     if(!raw)return false;
     var abs;try{abs=new URL(raw,location.href).href}catch(e){abs=raw}
-    if(abs.indexOf(self.location.origin)===0&&abs.indexOf(window._W.P)===-1&&abs.indexOf('/b/fl/')===-1){try{var bR=D(location.href)||location.href;abs=new URL(raw,bR).href}catch(e){}}
+    if(abs.indexOf(self.location.origin)===0&&abs.indexOf(window._W.P)===-1&&new URL(abs).pathname!=='/f'){try{var bR=D(location.href)||location.href;abs=new URL(raw,bR).href}catch(e){}}
     var dec=D(abs)||abs;
     if(!hOk(dec))return false;
     var pl={type:'open-new-tab',url:abs,decodedUrl:dec,openerUrl:D(location.href)||location.href,tabId:tabId,isTopFrame:isTop,cause:cause||null};

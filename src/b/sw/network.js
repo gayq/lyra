@@ -346,7 +346,7 @@ async function prefetchProxiedNavFromClient(urlStr) {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  if (!url.pathname.startsWith("/b/fl/")) return;
+  if (url.pathname !== "/f" || !url.searchParams.has("s")) return;
   if (!trackPrefetchUrl(urlStr)) return;
   const request = new Request(urlStr, { method: "GET" });
   const event = {

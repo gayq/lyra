@@ -307,7 +307,11 @@ async function serveDistFile(req, pathname) {
   if (pathname === "/" || pathname.endsWith("/")) return null;
   const filePath = safeJoin(distPath, pathname);
   if (!filePath) return null;
-  return serveFile(req, filePath, distCacheControl(pathname));
+  return serveFile(req, filePath, distCacheControl(pathname), {
+    headers: req.headers.get("service-worker") === "script"
+      ? { "Service-Worker-Allowed": "/f" }
+      : undefined,
+  });
 }
 
 function jsonResponse(body, status = 200, headers = {}) {

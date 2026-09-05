@@ -1,3 +1,4 @@
+import { openRoute, sealRoute } from "@/shared/route";
 import {
 	BareRequestInit,
 	BareResponse,
@@ -28,6 +29,9 @@ export async function doHandleFetch(
 	handler: FolioFetchHandler,
 	request: FolioFetchRequest
 ): Promise<FolioFetchResponse> {
+	request = { ...request, rawUrl: openRoute(request.rawUrl),
+		rawClientUrl: request.rawClientUrl ? openRoute(request.rawClientUrl) : undefined,
+		rawReferrer: request.rawReferrer ? openRoute(request.rawReferrer).href : request.rawReferrer };
 	const parsed = parseRequest(request, handler);
 
 	if (isBlobOrDataUrl(parsed.url)) {
@@ -94,7 +98,7 @@ export async function doHandleFetch(
 	);
 
 	if (isRedirect(response)) {
-		const location = new _URL(responseHeaders.get("location"));
+		const location = openRoute(responseHeaders.get("location"));
 		const referer = newheaders.get("Referer");
 
 		// Compute the page (initiator) URL once. The initiator never changes
@@ -151,7 +155,7 @@ export async function doHandleFetch(
 			location.searchParams.set(QP.initiatorOrigin, initiatorOriginUrl.origin);
 		if (parsed.isModule) location.searchParams.set(QP.isModule, "module");
 
-		responseHeaders.set("location", location.href);
+		responseHeaders.set("location", sealRoute(location));
 	}
 
 	if (response.body && !isRedirect(response)) {

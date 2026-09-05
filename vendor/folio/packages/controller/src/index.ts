@@ -1,3 +1,4 @@
+import { openRoute, sealRoute } from "@mercuryworkshop/folio/route";
 import { type MethodsDefinition, RpcHelper } from "@mercuryworkshop/rpc";
 import {
 	BareResponse,
@@ -47,7 +48,7 @@ export type Config = {
 };
 
 export const config: Config = {
-	prefix: "/~/fl/",
+	prefix: "/f/",
 	folioPath: "/folio/folio.js",
 	injectPath: "/controller/controller.inject.js",
 	wasmPath: "/folio/folio.wasm",
@@ -309,7 +310,7 @@ export class Controller {
 			}, 5000);
 		},
 		request: async (data) => {
-			const path = new URL(data.rawUrl).pathname;
+			const path = openRoute(data.rawUrl).pathname;
 			const frame = this.frames.find((f) => path.startsWith(f.prefix));
 				if (!frame) throw new Error("no frame found for request /ᐠ - ˕ -マ");
 			const abort = new AbortController();
@@ -772,7 +773,7 @@ function yieldGetInjectScripts(
 		}
 		return [
 			script(config.folioPath),
-			script(prefix.href + config.virtualWasmPath),
+			script($folio.sealRoute(prefix.href + config.virtualWasmPath)),
 			script(config.injectPath),
 			script(
 				"data:text/javascript;charset=utf-8;base64," +
@@ -825,7 +826,7 @@ export class Frame {
 					let str = "";
 
 					str += script(this.controller.config.folioPath);
-					str += script(this.prefix + this.controller.config.virtualWasmPath);
+					str += script(sealRoute(new URL(this.prefix + this.controller.config.virtualWasmPath, location.href)));
 					str += script(
 						"data:text/javascript;charset=utf-8;base64," +
 							base64Encode(`

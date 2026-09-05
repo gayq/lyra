@@ -53,7 +53,7 @@ const TRANSPORT_MAP: Record<string, string> = {
   libcurl: runtimeAssetPath("libcurl", "index.mjs"),
 };
 
-const FOLIO_SCOPE = "/b/fl/r/";
+const FOLIO_SCOPE = "/f";
 
 function createResolvablePromise<T = void>(): ResolvablePromise<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -505,7 +505,7 @@ class LyraConnectionManager {
       try {
         const url = new URL(message.url);
         if (url.origin !== window.location.origin) return;
-        if (!url.pathname.startsWith("/b/fl/")) return;
+        if (url.pathname !== "/f" || !url.searchParams.has("s")) return;
       } catch {
         return;
       }

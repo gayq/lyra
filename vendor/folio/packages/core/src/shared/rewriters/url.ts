@@ -1,3 +1,4 @@
+import { openRoute, sealRoute } from "../route";
 import { FolioContext } from "@/shared";
 import { rewriteJs } from "@rewriters/js";
 import { QP } from "@/fetch/parse";
@@ -113,7 +114,7 @@ function dataToBlob(url: string) {
 	return { blob, objectUrl };
 }
 
-export function rewriteUrl(
+function rewriteUrlInternal(
 	url: string | URL,
 	context: FolioContext,
 	meta: URLMeta,
@@ -169,7 +170,7 @@ export function rewriteUrl(
 		const routePrefix = context.routePrefix ?? context.prefix;
 		if (
 			realUrl.origin === routePrefix.origin &&
-			realUrl.pathname.startsWith(routePrefix.pathname)
+			(realUrl.pathname === "/f" || realUrl.pathname.startsWith(routePrefix.pathname))
 		) {
 			// Requests may pass through more than one patched API (or another proxy
 			// integration) before reaching the browser. URLs that already belong to
@@ -214,8 +215,14 @@ export function rewriteUrl(
 	}
 }
 
+export function rewriteUrl(url: string | URL, context: FolioContext, meta: URLMeta, options?: RewriteUrlOptions) {
+	const rewritten = rewriteUrlInternal(url, context, meta, options);
+	return /^https?:/.test(rewritten) ? sealRoute(rewritten) : rewritten;
+}
+
 export function unrewriteUrl(url: string | URL, context: FolioContext) {
 	url = String(url);
+	if (/^https?:/.test(url)) url = openRoute(url).href;
 	if (url.startsWith("javascript:")) {
 		//TODO
 		return url;

@@ -1,4 +1,4 @@
-export const RIVET_PREFIX = "/b/fl/r/__rivet__/ext/";
+export const RIVET_PREFIX = "/f/__rivet__/ext/";
 
 export function rivetBootstrapUrl(extId: string): string {
   return `${rivetExtensionBase(extId)}__bootstrap__`;

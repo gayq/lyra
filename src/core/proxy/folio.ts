@@ -70,7 +70,7 @@ interface FolioGlobals {
   };
 }
 
-const FOLIO_PREFIX = "/b/fl/r/";
+const FOLIO_PREFIX = "/f/";
 const MOCHI_RAW_PREFIX = "/!!raw/";
 const MOCHI_ACCELERATOR_TIMEOUT_MS = 8000;
 const FOLIO_HOT_CACHE_MAX_ENTRY_BYTES = 2 * 1024 * 1024;

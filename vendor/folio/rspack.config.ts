@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
@@ -9,6 +10,8 @@ import {
 	type RspackOptions,
 	type WebpackCompiler,
 } from "@rspack/core";
+
+const routeKey = JSON.stringify([...randomBytes(32)]);
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -157,6 +160,7 @@ const createGenericConfig = (options: Partial<RspackOptions>) => {
 	const production = process.env.NODE_ENV === "production";
 	const def = {
 		devtool: production ? false : "source-map",
+		plugins: [new rspack.DefinePlugin({ FOLIO_ROUTE_KEY: routeKey })],
 		mode: (production ? "production" : "development") as Mode,
 		resolve: {
 			extensions: [".ts", ".js"],
@@ -180,7 +184,9 @@ const createGenericConfig = (options: Partial<RspackOptions>) => {
 			],
 		},
 	};
-	return defineConfig(deepmerge<RspackOptions>(def as RspackOptions, options));
+	const merged = deepmerge<RspackOptions>(def as RspackOptions, options);
+	merged.plugins = [...(options.plugins ?? []), new rspack.DefinePlugin({ FOLIO_ROUTE_KEY: routeKey })];
+	return defineConfig(merged);
 };
 
 type FolioBuildConfig = {

@@ -1,3 +1,4 @@
+import { openRoute } from "@/shared/route";
 import { Object_entries, Object_keys, _URL, Error } from "@/shared/snapshot";
 import { unrewriteUrl, URLMeta } from "@rewriters/url";
 import {
@@ -61,8 +62,8 @@ export function parseRequest(
 	request: FolioFetchRequest,
 	handler: FolioFetchHandler
 ): FolioFetchParsed {
-	const strippedUrl = new _URL(request.rawUrl.href);
-	const { params, extras } = parseQueryParams(request.rawUrl.searchParams);
+	const strippedUrl = openRoute(request.rawUrl);
+	const { params, extras } = parseQueryParams(strippedUrl.searchParams);
 	strippedUrl.search = "";
 
 	const hadExtraParams = Object_keys(extras).length > 0;

@@ -1,5 +1,6 @@
 import { FolioClient } from "@client/index";
 import { Tap } from "@/Tap";
+import { encodeRouteToken } from "@/shared/route";
 import { iswindow } from "@client/entry";
 import {
 	Reflect_apply,
@@ -58,7 +59,9 @@ export function createLocationProxy(client: FolioClient, self: GlobalThis) {
 						return;
 					}
 					if (prop === "hash") {
-						self.location.hash = args[0];
+						const hash = new _URL(client.url.href);
+						hash.hash = args[0];
+						self.location.hash = hash.hash ? encodeRouteToken(client.context.interface.codecEncode(hash.hash.slice(1))) : "";
 						Tap.dispatch(
 							client.hooks.lifecycle.navigate,
 							{

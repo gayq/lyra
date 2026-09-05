@@ -120,28 +120,14 @@ function _decodeUrlUncached(encodedUrl: string): string {
   } catch (_e) {}
 
   try {
-    const prefix = "/b/fl/r/";
-    try {
-      const urlObject = new URL(encodedUrl, window.location.origin);
-      if (urlObject.pathname.startsWith(prefix)) {
-        let pathPart = urlObject.pathname.slice(prefix.length);
-        const parts = pathPart.split("/");
-        if (parts.length >= 3) {
-          pathPart = parts.slice(2).join("/");
-        }
-        return decodeURIComponent(pathPart);
-      }
-    } catch (_e) {}
-    const fl = (
-      window as unknown as Record<
-        string,
-        { decode?: (s: string) => string } | undefined
-      >
-    )["fl"];
-    if (fl && typeof fl.decode === "function") {
-      return fl.decode(encodedUrl);
+    const runtime = (window as unknown as { $folio?: { routeDestination: (url: string) => string | null } }).$folio;
+    const url = new URL(encodedUrl, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname === "/f") {
+      return runtime?.routeDestination(url.href) ?? encodedUrl;
     }
-  } catch (_e) {}
+  } catch {
+    return encodedUrl;
+  }
 
   try {
     return decodeURIComponent(encodedUrl);

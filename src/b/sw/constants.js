@@ -9,7 +9,7 @@ if (
 }
 
 const scope = self.registration.scope;
-const isFolio = scope.endsWith("/b/fl/r/");
+const isFolio = new URL(scope).pathname === "/f";
 const MOCHI_PREFIX = "/!!/";
 const BUILD_FINGERPRINT = "__BUILD_ID__";
 const SHELL_CACHE = "lyra-shell-" + BUILD_FINGERPRINT;

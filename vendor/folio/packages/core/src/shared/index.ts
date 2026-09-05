@@ -8,6 +8,7 @@ import { _RegExp } from "./snapshot";
 
 export * from "./cookie";
 export * from "./domain";
+export * from "./route";
 export * from "./headers";
 export * from "./htmlRules";
 export * from "./mime";

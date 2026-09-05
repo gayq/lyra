@@ -16,6 +16,10 @@
 			"types": "./dist/types/typesEntry.d.ts",
 			"default": "./dist/folio-external.mjs"
 		},
+		"./route": {
+			"types": "./dist/types/shared/route.d.ts",
+			"default": "./src/shared/route.ts"
+		},
 		"./bundled": {
 			"types": "./dist/types/index.d.ts",
 			"default": "./dist/folio.mjs"
@@ -27,12 +31,14 @@
 	},
 	"files": [
 		"dist",
-		"lib"
+		"lib",
+		"src/shared/route.ts"
 	],
 	"keywords": [],
 	"author": "",
 	"dependencies": {
 		"@mercuryworkshop/proxy-transports": "catalog:",
+		"@noble/ciphers": "2.4.0",
 		"dom-serializer": "^2.0.0",
 		"domhandler": "^5.0.3",
 		"domutils": "^3.2.2",

@@ -34,23 +34,10 @@ function unwrapUrl(url) {
       return null;
     }
   }
-  if (isFolio && url.pathname.startsWith("/b/fl/")) {
-    const raw = url.pathname.slice(5);
-    const httpIndex = raw.indexOf("http");
-    if (httpIndex !== -1) {
-      const candidate = raw.substring(httpIndex);
-      try {
-        const decoded = decodeURIComponent(candidate);
-        return new URL(decoded).href;
-      } catch {
-        try {
-          return new URL(candidate).href;
-        } catch {
-          return null;
-        }
-      }
-    }
+  if (isFolio && url.pathname === "/f") {
+    try { return folio.routeDestination(url.href); } catch { return null; }
   }
+
   return null;
 }
 

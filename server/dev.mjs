@@ -339,6 +339,7 @@ app.use(proxyDevService);
 
 const swStaticOpts = { maxAge: 0, etag: true };
 app.get("/b/sw.js", (req, res) => {
+  res.setHeader("Service-Worker-Allowed", "/f");
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Cache-Control", NO_CACHE_CC);
   res.sendFile(path.join(srcPath, "b", "sw.js"));

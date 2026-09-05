@@ -167,13 +167,9 @@ function upstreamOriginFromUrl(locationUrl) {
         try { return new URL(encoded).origin; } catch {}
       }
     }
-    if (url.pathname.startsWith("/b/fl/")) {
-      const encodedPath = url.pathname.slice(5);
-      const httpIndex = encodedPath.indexOf("http");
-      if (httpIndex !== -1) {
-        try { return new URL(decodeURIComponent(encodedPath.substring(httpIndex))).origin; } catch {}
-        try { return new URL(encodedPath.substring(httpIndex)).origin; } catch {}
-      }
+    if (url.pathname === "/f") {
+      const destination = unwrapUrl(url);
+      if (destination) return new URL(destination).origin;
     }
   } catch {}
   return null;
@@ -484,7 +480,7 @@ self.addEventListener("fetch", (event) => {
 
         if (isFolio) {
           await ensureFolioConfig();
-          const isFolioRoute = url.pathname.startsWith("/b/fl/r/");
+          const isFolioRoute = url.pathname === "/f";
           let shouldRoute =
             typeof folio.shouldRoute === "function"
               ? folio.shouldRoute(event)

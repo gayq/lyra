@@ -447,7 +447,7 @@ export function navigateIframeTo(iframe: HTMLIFrameElement, url: string): void {
     const parsed = new URL(url, window.location.origin);
     isProxyUrl =
       parsed.origin === window.location.origin &&
-      parsed.pathname.startsWith("/b/fl/");
+      (parsed.pathname === "/f" && parsed.searchParams.has("s"));
   } catch {}
   if (shouldUseFolio) {
     void navigateExternalThroughFolio(iframe, url, navigationVersion).catch((error) => {
