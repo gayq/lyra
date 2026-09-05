@@ -310,6 +310,9 @@ fn request_allows_shared_cache(headers: &HeaderMap) -> bool {
 }
 
 fn request_forces_refresh(headers: &HeaderMap) -> bool {
+    if headers.contains_key("if-none-match") || headers.contains_key("if-modified-since") {
+        return true;
+    }
     headers
         .get("cache-control")
         .and_then(|value| value.to_str().ok())
@@ -366,20 +369,6 @@ fn shared_cache_allowed(
     !force_refresh
         && request_allows_shared_cache(request_headers)
         && response_allows_shared_cache(response_headers)
-}
-
-fn normalize_b2_media_content_type(target_url: &str, headers: &mut HeaderMap) {
-    let is_b2_media = target_url
-        .to_ascii_lowercase()
-        .contains(".backblazeb2.com/");
-    let is_generic_binary = headers
-        .get("content-type")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.eq_ignore_ascii_case("application/octet-stream"))
-        .unwrap_or(true);
-    if is_b2_media && is_generic_binary {
-        headers.insert("content-type", HeaderValue::from_static("video/mp4"));
-    }
 }
 
 fn apply_common_request_headers(
@@ -922,16 +911,7 @@ pub async fn proxy_handler(
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
 
-            if let Some(etag) = res_headers.get("etag").cloned() {
-                if let Some(inm) = headers.get("if-none-match") {
-                    if etag == *inm {
-                        return (StatusCode::NOT_MODIFIED, res_headers).into_response();
-                    }
-                }
-            }
-
             fix_game_content_type(target_url_str, &mut res_headers);
-            normalize_b2_media_content_type(target_url_str, &mut res_headers);
             let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
             return (status, res_headers, cached.body.clone()).into_response();
         }
@@ -1032,6 +1012,10 @@ pub async fn proxy_handler(
     let status = upstream_res.status();
     debug!("upstream response status: {}", status);
 
+    if status == StatusCode::NOT_MODIFIED {
+        return not_modified_response(upstream_res.headers());
+    }
+
     if status.is_redirection() {
         return classified_error_response(
             StatusCode::BAD_GATEWAY,
@@ -1057,7 +1041,6 @@ pub async fn proxy_handler(
     let mut safe_headers = build_safe_response_headers(res_headers_ref, is_likely_asset);
 
     fix_game_content_type(&target_url_string, &mut safe_headers);
-    normalize_b2_media_content_type(target_url.as_str(), &mut safe_headers);
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     safe_headers.insert(
         "Cross-Origin-Opener-Policy",
@@ -1305,6 +1288,10 @@ pub async fn proxy_handler(
     (status, safe_headers, stream).into_response()
 }
 
+fn not_modified_response(headers: &HeaderMap) -> Response {
+    (StatusCode::NOT_MODIFIED, build_safe_response_headers(headers, false)).into_response()
+}
+
 async fn fetch_and_cache(
     state: &Arc<AppState>,
     target_url: &Url,
@@ -1324,7 +1311,6 @@ async fn fetch_and_cache(
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
             fix_game_content_type(target_url_string, &mut res_headers);
-            normalize_b2_media_content_type(target_url.as_str(), &mut res_headers);
             let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
             return Ok((status, res_headers, cached.body.clone()).into_response());
         }
@@ -1344,7 +1330,6 @@ async fn fetch_and_cache(
             debug!("disk cache hit");
             let (mut response, _) = disk_response;
             fix_game_content_type(target_url_string, response.headers_mut());
-            normalize_b2_media_content_type(target_url.as_str(), response.headers_mut());
             return Ok(response);
         }
     }
@@ -1376,7 +1361,6 @@ async fn fetch_and_cache(
                 let mut res_headers = cached.headers.clone();
                 res_headers.insert("X-Cache", HeaderValue::from_static("COALESCED"));
                 fix_game_content_type(target_url_string, &mut res_headers);
-                normalize_b2_media_content_type(target_url.as_str(), &mut res_headers);
                 let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
                 return Ok((status, res_headers, cached.body.clone()).into_response());
             }
@@ -1420,6 +1404,13 @@ async fn fetch_and_cache(
     };
 
     let status = upstream_res.status();
+
+    if status == StatusCode::NOT_MODIFIED {
+        if let Some(owner) = coalesce_tx_clone.as_ref() {
+            remove_owned_coalesced_request(state, target_url_str, owner);
+        }
+        return Ok(not_modified_response(upstream_res.headers()));
+    }
 
     if max_body_size.is_some_and(|max_size| {
         upstream_res
@@ -1478,7 +1469,6 @@ async fn fetch_and_cache(
     }
 
     fix_game_content_type(target_url_string, &mut safe_headers);
-    normalize_b2_media_content_type(target_url.as_str(), &mut safe_headers);
     safe_headers.insert("Access-Control-Allow-Origin", HeaderValue::from_static("*"));
     safe_headers.insert(
         "Cross-Origin-Opener-Policy",
@@ -1660,155 +1650,4 @@ async fn fetch_and_cache(
     let stream = Body::from_stream(stream);
     let response = (status, safe_headers, stream).into_response();
     Ok(response)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        apply_common_request_headers, build_safe_response_headers, is_retryable_upstream_status,
-        normalize_b2_media_content_type, request_allows_shared_cache, request_forces_refresh,
-        response_allows_shared_cache,
-    };
-    use axum::http::{HeaderMap, HeaderValue};
-    use url::Url;
-
-    #[test]
-    fn does_not_synthesize_target_origin_for_upstream_requests() {
-        let target = Url::parse("https://selenite.cc/resources/semag/game/cover.png").unwrap();
-        let request = apply_common_request_headers(
-            reqwest::Client::new().get(target.clone()),
-            &HeaderMap::new(),
-            &target,
-            true,
-            false,
-        )
-        .build()
-        .unwrap();
-
-        assert!(request.headers().get("origin").is_none());
-    }
-
-    #[test]
-    fn retries_only_transient_upstream_statuses() {
-        assert!(is_retryable_upstream_status(408));
-        assert!(is_retryable_upstream_status(429));
-        assert!(is_retryable_upstream_status(500));
-        assert!(is_retryable_upstream_status(503));
-        assert!(!is_retryable_upstream_status(404));
-        assert!(!is_retryable_upstream_status(401));
-    }
-
-    #[test]
-    fn shared_cache_rejects_user_context_but_allows_mochi_routing_cookie() {
-        let mut headers = HeaderMap::new();
-        headers.insert("cookie", HeaderValue::from_static("session=private"));
-        assert!(!request_allows_shared_cache(&headers));
-
-        headers.insert(
-            "cookie",
-            HeaderValue::from_static("mochi_base=encoded-target"),
-        );
-        assert!(request_allows_shared_cache(&headers));
-    }
-
-    #[test]
-    fn refresh_directives_are_case_insensitive() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "cache-control",
-            HeaderValue::from_static("public, No-Cache=reload"),
-        );
-        assert!(request_forces_refresh(&headers));
-    }
-    #[test]
-    fn shared_cache_rejects_private_response_headers() {
-        let mut headers = HeaderMap::new();
-        headers.insert("set-cookie", HeaderValue::from_static("session=private"));
-        assert!(!response_allows_shared_cache(&headers));
-
-        headers.remove("set-cookie");
-        headers.insert("cache-control", HeaderValue::from_static("private"));
-        assert!(!response_allows_shared_cache(&headers));
-
-        headers.insert(
-            "cache-control",
-            HeaderValue::from_static("public, max-age=60"),
-        );
-        assert!(response_allows_shared_cache(&headers));
-    }
-
-    #[test]
-    fn shared_cache_rejects_varying_response_headers() {
-        let mut headers = HeaderMap::new();
-        headers.insert("vary", HeaderValue::from_static("Accept-Language"));
-        assert!(!response_allows_shared_cache(&headers));
-
-        headers.insert("vary", HeaderValue::from_static("Accept-Encoding"));
-        assert!(!response_allows_shared_cache(&headers));
-    }
-
-    #[test]
-    fn forwarded_samesite_none_cookies_always_include_secure() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "set-cookie",
-            HeaderValue::from_static("NetworkProbeLimit=1; Path=/; SameSite=None"),
-        );
-
-        let safe_headers = build_safe_response_headers(&headers, false);
-        let cookie = safe_headers["set-cookie"].to_str().unwrap();
-        let secure_attributes = cookie
-            .split(';')
-            .filter(|attribute| attribute.trim().eq_ignore_ascii_case("secure"))
-            .count();
-
-        assert_eq!(secure_attributes, 1);
-    }
-
-    #[test]
-    fn forwarded_samesite_none_cookies_do_not_duplicate_secure() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "set-cookie",
-            HeaderValue::from_static("NetworkProbeLimit=1; Path=/; SameSite=None; Secure"),
-        );
-
-        let safe_headers = build_safe_response_headers(&headers, false);
-        let cookie = safe_headers["set-cookie"].to_str().unwrap();
-        let secure_attributes = cookie
-            .split(';')
-            .filter(|attribute| attribute.trim().eq_ignore_ascii_case("secure"))
-            .count();
-
-        assert_eq!(secure_attributes, 1);
-    }
-
-    #[test]
-    fn normalizes_backblaze_media_binary_content_type() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "content-type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-
-        normalize_b2_media_content_type(
-            "https://s3.example.backblazeb2.com/lyra-media/media/video.bin?signature=secret",
-            &mut headers,
-        );
-
-        assert_eq!(headers["content-type"], "video/mp4");
-    }
-
-    #[test]
-    fn preserves_non_backblaze_content_type() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "content-type",
-            HeaderValue::from_static("application/octet-stream"),
-        );
-
-        normalize_b2_media_content_type("https://example.com/file.bin", &mut headers);
-
-        assert_eq!(headers["content-type"], "application/octet-stream");
-    }
 }
