@@ -15,7 +15,7 @@ function mochiTarget(realUrl) {
   const base = mochiBase();
   const normalized = base.endsWith("/") ? base : base + "/";
   return realUrl.startsWith("http")
-    ? `${normalized}${realUrl}`
+    ? `${normalized}${btoa(_adXorDec(encodeURIComponent(realUrl))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}/`
     : `${MOCHI_PREFIX}${realUrl}`;
 }
 

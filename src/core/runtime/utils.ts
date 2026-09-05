@@ -1,3 +1,5 @@
+import { encodeMochiTarget } from "../../../packages/rivet/src/mochiEncoding";
+
 const _MK = "q7Zx!9pL";
 
 const _KEY_BYTES: Uint8Array =
@@ -32,16 +34,6 @@ function _memoSet<T>(cache: Map<string, T>, key: string, value: T): T {
   return value;
 }
 
-function _xorTransform(str: string): string {
-  let out = "";
-  for (let i = 0; i < str.length; i++) {
-    out += String.fromCharCode(
-      str.charCodeAt(i) ^ _MK.charCodeAt(i % _MK.length),
-    );
-  }
-  return out;
-}
-
 function _xorBytes(bytes: Uint8Array): Uint8Array {
   const out = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++)
@@ -62,11 +54,6 @@ function _binaryStringToBytes(binStr: string): Uint8Array {
   const out = new Uint8Array(binStr.length);
   for (let i = 0; i < binStr.length; i++) out[i] = binStr.charCodeAt(i) & 0xff;
   return out;
-}
-
-function _base64UrlEncodeBytes(bytes: Uint8Array): string {
-  const b64 = btoa(_bytesToBinaryString(bytes));
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
 function _base64UrlDecodeToBytes(b64url: string): Uint8Array {
@@ -147,17 +134,7 @@ export function encodeMochiUrl(url: string): string {
 
 function _encodeMochiUrlUncached(url: string): string {
   try {
-    const percentEncoded = encodeURIComponent(url);
-    if (typeof TextEncoder !== "undefined") {
-      const bytes = new TextEncoder().encode(percentEncoded);
-      return _base64UrlEncodeBytes(_xorBytes(bytes));
-    }
-
-    const xored = _xorTransform(percentEncoded);
-    return btoa(xored)
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
+    return encodeMochiTarget(url);
   } catch (_e) {
     try {
       return encodeURIComponent(url);

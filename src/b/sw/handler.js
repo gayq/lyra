@@ -406,6 +406,7 @@ self.addEventListener("fetch", (event) => {
   const realUrl = unwrapUrl(url);
 
   if (url.pathname.startsWith(MOCHI_PREFIX)) {
+    if (request.method !== "GET") return;
     let afterPrefix = url.pathname.slice(MOCHI_PREFIX.length);
     if (afterPrefix.endsWith("/")) afterPrefix = afterPrefix.slice(0, -1);
     if (afterPrefix.startsWith("http")) return;

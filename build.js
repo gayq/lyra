@@ -256,8 +256,6 @@ export default function lyraPlugin(
       const cssSources = await Promise.all(
         cssFiles.map((filePath) => readFile(filePath, "utf8")),
       );
-      // Apply the same names before obfuscation everywhere, including injected
-      // source strings and functions later serialized with toString().
       const cssTokenMap = new Map([
         ...createCssTokenMap(cssSources, buildId),
         ...createFolioTokenMap(buildId),

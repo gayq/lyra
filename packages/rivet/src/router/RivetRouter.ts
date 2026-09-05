@@ -74,8 +74,6 @@ async function serveExtensionFile(extId: string, path: string): Promise<Response
 export async function route(event: FetchEvent): Promise<Response> {
   const url = new URL(event.request.url);
 
-  // The host routes extensionNetworkUrl through Mochi before calling this
-  // resource router. Never fall back to a direct external fetch here.
   if (url.origin !== self.location.origin) {
     return new Response(negativeMessage("rivet extension network request was not routed"), { status: 502 });
   }

@@ -1,12 +1,12 @@
-// Capture the host APIs outside extension and Folio realms. Calling a patched
-// page API here would send the Mochi URL back through the page's transport.
+import { encodeMochiTarget } from "./mochiEncoding";
+
 const nativeFetch = globalThis.fetch.bind(globalThis);
-const installedFetch = new WeakMap<Window, typeof fetch>();
+const installedFetch = new WeakMap<Window, Window["fetch"]>();
 
 function extensionRequestUrl(input: string, base: string, origin: string): string {
   const url = new URL(input, base);
   if (!/^https?:$/.test(url.protocol) || url.origin === origin) return url.href;
-  return `${origin}/!!/${url.href}`;
+  return `${origin}/!!/${encodeMochiTarget(url.href)}/`;
 }
 
 function extensionSocketUrl(input: string, base: string, origin: string): string {
@@ -17,17 +17,16 @@ function extensionSocketUrl(input: string, base: string, origin: string): string
   const gateway = new URL(origin);
   gateway.protocol = gateway.protocol === "https:" ? "wss:" : "ws:";
   if (url.origin === gateway.origin && url.pathname.startsWith("/!!/")) return url.href;
-  return `${gateway.origin}/!!/ws/${encodeURIComponent(url.href)}`;
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return `${gateway.origin}/!!/${encodeMochiTarget(url.href)}/`;
 }
 
 export function installExtensionNetwork(win: Window, documentUrl?: string): void {
   if (installedFetch.get(win) === win.fetch) return;
-  const realm = win as Window & typeof globalThis;
+  const realm = win as Window & Pick<typeof globalThis, "XMLHttpRequest" | "WebSocket" | "EventSource">;
   const origin = globalThis.location.origin;
   const isContentScript = documentUrl && /^https?:/.test(documentUrl)
     && new URL(documentUrl).origin !== origin;
-  // Content scripts share the page realm. Its Folio APIs must stay installed
-  // so requests pass through webRequest filtering before reaching a transport.
   if (isContentScript) return;
   const base = () => win.document.baseURI;
   const requestUrl = (input: string) => extensionRequestUrl(input, base(), origin);
@@ -42,7 +41,7 @@ export function installExtensionNetwork(win: Window, documentUrl?: string): void
       return originalFetch(input, init);
     }
     const request = new Request(inputRequest ?? absolute, {
-      referrerPolicy: inputRequest?.referrerPolicy,
+      ...(inputRequest ? { referrerPolicy: inputRequest.referrerPolicy } : {}),
       ...init,
     });
     const forwarded: RequestInit & { duplex: "half" } = {
