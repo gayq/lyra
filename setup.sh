@@ -1509,18 +1509,16 @@ tee -a ecosystem.config.cjs >/dev/null <<'EOF'
 EOF
 chmod 600 ecosystem.config.cjs
 
-sudo caddy fmt --overwrite /etc/caddy/Caddyfile
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl enable caddy >/dev/null 2>&1 || true
-sudo systemctl restart caddy
-
-if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
-  sudo ufw allow 80/tcp
-  sudo ufw allow 443/tcp
-  sudo ufw allow 443/udp
-  sudo ufw allow "$TURN_PORT"/tcp
-  sudo ufw allow "$TURN_PORT"/udp
-  sudo ufw allow 49152:65535/udp
+if command -v ufw >/dev/null 2>&1; then
+  UFW_STATUS=$(sudo ufw status)
+  if grep -q "Status: active" <<<"$UFW_STATUS"; then
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    sudo ufw allow 443/udp
+    sudo ufw allow "$TURN_PORT"/tcp
+    sudo ufw allow "$TURN_PORT"/udp
+    sudo ufw allow 49152:65535/udp
+  fi
 fi
 
 if [ ! -f .env ]; then
@@ -1625,6 +1623,21 @@ for svc in "${PM2_SVCS[@]}"; do
   fi
 done
 
+health_ok() {
+  [ "$(curl --fail --silent --max-time 3 "$1")" = "oki" ]
+}
+
+for upstream in $MOCHI_UPSTREAMS $NURU_UPSTREAMS; do
+  if ! retry 10 health_ok "http://$upstream/health"; then
+    fail "proxy worker health check failed"
+    exit 1
+  fi
+done
+sudo caddy fmt --overwrite /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl enable caddy >/dev/null 2>&1 || true
+sudo systemctl restart caddy
+
 SERVICE_HEALTH_CHECKS=(
   "tls-approval|http://127.0.0.1:3001/health"
   "lyra|http://127.0.0.1:4444/health"
@@ -1640,9 +1653,6 @@ done
 for ((i = 0; i < NURU_INSTANCES; i++)); do
   SERVICE_HEALTH_CHECKS+=("nuru@$i|http://127.0.0.1:$((4200 + i))/health")
 done
-health_ok() {
-  [ "$(curl --fail --silent --show-error --max-time 3 "$1")" = "oki" ]
-}
 for health_check in "${SERVICE_HEALTH_CHECKS[@]}"; do
   service_name="${health_check%%|*}"
   service_url="${health_check#*|}"
