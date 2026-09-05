@@ -26,7 +26,10 @@ export function installExtensionNetwork(win: Window, documentUrl?: string): void
   const origin = globalThis.location.origin;
   const isContentScript = documentUrl && /^https?:/.test(documentUrl)
     && new URL(documentUrl).origin !== origin;
-  const base = () => isContentScript ? documentUrl : win.document.baseURI;
+  // Content scripts share the page realm. Its Folio APIs must stay installed
+  // so requests pass through webRequest filtering before reaching a transport.
+  if (isContentScript) return;
+  const base = () => win.document.baseURI;
   const requestUrl = (input: string) => extensionRequestUrl(input, base(), origin);
   const originalFetch = win.fetch.bind(win);
 
@@ -35,7 +38,7 @@ export function installExtensionNetwork(win: Window, documentUrl?: string): void
     const source = inputRequest?.url ?? String(input);
     const absolute = new URL(source, base()).href;
     const target = requestUrl(source);
-    if (target === absolute && (!isContentScript || !/^https?:/.test(absolute))) {
+    if (target === absolute) {
       return originalFetch(input, init);
     }
     const request = new Request(inputRequest ?? absolute, {
@@ -61,7 +64,7 @@ export function installExtensionNetwork(win: Window, documentUrl?: string): void
   };
   installedFetch.set(win, realm.fetch);
 
-  realm.XMLHttpRequest = new Proxy(isContentScript ? globalThis.XMLHttpRequest : realm.XMLHttpRequest, {
+  realm.XMLHttpRequest = new Proxy(realm.XMLHttpRequest, {
     construct(Target, args) {
       const xhr = Reflect.construct(Target, args) as XMLHttpRequest;
       const open = xhr.open;
