@@ -1,7 +1,7 @@
 # lyra :3
 a really cool web-proxy
 
-[![join our discord](https://invidget.switchblade.xyz/dJvdkPRheV)](https://discord.gg/4GeWaGPh6c)
+[![join our discord](https://invidget.switchblade.xyz/4GeWaGPh6c)](https://discord.gg/4GeWaGPh6c)
 
 ## features
 - nice ui
