@@ -2,6 +2,7 @@
 import { dbGet, dbGetAllKeys, EXT_FILES_STORE } from "../db";
 import { guessMime } from "../crx";
 import { decodeRivetPath, RIVET_PREFIX } from "../urlScheme";
+import { negativeMessage } from "../messages";
 
 const clientToExtId = new Map<string, string>();
 
@@ -43,7 +44,7 @@ function isBootstrapUrl(pathname: string): string | null {
 export function shouldRoute(event: FetchEvent): boolean {
   try {
     const url = new URL(event.request.url);
-    if (url.pathname.startsWith(RIVET_PREFIX)) return true;
+    if (url.origin === self.location.origin && url.pathname.startsWith(RIVET_PREFIX)) return true;
     return extensionIdForEvent(event) !== null;
   } catch {
     return false;
@@ -72,6 +73,12 @@ async function serveExtensionFile(extId: string, path: string): Promise<Response
 
 export async function route(event: FetchEvent): Promise<Response> {
   const url = new URL(event.request.url);
+
+  // The host routes extensionNetworkUrl through Mochi before calling this
+  // resource router. Never fall back to a direct external fetch here.
+  if (url.origin !== self.location.origin) {
+    return new Response(negativeMessage("rivet extension network request was not routed"), { status: 502 });
+  }
 
   const bootstrapExtId = isBootstrapUrl(url.pathname);
   if (bootstrapExtId) {

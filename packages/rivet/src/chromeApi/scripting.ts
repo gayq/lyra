@@ -1,5 +1,6 @@
 import { readExtFileText } from "../fileStore";
 import { injectScript } from "../htmlInject";
+import { installExtensionNetwork } from "../network";
 import type { ContentScriptRegistration } from "../types";
 import { injectCss } from "./common";
 import type { ChromeApiContext, InstallApiInTab } from "./context";
@@ -75,6 +76,9 @@ export function createScriptingApis(
       const targetTabId = injection.target?.tabId ?? tabId;
       const win =
         targetTabId !== null ? host.getTabWindow?.(targetTabId) : null;
+      if (win && targetTabId !== null) {
+        installExtensionNetwork(win, host.getTab(targetTabId)?.url);
+      }
       if (
         win &&
         targetTabId !== null &&

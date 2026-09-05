@@ -159,7 +159,7 @@ cd "$ROOT"
 
 export DEBIAN_FRONTEND=noninteractive
 
-log "the setup process is about to start; support is available at discord.gg/dJvdkPRheV"
+log "the setup process is about to start; support is available at discord.gg/4GeWaGPh6c"
 success "setup started"
 
 stop_pm2() {

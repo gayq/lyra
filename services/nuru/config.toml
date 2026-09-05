@@ -5,7 +5,7 @@ resolve_ipv6 = false
 tcp_nodelay = true
 file_raw_mode = false
 use_real_ip_headers = true
-non_ws_response = "hii! you should join discord.gg/dJvdkPRheV :3!! (˵◝ ⩊  ◜˵マ"
+non_ws_response = "hii! you should join discord.gg/4GeWaGPh6c :3!!"
 log_level = "WARN"
 runtime = "threadpercore"
 

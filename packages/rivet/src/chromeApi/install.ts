@@ -3,6 +3,7 @@ import {
   withMissingMemberFallback,
 } from "../autoStub";
 import { NEGATIVE, negativeMessage } from "../messages";
+import { installExtensionNetwork } from "../network";
 import {
   createRealmEvents,
   type RealmEvents,
@@ -59,6 +60,7 @@ export function installChromeApi(
     );
   }
 
+  installExtensionNetwork(realm, senderUrl);
   const events = createRealmEvents();
   const frameId = senderFrameId ?? (tabId === null ? undefined : 0);
   const documentId = senderDocumentId ?? (tabId === null ? undefined : generateDocumentId());

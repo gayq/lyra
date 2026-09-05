@@ -1,4 +1,5 @@
 import { EventHub } from "../eventHub";
+import { installExtensionNetwork } from "../network";
 import {
   buildTabObject,
   captureVisibleTabViaDisplayMedia,
@@ -166,6 +167,7 @@ export function createTabApis(context: ChromeApiContext) {
         actualTabId !== null ? host.getTabWindow?.(actualTabId) : null;
       let result: unknown[] = [];
       if (win && details?.code) {
+        installExtensionNetwork(win, actualTabId === null ? undefined : host.getTab(actualTabId)?.url);
         try {
           result = [
             (win as unknown as { eval: (source: string) => unknown }).eval(
