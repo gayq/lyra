@@ -55,7 +55,7 @@ export function useVirtualGrid<T>(
       topSpacer: 0,
       bottomSpacer: 0,
     });
-  }, [items]);
+  }, [items.length]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -74,7 +74,8 @@ export function useVirtualGrid<T>(
           .filter((track) => track && track !== "none").length,
       );
       const card = Array.from(grid.children).find(
-        (child) => !child.classList.contains("catalog-virtual-spacer"),
+        (child) => !child.classList.contains("catalog-virtual-spacer") &&
+          !child.classList.contains("episode-picker-virtual-spacer"),
       ) as HTMLElement | undefined;
       const rowHeight = card?.getBoundingClientRect().height ?? 0;
       const rowGap = Number.parseFloat(style.rowGap) || 0;

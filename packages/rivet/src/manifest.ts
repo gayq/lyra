@@ -24,18 +24,50 @@ export function getBackgroundInfo(manifest: ChromeManifest): BackgroundInfo {
   return null;
 }
 
+interface CompiledPattern {
+  scheme: string;
+  host: string;
+  subdomains: boolean;
+  port: string;
+  path: RegExp;
+}
+
+const patternCache = new Map<string, CompiledPattern | null>();
+
+function compilePattern(pattern: string): CompiledPattern | null {
+  const parts = /^(\*|http|https|file|ftp):\/\/(\[[\da-f:]+\]|[^/:]*)(?::(\*|\d+))?(\/.*)$/i.exec(pattern);
+  if (!parts) return null;
+  const [, scheme = "", authority = "", port = "", path = ""] = parts;
+  const subdomains = authority.startsWith("*.");
+  const host = (subdomains ? authority.slice(2) : authority).toLowerCase();
+  if ((host !== "*" && /[*?#@]/.test(host)) || (subdomains && (!host || host === "*"))) return null;
+  if (!host && scheme.toLowerCase() !== "file") return null;
+  if (port !== "*" && port && Number(port) > 65535) return null;
+  return {
+    scheme: scheme.toLowerCase(), host, subdomains, port,
+    path: new RegExp("^" + path.split("*").map((part) =>
+      part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+    ).join(".*") + "$"),
+  };
+}
+
 export function matchPattern(pattern: string, url: string): boolean {
-  if (pattern === "<all_urls>") return true;
-  if (pattern === "*://*/*") return url.startsWith("http://") || url.startsWith("https://");
   try {
-    const escaped = pattern
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".");
-    const schemeMatch = escaped.match(/^([^:]+):\/\//);
-    if (!schemeMatch) return false;
-    const re = new RegExp("^" + escaped + "$");
-    return re.test(url);
+    const parsed = new URL(url);
+    if (pattern === "<all_urls>") return /^(https?|file|ftp):$/.test(parsed.protocol);
+    let compiled = patternCache.get(pattern);
+    if (compiled === undefined) {
+      compiled = compilePattern(pattern);
+      if (patternCache.size >= 2048) patternCache.delete(patternCache.keys().next().value!);
+      patternCache.set(pattern, compiled);
+    }
+    if (!compiled) return false;
+    const { scheme, host, subdomains, port, path } = compiled;
+    if (scheme === "*" ? !/^https?:$/.test(parsed.protocol) : parsed.protocol !== scheme + ":") return false;
+    if (host !== "*" && parsed.hostname !== host && !(subdomains && parsed.hostname.endsWith("." + host))) return false;
+    const actualPort = parsed.port || ({ "http:": "80", "https:": "443", "ftp:": "21" }[parsed.protocol] ?? "");
+    if (port && port !== "*" && Number(port) !== Number(actualPort)) return false;
+    return path.test(parsed.pathname + parsed.search);
   } catch {
     return false;
   }

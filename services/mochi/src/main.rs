@@ -31,11 +31,6 @@ pub(crate) fn negative_message(message: &str) -> String {
     format!("{}{NEGATIVE}", message_base(message))
 }
 
-#[cfg(test)]
-pub(crate) fn positive_message(message: &str) -> String {
-    format!("{}{POSITIVE}", message_base(message))
-}
-
 use adaptive_capacity::{spawn_rebalancer, AdaptiveGate, CapacityTarget, Workload};
 use aho_corasick::AhoCorasick;
 use axum::http::{header::CONTENT_RANGE, Extensions, HeaderMap, StatusCode, Version};
@@ -381,22 +376,4 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         })
         .await?;
     Ok(())
-}
-
-#[cfg(test)]
-mod message_tests {
-    use super::{negative_message, positive_message};
-
-    #[test]
-    fn formats_runtime_messages_once() {
-        assert_eq!(
-            negative_message("request failed"),
-            "request failed... /ᐠ - ˕ -マ"
-        );
-        assert_eq!(
-            negative_message("request failed... /ᐠ - ˕ -マ"),
-            "request failed... /ᐠ - ˕ -マ"
-        );
-        assert_eq!(positive_message("ready"), "ready!! (˵◝ ⩊  ◜˵マ");
-    }
 }

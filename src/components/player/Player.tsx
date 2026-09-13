@@ -23,6 +23,7 @@ import {
 import {
   fetchAnimeEpisodeCount,
   isAnimeMovieFormat,
+  type AnimeSeason,
 } from "../../features/anime/anime.ts";
 import {
   ANIME_QUALITY_KEY,
@@ -52,6 +53,7 @@ import {
   IconFullScreen,
   IconDownsize,
 } from "../icons";
+import EpisodePickerModal from "../anime/EpisodePickerModal.tsx";
 
 const STREAM_INFO_TIMEOUT_MS = 12_000;
 const SUBTITLE_PREFERENCE_KEY = "lyra-anime-subtitle";
@@ -372,6 +374,13 @@ export default function Player() {
   );
   const initialEpisodeCount = parseInt(params.get("episode_count") || "0", 10);
   const format = params.get("format") || "";
+  const currentSeason: AnimeSeason = {
+    id: animeIdentityCacheKey({ ids: identityIds }),
+    title, ids: identityIds, format,
+    number: Number(params.get("season")) || 1,
+    episodeCount: initialEpisodeCount,
+    year: Number(params.get("year")) || undefined,
+  };
   const [episodeNumber, setEpisodeNumber] = useState(
     hasEpisodeParam ? Math.max(0, initialEpisode) : anikotoEpisodeId ? 1 : 0,
   );
@@ -385,9 +394,12 @@ export default function Player() {
   const [episodeCount, setEpisodeCount] = useState(
     mergeEpisodeCount(initialEpisodeCount, initialEpisode),
   );
+  const streamSessionRef = useRef("");
+  if (!streamSessionRef.current) streamSessionRef.current = crypto.randomUUID();
   const fallbackQuery = new URLSearchParams({
     episode: String(sourceEpisodeNumber),
     language,
+    session: streamSessionRef.current,
   });
   appendMegaPlayParams(fallbackQuery, playbackIds);
   const baseVideoSrc =
@@ -532,6 +544,9 @@ export default function Player() {
   const [openSelector, setOpenSelector] = useState<
     "episodes" | "language" | "subtitles" | "quality" | "audio" | null
   >(null);
+  const [episodeSelectorMounted, setEpisodeSelectorMounted] = useState(false);
+  const episodeSelectorOpen = openSelector === "episodes";
+  const episodeSelectorRendered = episodeSelectorOpen || episodeSelectorMounted;
   const [changingLanguage, setChangingLanguage] = useState(false);
   const [loadingEpisodeCount, setLoadingEpisodeCount] = useState(false);
   const [loadingStreamInfo, setLoadingStreamInfo] = useState(false);
@@ -639,6 +654,10 @@ export default function Player() {
       setShowControls(true);
     }
   }, [openSelector]);
+
+  useEffect(() => {
+    if (episodeSelectorOpen) setEpisodeSelectorMounted(true);
+  }, [episodeSelectorOpen]);
 
   useEffect(() => {
     if (!openSelector) return;
@@ -969,6 +988,7 @@ export default function Player() {
 
       const currentUrl = new URL(window.location.href);
       currentUrl.searchParams.set("episode", String(nextEpisode));
+      currentUrl.searchParams.set("season", String(currentSeason.number || 1));
       currentUrl.searchParams.set("episodeName", `E${nextEpisode}`);
       if (nextPart) {
         currentUrl.searchParams.set(
@@ -987,6 +1007,7 @@ export default function Player() {
     }, [
       episodeCount,
       episodeNumber,
+      currentSeason.number,
       resumeKey,
       episodeParts,
       identityIds,
@@ -1064,7 +1085,7 @@ export default function Player() {
         maxMaxBufferLength: 60,
         maxBufferSize: 24 * 1024 * 1024,
         ...PLAYER_SIZE_ABR_CONFIG,
-        manifestLoadPolicy: hlsLoadPolicy(8_000, 15_000, 2, 2),
+        manifestLoadPolicy: hlsLoadPolicy(12_000, 15_000, 0, 0),
         playlistLoadPolicy: hlsLoadPolicy(8_000, 15_000, 2, 2),
         fragLoadPolicy: hlsLoadPolicy(10_000, 45_000, 2, 3),
         keyLoadPolicy: hlsLoadPolicy(8_000, 20_000, 2, 2),
@@ -1191,6 +1212,16 @@ export default function Player() {
           fatal: hlsError.fatal,
         });
         if (!hlsError.fatal) return;
+        if (
+          hlsError.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+          hlsError.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT
+        ) {
+          syncMediaState({
+            error: negativeMessage("stream is unavailable, try another episode or reload"),
+            buffering: false,
+          });
+          return;
+        }
         if (hlsError.type === Hls.ErrorTypes.NETWORK_ERROR) {
           if (
             hlsError.response?.code === 409 &&
@@ -1250,6 +1281,8 @@ export default function Player() {
 
   useEffect(() => {
     if (
+      !mediaState.playing ||
+      mediaState.buffering ||
       episodeNumber < 1 ||
       episodeCount <= episodeNumber ||
       isAnimeMovieFormat(format)
@@ -1294,6 +1327,8 @@ export default function Player() {
       preloadVideo.load();
     };
   }, [
+    mediaState.playing,
+    mediaState.buffering,
     episodeCount,
     episodeNumber,
     episodeParts,
@@ -1405,6 +1440,7 @@ export default function Player() {
     const params = new URLSearchParams({
       episode: String(sourceEpisodeNumber),
       language,
+      session: streamSessionRef.current,
     });
     appendMegaPlayParams(params, playbackIds);
 
@@ -1651,6 +1687,7 @@ export default function Player() {
       const params = new URLSearchParams({
         episode: String(sourceEpisodeNumber),
         language: nextLanguage,
+        session: streamSessionRef.current,
       });
       appendMegaPlayParams(params, playbackIds);
       const requestContext = sourceContextRef.current;
@@ -2314,29 +2351,6 @@ export default function Player() {
     seekTo(activeSkipEnd);
   }, [activeSkipEnd, activeSkipKey, autoSkipIntroOutro, seekTo]);
 
-  const episodeButtons = useMemo(
-    () =>
-      Array.from({ length: Math.max(episodeCount, episodeNumber) }, (_, index) => {
-        const value = index + 1;
-        const isCurrent = value === confirmedEpisodeNumber;
-        return (
-          <button
-            type="button"
-            role="option"
-            key={value}
-            aria-selected={isCurrent}
-            tabIndex={openSelector === "episodes" ? 0 : -1}
-            class={`episode-selector-button player-episode-item${
-              isCurrent ? " is-active" : ""
-            }`}
-            onClick={() => changeEpisode(value)}
-          >
-            {value}
-          </button>
-        );
-      }),
-    [changeEpisode, confirmedEpisodeNumber, episodeCount, openSelector],
-  );
   return (
     <div class="player-page is-visible">
       <div
@@ -2510,39 +2524,68 @@ export default function Player() {
             <div class="spacer" />
             {!isAnimeMovieFormat(format) && (
               <div class="player-control-popover player-episode-control">
-              <button
-                type="button"
-                class={`player-selector-selected player-episode-trigger${openSelector === "episodes" ? " is-open" : ""}`}
-                aria-haspopup="listbox"
-                aria-expanded={openSelector === "episodes"}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setOpenSelector((current) =>
-                    current === "episodes" ? null : "episodes",
-                  );
-                }}
-              >
-                <span>ep {confirmedEpisodeNumber ?? "?"}</span>
-                <IconChevronBottom size={12} class="selector-chevron" />
-              </button>
-              <div
-                class={`player-selector-options player-episode-panel${openSelector === "episodes" ? " is-open" : ""}`}
-                role="listbox"
-                aria-hidden={openSelector !== "episodes"}
-              >
-                <div class="player-episode-heading">
-                  <div>
-                    <strong>{title}</strong>
-                    <span>choose an episode</span>
+                <button
+                  type="button"
+                  class={`player-selector-selected player-episode-trigger${episodeSelectorOpen ? " is-open" : ""}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={episodeSelectorOpen}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpenSelector((current) =>
+                      current === "episodes" ? null : "episodes",
+                    );
+                  }}
+                >
+                  <span>ep {confirmedEpisodeNumber ?? "?"}</span>
+                  <IconChevronBottom size={12} class="selector-chevron" />
+                </button>
+                <div
+                  class={`player-selector-options player-episode-panel${episodeSelectorOpen ? " is-open" : ""}`}
+                  role="dialog"
+                  aria-label="choose a season and episode"
+                  aria-hidden={!episodeSelectorOpen}
+                  onTransitionEnd={(event) => {
+                    if (
+                      episodeSelectorOpen ||
+                      event.target !== event.currentTarget ||
+                      event.propertyName !== "opacity"
+                    ) {
+                      return;
+                    }
+                    setEpisodeSelectorMounted(false);
+                  }}
+                >
+                  <div class="player-episode-heading">
+                    <div>
+                      <strong>{title}</strong>
+                    </div>
                   </div>
-                  <span class="player-episode-position">
-                    {confirmedEpisodeNumber ?? "?"} / {episodeCount > 0 ? Math.max(episodeCount, episodeNumber) : "?"}
-                  </span>
+                  {episodeSelectorRendered && (<EpisodePickerModal
+                        embedded
+                        visible={episodeSelectorRendered}
+                        title={title}
+                        type="anime"
+                        ids={identityIds}
+                        posterUrl={poster}
+                        format={format}
+                        year={Number(params.get("year")) || undefined}
+                        episodeCount={Math.max(episodeCount, episodeNumber)}
+                        seasons={[{ ...currentSeason, episodeCount: Math.max(episodeCount, episodeNumber) }]}
+                        initialSeasonId={currentSeason?.id}
+                        currentEpisode={confirmedEpisodeNumber ?? undefined}
+                        initialLanguage={language}
+                        onClose={() => setOpenSelector(null)}
+                        onPlay={(playerUrl) => {
+                          const next = new URL(playerUrl, window.location.origin);
+                          const seasonNumber = currentSeason?.number || Number(params.get("season")) || 1;
+                          if (Number(next.searchParams.get("season")) === seasonNumber) {
+                            changeEpisode(Number(next.searchParams.get("episode")));
+                          } else {
+                            window.location.assign(playerUrl);
+                          }
+                        }}
+                      />)}
                 </div>
-                <div class="episode-selector-grid player-episode-grid">
-                  {episodeButtons}
-                </div>
-              </div>
               </div>
             )}
             <div class="player-control-popover player-language-selector">
@@ -2559,7 +2602,7 @@ export default function Player() {
                   );
                 }}
               >
-                <span title={`confirmed audio: ${activeAudioLabel}`}>
+                <span>
                   {changingLanguage ? "..." : confirmedLanguage || "unknown"}
                 </span>
                 <IconChevronBottom size={12} class="selector-chevron" />

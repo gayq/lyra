@@ -1,6 +1,7 @@
 import { recomputeStaticRules } from "../dnr";
 import type { WebRequestDetails, WebRequestEventName } from "../registry";
 import type { ChromeApiContext } from "./context";
+import { cloneForRealm } from "./common";
 
 export function createNetworkApis(context: ChromeApiContext) {
   const { realm, extId, tabId, registry, host, ext, events } = context;
@@ -197,23 +198,18 @@ export function createNetworkApis(context: ChromeApiContext) {
     ),
   };
 
-  const declarativeNetRequest = {
-    updateDynamicRules: (
+  const makeRuleApi = (area: "dynamicRules" | "sessionRules") => ({
+    update: (
       options: { addRules?: unknown[]; removeRuleIds?: number[] },
       cb?: () => void,
     ) => {
-      if (options.removeRuleIds) {
-        ext.dynamicRules = ext.dynamicRules.filter(
-          (rule) => !options.removeRuleIds!.includes(rule.id),
-        );
-      }
-      if (options.addRules) {
-        ext.dynamicRules.push(...(options.addRules as typeof ext.dynamicRules));
-      }
+      const removed = new Set(options.removeRuleIds);
+      ext[area] = ext[area].filter((rule) => !removed.has(rule.id))
+        .concat(structuredClone((options.addRules ?? []) as typeof ext.dynamicRules));
       cb?.();
       return Promise.resolve(undefined);
     },
-    getDynamicRules: (
+    get: (
       filterOrCb?: unknown,
       maybeCb?: (rules: unknown[]) => void,
     ) => {
@@ -225,27 +221,21 @@ export function createNetworkApis(context: ChromeApiContext) {
         typeof filterOrCb === "function"
           ? (filterOrCb as (rules: unknown[]) => void)
           : maybeCb;
-      const rules = filter?.ruleIds
-        ? ext.dynamicRules.filter((rule) => filter.ruleIds!.includes(rule.id))
-        : ext.dynamicRules;
+      const ids = filter?.ruleIds ? new Set(filter.ruleIds) : null;
+      const rules = cloneForRealm(realm, structuredClone(
+        ids ? ext[area].filter((rule) => ids.has(rule.id)) : ext[area],
+      ));
       cb?.(rules);
       return Promise.resolve(rules);
     },
-    updateSessionRules: (_options: unknown, cb?: () => void) => {
-      cb?.();
-      return Promise.resolve(undefined);
-    },
-    getSessionRules: (
-      filterOrCb?: unknown,
-      maybeCb?: (rules: unknown[]) => void,
-    ) => {
-      const cb =
-        typeof filterOrCb === "function"
-          ? (filterOrCb as (rules: unknown[]) => void)
-          : maybeCb;
-      cb?.([]);
-      return Promise.resolve([]);
-    },
+  });
+  const dynamicRules = makeRuleApi("dynamicRules");
+  const sessionRules = makeRuleApi("sessionRules");
+  const declarativeNetRequest = {
+    updateDynamicRules: dynamicRules.update,
+    getDynamicRules: dynamicRules.get,
+    updateSessionRules: sessionRules.update,
+    getSessionRules: sessionRules.get,
     isRegexSupported: (
       _options: unknown,
       cb?: (result: { isSupported: boolean }) => void,

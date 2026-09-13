@@ -128,6 +128,36 @@ export async function dbDelete(store: string, key: IDBValidKey): Promise<void> {
   });
 }
 
+export async function dbDeleteEntries(store: string, keys: readonly IDBValidKey[] | IDBKeyRange): Promise<void> {
+  if (Array.isArray(keys) && keys.length === 0) return;
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction(store, "readwrite");
+    } catch {
+      reject(databaseError());
+      return;
+    }
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = () => reject(databaseError());
+    try {
+      const objStore = tx.objectStore(store);
+      if (Array.isArray(keys)) {
+        for (const key of keys) objStore.delete(key);
+      } else {
+        objStore.delete(keys as IDBKeyRange);
+      }
+    } catch {
+      try {
+        tx.abort();
+      } finally {
+        reject(databaseError());
+      }
+    }
+  });
+}
+
 export async function dbGetAll<T = unknown>(store: string): Promise<T[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -138,11 +168,11 @@ export async function dbGetAll<T = unknown>(store: string): Promise<T[]> {
   });
 }
 
-export async function dbGetAllKeys(store: string): Promise<IDBValidKey[]> {
+export async function dbGetAllKeys(store: string, range?: IDBKeyRange): Promise<IDBValidKey[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, "readonly");
-    const req = tx.objectStore(store).getAllKeys();
+    const req = tx.objectStore(store).getAllKeys(range);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(databaseError());
   });

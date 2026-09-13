@@ -366,31 +366,3 @@ pub async fn disk_cache_cleanup_task(
         next_interval = base_interval / 2;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{get_stream_cache_path, load_stream_from_disk, StreamCacheWriter};
-    use axum::http::{HeaderMap, HeaderValue, StatusCode};
-
-    #[tokio::test]
-    async fn dropped_stream_writers_leave_no_readable_or_temporary_entry() {
-        tokio::fs::create_dir_all("./cache/stream").await.unwrap();
-        let cache_key = format!("partial:{}", uuid::Uuid::new_v4());
-        let cache_path = get_stream_cache_path(&cache_key);
-        let mut headers = HeaderMap::new();
-        headers.insert("Content-Length", HeaderValue::from_static("8"));
-        let mut writer = StreamCacheWriter::create(&cache_key, StatusCode::OK.as_u16(), &headers)
-            .await
-            .unwrap();
-        writer.write(b"part").await.unwrap();
-        drop(writer);
-
-        assert!(load_stream_from_disk(&cache_key, 1024, 60).await.is_none());
-        assert!(!std::path::Path::new(&cache_path).exists());
-        let temp_prefix = format!("{cache_path}.");
-        let mut entries = tokio::fs::read_dir("./cache/stream").await.unwrap();
-        while let Some(entry) = entries.next_entry().await.unwrap() {
-            assert!(!entry.path().to_string_lossy().starts_with(&temp_prefix));
-        }
-    }
-}

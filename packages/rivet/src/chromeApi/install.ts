@@ -88,6 +88,7 @@ export function installChromeApi(
     host,
     ext,
     events,
+    isBackground,
     senderUrl,
     senderFrameId: frameId,
     senderDocumentId: documentId,

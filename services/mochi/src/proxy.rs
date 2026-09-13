@@ -211,6 +211,18 @@ fn remove_owned_coalesced_request(
         .remove_if(key, |_, current| current.same_channel(owner));
 }
 
+struct CoalescedRequest {
+    state: Arc<AppState>,
+    key: String,
+    sender: broadcast::Sender<Arc<CachedResponse>>,
+}
+
+impl Drop for CoalescedRequest {
+    fn drop(&mut self) {
+        remove_owned_coalesced_request(&self.state, &self.key, &self.sender);
+    }
+}
+
 #[derive(serde::Serialize)]
 struct RawUpstreamMeta {
     status: u16,
@@ -615,7 +627,17 @@ pub async fn raw_proxy_handler(
         headers.remove(name);
     }
 
-    let permit = state.request_permit.acquire().await;
+    let Some(permit) = state
+        .request_permit
+        .acquire_timeout(Duration::from_secs(5))
+        .await
+    else {
+        return classified_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "infrastructure",
+            "proxy capacity is temporarily exhausted",
+        );
+    };
 
     let is_likely_asset = is_likely_static_asset_fast(&target_url_string);
     let looks_like_html_page =
@@ -1346,7 +1368,14 @@ async fn fetch_and_cache(
                 Entry::Vacant(entry) => {
                     let (coalesce_tx, _) = broadcast::channel::<Arc<CachedResponse>>(1);
                     entry.insert(coalesce_tx.clone());
-                    (Some(coalesce_tx), None)
+                    (
+                        Some(CoalescedRequest {
+                            state: state.clone(),
+                            key: target_url_str.to_string(),
+                            sender: coalesce_tx,
+                        }),
+                        None,
+                    )
                 }
             }
         } else {
@@ -1375,7 +1404,17 @@ async fn fetch_and_cache(
             }
         }
     }
-    let permit = state.request_permit.acquire().await;
+    let Some(permit) = state
+        .request_permit
+        .acquire_timeout(Duration::from_secs(5))
+        .await
+    else {
+        return Err(Box::new(classified_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "infrastructure",
+            "proxy capacity is temporarily exhausted",
+        )));
+    };
 
     let client = &state.asset_client;
     let upstream_res = match send_upstream_with_retries(
@@ -1398,9 +1437,6 @@ async fn fetch_and_cache(
             proxy_metrics()
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
-            if let Some(owner) = coalesce_tx_clone.as_ref() {
-                remove_owned_coalesced_request(state, target_url_str, owner);
-            }
             return Err(Box::new(upstream_network_error_response()));
         }
     };
@@ -1408,9 +1444,6 @@ async fn fetch_and_cache(
     let status = upstream_res.status();
 
     if status == StatusCode::NOT_MODIFIED {
-        if let Some(owner) = coalesce_tx_clone.as_ref() {
-            remove_owned_coalesced_request(state, target_url_str, owner);
-        }
         return Ok(not_modified_response(upstream_res.headers()));
     }
 
@@ -1419,9 +1452,6 @@ async fn fetch_and_cache(
             .content_length()
             .is_some_and(|size| size > max_size as u64)
     }) {
-        if let Some(owner) = coalesce_tx_clone.as_ref() {
-            remove_owned_coalesced_request(state, target_url_str, owner);
-        }
         return Err(Box::new(classified_error_response(
             StatusCode::PAYLOAD_TOO_LARGE,
             "invalid-request",
@@ -1430,9 +1460,6 @@ async fn fetch_and_cache(
     }
 
     if status.is_redirection() {
-        if let Some(owner) = coalesce_tx_clone.as_ref() {
-            remove_owned_coalesced_request(state, target_url_str, owner);
-        }
         return Err(Box::new(classified_error_response(
             StatusCode::BAD_GATEWAY,
             "unavailable",
@@ -1445,9 +1472,6 @@ async fn fetch_and_cache(
         proxy_metrics()
             .upstream_errors
             .fetch_add(1, Ordering::Relaxed);
-        if let Some(owner) = coalesce_tx_clone.as_ref() {
-            remove_owned_coalesced_request(state, target_url_str, owner);
-        }
         error!(
             "asset source returned non-success status {} for {} (read {} error bytes){}",
             status, target_url, body_bytes, NEGATIVE
@@ -1500,12 +1524,6 @@ async fn fetch_and_cache(
                 true
             }
         };
-
-    if !actually_cache {
-        if let Some(owner) = coalesce_tx_clone.as_ref() {
-            remove_owned_coalesced_request(state, target_url_str, owner);
-        }
-    }
 
     if actually_cache {
         let (sender_tx, sender_rx) =
@@ -1626,7 +1644,7 @@ async fn fetch_and_cache(
                         .insert(target_url_str_owned.clone(), cached.clone())
                         .await;
                     if let Some(coalesce_tx) = coalesce_owner.as_ref() {
-                        let _ = coalesce_tx.send(cached);
+                        let _ = coalesce_tx.sender.send(cached);
                     }
                 }
             } else {
@@ -1634,9 +1652,6 @@ async fn fetch_and_cache(
             }
 
             state_clone.caching_inflight.remove(&target_url_str_owned);
-            if let Some(owner) = coalesce_owner.as_ref() {
-                remove_owned_coalesced_request(&state_clone, &target_url_str_owned, owner);
-            }
         });
 
         let stream_body = Body::from_stream(ReceiverStream::new(sender_rx));

@@ -83,6 +83,10 @@
     flex-shrink: 0;
 }
 
+.new-tab-result-item .tab-icon {
+    margin-right: 0;
+}
+
 .new-tab-result-item:hover {
     color: var(--text-primary);
     background-color: var(--hover-bg-toast);

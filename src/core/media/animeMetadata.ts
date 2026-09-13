@@ -16,7 +16,11 @@ export function getAnimeDisplayLabel(realUrl: string): string | null {
     const episodeLabel = episode && /^\d+$/.test(episode)
       ? ` / episode: ${episode}`
       : "";
-    return `anime: ${title}${episodeLabel}`;
+    const season = url.searchParams.get("season")?.trim();
+    const seasonLabel = season && /^[1-9]\d*$/.test(season)
+      ? ` / season: ${season}`
+      : "";
+    return `anime: ${title}${seasonLabel}${episodeLabel}`;
   } catch {
     return null;
   }

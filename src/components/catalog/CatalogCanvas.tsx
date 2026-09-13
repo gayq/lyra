@@ -206,7 +206,9 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           ctx.fillStyle = color("--skeleton-alt-from", "#333");
           ctx.fillRect(x, y, w, h);
           ctx.fillStyle = color("--skeleton-alt-via", "#555");
-          ctx.fillRect(x + 8, y + h - 22, w * 0.65, 8);
+          ctx.beginPath();
+          ctx.roundRect(x + 8, y + h - 22, w * 0.65, 8, 4);
+          ctx.fill();
           if (!reducedMotion.matches) {
             const left = x + ((now % 1000) / 1000 * 2 - 1) * w;
             const shimmer = ctx.createLinearGradient(left, 0, left + w, 0);

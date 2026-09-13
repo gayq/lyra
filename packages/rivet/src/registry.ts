@@ -127,9 +127,11 @@ interface TabDocumentContext {
 
 export interface RealmEvents {
   runtimeOnMessage: EventHub;
+  runtimeOnMessageExternal: EventHub;
   runtimeOnInstalled: EventHub;
   runtimeOnStartup: EventHub;
   runtimeOnConnect: EventHub;
+  runtimeOnConnectExternal: EventHub;
   storageOnChanged: EventHub;
   tabsOnCreated: EventHub;
   tabsOnUpdated: EventHub;
@@ -159,9 +161,11 @@ export interface RealmEvents {
 export function createRealmEvents(): RealmEvents {
   return {
     runtimeOnMessage: new EventHub(),
+    runtimeOnMessageExternal: new EventHub(),
     runtimeOnInstalled: new EventHub(),
     runtimeOnStartup: new EventHub(),
     runtimeOnConnect: new EventHub(),
+    runtimeOnConnectExternal: new EventHub(),
     storageOnChanged: new EventHub(),
     tabsOnCreated: new EventHub(),
     tabsOnUpdated: new EventHub(),
@@ -197,6 +201,7 @@ export interface ExtensionState {
   filename: string;
   messages: Record<string, { message: string }>;
   dynamicRules: DNRRule[];
+  sessionRules: DNRRule[];
   staticRules: DNRRule[];
   rulesetRules: Map<string, DNRRule[]>;
   enabledRulesetIds: Set<string>;
@@ -253,6 +258,7 @@ export class RivetRegistry {
       filename,
       messages: {},
       dynamicRules: [],
+      sessionRules: [],
       staticRules: [],
       rulesetRules: new Map(),
       enabledRulesetIds: new Set(),

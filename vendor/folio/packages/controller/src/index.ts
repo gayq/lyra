@@ -316,7 +316,6 @@ export class Controller {
 			const abort = new AbortController();
 			this.requestAborts.set(data.requestId, abort);
 			try {
-				// doesn't actually *load* every request, but hold up requests until the promise finishes
 				await this.loadSavedCookies();
 
 				if (path === frame.prefix + this.config.virtualWasmPath) {
@@ -591,8 +590,6 @@ export class Controller {
 			}
 
 			if (e.data.$controller$swrevive) {
-				// if we just spawned the service worker, it will send this even though it's not actually dead
-				// TODO: pretty jank, fix at some point
 				if (this.guardServiceWorkerRevive) {
 					return;
 				}
@@ -628,7 +625,6 @@ export class Controller {
 		);
 	}
 
-	// TODO: should this be a method on the cookie jar?
 	private applyCookieSyncEntries(
 		cookies: SerializedCookieSyncEntry[] | undefined
 	) {

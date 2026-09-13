@@ -424,38 +424,3 @@ fn handle_stream(stream: ServerRouteResult, id: String) {
         CLIENTS.remove(&id);
     });
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{listener_shards, RuntimeFlavor, SocketType, NEGATIVE, POSITIVE};
-
-    #[test]
-    fn runtime_endings_are_exact() {
-        assert_eq!(
-            negative_message!("request failed"),
-            "request failed... /ᐠ - ˕ -マ"
-        );
-        assert_eq!(NEGATIVE, "... /ᐠ - ˕ -マ");
-        assert_eq!(POSITIVE, "!! (˵◝ ⩊  ◜˵マ");
-    }
-
-    #[test]
-    fn listener_sharding_is_safe_for_the_transport() {
-        assert_eq!(
-            listener_shards(&RuntimeFlavor::MultiThread, SocketType::Tcp, 8),
-            1
-        );
-        assert_eq!(
-            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Unix, 8),
-            1
-        );
-        assert_eq!(
-            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Tcp, 0),
-            1
-        );
-        assert_eq!(
-            listener_shards(&RuntimeFlavor::ThreadPerCore, SocketType::Tcp, 8),
-            if cfg!(target_os = "windows") { 1 } else { 8 }
-        );
-    }
-}

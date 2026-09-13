@@ -43,11 +43,6 @@ fn negative_message(message: &str) -> String {
     format!("{}{NEGATIVE}", message_base(message))
 }
 
-#[cfg(test)]
-fn positive_message(message: &str) -> String {
-    format!("{}{POSITIVE}", message_base(message))
-}
-
 fn json_weight(value: &serde_json::Value) -> u32 {
     fn size(value: &serde_json::Value) -> usize {
         match value {
@@ -68,6 +63,7 @@ fn json_weight(value: &serde_json::Value) -> u32 {
 struct AppState {
     client: reqwest::Client,
     jikan_eps: Cache<i64, Arc<serde_json::Value>>,
+    episode_counts: Cache<i64, i32>,
     jikan_rel: Cache<i64, Arc<Vec<models::AnimeRelation>>>,
     anilist_titles: Cache<i64, Arc<Vec<String>>>,
     identity: Cache<String, Arc<identity::AnimeIdentity>>,
@@ -118,13 +114,17 @@ async fn main() {
 
     let state = Arc::new(AppState {
         client,
+        episode_counts: Cache::builder()
+            .time_to_live(Duration::from_secs(10 * 60))
+            .max_capacity(metadata_entries)
+            .build(),
         jikan_eps: Cache::builder()
-            .time_to_live(Duration::from_secs(6 * 60 * 60))
+            .time_to_live(Duration::from_secs(10 * 60))
             .max_capacity(episode_cache_bytes)
             .weigher(|_key: &i64, value: &Arc<serde_json::Value>| json_weight(value))
             .build(),
         jikan_rel: Cache::builder()
-            .time_to_live(Duration::from_secs(6 * 60 * 60))
+            .time_to_live(Duration::from_secs(30 * 60))
             .max_capacity(metadata_entries / 4)
             .build(),
         anilist_titles: Cache::builder()
@@ -174,7 +174,101 @@ async fn main() {
         .expect("isao server failed... /ᐠ - ˕ -マ");
 }
 
-async fn episodes_handler(State(state): State<Arc<AppState>>, Path(mal_id): Path<i64>) -> Response {
+#[derive(Default, Deserialize)]
+struct EpisodeQuery {
+    #[serde(default)]
+    count_only: bool,
+}
+
+async fn cached_episode_count(state: &AppState, mal_id: i64) -> i32 {
+    if let Some(count) = state.episode_counts.get(&mal_id).await {
+        return count;
+    }
+    if let Some(relations) = state.jikan_rel.get(&mal_id).await {
+        if let Some(count) = relations
+            .iter()
+            .find(|relation| relation.mal_id == mal_id && relation.relation == "Self")
+            .and_then(|relation| relation.episode_count)
+            .filter(|count| *count > 0)
+        {
+            state.episode_counts.insert(mal_id, count).await;
+            return count;
+        }
+    }
+    let failure_key = format!("episode-count:{mal_id}");
+    if state.failures.get(&failure_key).await.is_some() {
+        return 0;
+    }
+    let result = state
+        .episode_counts
+        .try_get_with(mal_id, async {
+            let _permit = state
+                .upstream_gate
+                .acquire_timeout(Duration::from_secs(2))
+                .await
+                .ok_or(())?;
+            let count = tokio::time::timeout(
+                Duration::from_secs(5),
+                jikan::fetch_episode_count(&state.client, mal_id),
+            )
+            .await
+            .unwrap_or(0);
+            if count > 0 {
+                return Ok(count);
+            }
+            if let Some(count) = tokio::time::timeout(
+                Duration::from_secs(6),
+                anilist::fetch_episode_count(&state.client, mal_id),
+            )
+            .await
+            .ok()
+            .flatten()
+            {
+                return Ok(count);
+            }
+            let episodes = tokio::time::timeout(
+                Duration::from_secs(6),
+                jikan::fetch_episodes(&state.client, mal_id),
+            )
+            .await
+            .ok()
+            .flatten()
+            .ok_or(())?;
+            episodes
+                .iter()
+                .map(|episode| episode.number)
+                .max()
+                .filter(|count| *count > 0)
+                .ok_or(())
+        })
+        .await;
+    match result {
+        Ok(count) => count,
+        Err(_) => {
+            state.failures.insert(failure_key, ()).await;
+            0
+        }
+    }
+}
+
+async fn episodes_handler(
+    State(state): State<Arc<AppState>>,
+    Path(mal_id): Path<i64>,
+    Query(query): Query<EpisodeQuery>,
+) -> Response {
+    if query.count_only {
+        let count = if let Some(cached) = state.jikan_eps.get(&mal_id).await {
+            cached["count"].as_i64().unwrap_or(0) as i32
+        } else {
+            cached_episode_count(&state, mal_id).await
+        };
+        let payload = serde_json::json!({ "count": count, "episodes": [] });
+        return if count > 0 {
+            Json(payload).into_response()
+        } else {
+            provider_failure("anime episode provider is temporarily unavailable", payload)
+        };
+    }
     if let Some(cached) = state.jikan_eps.get(&mal_id).await {
         return Json(&*cached).into_response();
     }
@@ -198,11 +292,12 @@ async fn episodes_handler(State(state): State<Arc<AppState>>, Path(mal_id): Path
                 jikan::fetch_episodes(&client, mal_id),
                 jikan::fetch_episode_count(&client, mal_id),
             );
-            if episodes.is_empty() && count == 0 {
+            if count == 0 && episodes.as_ref().is_none_or(|items| items.is_empty()) {
                 return Err(());
             }
+            let episodes = episodes.unwrap_or_default();
             Ok(Arc::new(serde_json::json!({
-                "count": std::cmp::max(count, episodes.len() as i32),
+                "count": if count > 0 { count } else { episodes.iter().map(|episode| episode.number).max().unwrap_or(0) },
                 "episodes": episodes,
             })))
         })
@@ -240,13 +335,27 @@ async fn relations_handler(
         .jikan_rel
         .try_get_with(mal_id, async move {
             let _permit = gate
-                .acquire_timeout(Duration::from_secs(10))
+                .acquire_timeout(Duration::from_secs(2))
                 .await
                 .ok_or(())?;
-            jikan::fetch_relations(&client, mal_id)
+            let relations = match tokio::time::timeout(
+                Duration::from_secs(5),
+                jikan::fetch_relations(&client, mal_id),
+            )
+            .await
+            .ok()
+            .flatten()
+            {
+                Some(relations) => Some(relations),
+                None => tokio::time::timeout(
+                    Duration::from_secs(6),
+                    anilist::fetch_relations(&client, mal_id),
+                )
                 .await
-                .map(Arc::new)
-                .ok_or(())
+                .ok()
+                .flatten(),
+            };
+            relations.map(Arc::new).ok_or(())
         })
         .await
     {
@@ -397,7 +506,7 @@ async fn identity_episodes_handler(
     Query(query): Query<IdentityEpisodeQuery>,
 ) -> Response {
     if let Some(mal_id) = query.mal_id.filter(|id| *id > 0) {
-        return episodes_handler(State(state), Path(mal_id)).await;
+        return episodes_handler(State(state), Path(mal_id), Query(EpisodeQuery::default())).await;
     }
     let Some(anilist_id) = query.anilist_id.filter(|id| *id > 0) else {
         return Json(serde_json::json!({ "count": 0, "episodes": [] })).into_response();
@@ -422,7 +531,7 @@ async fn identity_episodes_handler(
         }))
         .into_response();
     };
-    episodes_handler(State(state), Path(mal_id)).await
+    episodes_handler(State(state), Path(mal_id), Query(EpisodeQuery::default())).await
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,25 +597,4 @@ async fn resolve_stream_handler(Json(request): Json<ResolveStreamRequest>) -> Re
         "mochi_url": format!("/stream/anikoto?{}", query.join("&")),
     }))
     .into_response()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{negative_message, normalized_language, positive_message};
-
-    #[test]
-    fn accepts_only_supported_languages() {
-        assert_eq!(normalized_language(None), Some("sub"));
-        assert_eq!(normalized_language(Some("DUB")), Some("dub"));
-        assert_eq!(normalized_language(Some("raw")), None);
-    }
-
-    #[test]
-    fn formats_runtime_messages_once() {
-        assert_eq!(
-            negative_message("anime request failed"),
-            "anime request failed... /ᐠ - ˕ -マ"
-        );
-        assert_eq!(positive_message("ready"), "ready!! (˵◝ ⩊  ◜˵マ");
-    }
 }

@@ -692,7 +692,7 @@ const server = Bun.serve({
 async function gracefulShutdown() {
   if (shuttingDown) process.exit(0);
   shuttingDown = true;
-  console.log("\nshutting down");
+  console.log("\nshutting down...");
   server.stop(true);
   console.log(positiveMessage(`port ${PORT} released`));
   process.exit(0);

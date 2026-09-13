@@ -723,7 +723,7 @@ function killServices() {
 async function gracefulShutdown() {
   if (shuttingDown) process.exit(0);
   shuttingDown = true;
-  console.log("\nshutting down");
+  console.log("\nshutting down...");
   killServices();
   proxyAgent.destroy();
   await vite.close().catch(() => {});

@@ -408,6 +408,11 @@ body.browser-view .main-nav {
         color 0.1s ease;
 }
 
+.nav-controls a[data-tooltip],
+.window-controls a[data-tooltip] {
+    position: relative;
+}
+
 .nav-controls a > svg,
 .window-controls a > svg {
     flex-shrink: 0;
@@ -496,11 +501,20 @@ body.anime-view #anime-icon svg path {
 }
 
 .icon-btn[data-tooltip]:hover::before,
-.icon-btn[data-tooltip]:hover::after {
+.icon-btn[data-tooltip]:hover::after,
+.nav-controls a[data-tooltip]:hover::before,
+.nav-controls a[data-tooltip]:hover::after,
+.window-controls a[data-tooltip]:hover::before,
+.window-controls a[data-tooltip]:hover::after,
+.omnibox-icon[data-tooltip]:hover::before,
+.omnibox-icon[data-tooltip]:hover::after {
     opacity: 0;
 }
 
-.icon-btn[data-tooltip]:hover::before {
+.icon-btn[data-tooltip]:hover::before,
+.nav-controls a[data-tooltip]:hover::before,
+.window-controls a[data-tooltip]:hover::before,
+.omnibox-icon[data-tooltip]:hover::before {
     content: "";
     position: absolute;
     top: calc(100% + 5px);
@@ -515,7 +529,10 @@ body.anime-view #anime-icon svg path {
     animation: tooltip-arrow-in 0.12s ease forwards;
 }
 
-.icon-btn[data-tooltip]:hover::after {
+.icon-btn[data-tooltip]:hover::after,
+.nav-controls a[data-tooltip]:hover::after,
+.window-controls a[data-tooltip]:hover::after,
+.omnibox-icon[data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;
     top: calc(100% + 9px);
@@ -659,7 +676,10 @@ body.anime-view #anime-icon svg path {
 }
 
 .omnibox-icon {
+    align-items: center;
     color: var(--input-placeholder-light);
+    display: flex;
+    justify-content: center;
     left: 10px;
     cursor: pointer;
     position: absolute;
@@ -675,6 +695,11 @@ body.anime-view #anime-icon svg path {
         background-color 0.1s ease,
         color 0.1s ease,
         transform 0.1s ease;
+}
+
+.omnibox-icon > svg {
+    height: 18px;
+    width: 18px;
 }
 
 .omnibox-icon:hover {

@@ -51,7 +51,6 @@ export const IconCode = makeIcon("IconCode");
 export const IconSushi = makeIcon("IconSushi");
 export const IconSplit = makeIcon("IconSplit");
 export const IconSidebar = makeIcon("IconSidebar");
-export const IconWindow = makeIcon("IconWindow");
 export const IconCrossMedium = makeIcon("IconCrossMedium");
 export const IconPlay = makeIcon("IconPlay");
 export const IconPause = makeIcon("IconPause");

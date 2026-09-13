@@ -36,7 +36,6 @@ const DOMAIN_BAN_MS = 1_800_000;
 
 let globalRequestCount = 0;
 let globalWindowStartedAt = Date.now();
-let globalLockedUntil = 0;
 const GLOBAL_WINDOW_MS = 60_000;
 const HOST_CORES = Math.max(1, availableParallelism());
 const HOST_MEMORY_BYTES = Math.max(256 * 1024 * 1024, totalmem());
@@ -49,7 +48,6 @@ const MAX_STATE_ENTRIES = Math.max(
 );
 let stateEntryLimit = Math.max(MIN_STATE_ENTRIES, Math.floor(MAX_STATE_ENTRIES / 2));
 const GLOBAL_MAX_REQUESTS = Math.max(200, HOST_CORES * 100);
-const GLOBAL_LOCK_MS = 300_000;
 
 function trimMap(map) {
   while (map.size > stateEntryLimit) {
@@ -194,18 +192,28 @@ export function handleApproval(req) {
     return reply(NO, 410);
   }
 
-  if (now < globalLockedUntil) return reply(UNAVAILABLE, 503);
-  if (now - globalWindowStartedAt > GLOBAL_WINDOW_MS) {
-    globalRequestCount = 1;
+  if (now - globalWindowStartedAt >= GLOBAL_WINDOW_MS) {
+    globalRequestCount = 0;
     globalWindowStartedAt = now;
-  } else if (++globalRequestCount > GLOBAL_MAX_REQUESTS) {
-    globalLockedUntil = now + GLOBAL_LOCK_MS;
-    console.warn(
-      { code: 'GLOBAL_LOCKDOWN', requestsPerMinute: globalRequestCount },
-      `global request limit exceeded${NEGATIVE}`,
-    );
-    return reply(UNAVAILABLE, 503);
   }
+  if (globalRequestCount >= GLOBAL_MAX_REQUESTS) {
+    if (globalRequestCount === GLOBAL_MAX_REQUESTS) {
+      globalRequestCount++;
+      console.warn(
+        { code: 'GLOBAL_LOCKDOWN', requestsPerMinute: globalRequestCount },
+        `global request limit exceeded${NEGATIVE}`,
+      );
+    }
+    return new Response(UNAVAILABLE, {
+      status: 503,
+      headers: {
+        'Retry-After': String(Math.max(1, Math.ceil(
+          (globalWindowStartedAt + GLOBAL_WINDOW_MS - now) / 1000,
+        ))),
+      },
+    });
+  }
+  globalRequestCount++;
 
   const limit = domainLimits.get(domain);
   if (limit) {

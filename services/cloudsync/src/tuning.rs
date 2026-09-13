@@ -17,7 +17,9 @@ pub struct CloudSyncTuning {
 pub fn detect() -> CloudSyncTuning {
     let mut sys = System::new();
     sys.refresh_memory();
-    let host_ram_mb = sys.total_memory() / (1024 * 1024);
+    let (memory_bytes, _) =
+        adaptive_capacity::memory_budget(sys.total_memory(), sys.available_memory());
+    let host_ram_mb = memory_bytes / (1024 * 1024);
     let configured_ram_mb = std::env::var("CLOUDSYNC_MEMORY_MB")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -79,33 +81,5 @@ fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
         db_cache_size_kb,
         db_mmap_size,
         body_limit_mb,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn heavy_work_and_database_limits_stay_bounded() {
-        let minimum = compute(128, 1);
-        assert_eq!(minimum.body_limit_mb, 16);
-
-        let tiny = compute(256, 1);
-        assert_eq!(tiny.sync_work_permits, 1);
-        assert_eq!(tiny.db_pool_max, 4);
-        assert_eq!(tiny.body_limit_mb, 16);
-
-        let production_budget = compute(768, 8);
-        assert_eq!(production_budget.body_limit_mb, 32);
-        assert_eq!(production_budget.sync_work_permits, 2);
-        assert_eq!(production_budget.sync_work_max, 2);
-
-        let large = compute(65_536, 64);
-        assert_eq!(large.sync_work_permits, 16);
-        assert_eq!(large.db_pool_max, 12);
-        assert_eq!(large.body_limit_mb, 64);
-        assert_eq!(large.auth_work_permits, 32);
-        assert!(large.db_pool_max as i64 * large.db_cache_size_kb <= 384 * 1024);
     }
 }

@@ -53,6 +53,7 @@ export class EventHub {
       addListener: this.addListener,
       removeListener: this.removeListener,
       hasListener: this.hasListener,
+      hasListeners: this.hasListeners,
     };
   }
 }

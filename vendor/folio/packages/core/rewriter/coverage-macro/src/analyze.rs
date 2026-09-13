@@ -110,7 +110,6 @@ pub struct BadSkip {
 	pub site_repr: String,
 }
 
-/// Backward-compatible entry — used when no helper index is available.
 pub fn analyze(body: &Block, _findings: &mut Findings, graph: &AstGraph) -> Vec<Witness> {
 	let helpers = HashMap::new();
 	let origins = OriginMap::new();
@@ -135,8 +134,6 @@ pub fn analyze_with_helpers_typed(
 	graph: &AstGraph,
 	mut origins: OriginMap,
 ) -> Vec<Witness> {
-	// Seed `it`'s binding with its type so resolve_type / enum-coverage on
-	// `it`-rooted expressions can find the right NodeDef.
 	if let Some(t) = it_node_type {
 		origins.set_binding(it_name, Binding::it(Some(t.to_string())));
 	}
@@ -258,26 +255,13 @@ fn inspect_expr(
 			(Covered::full(), true)
 		}
 		Expr::Break(_) | Expr::Continue(_) => {
-			// Abnormal terminator — control leaves the current arm/loop
-			// body without producing a fall-through value. We don't record
-			// a coverage witness, because the caller never observes a
-			// partially-rewritten state through this path: any rewrites
-			// already pushed into the bag are still emitted; nothing
-			// downstream from here would have run.
 			(Covered::full(), true)
 		}
 		Expr::Try(t) => {
-			// `expr?` — the Err path returns Err to the function caller
-			// without observable partial state at this point (rewrites
-			// already pushed remain). Don't record a witness; continue
-			// analyzing the Ok path through the inner expression.
 			inspect_expr(&t.expr, cov, origins, completed, ctx)
 		}
 		Expr::Macro(m) => {
 			if is_terminating_macro(&m.mac) {
-				// panic!() / unreachable!() / todo!() / unimplemented!() —
-				// function aborts. Same as Break/Continue: no observable
-				// partial state, no witness recorded.
 				return (Covered::full(), true);
 			}
 			(handle_macro_invocation(&m.mac, cov), false)

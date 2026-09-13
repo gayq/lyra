@@ -22,8 +22,8 @@ import {
   IconMagnifyingGlass2,
   IconGamecontroller,
   IconSushi,
-  IconWindow,
 } from "../icons";
+import { TabIcon } from "./TabIcon.tsx";
 
 function loadNewTabGameData() {
   return fetchGameData().catch((err) => {
@@ -633,7 +633,7 @@ export default function NewTabModal({
                   store.switchTab(tab.id);
                 }}
               >
-                <IconWindow />{" "}
+                <TabIcon favicon={tab.favicon} eager={true} />
                 <span>{tab.title}</span>
               </div>
             ))}

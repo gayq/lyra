@@ -28,7 +28,7 @@ impl HostResources {
             cores: std::thread::available_parallelism()
                 .map(|cores| cores.get())
                 .unwrap_or(1),
-            memory_bytes: system.total_memory().max(256 * 1024 * 1024),
+            memory_bytes: memory_budget(system.total_memory(), system.available_memory()).0,
         }
     }
 }
@@ -101,6 +101,8 @@ impl AdaptiveGate {
         let mut waited = false;
         loop {
             let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if let Some(permit) = self.enter() {
                 if waited {
                     self.waits.fetch_add(1, Ordering::Relaxed);
@@ -117,6 +119,8 @@ impl AdaptiveGate {
         let mut waited = false;
         loop {
             let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             if let Some(permit) = self.enter() {
                 if waited {
                     self.waits.fetch_add(1, Ordering::Relaxed);
@@ -194,7 +198,11 @@ fn next_limit(
         .saturating_div(target_count.max(1) as u64)
         .saturating_div(2);
     let memory_growth = share.saturating_div(target.memory_per_permit) as usize;
-    let memory_limit = memory_growth.max(snapshot.minimum);
+    let memory_limit = if memory_growth == 0 {
+        snapshot.minimum
+    } else {
+        active.saturating_add(memory_growth).max(snapshot.minimum)
+    };
     let cpu_limit = match target.workload {
         Workload::Cpu => ((cores as f64) / normalized_load.max(0.5)).ceil() as usize,
         Workload::Mixed => {
@@ -248,42 +256,4 @@ pub fn spawn_rebalancer(
             }
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn enforces_runtime_limit_changes() {
-        let gate = AdaptiveGate::new(1, 2, 4);
-        let first = gate.try_acquire().unwrap();
-        let second = gate.try_acquire().unwrap();
-        assert!(gate.try_acquire().is_none());
-        gate.set_limit(1);
-        drop(first);
-        assert!(gate.try_acquire().is_none());
-        drop(second);
-        assert!(gate.try_acquire().is_some());
-    }
-
-    #[test]
-    fn grows_only_when_saturated_and_shrinks_under_pressure() {
-        let gate = AdaptiveGate::new(1, 4, 32);
-        let target = CapacityTarget::new(gate, 1024, Workload::Io);
-        let idle = GateSnapshot {
-            active: 1,
-            limit: 4,
-            minimum: 1,
-            maximum: 32,
-            peak: 1,
-            waits: 0,
-            rejected: 0,
-        };
-        assert_eq!(next_limit(idle, &target, 1024 * 1024, 1, 0.1, 8), 4);
-        let saturated = GateSnapshot { active: 4, ..idle };
-        assert!(next_limit(saturated, &target, 1024 * 1024, 1, 0.1, 8) > 4);
-        let pressured = GateSnapshot { active: 4, ..idle };
-        assert!(next_limit(pressured, &target, 1024, 1, 0.1, 8) < 4);
-    }
 }

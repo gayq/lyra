@@ -23,12 +23,63 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use url::Url;
 
+mod megavid;
+mod tryembed;
+
 const MEGAPLAY_BASE: &str = "https://megaplay.buzz";
 const MEGAPLAY_REFERER: &str = "https://megaplay.buzz/api";
 const SEGMENT_PREFIX_BYTES: usize = 252;
 const MAX_METADATA_BYTES: usize = 2 * 1024 * 1024;
 const UPSTREAM_REQUEST_BUDGET: Duration = Duration::from_secs(12);
 const UPSTREAM_BODY_TIMEOUT: Duration = Duration::from_secs(30);
+const SOURCE_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(11);
+const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum StreamProvider {
+    Megaplay,
+    Megavid,
+    Tryembed,
+}
+
+impl StreamProvider {
+    const ALL: [Self; 3] = [Self::Megaplay, Self::Megavid, Self::Tryembed];
+
+    fn id(self) -> &'static str {
+        match self {
+            Self::Megaplay => "megaplay",
+            Self::Megavid => "megavid",
+            Self::Tryembed => "tryembed",
+        }
+    }
+
+    fn referer(self) -> &'static str {
+        match self {
+            Self::Megaplay => "https://megaplay.buzz/",
+            Self::Megavid => "https://megavid.buzz/",
+            Self::Tryembed => "https://tryembed.us.cc/",
+        }
+    }
+
+    fn supports(self, key: &EpisodeKey) -> bool {
+        match self {
+            Self::Megaplay => true,
+            Self::Megavid | Self::Tryembed => key.anilist_id > 0 || key.mal_id > 0,
+        }
+    }
+
+    async fn resolve(
+        self,
+        client: &reqwest::Client,
+        key: &EpisodeKey,
+    ) -> Result<ResolvedSource, ResolveError> {
+        match self {
+            Self::Megaplay => resolve_megaplay(client, key).await,
+            Self::Megavid => megavid::resolve(client, key).await,
+            Self::Tryembed => tryembed::resolve(client, key).await,
+        }
+    }
+}
 
 #[derive(Default)]
 struct StreamMetrics {
@@ -92,6 +143,7 @@ struct EpisodeKey {
     anikoto_episode_id: String,
     episode: i32,
     language: String,
+    session: String,
 }
 
 #[derive(Debug, Clone)]
@@ -119,7 +171,10 @@ struct SourceMetadata {
 
 #[derive(Debug, Clone)]
 struct ResolvedSource {
+    provider: StreamProvider,
     playlist_url: String,
+    fallback_playlist_url: Option<String>,
+    master: Arc<String>,
     tracks: Vec<SubtitleTrack>,
     internal_id: String,
     generation: u64,
@@ -249,9 +304,17 @@ async fn read_body_limited(
         .map_err(|_| ResolveError::Upstream)?
 }
 
-static SOURCE_CACHE: LazyLock<Cache<EpisodeKey, Arc<ResolvedSource>>> = LazyLock::new(|| {
+static SOURCE_CACHE: LazyLock<Cache<(StreamProvider, EpisodeKey), Arc<ResolvedSource>>> =
+    LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(10 * 60))
+            .max_capacity(10_000)
+            .build()
+    });
+
+static SESSION_SOURCES: LazyLock<Cache<EpisodeKey, Arc<ResolvedSource>>> = LazyLock::new(|| {
     Cache::builder()
-        .time_to_live(Duration::from_secs(10 * 60))
+        .time_to_idle(Duration::from_secs(6 * 60 * 60))
         .max_capacity(10_000)
         .build()
 });
@@ -274,6 +337,13 @@ static PLAYLIST_CACHE: LazyLock<Cache<String, Arc<String>>> = LazyLock::new(|| {
         .build()
 });
 
+static RESOURCE_PROBES: LazyLock<Cache<String, ()>> = LazyLock::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(60))
+        .max_capacity(10_000)
+        .build()
+});
+
 fn normalized_language(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "" | "sub" => Some("sub"),
@@ -288,6 +358,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
     let mut anikoto_episode_id = String::new();
     let mut episode = 0;
     let mut language = "sub".to_string();
+    let mut session = String::new();
     let path_parts: Vec<_> = uri
         .path()
         .split('/')
@@ -306,12 +377,20 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
             "anikoto_episode_id" => anikoto_episode_id = value.into_owned(),
             "episode" => episode = value.parse().unwrap_or(0),
             "language" => language = value.into_owned(),
+            "session" => session = value.into_owned(),
             _ => {}
         }
     }
     let Some(language) = normalized_language(&language) else {
         return Err(ResolveError::Invalid);
     };
+    if session.len() > 64
+        || !session
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(ResolveError::Invalid);
+    }
     let valid_direct_id = !anikoto_episode_id.is_empty()
         && anikoto_episode_id.bytes().all(|byte| byte.is_ascii_digit());
     if !valid_direct_id && (episode <= 0 || (anilist_id <= 0 && mal_id <= 0)) {
@@ -330,6 +409,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
         },
         episode,
         language: language.to_string(),
+        session,
     })
 }
 
@@ -351,6 +431,9 @@ fn query_string(key: &EpisodeKey, extra: &[(&str, String)]) -> String {
     }
     query.append_pair("episode", &key.episode.to_string());
     query.append_pair("language", &key.language);
+    if !key.session.is_empty() {
+        query.append_pair("session", &key.session);
+    }
     for (name, value) in extra {
         query.append_pair(name, value);
     }
@@ -373,12 +456,22 @@ fn ensure_source_generation(
     Ok(())
 }
 
-fn source_generation(internal_id: &str, language: Option<&str>) -> u64 {
+fn source_generation(
+    provider: StreamProvider,
+    internal_id: &str,
+    language: Option<&str>,
+    playlist_url: &str,
+) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
     let mut hash = FNV_OFFSET;
-    for part in [internal_id, language.unwrap_or_default()] {
+    for part in [
+        provider.id(),
+        internal_id,
+        language.unwrap_or_default(),
+        playlist_url,
+    ] {
         for byte in part.bytes().chain(std::iter::once(0)) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(FNV_PRIME);
@@ -460,6 +553,66 @@ fn source_file_url(payload: &serde_json::Value) -> Option<String> {
         .map(str::trim)
         .find(|url| url.starts_with("https://") && url.contains(".m3u8"))
         .map(str::to_string)
+}
+
+fn megaplay_source_url(payload: &serde_json::Value) -> Result<Option<String>, ResolveError> {
+    use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
+    use base64::Engine;
+
+    if let Some(url) = source_file_url(payload) {
+        return Ok(Some(url));
+    }
+    let Some(token) = payload.get("enc") else {
+        return Ok(None);
+    };
+    let token = token.as_str().ok_or(ResolveError::Upstream)?;
+    let mut bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(token.trim_end_matches('='))
+        .map_err(|_| ResolveError::Upstream)?;
+    let mut key = [0u8; 32];
+    let public_key = b"i?LMTAx0Q6,:}50U";
+    key[..public_key.len()].copy_from_slice(public_key);
+    let plaintext = cbc::Decryptor::<aes::Aes256>::new(&key.into(), b"W0;27ToaUpl_P%'c".into())
+        .decrypt_padded_mut::<Pkcs7>(&mut bytes)
+        .map_err(|_| ResolveError::Upstream)?;
+    let decoded: serde_json::Value =
+        serde_json::from_slice(plaintext).map_err(|_| ResolveError::Upstream)?;
+    source_file_url(&decoded)
+        .map(Some)
+        .ok_or(ResolveError::Upstream)
+}
+
+fn megaplay_playlist_url(source: &str, now: u64) -> Result<String, ResolveError> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use hmac::{Hmac, Mac};
+
+    let mut url = Url::parse(source).map_err(|_| ResolveError::Upstream)?;
+    if url.query_pairs().any(|(key, _)| key == "token") {
+        return Ok(source.to_string());
+    }
+    let segments: Vec<_> = url.path_segments().into_iter().flatten().collect();
+    let Some(pair) = segments.windows(2).find(|pair| {
+        pair.iter()
+            .all(|part| part.len() == 32 && part.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    }) else {
+        return Ok(source.to_string());
+    };
+    let message = format!(
+        "{}|{}/{}",
+        now + 90,
+        pair[0].to_ascii_lowercase(),
+        pair[1].to_ascii_lowercase()
+    );
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(b"MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s")
+        .map_err(|_| ResolveError::Upstream)?;
+    mac.update(message.as_bytes());
+    let token = format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(message),
+        URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    );
+    url.query_pairs_mut().append_pair("token", &token);
+    Ok(url.into())
 }
 
 fn source_marker(value: Option<&serde_json::Value>) -> Option<TimeMarker> {
@@ -577,7 +730,7 @@ fn embed_urls(key: &EpisodeKey) -> Vec<String> {
     urls
 }
 
-async fn resolve_source(
+async fn resolve_megaplay(
     client: &reqwest::Client,
     key: &EpisodeKey,
 ) -> Result<ResolvedSource, ResolveError> {
@@ -588,8 +741,9 @@ async fn resolve_source(
                 .get(&embed_url)
                 .header(ACCEPT, "text/html,application/xhtml+xml")
                 .header(REFERER, MEGAPLAY_REFERER)
-                .header("Origin", MEGAPLAY_BASE)
-                .header("X-Requested-With", "XMLHttpRequest")
+                .header("Sec-Fetch-Dest", "iframe")
+                .header("Sec-Fetch-Mode", "navigate")
+                .header("Sec-Fetch-Site", "same-origin")
         })
         .await
         {
@@ -659,10 +813,21 @@ async fn resolve_source(
                     continue;
                 }
             };
-            let playlist_url = source_file_url(&payload);
+            let playlist_url = match megaplay_source_url(&payload) {
+                Ok(url) => url,
+                Err(_) => {
+                    saw_upstream_error = true;
+                    continue;
+                }
+            };
             let Some(playlist_url) = playlist_url else {
                 continue;
             };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| ResolveError::Upstream)?
+                .as_secs();
+            let playlist_url = megaplay_playlist_url(&playlist_url, now)?;
             if FAILED_SOURCES.get(&playlist_url).await.is_some() {
                 continue;
             }
@@ -682,7 +847,7 @@ async fn resolve_source(
                         label: track
                             .get("label")
                             .and_then(serde_json::Value::as_str)
-                            .unwrap_or("Subtitles")
+                            .unwrap_or("subtitles")
                             .to_string(),
                         language: track_language(track),
                         kind: track
@@ -698,12 +863,14 @@ async fn resolve_source(
                     })
                 })
                 .collect::<Vec<_>>();
-            let generation = source_generation(internal_id, embed_language.as_deref());
             return Ok(ResolvedSource {
+                provider: StreamProvider::Megaplay,
                 playlist_url,
+                fallback_playlist_url: None,
+                master: Arc::new(String::new()),
                 tracks,
                 internal_id: internal_id.to_string(),
-                generation,
+                generation: 0,
                 language: embed_language.clone(),
                 metadata,
             });
@@ -716,27 +883,305 @@ async fn resolve_source(
     }
 }
 
+fn provider_cache_key(provider: StreamProvider, key: &EpisodeKey) -> (StreamProvider, EpisodeKey) {
+    let mut episode = key.clone();
+    episode.session.clear();
+    (provider, episode)
+}
+
+async fn first_ready<T>(
+    candidates: impl IntoIterator<Item = impl std::future::Future<Output = Result<T, ResolveError>>>,
+) -> Result<T, ResolveError> {
+    let mut pending = candidates
+        .into_iter()
+        .collect::<futures_util::stream::FuturesUnordered<_>>();
+    let mut failure = ResolveError::NotFound;
+    while let Some(result) = pending.next().await {
+        match result {
+            Ok(source) => return Ok(source),
+            Err(error) if !matches!(error, ResolveError::NotFound) => failure = error,
+            Err(_) => {}
+        }
+    }
+    Err(failure)
+}
+
+async fn ready_source(
+    client: &reqwest::Client,
+    provider: StreamProvider,
+    key: &EpisodeKey,
+) -> Result<Arc<ResolvedSource>, ResolveError> {
+    let started = Instant::now();
+    let mut stage = "extraction";
+    let result = tokio::time::timeout(SOURCE_RESOLUTION_TIMEOUT, async {
+        let cache_key = provider_cache_key(provider, key);
+        if let Some(mut source) = SOURCE_CACHE.get(&cache_key).await {
+            stage = "readiness";
+            let master = match validate_source(client, &source).await {
+                Ok(master) => master,
+                Err(error) => {
+                    reject_source(key, &source, &[&source.playlist_url]).await;
+                    return Err(error);
+                }
+            };
+            if master != source.master {
+                source = Arc::new(with_master((*source).clone(), master));
+                SOURCE_CACHE.insert(cache_key, source.clone()).await;
+            }
+            return Ok(source);
+        }
+        SOURCE_CACHE
+            .try_get_with(cache_key, async {
+                for _ in 0..2 {
+                    stage = "extraction";
+                    let source = provider.resolve(client, key).await?;
+                    stage = "readiness";
+                    match prepare_source(client, source).await {
+                        Ok(source) => return Ok(Arc::new(source)),
+                        Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
+                        Err(_) => {}
+                    }
+                }
+                Err(ResolveError::Upstream)
+            })
+            .await
+            .map_err(|error| *error)
+    })
+    .await
+    .unwrap_or(Err(ResolveError::Upstream));
+    if let Err(error) = result.as_ref() {
+        tracing::warn!(
+            provider = provider.id(),
+            stage,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            anilist_id = key.anilist_id,
+            mal_id = key.mal_id,
+            episode = key.episode,
+            language = key.language.as_str(),
+            ?error,
+            "anime provider failed... /ᐠ - ˕ -マ"
+        );
+    }
+    result
+}
+
+async fn prepare_source(
+    client: &reqwest::Client,
+    mut source: ResolvedSource,
+) -> Result<ResolvedSource, ResolveError> {
+    loop {
+        if FAILED_SOURCES.get(&source.playlist_url).await.is_some() {
+            if source.fallback_playlist_url.is_none() {
+                return Err(ResolveError::NotFound);
+            }
+        } else {
+            if let Ok(master) = validate_source(client, &source).await {
+                source.fallback_playlist_url = None;
+                return Ok(with_master(source, master));
+            }
+            FAILED_SOURCES.insert(source.playlist_url.clone(), ()).await;
+            PLAYLIST_CACHE
+                .invalidate(&playlist_cache_key(source.provider, &source.playlist_url))
+                .await;
+        }
+        source.playlist_url = source
+            .fallback_playlist_url
+            .take()
+            .ok_or(ResolveError::Upstream)?;
+    }
+}
+
+async fn validate_source(
+    client: &reqwest::Client,
+    source: &ResolvedSource,
+) -> Result<Arc<String>, ResolveError> {
+    let master = fetch_playlist(client, &source.playlist_url, source.provider).await?;
+    if is_master_playlist(&master) {
+        let variants = hls_variant_references(&source.playlist_url, &master);
+        let count = variants.len();
+        let provider = source.provider;
+        let checks =
+            futures_util::stream::iter(variants.into_iter().enumerate().map(|(index, url)| {
+                let client = client.clone();
+                async move {
+                    let valid = tokio::time::timeout(QUALITY_CHECK_TIMEOUT, async {
+                        match fetch_playlist(&client, &url, provider).await {
+                            Ok(media) => probe_media(&client, &url, &media, provider).await.is_ok(),
+                            Err(_) => false,
+                        }
+                    })
+                    .await
+                    .unwrap_or(false);
+                    (index, valid)
+                }
+            }))
+            .buffer_unordered(4)
+            .collect::<Vec<_>>()
+            .await;
+        let mut available = vec![false; count];
+        for (index, valid) in checks {
+            available[index] = valid;
+        }
+        return filter_variants(&master, &available).map(Arc::new);
+    }
+    probe_media(client, &source.playlist_url, &master, source.provider).await?;
+    Ok(master)
+}
+
+fn with_master(mut source: ResolvedSource, master: Arc<String>) -> ResolvedSource {
+    source.generation = source_generation(
+        source.provider,
+        &source.internal_id,
+        source.language.as_deref(),
+        &format!("{}\n{}", source.playlist_url, master),
+    );
+    source.master = master;
+    source
+}
+
+fn filter_variants(master: &str, available: &[bool]) -> Result<String, ResolveError> {
+    if !available.iter().any(|valid| *valid) {
+        return Err(ResolveError::Upstream);
+    }
+    let mut output = String::with_capacity(master.len());
+    let mut index = 0;
+    let mut include = true;
+    let mut awaiting_uri = false;
+    for line in master.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("#EXT-X-STREAM-INF:") {
+            include = available.get(index).copied().unwrap_or(false);
+            index += 1;
+            awaiting_uri = true;
+        }
+        if include {
+            output.push_str(line);
+            output.push('\n');
+        }
+        if awaiting_uri && !trimmed.is_empty() && !trimmed.starts_with('#') {
+            awaiting_uri = false;
+            include = true;
+        }
+    }
+    Ok(output)
+}
+
+async fn probe_media(
+    client: &reqwest::Client,
+    base: &str,
+    media: &str,
+    provider: StreamProvider,
+) -> Result<(), ResolveError> {
+    if !is_media_playlist(media) {
+        return Err(ResolveError::Upstream);
+    }
+    let mut resources = Vec::new();
+    for line in media.lines().map(str::trim) {
+        let value = if line.starts_with("#EXT-X-KEY:") || line.starts_with("#EXT-X-MAP:") {
+            quoted_uri(line).map(|(_, _, uri)| uri)
+        } else if !line.is_empty() && !line.starts_with('#') {
+            Some(line)
+        } else {
+            None
+        };
+        if let Some(value) = value {
+            resources.push(absolute_url(base, value).ok_or(ResolveError::Upstream)?);
+            if !line.starts_with('#') {
+                break;
+            }
+        }
+    }
+    if resources.is_empty() {
+        return Err(ResolveError::Upstream);
+    }
+    futures_util::future::try_join_all(
+        resources
+            .iter()
+            .map(|url| probe_resource(client, url, provider)),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn probe_resource(
+    client: &reqwest::Client,
+    url: &str,
+    provider: StreamProvider,
+) -> Result<(), ResolveError> {
+    RESOURCE_PROBES
+        .try_get_with(playlist_cache_key(provider, url), async {
+            let mut response = send_with_retry(|| {
+                client
+                    .get(url)
+                    .header(REFERER, provider.referer())
+                    .header(RANGE, "bytes=0-1023")
+            })
+            .await?;
+            if !response.status().is_success() {
+                return Err(ResolveError::Upstream);
+            }
+            match response.chunk().await {
+                Ok(Some(bytes)) if !bytes.is_empty() => Ok(()),
+                _ => Err(ResolveError::Upstream),
+            }
+        })
+        .await
+        .map_err(|error| *error)
+}
+
+fn is_media_playlist(playlist: &str) -> bool {
+    playlist
+        .lines()
+        .any(|line| line.trim().starts_with("#EXTINF:"))
+        && playlist
+            .lines()
+            .any(|line| !line.trim().is_empty() && !line.trim().starts_with('#'))
+        && !is_master_playlist(playlist)
+}
+
 async fn get_source(
     client: &reqwest::Client,
     key: &EpisodeKey,
 ) -> Result<Arc<ResolvedSource>, ResolveError> {
-    if let Some(source) = SOURCE_CACHE.get(key).await {
+    if let Some(selected) = SESSION_SOURCES.get(key).await {
         STREAM_METRICS
             .source_cache_hits
             .fetch_add(1, Ordering::Relaxed);
+        let source = match SOURCE_CACHE
+            .get(&provider_cache_key(selected.provider, key))
+            .await
+        {
+            Some(source) => source,
+            None => ready_source(client, selected.provider, key).await?,
+        };
+        if !Arc::ptr_eq(&selected, &source) {
+            SESSION_SOURCES.insert(key.clone(), source.clone()).await;
+        }
         return Ok(source);
     }
     STREAM_METRICS
         .source_cache_misses
         .fetch_add(1, Ordering::Relaxed);
-    let owned_client = client.clone();
-    let owned_key = key.clone();
-    SOURCE_CACHE
-        .try_get_with(key.clone(), async move {
+    tokio::time::timeout(
+        SOURCE_RESOLUTION_TIMEOUT,
+        SESSION_SOURCES.try_get_with(key.clone(), async move {
             let started_at = Instant::now();
-            let result = resolve_source(&owned_client, &owned_key)
-                .await
-                .map(Arc::new);
+            let result = first_ready(
+                StreamProvider::ALL
+                    .into_iter()
+                    .filter(|provider| provider.supports(key))
+                    .map(|provider| ready_source(client, provider, key)),
+            )
+            .await;
+            if let Ok(source) = result.as_ref() {
+                tracing::info!(
+                    provider = source.provider.id(),
+                    episode = key.episode,
+                    language = key.language.as_str(),
+                    elapsed_ms = started_at.elapsed().as_millis() as u64,
+                    "anime stream selected!! (˵◝ ⩊  ◜˵マ"
+                );
+            }
             STREAM_METRICS
                 .source_resolutions
                 .fetch_add(1, Ordering::Relaxed);
@@ -745,13 +1190,24 @@ async fn get_source(
                 Ordering::Relaxed,
             );
             result
-        })
-        .await
-        .map_err(|error| *error)
+        }),
+    )
+    .await
+    .map_err(|_| ResolveError::Upstream)?
+    .map_err(|error| *error)
 }
 
-async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<Arc<String>, ResolveError> {
-    if let Some(playlist) = PLAYLIST_CACHE.get(url).await {
+fn playlist_cache_key(provider: StreamProvider, url: &str) -> String {
+    format!("{}:{url}", provider.id())
+}
+
+async fn fetch_playlist(
+    client: &reqwest::Client,
+    url: &str,
+    provider: StreamProvider,
+) -> Result<Arc<String>, ResolveError> {
+    let cache_key = playlist_cache_key(provider, url);
+    if let Some(playlist) = PLAYLIST_CACHE.get(&cache_key).await {
         STREAM_METRICS
             .playlist_cache_hits
             .fetch_add(1, Ordering::Relaxed);
@@ -763,7 +1219,7 @@ async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<Arc<Strin
     let owned_client = client.clone();
     let owned_url = url.to_string();
     PLAYLIST_CACHE
-        .try_get_with(url.to_string(), async move {
+        .try_get_with(cache_key, async move {
             let started_at = Instant::now();
             let result = async {
                 let parsed = Url::parse(&owned_url).map_err(|_| ResolveError::Upstream)?;
@@ -777,24 +1233,31 @@ async fn fetch_playlist(client: &reqwest::Client, url: &str) -> Result<Arc<Strin
                             ACCEPT,
                             "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain",
                         )
-                        .header(REFERER, "https://megaplay.buzz/")
+                        .header(REFERER, provider.referer())
                 })
                 .await?;
                 if !response.status().is_success() {
                     return Err(ResolveError::Upstream);
                 }
-                let text = Arc::new(
-                    String::from_utf8(
-                        read_body_limited(response, MAX_METADATA_BYTES)
-                            .await?
-                            .to_vec(),
-                    )
-                    .map_err(|_| ResolveError::Upstream)?,
-                );
+                let final_url = response.url().clone();
+                if final_url.scheme() != "https" {
+                    return Err(ResolveError::Upstream);
+                }
+                let text = String::from_utf8(
+                    read_body_limited(response, MAX_METADATA_BYTES)
+                        .await?
+                        .to_vec(),
+                )
+                .map_err(|_| ResolveError::Upstream)?;
                 if !text.trim_start().starts_with("#EXTM3U") {
                     return Err(ResolveError::Upstream);
                 }
-                Ok(text)
+
+                Ok(Arc::new(if final_url != parsed {
+                    rebase_playlist(final_url.as_str(), &text)?
+                } else {
+                    text
+                }))
             }
             .await;
             STREAM_METRICS
@@ -816,6 +1279,22 @@ fn absolute_url(base: &str, value: &str) -> Option<String> {
         .join(value.trim())
         .ok()
         .and_then(|url| (url.scheme() == "https").then(|| url.to_string()))
+}
+
+fn rebase_playlist(base_url: &str, playlist: &str) -> Result<String, ResolveError> {
+    let references = hls_references(base_url, playlist);
+    let mut invalid = false;
+    let playlist = rewrite_hls(playlist, |index| {
+        references.get(index).cloned().unwrap_or_else(|| {
+            invalid = true;
+            String::new()
+        })
+    })?;
+    if invalid {
+        Err(ResolveError::Upstream)
+    } else {
+        Ok(playlist)
+    }
 }
 
 fn quoted_uri(line: &str) -> Option<(usize, usize, &str)> {
@@ -1055,10 +1534,14 @@ fn is_master_playlist(playlist: &str) -> bool {
     })
 }
 
-async fn invalidate_source(key: &EpisodeKey, playlist_urls: &[&str]) {
-    SOURCE_CACHE.invalidate(key).await;
+async fn invalidate_source(key: &EpisodeKey, source: &ResolvedSource, playlist_urls: &[&str]) {
+    SOURCE_CACHE
+        .invalidate(&provider_cache_key(source.provider, key))
+        .await;
     for url in playlist_urls {
-        PLAYLIST_CACHE.invalidate(*url).await;
+        PLAYLIST_CACHE
+            .invalidate(&playlist_cache_key(source.provider, url))
+            .await;
     }
     STREAM_METRICS
         .source_refreshes
@@ -1067,7 +1550,7 @@ async fn invalidate_source(key: &EpisodeKey, playlist_urls: &[&str]) {
 
 async fn reject_source(key: &EpisodeKey, source: &ResolvedSource, playlist_urls: &[&str]) {
     FAILED_SOURCES.insert(source.playlist_url.clone(), ()).await;
-    invalidate_source(key, playlist_urls).await;
+    invalidate_source(key, source, playlist_urls).await;
 }
 
 async fn source_master(
@@ -1075,16 +1558,7 @@ async fn source_master(
     key: &EpisodeKey,
 ) -> Result<(Arc<ResolvedSource>, Arc<String>), ResolveError> {
     let source = get_source(&state.asset_client, key).await?;
-    match fetch_playlist(&state.asset_client, &source.playlist_url).await {
-        Ok(master) => Ok((source, master)),
-        Err(ResolveError::Upstream | ResolveError::NotFound) => {
-            reject_source(key, &source, &[&source.playlist_url]).await;
-            let source = get_source(&state.asset_client, key).await?;
-            let master = fetch_playlist(&state.asset_client, &source.playlist_url).await?;
-            Ok((source, master))
-        }
-        Err(error) => Err(error),
-    }
+    Ok((source.clone(), source.master.clone()))
 }
 
 async fn media_playlist(
@@ -1109,7 +1583,7 @@ async fn media_playlist(
         .get(variant as usize)
         .ok_or(ResolveError::Invalid)?
         .clone();
-    match fetch_playlist(&state.asset_client, &url).await {
+    match fetch_playlist(&state.asset_client, &url, source.provider).await {
         Ok(playlist) => Ok((source.clone(), url, playlist)),
         Err(ResolveError::Upstream | ResolveError::NotFound) => {
             reject_source(key, &source, &[&source.playlist_url, &url]).await;
@@ -1120,7 +1594,7 @@ async fn media_playlist(
                 .get(variant as usize)
                 .ok_or(ResolveError::Invalid)?
                 .clone();
-            let playlist = fetch_playlist(&state.asset_client, &url).await?;
+            let playlist = fetch_playlist(&state.asset_client, &url, source.provider).await?;
             Ok((source, url, playlist))
         }
         Err(error) => Err(error),
@@ -1140,7 +1614,7 @@ async fn master_resource_playlist(
         .get(resource)
         .ok_or(ResolveError::Invalid)?
         .clone();
-    match fetch_playlist(&state.asset_client, &url).await {
+    match fetch_playlist(&state.asset_client, &url, source.provider).await {
         Ok(playlist) => Ok((source, url, playlist)),
         Err(ResolveError::Upstream | ResolveError::NotFound) => {
             reject_source(key, &source, &[&source.playlist_url, &url]).await;
@@ -1151,7 +1625,7 @@ async fn master_resource_playlist(
                 .get(resource)
                 .ok_or(ResolveError::Invalid)?
                 .clone();
-            let playlist = fetch_playlist(&state.asset_client, &url).await?;
+            let playlist = fetch_playlist(&state.asset_client, &url, source.provider).await?;
             Ok((source, url, playlist))
         }
         Err(error) => Err(error),
@@ -1733,13 +2207,15 @@ async fn run_segment_fill(
 async fn get_cached_upstream_resource(
     state: &AppState,
     upstream_url: &str,
+    provider: StreamProvider,
     inspect_media_prefix: bool,
     accept: &'static str,
     method: &Method,
     request_headers: &HeaderMap,
 ) -> Result<Response, ResolveError> {
     let cache_key = format!(
-        "anikoto:{}:{upstream_url}",
+        "anikoto:{}:{}:{upstream_url}",
+        provider.id(),
         if inspect_media_prefix {
             "stripped"
         } else {
@@ -1852,7 +2328,7 @@ async fn get_cached_upstream_resource(
                 .asset_client
                 .get(upstream_url)
                 .header(ACCEPT, accept)
-                .header(REFERER, "https://megaplay.buzz/")
+                .header(REFERER, provider.referer())
         })
         .await
         {
@@ -2125,6 +2601,7 @@ async fn resource_handler(
         let fetched = get_cached_upstream_resource(
             state,
             upstream_url,
+            source.provider,
             true,
             "video/mp2t,video/mp4,application/octet-stream,*/*",
             method,
@@ -2135,7 +2612,7 @@ async fn resource_handler(
             Ok(response) => Ok(response),
             Err(ResolveError::NotFound | ResolveError::Upstream) => {
                 reject_source(key, &source, &[&source.playlist_url, &playlist_url]).await;
-                let (_, playlist_url, playlist) =
+                let (source, playlist_url, playlist) =
                     master_resource_playlist(state, key, master_resource, requested_generation)
                         .await?;
                 let resources = hls_references(&playlist_url, &playlist);
@@ -2143,6 +2620,7 @@ async fn resource_handler(
                 get_cached_upstream_resource(
                     state,
                     upstream_url,
+                    source.provider,
                     true,
                     "video/mp2t,video/mp4,application/octet-stream,*/*",
                     method,
@@ -2166,6 +2644,7 @@ async fn resource_handler(
     let fetched = get_cached_upstream_resource(
         state,
         upstream_url,
+        source.provider,
         true,
         "video/mp2t,video/mp4,application/octet-stream,*/*",
         method,
@@ -2176,13 +2655,14 @@ async fn resource_handler(
         Ok(response) => Ok(response),
         Err(ResolveError::NotFound | ResolveError::Upstream) => {
             reject_source(key, &source, &[&source.playlist_url, &playlist_url]).await;
-            let (_, playlist_url, playlist) =
+            let (source, playlist_url, playlist) =
                 media_playlist(state, key, variant, requested_generation).await?;
             let resources = hls_references(&playlist_url, &playlist);
             let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
             get_cached_upstream_resource(
                 state,
                 upstream_url,
+                source.provider,
                 true,
                 "video/mp2t,video/mp4,application/octet-stream,*/*",
                 method,
@@ -2214,6 +2694,7 @@ async fn track_handler(
     let fetched = get_cached_upstream_resource(
         state,
         &track.url,
+        source.provider,
         false,
         "text/vtt,text/plain,application/octet-stream",
         method,
@@ -2223,7 +2704,7 @@ async fn track_handler(
     let mut downstream = match fetched {
         Ok(response) => response,
         Err(ResolveError::NotFound | ResolveError::Upstream) => {
-            invalidate_source(key, &[]).await;
+            invalidate_source(key, &source, &[]).await;
             let source = get_source(&state.asset_client, key).await?;
             ensure_source_generation(&source, requested_generation)?;
             let track = source
@@ -2233,6 +2714,7 @@ async fn track_handler(
             get_cached_upstream_resource(
                 state,
                 &track.url,
+                source.provider,
                 false,
                 "text/vtt,text/plain,application/octet-stream",
                 method,
@@ -2324,6 +2806,7 @@ pub async fn stream_info_handler(
                 "needs_transmux": false,
                 "tracks": tracks,
                 "source": {
+                    "provider": source.provider.id(),
                     "id": source.internal_id,
                     "generation": source.generation,
                     "server": source.metadata.server,
@@ -2498,801 +2981,4 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
         HeaderValue::from_static("no-store, max-age=0"),
     );
     response
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        cached_response, data_id, data_realid, embed_language, get_cached_upstream_resource,
-        hls_master_references, hls_references, hls_variant_references, media_prefix_len,
-        normalized_content_type, parse_byte_range, parse_episode_key, parse_hls_audio_tracks,
-        parse_hls_qualities, rewrite_hls, rewrite_hls_master, source_file_url, source_generation,
-        source_metadata, source_urls, track_language, CacheStatus, SEGMENT_PREFIX_BYTES,
-        STREAM_METRICS,
-    };
-    use crate::cache::{get_stream_cache_path, load_stream_from_disk, StreamCacheWriter};
-    use crate::state::{AppState, CachedResponse, FolioMetrics};
-    use aho_corasick::AhoCorasick;
-    use axum::body::{to_bytes, Body};
-    use axum::http::header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE};
-    use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
-    use axum::{routing::get, Router};
-    use bytes::Bytes;
-    use dashmap::DashMap;
-    use futures_util::StreamExt;
-    use moka::future::Cache;
-    use std::convert::Infallible;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use std::time::{Duration, Instant};
-    use tokio::sync::broadcast;
-    use tokio_stream::wrappers::ReceiverStream;
-
-    async fn delayed_segment_server(
-        chunk_delay: Duration,
-        chunks: usize,
-    ) -> (String, Arc<AtomicBool>, tokio::task::JoinHandle<()>) {
-        let finished = Arc::new(AtomicBool::new(false));
-        let handler_finished = finished.clone();
-        let app = Router::new().route(
-            "/segment.ts",
-            get(move || {
-                let handler_finished = handler_finished.clone();
-                async move {
-                    let (sender, receiver) = tokio::sync::mpsc::channel(1);
-                    tokio::spawn(async move {
-                        for index in 0..chunks {
-                            tokio::time::sleep(chunk_delay).await;
-                            if sender
-                                .send(Ok::<_, Infallible>(Bytes::from(vec![index as u8; 4])))
-                                .await
-                                .is_err()
-                            {
-                                return;
-                            }
-                        }
-                        handler_finished.store(true, Ordering::SeqCst);
-                    });
-                    let mut response = axum::response::Response::new(Body::from_stream(
-                        ReceiverStream::new(receiver),
-                    ));
-                    response
-                        .headers_mut()
-                        .insert(CONTENT_TYPE, HeaderValue::from_static("video/mp2t"));
-                    response.headers_mut().insert(
-                        CONTENT_LENGTH,
-                        HeaderValue::from_str(&(chunks * 4).to_string()).unwrap(),
-                    );
-                    response
-                }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        (format!("http://{address}/segment.ts"), finished, server)
-    }
-
-    fn test_state() -> AppState {
-        let client = reqwest::Client::new();
-        AppState {
-            html_client: client.clone(),
-            asset_client: client.clone(),
-            raw_client: client,
-            cache: Cache::new(128),
-            stream_cache: Cache::new(128),
-            stream_fills: Cache::new(128),
-            folio_cache: Cache::new(128),
-            folio_metrics: FolioMetrics::default(),
-            blocklist_matcher: Arc::new(AhoCorasick::new(["blocked.invalid"]).unwrap()),
-            caching_inflight: DashMap::new(),
-            coalesce: DashMap::<String, broadcast::Sender<Arc<CachedResponse>>>::new(),
-            request_permit: adaptive_capacity::AdaptiveGate::new(1, 16, 32),
-            stream_upstream_permit: adaptive_capacity::AdaptiveGate::new(1, 4, 8),
-            html_rewrite_permit: adaptive_capacity::AdaptiveGate::new(1, 4, 8),
-            max_cache_entry_size: 1024 * 1024,
-            disk_cache_max_age_secs: 3600,
-            folio_cache_max_entry_size: 1024 * 1024,
-            folio_cache_max_ttl_secs: 3600,
-            stream_max_entry_size: 1024 * 1024,
-            ram_cache_limit: 1024 * 1024,
-            channel_buffer: 8,
-        }
-    }
-
-    #[test]
-    fn extracts_megaplay_internal_id() {
-        assert_eq!(
-            data_id("<div data-id=\"177682\" data-realid=\"835403\">"),
-            Some("177682")
-        );
-        assert_eq!(data_id("<div data-id=\"nope\">"), None);
-        assert_eq!(data_realid("<div data-realid=\"835403\">"), Some("835403"));
-        assert_eq!(data_realid("<div data-realid=\"nope\">"), None);
-    }
-
-    #[test]
-    fn keeps_source_generation_stable_across_cdn_fallbacks() {
-        let preferred = source_generation("140719", Some("sub"));
-        let fallback = source_generation("140719", Some("sub"));
-        let other_episode = source_generation("140720", Some("sub"));
-
-        assert_eq!(preferred, fallback);
-        assert_ne!(preferred, other_episode);
-    }
-
-    #[test]
-    fn extracts_the_embed_language_from_player_configuration() {
-        assert_eq!(
-            embed_language("const settings = { autoPlay: '1', type: 'sub' }"),
-            Some("sub".to_string())
-        );
-        assert_eq!(
-            embed_language("const settings = { type: \"dub\" };"),
-            Some("dub".to_string())
-        );
-        assert_eq!(embed_language("const settings = { autoPlay: '1' };"), None);
-    }
-
-    #[test]
-    fn accepts_direct_anikoto_episode_urls() {
-        let key = parse_episode_key(&"/stream/s-2/170329/dub".parse().unwrap()).unwrap();
-        assert_eq!(key.anikoto_episode_id, "170329");
-        assert_eq!(key.episode, 1);
-        assert_eq!(key.language, "dub");
-    }
-
-    #[test]
-    fn keeps_legacy_source_endpoint_as_a_fallback() {
-        assert_eq!(
-            source_urls("177682"),
-            vec![
-                "https://megaplay.buzz/stream/getSourcesNew?id=177682",
-                "https://megaplay.buzz/stream/getSources?id=177682",
-            ]
-        );
-    }
-
-    #[test]
-    fn normalizes_megaplay_caption_language_labels() {
-        assert_eq!(
-            track_language(&serde_json::json!({"label": "English"})),
-            "en"
-        );
-        assert_eq!(
-            track_language(&serde_json::json!({"language": "en-US", "label": "CC"})),
-            "en"
-        );
-        assert_eq!(track_language(&serde_json::json!({"label": "Thai"})), "th");
-    }
-
-    #[test]
-    fn preserves_bcp47_caption_codes_and_common_provider_labels() {
-        assert_eq!(
-            track_language(&serde_json::json!({"lang": "zh-CN", "label": "Chinese"})),
-            "zh-cn"
-        );
-        assert_eq!(
-            track_language(&serde_json::json!({"label": "Arabic"})),
-            "ar"
-        );
-        assert_eq!(
-            track_language(&serde_json::json!({"label": "Korean"})),
-            "ko"
-        );
-        assert_eq!(
-            track_language(&serde_json::json!({"label": "Chinese (- Traditional)"})),
-            "zh-hant"
-        );
-    }
-
-    #[test]
-    fn rewrites_every_playlist_resource_without_leaking_upstream_urls() {
-        let playlist =
-            "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin\"\n#EXTINF:4,\nsegment.ts\n";
-        let references = hls_references("https://media.example/show/index.m3u8", playlist);
-        assert_eq!(
-            references,
-            vec![
-                "https://media.example/show/key.bin",
-                "https://media.example/show/segment.ts",
-            ]
-        );
-        let rewritten = rewrite_hls(playlist, |index| format!("/proxy/{index}")).unwrap();
-        assert!(rewritten.contains("URI=\"/proxy/0\""));
-        assert!(rewritten.contains("/proxy/1"));
-        assert!(!rewritten.contains("segment.ts"));
-    }
-
-    #[test]
-    fn indexes_only_media_variants_in_a_master_playlist() {
-        let master = concat!(
-            "#EXTM3U\n",
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",URI=\"audio.m3u8\"\n",
-            "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=80000,URI=\"iframe.m3u8\"\n",
-            "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n",
-            "360p.m3u8\n",
-            "#EXT-X-STREAM-INF:BANDWIDTH=1800000,RESOLUTION=1280x720\n",
-            "720p.m3u8\n",
-        );
-
-        assert_eq!(
-            hls_variant_references("https://media.example/show/master.m3u8", master),
-            vec![
-                "https://media.example/show/360p.m3u8",
-                "https://media.example/show/720p.m3u8",
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_master_quality_metadata_without_confusing_audio_or_iframe_entries() {
-        let master = concat!(
-            "#EXTM3U\n",
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",URI=\"audio.m3u8\"\n",
-            "#EXT-X-STREAM-INF:BANDWIDTH=800000,AVERAGE-BANDWIDTH=700000,",
-            "RESOLUTION=640x360,CODECS=\"avc1.4d401e,mp4a.40.2\"\n",
-            "360p.m3u8\n",
-        );
-
-        assert_eq!(
-            parse_hls_qualities(master),
-            vec![(0, 640, 360, 800000, "avc1.4d401e,mp4a.40.2".to_string())]
-        );
-    }
-
-    #[test]
-    fn rewrites_master_variants_without_shifting_indices_for_iframe_or_audio_tags() {
-        let master = concat!(
-            "#EXTM3U\n",
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",URI=\"audio.m3u8\"\n",
-            "#EXT-X-I-FRAME-STREAM-INF:BANDWIDTH=80000,URI=\"iframe.m3u8\"\n",
-            "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n",
-            "360p.m3u8\n",
-            "#EXT-X-STREAM-INF:BANDWIDTH=1800000,RESOLUTION=1280x720\n",
-            "720p.m3u8\n",
-        );
-        let rewritten = rewrite_hls_master(
-            master,
-            |index| format!("/variant/{index}"),
-            |index| format!("/master-resource/{index}"),
-        )
-        .unwrap();
-
-        assert!(rewritten.contains("/master-resource/0"));
-        assert!(rewritten.contains("/master-resource/1"));
-        assert!(rewritten.contains("/variant/0"));
-        assert!(rewritten.contains("/variant/1"));
-        assert!(!rewritten.contains("/variant/2"));
-        assert_eq!(
-            hls_master_references("https://media.example/show/master.m3u8", master),
-            vec![
-                "https://media.example/show/audio.m3u8",
-                "https://media.example/show/iframe.m3u8",
-            ]
-        );
-    }
-
-    #[test]
-    fn extracts_source_metadata_without_treating_invalid_markers_as_facts() {
-        let payload = serde_json::json!({
-            "sources": {"file": "https://media.example/show/master.m3u8"},
-            "duration": "123.5",
-            "intro": {"start": 0, "end": 91.25},
-            "outro": {"start": 118, "end": 123.5},
-            "server": "MegaPlay 2"
-        });
-
-        assert_eq!(
-            source_file_url(&payload),
-            Some("https://media.example/show/master.m3u8".to_string())
-        );
-        let metadata = source_metadata(&payload);
-        assert_eq!(metadata.duration, Some(123.5));
-        assert_eq!(
-            metadata.intro.map(|marker| (marker.start, marker.end)),
-            Some((0.0, 91.25))
-        );
-        assert_eq!(
-            metadata.outro.map(|marker| (marker.start, marker.end)),
-            Some((118.0, 123.5))
-        );
-        assert_eq!(metadata.server.as_deref(), Some("MegaPlay 2"));
-
-        let invalid = serde_json::json!({"intro": {"start": 10, "end": 10}});
-        assert!(source_metadata(&invalid).intro.is_none());
-    }
-
-    #[test]
-    fn parses_hls_audio_renditions_as_available_tracks() {
-        let master = concat!(
-            "#EXTM3U\n",
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"en\",",
-            "NAME=\"English Dub\",DEFAULT=YES,URI=\"dub.m3u8\"\n",
-            "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"ja\",",
-            "NAME=\"Japanese\",DEFAULT=NO,URI=\"sub.m3u8\"\n",
-        );
-        assert_eq!(
-            parse_hls_audio_tracks(master),
-            vec![
-                ("English Dub".to_string(), "en".to_string(), true),
-                ("Japanese".to_string(), "ja".to_string(), false),
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_single_byte_ranges() {
-        assert_eq!(parse_byte_range("bytes=10-19", 100), Ok((10, 19)));
-        assert_eq!(parse_byte_range("bytes=90-", 100), Ok((90, 99)));
-        assert_eq!(parse_byte_range("bytes=-10", 100), Ok((90, 99)));
-        assert_eq!(parse_byte_range("bytes=90-200", 100), Ok((90, 99)));
-        assert_eq!(parse_byte_range("bytes=100-", 100), Err(()));
-        assert_eq!(parse_byte_range("bytes=0-1,4-5", 100), Err(()));
-    }
-
-    #[test]
-    fn normalizes_media_content_types_from_bytes() {
-        let mut transport_stream = vec![0u8; 376];
-        transport_stream[0] = 0x47;
-        transport_stream[188] = 0x47;
-        assert_eq!(
-            normalized_content_type(&Bytes::from(transport_stream), None),
-            "video/mp2t"
-        );
-        assert_eq!(
-            normalized_content_type(&Bytes::from_static(b"\0\0\0\x18ftypisom"), None,),
-            "video/mp4"
-        );
-    }
-
-    #[tokio::test]
-    async fn serves_cached_byte_ranges_with_correct_headers() {
-        let mut request_headers = HeaderMap::new();
-        request_headers.insert("Range", HeaderValue::from_static("bytes=2-4"));
-        let cached = Arc::new(CachedResponse {
-            status: StatusCode::OK.as_u16(),
-            headers: HeaderMap::new(),
-            body: Bytes::from_static(b"0123456789"),
-        });
-        let response = cached_response(cached, &Method::GET, &request_headers, CacheStatus::Memory);
-        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.headers()["Content-Range"], "bytes 2-4/10");
-        assert_eq!(response.headers()["Content-Length"], "3");
-        assert_eq!(response.headers()["X-Cache"], "HIT");
-        assert_eq!(
-            to_bytes(response.into_body(), 16).await.unwrap(),
-            Bytes::from_static(b"234")
-        );
-    }
-
-    #[tokio::test]
-    async fn rejects_unsatisfiable_cached_ranges() {
-        let mut request_headers = HeaderMap::new();
-        request_headers.insert("Range", HeaderValue::from_static("bytes=10-"));
-        let cached = Arc::new(CachedResponse {
-            status: StatusCode::OK.as_u16(),
-            headers: HeaderMap::new(),
-            body: Bytes::from_static(b"0123456789"),
-        });
-        let response = cached_response(cached, &Method::GET, &request_headers, CacheStatus::Memory);
-        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
-        assert_eq!(response.headers()["Content-Range"], "bytes */10");
-        assert_eq!(
-            to_bytes(response.into_body(), 16).await.unwrap(),
-            Bytes::new()
-        );
-    }
-
-    #[test]
-    fn detects_media_prefix_from_content_instead_of_vendor_host() {
-        let mut prefixed = vec![0u8; SEGMENT_PREFIX_BYTES + 376];
-        prefixed[SEGMENT_PREFIX_BYTES] = 0x47;
-        prefixed[SEGMENT_PREFIX_BYTES + 188] = 0x47;
-        assert_eq!(media_prefix_len(&prefixed), SEGMENT_PREFIX_BYTES);
-
-        let mut plain = vec![0u8; 376];
-        plain[0] = 0x47;
-        plain[188] = 0x47;
-        assert_eq!(media_prefix_len(&plain), 0);
-    }
-
-    #[tokio::test]
-    async fn strips_detected_media_prefix_while_streaming() {
-        let mut media = vec![0u8; 376];
-        media[0] = 0x47;
-        media[188] = 0x47;
-        let expected = Bytes::from(media.clone());
-        let mut upstream = vec![0u8; SEGMENT_PREFIX_BYTES];
-        upstream.extend_from_slice(&media);
-        let app = Router::new().route(
-            "/segment.bin",
-            get(move || {
-                let upstream = upstream.clone();
-                async move { ([("content-type", "image/png")], upstream) }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let url = format!("http://{address}/segment.bin");
-        let state = test_state();
-
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            true,
-            "video/mp2t",
-            &Method::GET,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.headers()[CONTENT_TYPE], "video/mp2t");
-        assert_eq!(response.headers()[CONTENT_LENGTH], "376");
-        assert_eq!(
-            to_bytes(response.into_body(), 1024).await.unwrap(),
-            expected
-        );
-
-        server.abort();
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        let cache_key = format!("anikoto:stripped:{url}");
-        state.stream_cache.invalidate(&cache_key).await;
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    async fn coalesces_concurrent_segment_fetches() {
-        let upstream_hits = Arc::new(AtomicUsize::new(0));
-        let handler_hits = upstream_hits.clone();
-        let app = Router::new().route(
-            "/segment.ts",
-            get(move || {
-                let handler_hits = handler_hits.clone();
-                async move {
-                    handler_hits.fetch_add(1, Ordering::SeqCst);
-                    (
-                        [
-                            ("content-type", "video/mp2t"),
-                            ("cache-control", "no-store"),
-                        ],
-                        vec![7u8; 4096],
-                    )
-                }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let url = format!("http://{address}/segment.ts");
-        let state = test_state();
-
-        let method = Method::GET;
-        let request_headers = HeaderMap::new();
-        let requests = (0..64).map(|_| {
-            get_cached_upstream_resource(
-                &state,
-                &url,
-                false,
-                "video/mp2t",
-                &method,
-                &request_headers,
-            )
-        });
-        let results = futures_util::future::join_all(requests).await;
-        assert!(results.iter().all(Result::is_ok));
-        let statuses = results
-            .iter()
-            .map(|result| result.as_ref().unwrap().headers()["X-Cache"].clone())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            statuses
-                .iter()
-                .filter(|status| status.as_bytes() == b"MISS")
-                .count(),
-            1
-        );
-        assert!(statuses
-            .iter()
-            .filter(|status| status.as_bytes() != b"MISS")
-            .all(|status| status.as_bytes() == b"COALESCED"));
-        let bodies =
-            futures_util::future::join_all(results.into_iter().map(|result| async {
-                to_bytes(result.unwrap().into_body(), 8192).await.unwrap()
-            }))
-            .await;
-        assert!(bodies.iter().all(|body| body.len() == 4096));
-        assert_eq!(upstream_hits.load(Ordering::SeqCst), 1);
-
-        server.abort();
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        let cache_key = format!("anikoto:raw:{url}");
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    async fn streams_ranges_on_a_cache_miss_without_caching_partial_data() {
-        let (url, upstream_finished, server) =
-            delayed_segment_server(Duration::from_millis(25), 3).await;
-        let state = test_state();
-        let mut headers = HeaderMap::new();
-        headers.insert(RANGE, HeaderValue::from_static("bytes=2-7"));
-        let response =
-            get_cached_upstream_resource(&state, &url, false, "video/mp2t", &Method::GET, &headers)
-                .await
-                .unwrap();
-        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.headers()[CONTENT_RANGE], "bytes 2-7/12");
-        assert_eq!(response.headers()[CONTENT_LENGTH], "6");
-        assert_eq!(response.headers()["X-Cache"], "MISS");
-        assert_eq!(
-            to_bytes(response.into_body(), 16).await.unwrap(),
-            Bytes::from_static(&[0, 0, 1, 1, 1, 1])
-        );
-        assert!(!upstream_finished.load(Ordering::SeqCst));
-
-        let cache_key = format!("anikoto:raw:{url}");
-        let cached = tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if let Some(cached) = state.stream_cache.get(&cache_key).await {
-                    break cached;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        assert!(upstream_finished.load(Ordering::SeqCst));
-        assert_eq!(cached.body.len(), 12);
-        assert_eq!(cached.body.as_ref(), &[0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2]);
-
-        server.abort();
-        state.stream_cache.invalidate(&cache_key).await;
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    async fn records_downstream_cancellation_without_aborting_the_cache_fill() {
-        let before = STREAM_METRICS
-            .downstream_cancellations
-            .load(Ordering::Relaxed);
-        let (url, _, server) = delayed_segment_server(Duration::from_millis(20), 4).await;
-        let state = test_state();
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::GET,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        drop(response.into_body());
-
-        let cache_key = format!("anikoto:raw:{url}");
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if state.stream_cache.get(&cache_key).await.is_some() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        assert!(
-            STREAM_METRICS
-                .downstream_cancellations
-                .load(Ordering::Relaxed)
-                > before
-        );
-
-        server.abort();
-        state.stream_cache.invalidate(&cache_key).await;
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    async fn rejects_partial_fills_without_publishing_them() {
-        let app = Router::new().route(
-            "/segment.ts",
-            get(|| async {
-                let (sender, receiver) = tokio::sync::mpsc::channel(1);
-                tokio::spawn(async move {
-                    let _ = sender
-                        .send(Ok::<_, Infallible>(Bytes::from_static(b"part")))
-                        .await;
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                });
-                let mut response =
-                    axum::response::Response::new(Body::from_stream(ReceiverStream::new(receiver)));
-                response
-                    .headers_mut()
-                    .insert(CONTENT_TYPE, HeaderValue::from_static("video/mp2t"));
-                response
-                    .headers_mut()
-                    .insert(CONTENT_LENGTH, HeaderValue::from_static("12"));
-                response
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        let url = format!("http://{address}/segment.ts");
-        let state = test_state();
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::GET,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        assert!(to_bytes(response.into_body(), 16).await.is_err());
-
-        let cache_key = format!("anikoto:raw:{url}");
-        assert!(state.stream_cache.get(&cache_key).await.is_none());
-        assert!(load_stream_from_disk(&cache_key, 1024 * 1024, 60)
-            .await
-            .is_none());
-        assert!(!std::path::Path::new(&get_stream_cache_path(&cache_key)).exists());
-
-        server.abort();
-    }
-
-    #[tokio::test]
-    async fn streams_a_cache_miss_before_the_upstream_finishes() {
-        let (url, upstream_finished, server) =
-            delayed_segment_server(Duration::from_millis(75), 3).await;
-        let state = test_state();
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::GET,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.headers()["X-Cache"], "MISS");
-
-        let mut downstream = response.into_body().into_data_stream();
-        let first = tokio::time::timeout(Duration::from_millis(100), downstream.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert_eq!(first, Bytes::from_static(&[0, 0, 0, 0]));
-        assert!(!upstream_finished.load(Ordering::SeqCst));
-
-        let mut received = first.len();
-        while let Some(chunk) = downstream.next().await {
-            received += chunk.unwrap().len();
-        }
-        assert_eq!(received, 12);
-        assert!(upstream_finished.load(Ordering::SeqCst));
-
-        server.abort();
-        let cache_key = format!("anikoto:raw:{url}");
-        state.stream_cache.invalidate(&cache_key).await;
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    async fn streams_disk_hits_with_ranges_and_head_metadata() {
-        let url = format!("https://media.example/{}.ts", uuid::Uuid::new_v4());
-        let cache_key = format!("anikoto:raw:{url}");
-        let mut cached_headers = HeaderMap::new();
-        cached_headers.insert(CONTENT_TYPE, HeaderValue::from_static("video/mp2t"));
-        cached_headers.insert(CONTENT_LENGTH, HeaderValue::from_static("10"));
-        let mut writer =
-            StreamCacheWriter::create(&cache_key, StatusCode::OK.as_u16(), &cached_headers)
-                .await
-                .unwrap();
-        writer.write(b"01234").await.unwrap();
-        writer.write(b"56789").await.unwrap();
-        writer.commit().await.unwrap();
-
-        let state = test_state();
-        let mut range_headers = HeaderMap::new();
-        range_headers.insert(RANGE, HeaderValue::from_static("bytes=2-5"));
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::GET,
-            &range_headers,
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
-        assert_eq!(response.headers()[CONTENT_RANGE], "bytes 2-5/10");
-        assert_eq!(response.headers()[CONTENT_LENGTH], "4");
-        assert_eq!(response.headers()[ACCEPT_RANGES], "bytes");
-        assert_eq!(response.headers()["X-Cache"], "DISK");
-        assert_eq!(
-            to_bytes(response.into_body(), 16).await.unwrap(),
-            Bytes::from_static(b"2345")
-        );
-
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::HEAD,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()[CONTENT_LENGTH], "10");
-        assert_eq!(response.headers()[ACCEPT_RANGES], "bytes");
-        assert_eq!(response.headers()["X-Cache"], "DISK");
-        assert_eq!(
-            to_bytes(response.into_body(), 16).await.unwrap(),
-            Bytes::new()
-        );
-
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
-
-    #[tokio::test]
-    #[ignore = "local latency benchmark"]
-    async fn benchmark_delayed_segment_streaming() {
-        let delay_ms = std::env::var("MOCHI_BENCH_CHUNK_DELAY_MS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .unwrap_or(100);
-        let chunks = std::env::var("MOCHI_BENCH_CHUNKS")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(8)
-            .max(2);
-        let (url, _, server) =
-            delayed_segment_server(Duration::from_millis(delay_ms), chunks).await;
-        let state = test_state();
-        let started_at = Instant::now();
-        let response = get_cached_upstream_resource(
-            &state,
-            &url,
-            false,
-            "video/mp2t",
-            &Method::GET,
-            &HeaderMap::new(),
-        )
-        .await
-        .unwrap();
-        let mut downstream = response.into_body().into_data_stream();
-        let first = downstream.next().await.unwrap().unwrap();
-        let first_byte_ms = started_at.elapsed().as_millis();
-        let mut received = first.len();
-        while let Some(chunk) = downstream.next().await {
-            received += chunk.unwrap().len();
-        }
-        let total_ms = started_at.elapsed().as_millis();
-        println!(
-            "segment benchmark: chunks={chunks} delay_ms={delay_ms} first_byte_ms={first_byte_ms} total_ms={total_ms} bytes={received}"
-        );
-        assert!(first_byte_ms < total_ms);
-
-        server.abort();
-        let cache_key = format!("anikoto:raw:{url}");
-        state.stream_cache.invalidate(&cache_key).await;
-        let _ = tokio::fs::remove_file(get_stream_cache_path(&cache_key)).await;
-    }
 }

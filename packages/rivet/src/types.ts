@@ -63,6 +63,7 @@ export interface ChromeManifest {
   commands?: Record<string, ChromeManifestCommand>;
   permissions?: string[];
   host_permissions?: string[];
+  externally_connectable?: { ids?: string[]; matches?: string[]; accepts_tls_channel_id?: boolean };
   [key: string]: unknown;
 }
 
@@ -78,7 +79,11 @@ export interface ExtensionMeta {
 interface DNRRuleCondition {
   urlFilter?: string;
   regexFilter?: string;
+  isUrlFilterCaseSensitive?: boolean;
   resourceTypes?: string[];
+  excludedResourceTypes?: string[];
+  requestDomains?: string[];
+  excludedRequestDomains?: string[];
   initiatorDomains?: string[];
   excludedInitiatorDomains?: string[];
 }

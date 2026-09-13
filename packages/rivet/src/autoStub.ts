@@ -1,9 +1,10 @@
 const wrapCache = new WeakMap<object, object>();
-const browserWrapCache = new WeakMap<object, object>();
+const browserWrapCaches = new WeakMap<PromiseConstructor, WeakMap<object, object>>();
 
 export function withMissingMemberFallback<T extends object>(real: T): T {
   const cached = wrapCache.get(real);
   if (cached) return cached as T;
+  const missing = new Map<string, unknown>();
   const proxy = new Proxy(real, {
     get(target, prop, receiver) {
       if (prop in target) {
@@ -13,8 +14,9 @@ export function withMissingMemberFallback<T extends object>(real: T): T {
         }
         return value;
       }
-      if (typeof prop !== "string") return undefined;
-      return createAutoStub();
+      if (typeof prop !== "string" || prop === "then" || prop === "toJSON") return undefined;
+      if (!missing.has(prop)) missing.set(prop, createAutoStub());
+      return missing.get(prop);
     },
   });
   wrapCache.set(real, proxy);
@@ -22,6 +24,11 @@ export function withMissingMemberFallback<T extends object>(real: T): T {
 }
 
 export function withBrowserPromiseFallback<T extends object>(real: T, PromiseCtor: PromiseConstructor): T {
+  let browserWrapCache = browserWrapCaches.get(PromiseCtor);
+  if (!browserWrapCache) {
+    browserWrapCache = new WeakMap();
+    browserWrapCaches.set(PromiseCtor, browserWrapCache);
+  }
   const cached = browserWrapCache.get(real);
   if (cached) return cached as T;
   const functionCache = new WeakMap<Function, Function>();
@@ -32,10 +39,19 @@ export function withBrowserPromiseFallback<T extends object>(real: T, PromiseCto
         return withBrowserPromiseFallback(value as object, PromiseCtor);
       }
       if (typeof value !== "function") return value;
+      if (prop === "addListener" || prop === "removeListener" || prop === "hasListener" || prop === "hasListeners") return value;
       const cachedFunction = functionCache.get(value);
       if (cachedFunction) return cachedFunction;
       const wrapped = new Proxy(value, {
         apply(fn, _thisArg, args) {
+          if (prop === "sendMessage" && typeof Reflect.get(target, "id") === "string") {
+            const count = args.length - (typeof args[args.length - 1] === "function" ? 1 : 0);
+            const options = args[1];
+            if (count === 2 && (options == null || (typeof options === "object" && !Array.isArray(options) &&
+              Object.keys(options).every((key) => key === "includeTlsChannelId")))) {
+              args = [undefined, ...args];
+            }
+          }
           const result = Reflect.apply(fn, target, args);
           return result === undefined ? PromiseCtor.resolve(undefined) : result;
         },
@@ -67,7 +83,7 @@ function createAutoStub(): unknown {
       if (cached !== undefined) return cached;
       let value: unknown;
       if (prop === "addListener" || prop === "removeListener") value = () => {};
-      else if (prop === "hasListener") value = () => false;
+      else if (prop === "hasListener" || prop === "hasListeners") value = () => false;
       else value = createAutoStub();
       cache.set(prop, value);
       return value;

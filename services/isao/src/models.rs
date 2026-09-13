@@ -13,4 +13,7 @@ pub struct AnimeRelation {
     pub name: String,
     pub relation: String,
     pub format: Option<String>,
+    pub year: Option<i32>,
+    pub episode_count: Option<i32>,
+    pub source: Option<String>,
 }

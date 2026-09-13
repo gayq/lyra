@@ -554,8 +554,8 @@ function createDnrPlugin(
 
         const decision = rivet.checkDeclarativeNetRequest(
           requestUrl,
-          context.parsed?.fetchInitiatorOrigin,
-          context.parsed?.destination,
+          details.initiator,
+          details.type,
         );
         if (!decision) return;
 
@@ -608,8 +608,8 @@ function createDnrPlugin(
 
         const decision = rivet.checkDeclarativeNetRequest(
           requestUrl,
-          context.parsed?.fetchInitiatorOrigin,
-          context.parsed?.destination,
+          details.initiator,
+          details.type,
         );
         if (decision?.action === "modifyHeaders" && decision.responseHeaders.length) {
           props.response.rawHeaders = applyHeaderChanges(

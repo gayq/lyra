@@ -36,7 +36,11 @@ function CopyLinkIcon() {
     } catch {}
   }, []);
 
-  return <IconChainLink4 class="omnibox-icon" onClick={handleClick} />;
+  return (
+    <span class="omnibox-icon" data-tooltip="copy link">
+      <IconChainLink4 onClick={handleClick} />
+    </span>
+  );
 }
 
 declare global {
@@ -226,12 +230,18 @@ export default function NavBar() {
   return (
     <div class="main-nav">
       <div class="nav-controls">
-        <a id="toggle-sidebar-btn" href="#" onClick={handleSidebarToggle}>
+        <a
+          id="toggle-sidebar-btn"
+          href="#"
+          data-tooltip="sidebar"
+          onClick={handleSidebarToggle}
+        >
           <IconSidebar />
         </a>
         <a
           id="backIcon"
           class="disabled"
+          data-tooltip="back"
           aria-disabled="true"
           tabIndex={-1}
           href="#"
@@ -245,6 +255,7 @@ export default function NavBar() {
         <a
           id="forwardIcon"
           class="disabled"
+          data-tooltip="forward"
           aria-disabled="true"
           tabIndex={-1}
           href="#"
@@ -258,6 +269,7 @@ export default function NavBar() {
         <a
           id="refreshIcon"
           href="#"
+          data-tooltip={activeTab?.isLoading ? "stop" : "refresh"}
           onClick={(e) => {
             e.preventDefault();
             handleRefresh();
@@ -288,12 +300,13 @@ export default function NavBar() {
       </div>
       <div class="window-controls">
         <ExtensionMenu tabId={activeTabId} />
-        <a id="home-btn" href="/" onClick={handleHome}>
+        <a id="home-btn" href="/" data-tooltip="home" onClick={handleHome}>
           <IconHomeOpen />
         </a>
         <a
           id="fullscreenBtn"
           href="#"
+          data-tooltip="fullscreen"
           onClick={(e) => {
             e.preventDefault();
             handleFullscreen();
@@ -307,6 +320,7 @@ export default function NavBar() {
           onPointerEnter={() => void loadNewTabModal()}
           onFocus={() => void loadNewTabModal()}
           onClick={handleSplitView}
+          data-tooltip="split view"
           class={`${splitBtnActive ? "active" : ""} ${splitBtnDisabled ? "disabled" : ""}`}
           aria-disabled={splitBtnDisabled}
         >

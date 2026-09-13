@@ -5,6 +5,9 @@ edition = "2021"
 [dependencies]
 adaptive-capacity = { path = "../../packages/adaptive-capacity" }
 base64 = "0.22.1"
+aes = "0.8"
+cbc = "0.1"
+hmac = "0.12"
 mimalloc = { version = "0.1", default-features = false }
 axum = { version = "0.7", features = ["http2", "ws"] }
 tokio = { version = "1.0", features = ["rt-multi-thread", "net", "macros", "sync", "signal", "process", "io-util"] }

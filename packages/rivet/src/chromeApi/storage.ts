@@ -1,4 +1,4 @@
-import { dbDelete, dbGetEntries, dbGetAllKeys, dbPutEntries, EXT_STORAGE_STORE } from "../db";
+import { dbDeleteEntries, dbGetEntries, dbGetAllKeys, dbPutEntries, EXT_STORAGE_STORE } from "../db";
 import type { RivetRegistry } from "../registry";
 import { cloneForRealm } from "./common";
 import type { ChromeApiContext } from "./context";
@@ -42,30 +42,19 @@ async function storageRemove(
   area: string,
   keys: string | string[],
 ): Promise<void> {
-  for (const key of Array.isArray(keys) ? keys : [keys]) {
-    await dbDelete(EXT_STORAGE_STORE, `${extId}/${area}/${key}`);
-  }
+  await dbDeleteEntries(EXT_STORAGE_STORE, [...new Set(Array.isArray(keys) ? keys : [keys])]
+    .map((key) => `${extId}/${area}/${key}`));
 }
 
 async function storageClear(extId: string, area: string): Promise<void> {
-  const allKeys = await dbGetAllKeys(EXT_STORAGE_STORE);
   const prefix = `${extId}/${area}/`;
-  for (const key of allKeys.filter(
-    (candidate) =>
-      typeof candidate === "string" && candidate.startsWith(prefix),
-  )) {
-    await dbDelete(EXT_STORAGE_STORE, key);
-  }
+  await dbDeleteEntries(EXT_STORAGE_STORE, IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true));
 }
 
 async function storageGetKeys(extId: string, area: string): Promise<string[]> {
-  const allKeys = await dbGetAllKeys(EXT_STORAGE_STORE);
   const prefix = `${extId}/${area}/`;
-  return (
-    allKeys.filter(
-      (key) => typeof key === "string" && key.startsWith(prefix),
-    ) as string[]
-  ).map((key) => key.slice(prefix.length));
+  const keys = await dbGetAllKeys(EXT_STORAGE_STORE, IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true));
+  return (keys as string[]).map((key) => key.slice(prefix.length));
 }
 
 function makeStorageArea(

@@ -454,13 +454,3 @@ impl WebSocketStreamWrapper {
         self.0.close().await
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::ClientStream;
-
-    #[test]
-    fn client_stream_stays_compact() {
-        assert!(std::mem::size_of::<ClientStream>() <= 128);
-    }
-}

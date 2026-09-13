@@ -8,17 +8,12 @@ import {
 import {
   buildAnimePlaybackUrl,
   fetchAnimeData,
-  fetchAnimeFranchiseRelations,
   isAnimeMovieFormat,
-  mergeAnimeFranchiseCandidates,
-  mergeAnimeRelationSeasons,
   mergeAnimeEntries,
   resetAnimeCache,
   searchAnime,
   searchAnimeLocally,
-  shouldBlockAnimeSeasonPicker,
   type AnimeEntry,
-  type AnimeSeason,
 } from "../../features/anime/anime.ts";
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import {
@@ -39,17 +34,6 @@ import "../../assets/styles/anime/anime.css";
 
 const SVG_SUSHI = svgIcon("IconSushi", { size: 22, solid: true });
 
-function needsAnimeFranchiseSearch(
-  entry: AnimeEntry,
-  seasons: readonly AnimeSeason[],
-): boolean {
-  if (!entry.ids?.anilist && !entry.ids?.mal) return false;
-  if (seasons.length < 2) return false;
-  return (
-    !seasons.some((season) => season.number === 1) ||
-    seasons.some((season) => season.year == null)
-  );
-}
 const SVG_SEARCH = svgIcon("IconMagnifyingGlass2");
 const SEARCH_DEBOUNCE_MS = 120;
 
@@ -74,8 +58,6 @@ export default function AnimeCatalog({
   const [episodePickerVisible, setEpisodePickerVisible] = useState(false);
   const [episodePickerAnime, setEpisodePickerAnime] =
     useState<AnimeEntry | null>(null);
-  const [episodePickerSeasonsLoading, setEpisodePickerSeasonsLoading] =
-    useState(false);
   const [episodePickerEpisode, setEpisodePickerEpisode] = useState(0);
   const [episodePickerLanguage, setEpisodePickerLanguage] = useState<
     "sub" | "dub"
@@ -155,7 +137,6 @@ export default function AnimeCatalog({
       show();
       setEpisodePickerEpisode(request.episode);
       setEpisodePickerLanguage(request.language === "dub" ? "dub" : "sub");
-      setEpisodePickerSeasonsLoading(false);
       const ids = normalizeAnimeIds({
         ...request.ids,
         anilistId: request.anilistId,
@@ -258,7 +239,6 @@ export default function AnimeCatalog({
     });
     const initialAnime = { ...anime, ids: initialIds };
     if (isAnimeMovieFormat(anime.format)) {
-      setEpisodePickerSeasonsLoading(false);
       setEpisodePickerVisible(false);
       hide();
       app().handleSearch?.(
@@ -278,117 +258,11 @@ export default function AnimeCatalog({
     }
     setEpisodePickerEpisode(0);
     setEpisodePickerLanguage("sub");
-    const initialSeasonSources = initialAnime.seasons || [];
-    setEpisodePickerSeasonsLoading(
-      shouldBlockAnimeSeasonPicker(
-        Boolean(initialIds.mal),
-        initialSeasonSources.length,
-        needsAnimeFranchiseSearch(initialAnime, initialSeasonSources),
-      ),
-    );
     setEpisodePickerAnime(initialAnime);
     setEpisodePickerVisible(true);
 
     const isCurrentPicker = () =>
       episodePickerRequestIdRef.current === pickerRequestId;
-    const addRelationSeasons = (malId?: string) => {
-      const relationMalId = malId ? Number(malId) : 0;
-      if (!Number.isInteger(relationMalId) || relationMalId <= 0) return;
-      const relationEntry = {
-        ...initialAnime,
-        ids: mergeAnimeIds(initialAnime.ids, { mal: String(relationMalId) }),
-      };
-      const needsInitialSearch = needsAnimeFranchiseSearch(
-        relationEntry,
-        relationEntry.seasons || [],
-      );
-      if (
-        relationEntry.seasons &&
-        relationEntry.seasons.length > 1 &&
-        !needsInitialSearch
-      ) {
-        return;
-      }
-      let franchiseSearchPromise: Promise<AnimeEntry[]> | null = null;
-      const applyFranchiseSearch = (candidates: AnimeEntry[]) => {
-        if (!isCurrentPicker() || candidates.length === 0) return;
-        setEpisodePickerAnime((current) => {
-          if (
-            !isCurrentPicker() ||
-            !current ||
-            current.id !== initialAnime.id
-          ) {
-            return current;
-          }
-          return mergeAnimeFranchiseCandidates(current, candidates);
-        });
-      };
-      const startFranchiseSearch = () => {
-        if (!franchiseSearchPromise) {
-          franchiseSearchPromise = searchAnime(
-            relationEntry.title,
-            undefined,
-            applyFranchiseSearch,
-            { forceRefresh: true },
-          ).catch(() => [] as AnimeEntry[]);
-        }
-        return franchiseSearchPromise;
-      };
-
-      if (needsInitialSearch) {
-        void startFranchiseSearch();
-      }
-
-      void fetchAnimeFranchiseRelations(relationMalId)
-        .then((relations) => {
-          if (!isCurrentPicker()) return;
-          const relationSeasons = mergeAnimeRelationSeasons(
-            relationEntry,
-            relations,
-          );
-          const existingSeasons =
-            relationSeasons.length > 1
-              ? relationSeasons
-              : relationEntry.seasons || [];
-
-          setEpisodePickerAnime((current) => {
-            if (
-              !isCurrentPicker() ||
-              !current ||
-              current.id !== initialAnime.id
-            ) {
-              return current;
-            }
-            const currentRelationSeasons = mergeAnimeRelationSeasons(
-              current,
-              relations,
-            );
-            const relationEnriched =
-              currentRelationSeasons.length > 1
-                ? { ...current, seasons: currentRelationSeasons }
-                : current;
-            return relationEnriched;
-          });
-          const shouldWaitForSearch =
-            franchiseSearchPromise !== null ||
-            needsAnimeFranchiseSearch(relationEntry, existingSeasons);
-          if (shouldWaitForSearch) {
-            void startFranchiseSearch().then((candidates) => {
-              applyFranchiseSearch(candidates);
-              if (isCurrentPicker()) setEpisodePickerSeasonsLoading(false);
-            });
-          } else {
-            setEpisodePickerSeasonsLoading(false);
-          }
-        })
-        .catch(() => {
-          if (isCurrentPicker()) setEpisodePickerSeasonsLoading(false);
-        });
-    };
-    addRelationSeasons(initialIds.mal);
-
-    
-    
     void resolveAnimeIdentity({
       ids: initialIds,
       title: anime.title,
@@ -396,7 +270,6 @@ export default function AnimeCatalog({
       format: anime.format,
     }).then((identity) => {
       if (!identity || !isCurrentPicker()) return;
-      if (!initialIds.mal) addRelationSeasons(identity.ids.mal);
       setEpisodePickerAnime((current) => {
         if (
           !isCurrentPicker() ||
@@ -511,8 +384,6 @@ export default function AnimeCatalog({
           year={episodePickerAnime.year}
           type={episodePickerAnime.animeType}
           ids={episodePickerAnime.ids}
-          seasons={episodePickerAnime.seasons}
-          seasonsLoading={episodePickerSeasonsLoading}
           anilistId={episodePickerAnime.anilistId}
           malId={episodePickerAnime.malId}
           posterUrl={episodePickerAnime.posterUrl}

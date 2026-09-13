@@ -445,7 +445,7 @@
     opacity 0.12s ease,
     transform 0.12s ease;
 }
-.player-selector-options button:not(.episode-selector-button) {
+.player-selector-options button:not(.episode-selector-button):not(.episode-season-tab) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -465,8 +465,8 @@
     background-color 0.1s ease,
     color 0.1s ease;
 }
-.player-selector-options button:not(.episode-selector-button):hover,
-.player-selector-options:not(.player-subtitle-options):not(.player-quality-options) button:not(.episode-selector-button).is-active {
+.player-selector-options button:not(.episode-selector-button):not(.episode-season-tab):hover,
+.player-selector-options:not(.player-subtitle-options):not(.player-quality-options) button:not(.episode-selector-button):not(.episode-season-tab).is-active {
   background: var(--bg-surface-active);
   color: var(--text-primary);
 }
@@ -485,6 +485,10 @@
   background: var(--bg-surface-7);
   color: var(--text-primary);
   box-sizing: border-box;
+}
+.episode-picker-embedded {
+  max-height: min(45vh, 350px);
+  overflow-y: auto;
 }
 .player-episode-heading {
   display: flex;
@@ -514,15 +518,6 @@
   font-size: 13px;
   line-height: 1;
 }
-.player-episode-position {
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border-radius: 10px;
-  background: var(--bg-surface-2);
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
 .player-episode-grid {
   padding: 4px;
   max-height: min(48vh, 360px);
@@ -537,9 +532,9 @@
 .player-subtitle-options.is-open {
   overflow-y: auto;
 }
-.player-subtitle-options button.is-active,
-.player-quality-options button.is-active {
-  color: var(--text-primary);
+.player-selector-options.player-subtitle-options button.is-active,
+.player-selector-options.player-quality-options button.is-active {
+  color: var(--text-white);
 }
 .player-option-check {
   flex: 0 0 auto;
