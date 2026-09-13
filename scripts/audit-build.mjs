@@ -90,7 +90,7 @@ function fail(message, values = []) {
 const packageMetadata = JSON.parse(
   await readFile(path.join(root, "package.json"), "utf8"),
 );
-if (packageMetadata.name !== "lyra" || packageMetadata.version !== "0.0.4") {
+if (packageMetadata.name !== "lyra" || packageMetadata.version !== "0.1.0") {
   fail("application metadata does not match the lyra release");
 }
 
