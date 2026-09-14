@@ -8,6 +8,7 @@ import {
 } from "../../core/browser/iframe.ts";
 import { useSearchInputBindings } from "../../features/search/search.ts";
 import { currentUrlSignal } from "../../core/ui/uiSignals";
+import { compactAnimePlaybackPath } from "../../core/media/animeMetadata.ts";
 import { toast } from "../../core/ui/toast.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
 import ExtensionMenu from "./ExtensionMenu.tsx";
@@ -29,7 +30,10 @@ function CopyLinkIcon() {
   const handleClick = useCallback(async () => {
     const url = currentUrlSignal.value;
     if (!url || url === "about:blank") return;
-    const shareUrl = `${window.location.origin}/s?=${encodeURIComponent(url)}`;
+    const animePath = compactAnimePlaybackPath(url);
+    const shareUrl = animePath
+      ? `${window.location.origin}${animePath}`
+      : `${window.location.origin}/s?=${encodeURIComponent(url)}`;
     try {
       await navigator.clipboard.writeText(shareUrl);
       toast.success("url copied", undefined, 2000);
