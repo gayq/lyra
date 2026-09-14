@@ -547,7 +547,7 @@ export default function NewTabModal({
                 {webSearching && (
                   <div class="new-tab-result-item new-tab-result-status">
                     <IconMagnifyingGlass2 />
-                    <span>searching suggestions...</span>
+                    <span>fetching suggestions...</span>
                   </div>
                 )}
               </>
@@ -577,7 +577,7 @@ export default function NewTabModal({
                 {gamesLoading && (
                   <div class="new-tab-result-item new-tab-result-status">
                     <IconGamecontroller />
-                    <span>searching games...</span>
+                    <span>fetching games...</span>
                   </div>
                 )}
                 {!gamesLoading &&
@@ -610,7 +610,7 @@ export default function NewTabModal({
                 {animeSearching && (
                   <div class="new-tab-result-item new-tab-result-status">
                     <IconSushi />
-                    <span>searching anime...</span>
+                    <span>fetching anime...</span>
                   </div>
                 )}
                 {!animeSearching &&
