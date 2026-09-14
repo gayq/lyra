@@ -1145,8 +1145,33 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
 }
 
+(mochi_stream) {
+    @mochi_stream {
+        path /stream/*
+        not path /stream/anime*
+    }
+    reverse_proxy @mochi_stream $MOCHI_UPSTREAMS {
+        lb_policy query session {
+            fallback first
+        }
+        health_uri /health
+        health_interval 10s
+        header_up Host {upstream_hostport}
+        header_up X-Real-IP {remote_host}
+        flush_interval -1
+        transport http {
+            keepalive 120s
+            keepalive_idle_conns 4096
+            keepalive_idle_conns_per_host 1024
+            dial_timeout 5s
+            response_header_timeout 30s
+        }
+    }
+}
+
 http://127.0.0.1:4000 {
     bind 127.0.0.1
+    import mochi_stream
     reverse_proxy $MOCHI_UPSTREAMS {
         lb_policy least_conn
         unhealthy_request_count $MOCHI_REQUESTS
@@ -1264,9 +1289,10 @@ http://127.0.0.1:4001 {
         }
     }
 
+    import mochi_stream
+
     @mochi_routes {
-        path /!!raw/* /!!/* /!!folio/* /!cover!/* /stream/*
-        not path /stream/anime*
+        path /!!raw/* /!!/* /!!folio/* /!cover!/*
     }
     reverse_proxy @mochi_routes $MOCHI_UPSTREAMS {
         lb_policy least_conn

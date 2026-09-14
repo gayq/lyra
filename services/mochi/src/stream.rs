@@ -14,7 +14,7 @@ use reqwest::header::{
 };
 use serde::Serialize;
 use std::io::SeekFrom;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -312,7 +312,21 @@ static SOURCE_CACHE: LazyLock<Cache<(StreamProvider, EpisodeKey), Arc<ResolvedSo
             .build()
     });
 
-static SESSION_SOURCES: LazyLock<Cache<EpisodeKey, Arc<ResolvedSource>>> = LazyLock::new(|| {
+struct SourceSession {
+    source: Arc<ResolvedSource>,
+    invalidated: AtomicBool,
+}
+
+impl SourceSession {
+    fn new(source: Arc<ResolvedSource>) -> Arc<Self> {
+        Arc::new(Self {
+            source,
+            invalidated: AtomicBool::new(false),
+        })
+    }
+}
+
+static SESSION_SOURCES: LazyLock<Cache<EpisodeKey, Arc<SourceSession>>> = LazyLock::new(|| {
     Cache::builder()
         .time_to_idle(Duration::from_secs(6 * 60 * 60))
         .max_capacity(10_000)
@@ -917,18 +931,18 @@ async fn ready_source(
         let cache_key = provider_cache_key(provider, key);
         if let Some(mut source) = SOURCE_CACHE.get(&cache_key).await {
             stage = "readiness";
-            let master = match validate_source(client, &source).await {
-                Ok(master) => master,
-                Err(error) => {
-                    reject_source(key, &source, &[&source.playlist_url]).await;
-                    return Err(error);
+            match validate_source(client, &source).await {
+                Ok(master) => {
+                    if master != source.master {
+                        source = Arc::new(with_master((*source).clone(), master));
+                        SOURCE_CACHE.insert(cache_key.clone(), source.clone()).await;
+                    }
+                    return Ok(source);
                 }
-            };
-            if master != source.master {
-                source = Arc::new(with_master((*source).clone(), master));
-                SOURCE_CACHE.insert(cache_key, source.clone()).await;
+                Err(_) => {
+                    reject_source(key, &source, &[&source.playlist_url]).await;
+                }
             }
-            return Ok(source);
         }
         SOURCE_CACHE
             .try_get_with(cache_key, async {
@@ -1147,16 +1161,13 @@ async fn get_source(
         STREAM_METRICS
             .source_cache_hits
             .fetch_add(1, Ordering::Relaxed);
-        let source = match SOURCE_CACHE
-            .get(&provider_cache_key(selected.provider, key))
-            .await
-        {
-            Some(source) => source,
-            None => ready_source(client, selected.provider, key).await?,
-        };
-        if !Arc::ptr_eq(&selected, &source) {
-            SESSION_SOURCES.insert(key.clone(), source.clone()).await;
+        if !selected.invalidated.load(Ordering::Acquire) {
+            return Ok(selected.source.clone());
         }
+        let source = ready_source(client, selected.source.provider, key).await?;
+        SESSION_SOURCES
+            .insert(key.clone(), SourceSession::new(source.clone()))
+            .await;
         return Ok(source);
     }
     STREAM_METRICS
@@ -1189,11 +1200,12 @@ async fn get_source(
                 started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
                 Ordering::Relaxed,
             );
-            result
+            result.map(SourceSession::new)
         }),
     )
     .await
     .map_err(|_| ResolveError::Upstream)?
+    .map(|selected| selected.source.clone())
     .map_err(|error| *error)
 }
 
@@ -1535,13 +1547,23 @@ fn is_master_playlist(playlist: &str) -> bool {
 }
 
 async fn invalidate_source(key: &EpisodeKey, source: &ResolvedSource, playlist_urls: &[&str]) {
-    SOURCE_CACHE
-        .invalidate(&provider_cache_key(source.provider, key))
-        .await;
+    let cache_key = provider_cache_key(source.provider, key);
+    if SOURCE_CACHE
+        .get(&cache_key)
+        .await
+        .is_some_and(|cached| cached.generation == source.generation)
+    {
+        SOURCE_CACHE.invalidate(&cache_key).await;
+    }
     for url in playlist_urls {
         PLAYLIST_CACHE
             .invalidate(&playlist_cache_key(source.provider, url))
             .await;
+    }
+    if let Some(selected) = SESSION_SOURCES.get(key).await {
+        if selected.source.generation == source.generation {
+            selected.invalidated.store(true, Ordering::Release);
+        }
     }
     STREAM_METRICS
         .source_refreshes
@@ -1640,7 +1662,7 @@ fn playlist_response(body: String) -> Response {
     );
     response.headers_mut().insert(
         "Cache-Control",
-        HeaderValue::from_static("private, max-age=60, no-transform"),
+        HeaderValue::from_static("private, no-cache, no-transform"),
     );
     response
 }
@@ -2189,7 +2211,14 @@ async fn run_segment_fill(
     STREAM_METRICS
         .segment_upstream_bytes
         .fetch_add(fill.bytes as u64, Ordering::Relaxed);
-    if result.is_err() {
+    if let Err(error) = &result {
+        tracing::warn!(
+            ?error,
+            bytes = fill.bytes,
+            expected_bytes = fill.expected_len,
+            limit_bytes = fill.max_entry_size,
+            "anime media transfer failed... /ᐠ - ˕ -マ"
+        );
         STREAM_METRICS
             .segment_failed_fills
             .fetch_add(1, Ordering::Relaxed);

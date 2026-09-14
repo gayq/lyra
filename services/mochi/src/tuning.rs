@@ -1,5 +1,20 @@
 use sysinfo::{Disks, System};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn media_size_limit_is_independent_of_worker_memory() {
+        let small = compute(1024, 1, 10_000);
+        let large = compute(32 * 1024, 16, 100_000);
+        assert_eq!(small.stream_max_entry_size, large.stream_max_entry_size);
+        assert!(small.stream_max_entry_size > 16 * 1024 * 1024);
+        assert_eq!(small.ram_cache_limit, 8 * 1024 * 1024);
+        assert!(small.ram_cache_limit < large.ram_cache_limit);
+    }
+}
+
 pub struct MochiTuning {
     pub worker_threads: usize,
     pub cache_capacity_bytes: u64,
@@ -99,17 +114,12 @@ fn compute(ram_mb: u64, cores: usize, disk_mb: u64) -> MochiTuning {
     let cache_capacity_bytes = cache_cap_mb * 1024 * 1024;
     let stream_cache_cap_mb = (ram_mb / 24).clamp(128, 2048);
     let stream_cache_capacity_bytes = stream_cache_cap_mb * 1024 * 1024;
-
     let max_entry_mb = (cache_cap_mb / 4).clamp(16, 512);
     let max_cache_entry_size = (max_entry_mb as usize) * 1024 * 1024;
-    let stream_max_entry_mb = (ram_mb / 1024).clamp(8, 32);
-    let stream_max_entry_size = (stream_max_entry_mb as usize) * 1024 * 1024;
-
+    let stream_max_entry_size = 64 * 1024 * 1024;
     let ram_limit_mb = (ram_mb / 512).clamp(8, 64);
     let ram_cache_limit = (ram_limit_mb as usize) * 1024 * 1024;
-
     let cache_ttl_secs = if ram_mb < 8192 { 24 * 3600 } else { 48 * 3600 };
-
     let pool_idle_per_host_asset = (cores * 3).clamp(4, 32);
     let pool_idle_per_host_html = (cores * 2).clamp(2, 16);
     let pool_idle_timeout_secs = if ram_mb < 8192 { 120 } else { 300 };

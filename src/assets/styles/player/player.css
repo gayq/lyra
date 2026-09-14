@@ -60,7 +60,7 @@
   box-sizing: border-box;
   max-width: min(88vw, 52ch);
   padding: 0.32em 0.68em 0.38em;
-  border-radius: 0.5em;
+  border-radius: 12px;
   background: #000000B5;
   color: var(--text-white);
   font-family: "Lexend", sans-serif;
@@ -294,14 +294,14 @@
   bottom: calc(100% + 9px);
   z-index: 2;
   padding: 7px 13px;
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--bg-surface-7);
   color: var(--text-white);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
-  animation: tooltip-in 0.12s ease forwards;
+  animation: tooltip-in 0.1s ease forwards;
   transform: translateX(-50%);
 }
 .seek-preview::after {
@@ -549,7 +549,6 @@
 .spacer {
   flex: 1;
 }
-
  
 .volume-wrapper {
   display: flex;
