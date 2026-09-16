@@ -83,6 +83,7 @@ struct ProxyMetricsSnapshot {
     implementation_errors: u64,
     html_rewrites: u64,
     capacity: CapacityMetrics,
+    memory: serde_json::Value,
 }
 
 #[derive(serde::Serialize)]
@@ -113,6 +114,7 @@ pub async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         unavailable_source_errors: metrics.unavailable_source_errors.load(Ordering::Relaxed),
         implementation_errors: metrics.implementation_errors.load(Ordering::Relaxed),
         html_rewrites: metrics.html_rewrites.load(Ordering::Relaxed),
+        memory: state.memory_pressure.snapshot(),
         capacity: CapacityMetrics {
             active: capacity.active,
             limit: capacity.limit,

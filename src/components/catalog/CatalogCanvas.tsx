@@ -63,6 +63,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     let fullRedraw = true;
     let styleDirty = true;
     let fontFamily = "";
+    let cardRadius = 0;
+    let detailRadius = 0;
     const colors = new Map<string, string>();
     const color = (name: string, fallback: string) => colors.get(name) || fallback;
 
@@ -152,6 +154,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       if (styleDirty) {
         const style = getComputedStyle(canvas);
         fontFamily = style.fontFamily;
+        cardRadius = parseFloat(style.getPropertyValue("--radius-item"));
+        detailRadius = parseFloat(style.getPropertyValue("--radius-detail"));
         for (const name of ["--game-card-bg", "--skeleton-alt-from", "--skeleton-alt-via",
           "--game-cover-brightness", "--game-no-cover-line", "--game-card-overlay",
           "--game-info-text", "--color-green", "--color-yellow", "--color-red"]) {
@@ -198,7 +202,7 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         if (!fullRedraw) ctx.clearRect(x, y, w, h);
         ctx.save();
         ctx.beginPath();
-        ctx.roundRect(x, y, w, h, 10);
+        ctx.roundRect(x, y, w, h, cardRadius);
         ctx.clip();
         ctx.fillStyle = color("--game-card-bg", "#222");
         ctx.fillRect(x, y, w, h);
@@ -207,7 +211,7 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           ctx.fillRect(x, y, w, h);
           ctx.fillStyle = color("--skeleton-alt-via", "#555");
           ctx.beginPath();
-          ctx.roundRect(x + 8, y + h - 22, w * 0.65, 8, 4);
+          ctx.roundRect(x + 8, y + h - 22, w * 0.65, 8, detailRadius);
           ctx.fill();
           if (!reducedMotion.matches) {
             const left = x + ((now % 1000) / 1000 * 2 - 1) * w;
@@ -285,7 +289,9 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
             }
             if (card.adult) {
               ctx.fillStyle = "rgba(239,68,68,0.85)";
-              ctx.fillRect(left, y + h - 20, 25, 14);
+              ctx.beginPath();
+              ctx.roundRect(left, y + h - 20, 25, 14, detailRadius);
+              ctx.fill();
               ctx.fillStyle = "#fff";
               ctx.fillText("18+", left + 3, y + h - 18);
             }

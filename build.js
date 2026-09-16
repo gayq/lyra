@@ -423,48 +423,35 @@ export default function lyraPlugin(
         await writeFile(filePath, sourceCode);
       }
 
-      const compressionJobs = [];
-
-      async function collectCompressionJobs(directory) {
+      async function compressDirectory(directory) {
         const entries = await readdir(directory, { withFileTypes: true });
         await Promise.all(
           entries.map(async (entry) => {
             const filePath = path.join(directory, entry.name);
             if (entry.isDirectory()) {
-              await collectCompressionJobs(filePath);
+              await compressDirectory(filePath);
             } else if (/\.(js|css|html|mjs)$/.test(entry.name)) {
               const contents = await readFile(filePath);
-              compressionJobs.push(
-                Promise.resolve().then(async () => {
-                  const brotli = brotliCompressSync(contents, {
-                    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
-                  });
-                  await writeFile(filePath + ".br", brotli);
-                }),
-                Promise.resolve().then(async () => {
-                  const gzip = gzipSync(contents, { level: 9 });
-                  await writeFile(filePath + ".gz", gzip);
-                }),
-              );
+              await Promise.all([
+                writeFile(filePath + ".br", brotliCompressSync(contents, {
+                  params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
+                })),
+                writeFile(filePath + ".gz", gzipSync(contents, { level: 9 })),
+              ]);
             }
           }),
         );
       }
 
-      await Promise.all(
-        ["images"].map(async (assetDirectory) => {
-          try {
-            await cp(
-              path.join(projectRoot, "src", "assets", assetDirectory),
-              path.join(outputDirectory, "assets", assetDirectory),
-              { recursive: true },
-            );
-          } catch {}
-        }),
-      );
+      try {
+        await cp(
+          path.join(projectRoot, "src", "assets", "images"),
+          path.join(outputDirectory, "assets", "images"),
+          { recursive: true },
+        );
+      } catch {}
 
-      await collectCompressionJobs(outputDirectory);
-      await Promise.all(compressionJobs);
+      await compressDirectory(outputDirectory);
 
       console.log(`\nbuild id: ${buildId}`);
       console.log(`sw: /${serviceWorkerFileName}`);

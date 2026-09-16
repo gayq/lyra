@@ -26,6 +26,25 @@ pub struct FolioCachedResponse {
     pub fresh_until_ms: u64,
 }
 
+impl FolioCachedResponse {
+    pub fn cache_weight(&self, key: &str) -> u32 {
+        let headers = self.raw_headers.iter().fold(0usize, |size, (name, value)| {
+            size.saturating_add(name.capacity())
+                .saturating_add(value.capacity())
+        });
+        self.body
+            .len()
+            .saturating_add(key.len())
+            .saturating_add(self.url.capacity())
+            .saturating_add(self.status_text.capacity())
+            .saturating_add(self.raw_headers.capacity() * std::mem::size_of::<(String, String)>())
+            .saturating_add(headers)
+            .saturating_add(512)
+            .try_into()
+            .unwrap_or(u32::MAX)
+    }
+}
+
 #[derive(Default)]
 pub struct FolioMetrics {
     pub active_requests: AtomicU64,
@@ -38,6 +57,7 @@ pub struct FolioMetrics {
 }
 
 pub struct AppState {
+    pub memory_pressure: Arc<crate::memory::MemoryPressure>,
     pub html_client: Client,
     pub asset_client: Client,
     pub raw_client: Client,

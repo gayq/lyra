@@ -14,7 +14,7 @@
   width: calc(100% - 10px);
   padding: 14px 10px;
   margin: 5px;
-  border-radius: 16px;
+  border-radius: var(--radius-panel);
   font-size: 12px;
   color: var(--toast-text);
   font-weight: 400;
@@ -71,7 +71,7 @@
   border: 1px solid var(--toast-btn-border);
   color: var(--toast-text);
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-item);
   font-size: 11px;
   cursor: pointer;
   transition: background-color 0.1s ease;

@@ -102,7 +102,9 @@ configure_proxy_limits
 
 proxy_limits_active() {
   local limit value
-  for limit in cpu.max memory.high memory.max memory.swap.max pids.max; do
+  read -r value < "$1/memory.high" || return 1
+  [ "$value" = max ] || return 1
+  for limit in cpu.max memory.max memory.swap.max pids.max; do
     read -r value _ < "$1/$limit" || return 1
     [[ "$value" =~ ^[0-9]+$ ]] || return 1
     if [ "$limit" = memory.swap.max ]; then
@@ -1024,7 +1026,7 @@ Description=lyra proxy resource budget
 CPUAccounting=yes
 MemoryAccounting=yes
 CPUQuota=$((PROXY_CPUS * 70))%
-MemoryHigh=40%
+MemoryHigh=infinity
 MemoryMax=50%
 MemorySwapMax=0
 TasksMax=4096
@@ -1083,8 +1085,8 @@ User=mochi
 Group=mochi
 Type=simple
 Slice=lyra-proxy.slice
-MemoryHigh=$((MOCHI_MEMORY_MB * 80 / 100))M
-MemoryMax=${MOCHI_MEMORY_MB}M
+MemoryHigh=infinity
+MemoryMax=infinity
 OOMPolicy=kill
 WorkingDirectory=/var/cache/lyra-mochi/instance-%i
 EnvironmentFile=/etc/mochi/instance-%i.env

@@ -239,42 +239,24 @@ function isNotModified(req, file) {
 async function serveFile(req, filePath, cacheControl, options = {}) {
   const accept = req.headers.get("accept-encoding") || "";
   const canPrecompress = options.precompressed !== false && COMPRESSIBLE.test(filePath);
+  let file;
+  let encoding;
 
   if (canPrecompress) {
     for (const { token, ext } of ENCODING_MAP) {
       if (!accept.includes(token)) continue;
-      const encodedPath = `${filePath}${ext}`;
-      const encodedFile = await existingFile(encodedPath);
-      if (!encodedFile) continue;
-      const headers = baseHeaders(cacheControl, {
-        "Content-Type": options.type || contentType(filePath),
-        "Content-Encoding": token,
-        Vary: "Accept-Encoding",
-        ETag: encodedFile.etag,
-        "Last-Modified": encodedFile.lastModified,
-        ...options.headers,
-      });
-      if (
-        cacheControl !== NO_STORE_CACHE_CONTROL &&
-        (options.status || 200) === 200 &&
-        isNotModified(req, encodedFile)
-      ) {
-        return new Response(null, { status: 304, headers });
-      }
-      return new Response(req.method === "HEAD" ? null : encodedFile.file, {
-        status: options.status || 200,
-        headers: {
-          ...headers,
-          "Content-Length": String(encodedFile.file.size),
-        },
-      });
+      file = await existingFile(`${filePath}${ext}`);
+      if (!file) continue;
+      encoding = token;
+      break;
     }
   }
 
-  const file = await existingFile(filePath);
+  file ??= await existingFile(filePath);
   if (!file) return null;
   const headers = baseHeaders(cacheControl, {
     "Content-Type": options.type || contentType(filePath),
+    ...(encoding ? { "Content-Encoding": encoding } : {}),
     ...(canPrecompress ? { Vary: "Accept-Encoding" } : {}),
     ETag: file.etag,
     "Last-Modified": file.lastModified,

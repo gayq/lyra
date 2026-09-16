@@ -5,7 +5,7 @@
   transform: translate(-50%, -50%);
   background-color: var(--bg-body);
   padding: 30px;
-  border-radius: 15px;
+  border-radius: var(--radius-dialog);
   box-sizing: border-box;
   width: 620px;
   max-width: calc(100vw - 24px);
@@ -59,7 +59,7 @@
   background-color: var(--bg-surface-9);
   color: var(--text-primary);
   border: 2px solid #4141411a;
-  border-radius: 15px;
+  border-radius: var(--radius-control);
   font-size: 14px;
   outline: none;
   transition:
@@ -117,7 +117,7 @@
   border: 2px solid var(--border-transparent);
   color: var(--text-primary);
   padding: 8px 10px;
-  border-radius: 15px;
+  border-radius: var(--radius-control);
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -183,7 +183,7 @@
   color: var(--color-icon-muted);
   background-color: var(--bg-surface-7);
   border: 2px solid var(--border-transparent);
-  border-radius: 15px;
+  border-radius: var(--radius-panel);
   max-height: 400px;
   text-align: left;
   overflow: hidden;
@@ -224,7 +224,7 @@
 .anime-quality-options div,
 .theme-options div {
   padding: 6.5px;
-  border-radius: 10px;
+  border-radius: var(--radius-item);
   cursor: pointer;
   width: 93%;
   margin: 0 auto;
@@ -323,7 +323,7 @@ input[type="checkbox"]:checked:hover::before {
   border: 1px solid transparent;
   font-size: 15px;
   cursor: pointer;
-  border-radius: 15px;
+  border-radius: var(--radius-control);
   margin: 0;
   width: 175px;
   text-align: left;
@@ -390,7 +390,7 @@ input[type="checkbox"]:checked:hover::before {
 #settings-modal .rivet-file-button {
   align-items: center;
   border: none;
-  border-radius: 15px;
+  border-radius: var(--radius-control);
   box-sizing: border-box;
   cursor: pointer;
   display: inline-flex;
@@ -459,7 +459,7 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .rivet-extension-copy img {
-  border-radius: 0.45rem;
+  border-radius: var(--radius-detail);
   height: 2.25rem;
   object-fit: contain;
   width: 2.25rem;

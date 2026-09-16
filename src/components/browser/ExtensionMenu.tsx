@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useManagedModal } from "../../core/ui/modal.ts";
 import {
   EXTENSION_POPUP_MOUNTED_EVENT,
   getRivet,
@@ -120,6 +121,7 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLIFrameElement>(null);
   const [visible, setVisible] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [popupTabId, setPopupTabId] = useState<number | null>(null);
   const [extensions, setExtensions] = useState<InstalledExtensionSummary[]>([]);
@@ -129,14 +131,33 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
   );
   const [popupReady, setPopupReady] = useState(false);
 
-  const requestClose = useCallback(() => {
-    if (!visible) return;
+  const visibleRef = useRef(visible);
+  const isClosingRef = useRef(isClosing);
+  visibleRef.current = visible;
+  isClosingRef.current = isClosing;
+
+  const finishClose = useCallback(() => {
     setVisible(false);
+    setIsClosing(false);
     setSelectedId(null);
     setPopupTabId(null);
     setPopupReady(false);
     requestAnimationFrame(() => activeTriggerRef.current?.focus());
-  }, [visible]);
+  }, []);
+
+  const requestClose = useCallback(() => {
+    if (!visibleRef.current || isClosingRef.current) return;
+    setIsClosing(true);
+  }, []);
+
+  const { modalStateClass, onAnimationEnd } = useManagedModal({
+    visible,
+    isClosing,
+    onRequestClose: requestClose,
+    onCloseComplete: finishClose,
+    useOverlay: false,
+    closeOnOverlay: false,
+  });
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -168,7 +189,7 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
   }, [requestClose, selectedId]);
 
   useEffect(() => {
-    if (!visible || popupTabId !== tabId) return;
+    if (!visible || isClosing || popupTabId !== tabId) return;
     const closeOutside = (event: PointerEvent) => {
       const target = event.target as Node;
       if (
@@ -181,7 +202,7 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
     };
     window.addEventListener("pointerdown", closeOutside);
     return () => window.removeEventListener("pointerdown", closeOutside);
-  }, [popupTabId, requestClose, tabId, visible]);
+  }, [isClosing, popupTabId, requestClose, tabId, visible]);
 
   useEffect(() => {
     if (!visible || popupTabId !== tabId || popupTabId === null) return;
@@ -190,15 +211,6 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
     const closeFromPage = () => requestClose();
     pageFrame.addEventListener("iframe-focus", closeFromPage);
     return () => pageFrame.removeEventListener("iframe-focus", closeFromPage);
-  }, [popupTabId, requestClose, tabId, visible]);
-
-  useEffect(() => {
-    if (!visible || popupTabId !== tabId) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") requestClose();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
   }, [popupTabId, requestClose, tabId, visible]);
 
   useEffect(() => {
@@ -385,7 +397,10 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
     <div class="rivet-toolbar" ref={toolbarRef}>
       {extensions.map((extension) => {
         const isOpen =
-          visible && popupTabId === tabId && selectedId === extension.id;
+          visible &&
+          !isClosing &&
+          popupTabId === tabId &&
+          selectedId === extension.id;
         return (
           <button
             type="button"
@@ -407,6 +422,7 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
               }
               const initialSize =
                 popupSizeCache.get(extension.id) ?? DEFAULT_POPUP_SIZE;
+              setIsClosing(false);
               setSelectedId(extension.id);
               setPopupTabId(tabId);
               setPopupReady(false);
@@ -430,7 +446,10 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
           </button>
         );
       })}
-      {visible && popupTabId === tabId && selected ? (
+      {visible &&
+        popupTabId !== null &&
+        selectedId !== null &&
+        (popupTabId === tabId || isClosing) ? (
         <>
           <div
             class="rivet-popup-backdrop"
@@ -442,10 +461,13 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
           />
           <div
             ref={panelRef}
-            class={`rivet-toolbar-panel${popupReady ? "" : " measuring"}`}
+            class={`rivet-toolbar-panel ${modalStateClass}${
+              !popupReady && !isClosing ? " measuring" : ""
+            }`}
             style={`width:${popupPlacement.width}px;height:${popupPlacement.height}px;left:${popupPlacement.left}px;top:${popupPlacement.top}px;--rivet-popup-anchor-x:${popupPlacement.anchorX}px`}
             role="dialog"
             aria-busy={!popupReady}
+            onAnimationEnd={onAnimationEnd}
           >
             <iframe ref={popupRef} />
           </div>

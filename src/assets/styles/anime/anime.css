@@ -60,7 +60,7 @@ body.anime-view .anime-topbar {
   background: rgba(239, 68, 68, 0.85);
   color: #fff;
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-detail);
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;

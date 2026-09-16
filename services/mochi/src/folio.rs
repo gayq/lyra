@@ -254,7 +254,7 @@ pub async fn request_handler(
         let _permit = permit;
         let _active = active;
         let mut stream = upstream.bytes_stream();
-        let mut buffered = can_buffer.then(|| BytesMut::with_capacity(cache_limit.min(256 * 1024)));
+        let mut buffered = (can_buffer && cache_key.is_some()).then(BytesMut::new);
 
         while let Some(next) = stream.next().await {
             match next {
@@ -293,7 +293,7 @@ pub async fn request_handler(
                 status_text,
                 url: upstream_url,
                 raw_headers,
-                body: buffer.freeze(),
+                body: finish_cached_body(buffer),
                 fresh_until_ms,
             });
             state_for_stream.folio_cache.insert(cache_key, entry).await;
@@ -301,6 +301,10 @@ pub async fn request_handler(
     });
 
     response_with_meta(Body::from_stream(ReceiverStream::new(receiver)), &meta)
+}
+
+fn finish_cached_body(buffer: BytesMut) -> Bytes {
+    Bytes::copy_from_slice(&buffer)
 }
 
 fn target_from_uri(uri: &Uri) -> Option<String> {

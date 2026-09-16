@@ -90,7 +90,7 @@ body.is-resizing .iframe {
 
 ::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
-    border-radius: 6px;
+    border-radius: var(--radius-frame);
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -179,7 +179,7 @@ body.split-view #iframe-container {
 body.is-picking-split #iframe-container .iframe,
 body.split-view #iframe-container .iframe {
     border: 1px solid var(--split-border);
-    border-radius: 6px;
+    border-radius: var(--radius-frame);
     display: none;
     flex-basis: 0;
     flex-grow: 1;
@@ -219,7 +219,7 @@ body.split-view #iframe-container .iframe.active-split-right {
 }
 
 #iframe-container {
-    border-radius: 6px;
+    border-radius: var(--radius-frame);
     contain: layout style;
     display: none;
     flex-grow: 1;
@@ -542,7 +542,7 @@ body.anime-view #anime-icon svg path {
     color: var(--text-white);
     font-size: 11px;
     padding: 5px 11px;
-    border-radius: 8px;
+    border-radius: var(--radius-tooltip);
     white-space: nowrap;
     pointer-events: none;
     z-index: 1300;
@@ -560,7 +560,7 @@ body.anime-view #anime-icon svg path {
 }
 
 .input-container input {
-    border-radius: 15px;
+    border-radius: var(--radius-control);
     box-sizing: border-box;
     margin-bottom: 15px;
     margin-top: 15px;
@@ -579,7 +579,7 @@ body.anime-view #anime-icon svg path {
 .prompt-close-btn {
     background-color: var(--btn-secondary-bg);
     border: none;
-    border-radius: 15px;
+    border-radius: var(--radius-control);
     color: var(--btn-secondary-text);
     cursor: pointer;
     font-size: 16px;
@@ -602,7 +602,7 @@ body.anime-view #anime-icon svg path {
 .text-icon-btn {
     align-items: center;
     background-color: var(--bg-surface-3);
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     box-sizing: content-box;
     color: var(--text-white);
     cursor: pointer;
@@ -649,7 +649,7 @@ body.anime-view #anime-icon svg path {
 .omnibox input[type="text"] {
     background-color: var(--active-bg-subtle);
     border: none;
-    border-radius: 20px;
+    border-radius: var(--radius-pill);
     box-sizing: border-box;
     color: var(--text-secondary);
     font-size: 12px;
@@ -734,7 +734,7 @@ body.anime-view #anime-icon svg path {
 }
 
 #branding-container {
-    border-radius: 25px;
+    border-radius: var(--radius-bar);
     cursor: pointer;
     gap: 8px;
     height: auto;
@@ -832,7 +832,7 @@ body.anime-view #anime-icon svg path {
 .search-bar input[type="text"] {
     background-color: transparent;
     border: transparent;
-    border-radius: 25px;
+    border-radius: var(--radius-bar);
     color: var(--text-primary);
     font-size: 14px;
     outline: none;
@@ -885,7 +885,7 @@ body.anime-view #anime-icon svg path {
 .light,
 .light-border {
     backface-visibility: hidden;
-    border-radius: 25px;
+    border-radius: var(--radius-bar);
     inset: 0;
     opacity: 0;
     overflow: hidden;
@@ -923,7 +923,7 @@ body.anime-view #anime-icon svg path {
 
 .light-inset-bg {
     background-color: var(--search-inset-bg);
-    border-radius: 24px;
+    border-radius: calc(var(--radius-bar) - 0.8px);
     inset: 0.8px;
     position: absolute;
     transition: background-color 0.1s ease;
@@ -974,7 +974,7 @@ body.anime-view #anime-icon svg path {
 
 .popup {
     background-color: var(--bg-body);
-    border-radius: 20px;
+    border-radius: var(--radius-dialog);
     color: var(--text-primary);
     display: none;
     left: 50%;
@@ -999,7 +999,6 @@ body.anime-view #anime-icon svg path {
 
 .popup.new-tab-modal {
     background: transparent;
-    border-radius: 10px;
     padding: 0;
     top: 45%;
     max-width: 400px;
@@ -1090,7 +1089,7 @@ body.anime-view #anime-icon svg path {
     animation: fadeIn 0.1s forwards;
     backdrop-filter: blur(10px);
     background-color: var(--bg-body);
-    border-radius: 20px;
+    border-radius: var(--radius-dialog);
     color: var(--text-primary);
     display: none;
     left: 50%;
@@ -1127,7 +1126,6 @@ body.anime-view #anime-icon svg path {
 .popup .input-container input {
     background-color: var(--input-bg);
     border: 1px solid var(--input-border);
-    border-radius: 15px;
     color: var(--input-text-light);
     font-size: 14px;
     margin-bottom: 5px;
@@ -1140,7 +1138,7 @@ body.anime-view #anime-icon svg path {
 .popup .input-container button {
     background-color: var(--btn-primary-bg);
     border: none;
-    border-radius: 15px;
+    border-radius: var(--radius-control);
     color: var(--btn-primary-text);
     cursor: pointer;
     font-size: 16px;
@@ -1170,24 +1168,24 @@ body.anime-view #anime-icon svg path {
 @keyframes modalIn {
     0% {
         opacity: 0;
-        transform: translate3d(-50%, -50%, 0) scale(0.94);
+        transform: var(--modal-position-transform, translate3d(-50%, -50%, 0)) scale(0.94);
     }
 
     to {
         opacity: 1;
-        transform: translate3d(-50%, -50%, 0) scale(1);
+        transform: var(--modal-position-transform, translate3d(-50%, -50%, 0)) scale(1);
     }
 }
 
 @keyframes modalOut {
     0% {
         opacity: 1;
-        transform: translate3d(-50%, -50%, 0) scale(1);
+        transform: var(--modal-position-transform, translate3d(-50%, -50%, 0)) scale(1);
     }
 
     to {
         opacity: 0;
-        transform: translate3d(-50%, -50%, 0) scale(0.94);
+        transform: var(--modal-position-transform, translate3d(-50%, -50%, 0)) scale(0.94);
     }
 }
 

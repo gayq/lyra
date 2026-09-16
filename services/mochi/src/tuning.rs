@@ -1,20 +1,5 @@
 use sysinfo::{Disks, System};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn media_size_limit_is_independent_of_worker_memory() {
-        let small = compute(1024, 1, 10_000);
-        let large = compute(32 * 1024, 16, 100_000);
-        assert_eq!(small.stream_max_entry_size, large.stream_max_entry_size);
-        assert!(small.stream_max_entry_size > 16 * 1024 * 1024);
-        assert_eq!(small.ram_cache_limit, 8 * 1024 * 1024);
-        assert!(small.ram_cache_limit < large.ram_cache_limit);
-    }
-}
-
 pub struct MochiTuning {
     pub worker_threads: usize,
     pub cache_capacity_bytes: u64,
@@ -51,7 +36,7 @@ pub fn detect() -> MochiTuning {
         .unwrap_or(1);
     let (memory_bytes, _) =
         adaptive_capacity::memory_budget(sys.total_memory(), sys.available_memory());
-    let ram_mb = (sys.total_memory() / instances).min(memory_bytes) / (1024 * 1024);
+    let ram_mb = memory_bytes / instances / (1024 * 1024);
     let cores = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(2)

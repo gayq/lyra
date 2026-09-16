@@ -79,7 +79,7 @@ body.anime-view .anime-topbar {
   width: calc(100% - 90px);
   min-width: 0;
   padding: 18px;
-  border-radius: 25px;
+  border-radius: var(--radius-bar);
   background-color: transparent;
   border: transparent;
   color: var(--text-primary);
@@ -132,7 +132,7 @@ body.anime-view .anime-page {
 
 .game-card,
 .anime-card {
-  border-radius: 10px;
+  border-radius: var(--radius-item);
   background-color: var(--game-card-bg);
   width: 100%;
   padding: 0;

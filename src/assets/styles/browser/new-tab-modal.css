@@ -1,12 +1,12 @@
 .new-tab-unified-wrapper {
     background-color: var(--bg-surface-5);
-    border-radius: 14px;
+    border-radius: inherit;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     transition: background-color 0.1s ease;
     contain: layout style paint;
-    backface-visibility: hidden;
+    backface-visibility: hidden;    
 }
 
 .new-tab-search-container {
@@ -73,7 +73,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    border-radius: 12px;
+    border-radius: var(--radius-item);
 }
 
 .new-tab-result-item svg {

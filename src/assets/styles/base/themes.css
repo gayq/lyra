@@ -1,3 +1,15 @@
+:root {
+    --radius-detail: 4px;
+    --radius-frame: 6px;
+    --radius-tooltip: 8px;
+    --radius-item: 10px;
+    --radius-control: 15px;
+    --radius-panel: var(--radius-control);
+    --radius-dialog: 20px;
+    --radius-bar: 25px;
+    --radius-pill: 999px;
+}
+
 :root,
 [data-theme="default"] {
     --bg-body: #050505;

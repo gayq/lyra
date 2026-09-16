@@ -42,7 +42,7 @@
 .episode-season-tab {
   padding: 6px 10px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-item);
   background-color: var(--bg-surface-2);
   color: var(--text-secondary);
   font-size: 11px;

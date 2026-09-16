@@ -3,6 +3,7 @@ mod constants;
 mod encoding;
 mod folio;
 mod helpers;
+mod memory;
 mod proxy;
 mod rewrite;
 mod safe_dns;
@@ -156,8 +157,8 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
     let folio_cache = Cache::builder()
         .max_capacity((tuning.cache_capacity_bytes / 2).max(64 * 1024 * 1024))
         .weigher(
-            |_key: &String, response: &Arc<state::FolioCachedResponse>| -> u32 {
-                (response.body.len() as u32).saturating_add(512)
+            |key: &String, response: &Arc<state::FolioCachedResponse>| -> u32 {
+                response.cache_weight(key)
             },
         )
         .time_to_live(Duration::from_secs(tuning.cache_ttl_secs))
@@ -255,6 +256,7 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
     );
 
     let state = Arc::new(AppState {
+        memory_pressure: Arc::new(memory::MemoryPressure::default()),
         html_client,
         asset_client,
         raw_client,
@@ -277,6 +279,8 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         ram_cache_limit: tuning.ram_cache_limit,
         channel_buffer: tuning.channel_buffer,
     });
+
+    memory::spawn_monitor(state.clone());
 
     let port = std::env::var("MOCHI_PORT").unwrap_or_else(|_| "4002".to_string());
     let port = port.parse::<u16>().unwrap_or(4002);
@@ -363,6 +367,10 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .route("/", any(proxy::proxy_handler))
         .route("/*path", any(proxy::proxy_handler))
         .fallback(any(proxy::proxy_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.memory_pressure.clone(),
+            memory::admit,
+        ))
         .layer(CompressionLayer::new().compress_when(compression_predicate))
         .layer(cors)
         .with_state(state);

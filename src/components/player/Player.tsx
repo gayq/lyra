@@ -564,8 +564,6 @@ export default function Player() {
       
     }
   }, []);
-  const [showKeys, setShowKeys] = useState(false);
-
   const captionRef = useRef<HTMLDivElement | null>(null);
   const captionTrackRef = useRef<TextTrack | null>(null);
   const captionChangeRef = useRef<(() => void) | null>(null);
@@ -2188,9 +2186,6 @@ export default function Player() {
         case "<":
           setSpeed(Math.max(0.5, rate - 0.25));
           break;
-        case "?":
-          setShowKeys(!showKeys);
-          break;
       }
     };
     document.addEventListener("keydown", handleKeydown);
@@ -2205,7 +2200,6 @@ export default function Player() {
     syncMediaState,
     volume,
     rate,
-    showKeys,
   ]);
 
   useEffect(() => {
@@ -2508,15 +2502,20 @@ export default function Player() {
                   <IconVolumeFull size={24} />
                 )}
               </button>
-              <input
-                type="range"
-                class="volume-slider"
-                min="0"
-                max="100"
-                value={muted ? 0 : volume}
-                onInput={handleVolume}
+              <div
+                class="volume-slider-wrap"
                 style={{ "--vol-pct": `${muted ? 0 : volume}%` } as any}
-              />
+              >
+                <input
+                  type="range"
+                  class="volume-slider"
+                  min="0"
+                  max="100"
+                  value={muted ? 0 : volume}
+                  onInput={handleVolume}
+                  aria-label="volume"
+                />
+              </div>
             </div>
             <div ref={timeDisplayRef} class="time-display">
               --:-- / {durationLabel}
@@ -2807,36 +2806,6 @@ export default function Player() {
           </div>
         </div>
 
-        {showKeys && (
-          <div class="shortcuts-overlay" onClick={() => setShowKeys(false)}>
-            <div
-              class="shortcuts-card"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <h3>keyboard shortcuts</h3>
-              <div class="shortcuts-grid">
-                <kbd>space / k</kbd>
-                <span>play / pause</span>
-                <kbd>← →</kbd>
-                <span>seek 5s</span>
-                <kbd>j l</kbd>
-                <span>seek 10s</span>
-                <kbd>0–9</kbd>
-                <span>seek to 0–90%</span>
-                <kbd>↑ ↓</kbd>
-                <span>volume</span>
-                <kbd>m</kbd>
-                <span>mute</span>
-                <kbd>f</kbd>
-                <span>fullscreen</span>
-                <kbd>c</kbd>
-                <span>captions</span>
-                <kbd>?</kbd>
-                <span>toggle this</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
