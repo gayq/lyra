@@ -1577,9 +1577,9 @@ fi
 sudo systemctl daemon-reload
 sudo systemctl start lyra-proxy.slice
 PROXY_CGROUP=$(systemctl show --property=ControlGroup --value lyra-proxy.slice)
-if [ -z "$PROXY_CGROUP" ] || ! proxy_limits_active "/sys/fs/cgroup$PROXY_CGROUP" 2>/dev/null; then
-  fail "proxy resource limits could not be activated"
-  exit 1
+if [ -z "$PROXY_CGROUP" ] || ! retry 5 proxy_limits_active "/sys/fs/cgroup$PROXY_CGROUP"; then
+    fail "proxy resource limits could not be activated"
+    exit 1
 fi
 sudo systemctl enable "${MOCHI_SERVICES[@]}" >/dev/null 2>&1
 sudo systemctl restart "${MOCHI_SERVICES[@]}"
