@@ -10,8 +10,8 @@ export const DEFAULT_BOOKMARKS: Bookmark[] = [
   { name: "mangas", url: "https://atsu.moe/", icon: `/!cover!/${encodeMochiUrl("https://atsu.moe/favicon.ico")}/` },
   { name: "discord", url: "https://discord.com/login/", icon: `/!cover!/${encodeMochiUrl("https://discord.com/assets/favicon.ico")}/` },
   { name: "ao3", url: "https://archiveofourown.org/", icon: `/!cover!/${encodeMochiUrl("https://archiveofourown.org/favicon.ico")}/` },
+  { name: "youtube", url: "https://youtube.com/" },
   { name: "soundcloud", url: "https://soundcloud.com/", icon: `/!cover!/${encodeMochiUrl("https://a-v2.sndcdn.com/assets/images/sc-icons/favicon-c93ce58b59.ico")}/` },
-  { name: "github", url: "https://github.com/" },
 ];
 
 export const SEARCH_ENGINES = {
