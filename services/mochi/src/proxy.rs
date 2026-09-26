@@ -6,9 +6,9 @@ use crate::helpers::{
     is_likely_static_asset_fast,
 };
 use crate::rewrite::{rewrite_css_urls, rewrite_html};
-use crate::safe_dns::{validate_public_target, validate_public_target_dns};
+use crate::safe_dns::validate_public_target;
 use crate::state::{AppState, CachedResponse};
-use crate::websocket::handle_socket;
+use crate::websocket::{self, handle_socket};
 use crate::{negative_message, NEGATIVE};
 use axum::{
     body::Body,
@@ -40,7 +40,6 @@ static SEC_CH_UA: &str =
 static MOCHI_UPSTREAM_META_HEADER: &str = "x-mochi-upstream-meta";
 const MAX_COVER_BODY_SIZE: usize = 5 * 1024 * 1024;
 const MAX_UPSTREAM_ATTEMPTS: usize = 3;
-const MAX_UPSTREAM_ERROR_BODY_SIZE: usize = 16 * 1024;
 const MAX_HTML_BODY_SIZE: usize = 16 * 1024 * 1024;
 const MAX_CSS_BODY_SIZE: usize = 4 * 1024 * 1024;
 
@@ -127,6 +126,10 @@ pub async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     })
 }
 
+pub(crate) fn safe_to_retry(method: &Method) -> bool {
+    matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
+}
+
 fn is_retryable_upstream_status(status: u16) -> bool {
     matches!(status, 408 | 425 | 429) || status >= 500
 }
@@ -150,40 +153,6 @@ fn upstream_network_error_response() -> Response {
         StatusCode::BAD_GATEWAY,
         headers,
         negative_message("the game source could not be reached"),
-    )
-        .into_response()
-}
-
-fn upstream_status_error_response(status: StatusCode) -> Response {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "content-type",
-        HeaderValue::from_static("text/plain; charset=utf-8"),
-    );
-    headers.insert("cache-control", HeaderValue::from_static("no-store"));
-    let class = if status.is_server_error()
-        || matches!(
-            status,
-            StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_EARLY | StatusCode::TOO_MANY_REQUESTS
-        ) {
-        proxy_metrics()
-            .temporary_source_errors
-            .fetch_add(1, Ordering::Relaxed);
-        "temporary-source"
-    } else {
-        proxy_metrics()
-            .unavailable_source_errors
-            .fetch_add(1, Ordering::Relaxed);
-        "unavailable"
-    };
-    headers.insert("x-lyra-error-class", HeaderValue::from_static(class));
-    (
-        status,
-        headers,
-        negative_message(&format!(
-            "the game source returned http {}",
-            status.as_u16()
-        )),
     )
         .into_response()
 }
@@ -280,7 +249,10 @@ fn sanitize_forwarded_cookie(cookie: &str) -> String {
     safe_cookie
 }
 
-fn build_safe_response_headers(res_headers_ref: &HeaderMap, is_likely_asset: bool) -> HeaderMap {
+pub(crate) fn build_safe_response_headers(
+    res_headers_ref: &HeaderMap,
+    is_likely_asset: bool,
+) -> HeaderMap {
     let mut safe_headers = HeaderMap::with_capacity(res_headers_ref.len());
     for (k, v) in res_headers_ref.iter() {
         let key_str = k.as_str();
@@ -290,7 +262,7 @@ fn build_safe_response_headers(res_headers_ref: &HeaderMap, is_likely_asset: boo
                 let safe_cookie = sanitize_forwarded_cookie(cookie_str);
                 safe_headers.append(k, HeaderValue::from_str(&safe_cookie).unwrap_or(v.clone()));
             } else {
-                safe_headers.insert(k, v.clone());
+                safe_headers.append(k, v.clone());
             }
         }
     }
@@ -307,20 +279,19 @@ fn request_allows_shared_cache(headers: &HeaderMap) -> bool {
         return false;
     }
 
-    let Some(cookie_header) = headers.get("cookie").and_then(|value| value.to_str().ok()) else {
-        return true;
-    };
-
-    cookie_header
-        .split(';')
-        .map(str::trim)
-        .filter(|cookie| !cookie.is_empty())
-        .all(|cookie| {
-            cookie
-                .split_once('=')
-                .map(|(name, _)| name.trim() == "mochi_base")
-                .unwrap_or(false)
+    headers.get_all("cookie").iter().all(|value| {
+        value.to_str().is_ok_and(|value| {
+            value
+                .split(';')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .all(|cookie| {
+                    cookie
+                        .split_once('=')
+                        .is_some_and(|(name, _)| name.trim() == "mochi_base")
+                })
         })
+    })
 }
 
 fn request_forces_refresh(headers: &HeaderMap) -> bool {
@@ -347,32 +318,30 @@ fn request_forces_refresh(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-fn response_allows_shared_cache(headers: &HeaderMap) -> bool {
-    if headers.contains_key("set-cookie") {
-        return false;
-    }
-
-    if headers
-        .get("vary")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        return false;
-    }
-
-    headers
-        .get("cache-control")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value.split(',').any(|directive| {
-                matches!(
-                    directive.trim().to_ascii_lowercase().as_str(),
-                    "private" | "no-store" | "no-cache"
-                )
+pub(crate) fn response_allows_shared_cache(headers: &HeaderMap) -> bool {
+    !headers.contains_key("set-cookie")
+        && !headers.contains_key("content-range")
+        && !headers
+            .get_all("vary")
+            .iter()
+            .any(|v| v.to_str().map_or(true, |v| !v.trim().is_empty()))
+        && !headers.get_all("cache-control").iter().any(|v| {
+            v.to_str().map_or(true, |v| {
+                v.split(',').any(|directive| {
+                    matches!(
+                        directive
+                            .trim()
+                            .split('=')
+                            .next()
+                            .unwrap_or("")
+                            .trim()
+                            .to_ascii_lowercase()
+                            .as_str(),
+                        "private" | "no-store" | "no-cache"
+                    )
+                })
             })
         })
-        .map(|has_private_directive| !has_private_directive)
-        .unwrap_or(true)
 }
 
 fn shared_cache_allowed(
@@ -397,6 +366,7 @@ fn apply_common_request_headers(
         if !is_blacklisted_header(key_str)
             && !key_str.starts_with("cf-")
             && !key_str.starts_with("x-")
+            && !matches!(key_str, "origin" | "referer" | "cookie")
         {
             if !is_likely_asset && key_str == "accept-encoding" {
                 continue;
@@ -424,7 +394,27 @@ fn apply_common_request_headers(
         req_builder = req_builder.header("Priority", "u=1, i");
     }
 
+    for value in headers.get_all("cookie") {
+        if let Ok(value) = value.to_str() {
+            let value = value
+                .split(';')
+                .map(str::trim)
+                .filter(|cookie| {
+                    !cookie
+                        .split_once('=')
+                        .is_some_and(|(name, _)| name.trim() == "mochi_base")
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            if !value.is_empty() {
+                req_builder = req_builder.header("cookie", value);
+            }
+        }
+    }
     let origin = target_url.origin().ascii_serialization();
+    if headers.contains_key("origin") {
+        req_builder = req_builder.header("Origin", &origin);
+    }
     req_builder = req_builder.header("Referer", format!("{}/", origin));
     req_builder
 }
@@ -440,7 +430,12 @@ async fn send_upstream_with_retries(
 ) -> Result<reqwest::Response, reqwest::Error> {
     let mut last_error = None;
 
-    for attempt in 0..MAX_UPSTREAM_ATTEMPTS {
+    let attempts = if safe_to_retry(method) {
+        MAX_UPSTREAM_ATTEMPTS
+    } else {
+        1
+    };
+    for attempt in 0..attempts {
         proxy_metrics()
             .upstream_requests
             .fetch_add(1, Ordering::Relaxed);
@@ -452,15 +447,13 @@ async fn send_upstream_with_retries(
             is_likely_asset,
             is_html_page,
         );
-        req_builder =
-            req_builder.timeout(Duration::from_secs(if is_likely_asset { 60 } else { 45 }));
 
         if !req_body.is_empty() {
             req_builder = req_builder.body(req_body.clone());
         }
         match req_builder.send().await {
             Ok(response) => {
-                if attempt + 1 < MAX_UPSTREAM_ATTEMPTS
+                if attempt + 1 < attempts
                     && is_retryable_upstream_status(response.status().as_u16())
                 {
                     proxy_metrics()
@@ -473,8 +466,7 @@ async fn send_upstream_with_retries(
                 return Ok(response);
             }
             Err(error) => {
-                let should_retry =
-                    attempt + 1 < MAX_UPSTREAM_ATTEMPTS && is_retryable_upstream_error(&error);
+                let should_retry = attempt + 1 < attempts && is_retryable_upstream_error(&error);
                 if should_retry {
                     proxy_metrics()
                         .upstream_retries
@@ -490,23 +482,6 @@ async fn send_upstream_with_retries(
     }
 
     Err(last_error.expect("upstream attempt did not produce a result... /ᐠ - ˕ -マ"))
-}
-
-async fn drain_limited_error_body(response: reqwest::Response) -> usize {
-    let mut stream = response.bytes_stream();
-    let mut total = 0usize;
-    while let Some(chunk) = stream.next().await {
-        match chunk {
-            Ok(bytes) => {
-                total = total.saturating_add(bytes.len());
-                if total >= MAX_UPSTREAM_ERROR_BODY_SIZE {
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-    }
-    total.min(MAX_UPSTREAM_ERROR_BODY_SIZE)
 }
 
 async fn read_limited_body(response: reqwest::Response, max_size: usize) -> Result<Bytes, ()> {
@@ -682,7 +657,9 @@ pub async fn raw_proxy_handler(
     let mut safe_headers = build_safe_response_headers(upstream_res.headers(), is_likely_asset);
     safe_headers.remove("set-cookie");
     safe_headers.remove("content-length");
-    fix_game_content_type(&target_url_string, &mut safe_headers);
+    if status.is_success() {
+        fix_game_content_type(&target_url_string, &mut safe_headers);
+    }
     safe_headers.insert("access-control-allow-origin", HeaderValue::from_static("*"));
     safe_headers.insert(
         "access-control-expose-headers",
@@ -718,6 +695,7 @@ pub async fn proxy_handler(
     headers: HeaderMap,
     uri: Uri,
     ws: Option<WebSocketUpgrade>,
+    client_permit: Option<axum::Extension<Arc<crate::admission::ClientPermit>>>,
     req_body: Bytes,
 ) -> Response {
     proxy_metrics().requests.fetch_add(1, Ordering::Relaxed);
@@ -730,8 +708,10 @@ pub async fn proxy_handler(
     } else {
         constants::MOCHI_PREFIX
     };
-    let prefix_pos = path_and_query.find(prefix).unwrap_or(0);
-    let raw_target = &path_and_query[prefix_pos + prefix.len()..];
+    let raw_target = path_and_query
+        .find(prefix)
+        .map(|position| &path_and_query[position + prefix.len()..])
+        .unwrap_or_else(|| path_and_query.trim_start_matches('/'));
     let decoded_target_owned = if !raw_target.starts_with("http")
         && !raw_target.starts_with("ws")
         && !raw_target.is_empty()
@@ -861,43 +841,37 @@ pub async fn proxy_handler(
                     )
                 }
             };
-            if let Err(reason) = validate_public_target_dns(&validation_url).await {
-                warn!("blocked websocket target: {}{}", reason, NEGATIVE);
-                return classified_error_response(
-                    StatusCode::FORBIDDEN,
-                    "invalid-request",
-                    "game source target is not allowed",
-                );
-            }
-
-            let mut protocols = Vec::new();
-            if let Some(p) = headers.get("sec-websocket-protocol") {
-                if let Ok(s) = p.to_str() {
-                    protocols = s.split(',').map(|x| x.trim().to_string()).collect();
-                }
-            }
-            let ws = if !protocols.is_empty() {
-                ws.protocols(protocols)
-            } else {
-                ws
-            };
-
-            let Some(permit) = state
-                .request_permit
-                .acquire_timeout(Duration::from_secs(5))
-                .await
-            else {
+            let Ok(permit) = state.websocket_permit.clone().try_acquire_owned() else {
                 return classified_error_response(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "infrastructure",
-                    "proxy capacity is temporarily exhausted",
+                    "websocket capacity is temporarily exhausted",
                 );
             };
-            let headers_clone = headers.clone();
-            return ws.on_upgrade(move |socket| async move {
-                let _permit = permit;
-                handle_socket(socket, real_target, headers_clone).await;
-            });
+            let (upstream, protocol) =
+                match websocket::connect(&real_target, &validation_url, &headers).await {
+                    Ok(connected) => connected,
+                    Err(_) => {
+                        return classified_error_response(
+                            StatusCode::BAD_GATEWAY,
+                            "network",
+                            "websocket connection failed",
+                        )
+                    }
+                };
+            let ws = if let Some(protocol) = protocol {
+                ws.protocols([protocol])
+            } else {
+                ws
+            };
+            return ws
+                .max_message_size(websocket::MAX_MESSAGE_SIZE)
+                .max_frame_size(websocket::MAX_MESSAGE_SIZE)
+                .on_upgrade(move |socket| async move {
+                    let _permit = permit;
+                    let _client_permit = client_permit;
+                    handle_socket(socket, upstream).await;
+                });
         }
     }
 
@@ -929,10 +903,20 @@ pub async fn proxy_handler(
 
     let request_cache_allowed = request_allows_shared_cache(&headers);
 
-    if method == Method::GET && !force_refresh && request_cache_allowed {
+    if method == Method::GET
+        && !force_refresh
+        && request_cache_allowed
+        && !headers.contains_key("range")
+    {
         if let Some(cached) = state.cache.get(target_url_str).await {
             proxy_metrics().cache_hits.fetch_add(1, Ordering::Relaxed);
             let mut res_headers = cached.headers.clone();
+            if res_headers
+                .get("content-type")
+                .is_some_and(|v| v.as_bytes().starts_with(b"text/html"))
+            {
+                add_base_cookie(&mut res_headers, valid_token.as_deref());
+            }
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
 
             fix_game_content_type(target_url_str, &mut res_headers);
@@ -1048,16 +1032,8 @@ pub async fn proxy_handler(
         );
     }
 
-    if !status.is_success() {
-        let body_bytes = drain_limited_error_body(upstream_res).await;
-        proxy_metrics()
-            .upstream_errors
-            .fetch_add(1, Ordering::Relaxed);
-        error!(
-            "upstream returned non-success status {} (read {} error bytes){}",
-            status, body_bytes, NEGATIVE
-        );
-        return upstream_status_error_response(status);
+    if status.is_client_error() || status.is_server_error() {
+        return passthrough_response(upstream_res, request_permit);
     }
 
     let res_headers_ref = upstream_res.headers();
@@ -1095,14 +1071,14 @@ pub async fn proxy_handler(
         && !target_url_str.ends_with(".swf")
         && !target_url_str.ends_with(".wasm");
 
-    if is_html && status.is_success() && !is_likely_asset && method == Method::GET {
+    if is_html
+        && status == StatusCode::OK
+        && !headers.contains_key("range")
+        && !is_likely_asset
+        && method == Method::GET
+    {
         safe_headers.remove("content-length");
         safe_headers.remove("content-encoding");
-
-        if let Some(token) = &valid_token {
-            let cookie_val = format!("mochi_base={}; Path=/; SameSite=Lax", token);
-            safe_headers.append("set-cookie", HeaderValue::from_str(&cookie_val).unwrap());
-        }
 
         let html_permit = match state
             .html_rewrite_permit
@@ -1141,12 +1117,12 @@ pub async fn proxy_handler(
         })
         .await
         {
-            Ok(body) => body,
-            Err(error) => {
+            Ok(Ok(body)) => body,
+            _ => {
                 proxy_metrics()
                     .implementation_errors
                     .fetch_add(1, Ordering::Relaxed);
-                error!("html rewrite task failed: {}{}", error, NEGATIVE);
+                error!("html rewrite failed{}", NEGATIVE);
                 return classified_error_response(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "implementation",
@@ -1185,6 +1161,7 @@ pub async fn proxy_handler(
             });
         }
 
+        add_base_cookie(&mut safe_headers, valid_token.as_deref());
         return (status, safe_headers, Body::from(body_bytes)).into_response();
     }
 
@@ -1211,7 +1188,8 @@ pub async fn proxy_handler(
         && !headers.contains_key("upgrade")
         && !headers.contains_key("range");
 
-    if is_css && status.is_success() && method == Method::GET {
+    if is_css && status == StatusCode::OK && !headers.contains_key("range") && method == Method::GET
+    {
         safe_headers.remove("content-length");
         let full_body = match read_limited_body(upstream_res, MAX_CSS_BODY_SIZE).await {
             Ok(body) => body,
@@ -1227,14 +1205,11 @@ pub async fn proxy_handler(
         let rewritten_css = rewrite_css_urls(&css_str, &target_url);
         let rewritten_bytes = Bytes::from(rewritten_css.into_bytes());
 
-        if !should_cache {
+        if should_cache {
             safe_headers.insert(
                 "Cache-Control",
                 HeaderValue::from_static(get_cdn_cache_control(&target_url_string)),
             );
-        } else {
-            let cc = get_cdn_cache_control(&target_url_string);
-            safe_headers.insert("Cache-Control", HeaderValue::from_static(cc));
         }
 
         if should_cache && rewritten_bytes.len() <= state.max_cache_entry_size {
@@ -1273,15 +1248,19 @@ pub async fn proxy_handler(
                         total_size += chunk.len();
                         if total_size < max_entry {
                             accumulator.extend_from_slice(&chunk);
+                        } else {
+                            accumulator = Vec::new();
                         }
                         if sender_tx.send(Ok(chunk)).await.is_err() {
                             aborted = true;
                             break;
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         let _ = sender_tx
-                            .send(Err(std::io::Error::other(e.to_string())))
+                            .send(Err(std::io::Error::other(
+                                "upstream stream failed... /ᐠ - ˕ -マ",
+                            )))
                             .await;
                         aborted = true;
                         break;
@@ -1313,7 +1292,11 @@ pub async fn proxy_handler(
 }
 
 fn not_modified_response(headers: &HeaderMap) -> Response {
-    (StatusCode::NOT_MODIFIED, build_safe_response_headers(headers, false)).into_response()
+    (
+        StatusCode::NOT_MODIFIED,
+        build_safe_response_headers(headers, false),
+    )
+        .into_response()
 }
 
 async fn fetch_and_cache(
@@ -1469,16 +1452,8 @@ async fn fetch_and_cache(
         )));
     }
 
-    if !status.is_success() {
-        let body_bytes = drain_limited_error_body(upstream_res).await;
-        proxy_metrics()
-            .upstream_errors
-            .fetch_add(1, Ordering::Relaxed);
-        error!(
-            "asset source returned non-success status {} for {} (read {} error bytes){}",
-            status, target_url, body_bytes, NEGATIVE
-        );
-        return Err(Box::new(upstream_status_error_response(status)));
+    if status.is_client_error() || status.is_server_error() {
+        return Ok(passthrough_response(upstream_res, permit));
     }
 
     let res_headers_ref = upstream_res.headers();
@@ -1486,7 +1461,7 @@ async fn fetch_and_cache(
 
     let mut safe_headers = build_safe_response_headers(res_headers_ref, true);
 
-    if status.is_success() {
+    if status == StatusCode::OK && request_cache_allowed && upstream_allows_shared_cache {
         let is_unstable = target_url_str.contains("/main/") || target_url_str.contains("/master/");
         let cc_value = if is_unstable {
             "public, max-age=300, stale-while-revalidate=60"
@@ -1581,7 +1556,7 @@ async fn fetch_and_cache(
                         let chunk_len = chunk.len();
                         total_size += chunk_len;
 
-                        if total_size > max_stream_size {
+                        if total_size > max_stream_size && max_body_size.is_some() {
                             let _ = sender_tx
                                 .send(Err(std::io::Error::new(
                                     std::io::ErrorKind::InvalidData,
@@ -1590,6 +1565,14 @@ async fn fetch_and_cache(
                                 .await;
                             aborted = true;
                             break;
+                        }
+
+                        if total_size > max_stream_size && disk_write_success {
+                            file = None;
+                            disk_write_success = false;
+                            is_too_large_for_ram = true;
+                            accumulator = Vec::new();
+                            let _ = fs::remove_file(&temp_path).await;
                         }
 
                         if let Some(ref mut f) = file {
@@ -1614,9 +1597,11 @@ async fn fetch_and_cache(
                             break;
                         }
                     }
-                    Err(e) => {
+                    Err(_) => {
                         let _ = sender_tx
-                            .send(Err(std::io::Error::other(e.to_string())))
+                            .send(Err(std::io::Error::other(
+                                "upstream stream failed... /ᐠ - ˕ -マ",
+                            )))
                             .await;
                         aborted = true;
                         break;
@@ -1669,4 +1654,41 @@ async fn fetch_and_cache(
     let stream = Body::from_stream(stream);
     let response = (status, safe_headers, stream).into_response();
     Ok(response)
+}
+fn add_base_cookie(headers: &mut HeaderMap, token: Option<&str>) {
+    if let Some(token) = token {
+        if let Ok(value) =
+            HeaderValue::from_str(&format!("mochi_base={token}; Path=/; SameSite=Lax"))
+        {
+            headers.append("set-cookie", value);
+        }
+    }
+}
+
+fn passthrough_response(
+    response: reqwest::Response,
+    permit: adaptive_capacity::AdaptivePermit,
+) -> Response {
+    let status = response.status();
+    let mut headers = build_safe_response_headers(response.headers(), true);
+    proxy_metrics()
+        .upstream_errors
+        .fetch_add(1, Ordering::Relaxed);
+    let class = if is_retryable_upstream_status(status.as_u16()) {
+        proxy_metrics()
+            .temporary_source_errors
+            .fetch_add(1, Ordering::Relaxed);
+        "temporary-source"
+    } else {
+        proxy_metrics()
+            .unavailable_source_errors
+            .fetch_add(1, Ordering::Relaxed);
+        "unavailable"
+    };
+    headers.insert("x-lyra-error-class", HeaderValue::from_static(class));
+    let stream = response.bytes_stream().map(move |chunk| {
+        let _permit = &permit;
+        chunk
+    });
+    (status, headers, Body::from_stream(stream)).into_response()
 }

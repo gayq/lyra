@@ -4,7 +4,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
     contain: layout style paint;
     backface-visibility: hidden;    
 }
@@ -69,7 +69,7 @@
     cursor: pointer;
     color: var(--color-result);
     font-size: 14px;
-    transition: color 0.1s ease, background-color 0.1s ease;
+    transition: color var(--motion-control) var(--motion-ease), background-color var(--motion-control) var(--motion-ease);
     display: flex;
     align-items: center;
     gap: 10px;

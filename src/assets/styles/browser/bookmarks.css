@@ -39,7 +39,7 @@
   cursor: pointer;
   padding: 5.5px 10px;
   border-radius: var(--radius-item);
-  transition: color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+  transition: color var(--motion-control) var(--motion-ease), background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
   user-select: none;
 }
 
@@ -98,7 +98,7 @@
   text-decoration: none;
   font-size: 13px;
   font-weight: 400;
-  transition: background-color 0.1s ease, transform 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
   padding: 5px;
   word-break: break-all;
 }
@@ -157,7 +157,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: color 0.1s ease, transform 0.1s ease;
+  transition: color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
   z-index: 10;
 }
 
@@ -183,7 +183,7 @@
 .bookmarks-edit-mode .bookmark-link {
   pointer-events: none;
   opacity: 0.6;
-  transition: opacity 0.1s ease;
+  transition: opacity var(--motion-control) var(--motion-ease);
 }
 
 #add-bookmark-btn {
@@ -197,7 +197,7 @@
   border-radius: var(--radius-panel);
   color: var(--color-tab);
   cursor: pointer;
-  transition: border-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
+  transition: border-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
   font-size: 24px;
   position: relative;
 }
@@ -219,12 +219,12 @@
   inset: 0;
   background: linear-gradient(90deg, var(--skeleton-from) 0%, var(--skeleton-via) 50%, var(--skeleton-to) 100%);
   transform: translate3d(100%, 0, 0);
-  animation: skeleton-transform 1s infinite linear;
+  animation: skeleton-transform var(--motion-shimmer) infinite linear;
   will-change: transform;
 }
 
 .bookmark-icon img {
-  transition: opacity 0.1s ease;
+  transition: opacity var(--motion-control) var(--motion-ease);
   opacity: 0;
 }
 

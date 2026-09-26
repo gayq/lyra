@@ -21,11 +21,8 @@ impl MemoryPressure {
         self.budget.store(budget, Ordering::Relaxed);
         self.available.store(available, Ordering::Relaxed);
         let was_shedding = self.shedding.load(Ordering::Relaxed);
-        let threshold = if was_shedding {
-            budget / 5
-        } else {
-            budget / 10
-        };
+        let reserve = (budget / 10).min(256 * 1024 * 1024);
+        let threshold = if was_shedding { reserve * 2 } else { reserve };
         let shedding = available <= threshold;
         self.shedding.store(shedding, Ordering::Relaxed);
         shedding
@@ -77,12 +74,18 @@ pub fn spawn_monitor(state: Arc<AppState>) {
         let mut system = System::new();
         let mut ticker = tokio::time::interval(Duration::from_secs(1));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut was_shedding = false;
+        let mut last_cleanup = tokio::time::Instant::now();
         loop {
             ticker.tick().await;
             system.refresh_memory();
             let (budget, available) =
                 adaptive_capacity::memory_budget(system.total_memory(), system.available_memory());
-            if state.memory_pressure.update(budget, available) {
+            let shedding = state.memory_pressure.update(budget, available);
+            let cleanup = should_cleanup(was_shedding, shedding, last_cleanup.elapsed());
+            was_shedding = shedding;
+            if cleanup {
+                last_cleanup = tokio::time::Instant::now();
                 state.cache.invalidate_all();
                 state.stream_cache.invalidate_all();
                 state.folio_cache.invalidate_all();
@@ -90,8 +93,13 @@ pub fn spawn_monitor(state: Arc<AppState>) {
                     state.cache.run_pending_tasks(),
                     state.stream_cache.run_pending_tasks(),
                     state.folio_cache.run_pending_tasks(),
+                    crate::stream::reclaim_caches(),
                 );
             }
         }
     });
+}
+
+fn should_cleanup(was_shedding: bool, shedding: bool, since_cleanup: Duration) -> bool {
+    shedding && (!was_shedding || since_cleanup >= Duration::from_secs(60))
 }

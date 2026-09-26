@@ -15,6 +15,105 @@ const MAX_CACHED_HEADERS: u16 = 256;
 const MAX_HEADER_NAME_LEN: usize = 128;
 const MAX_HEADER_VALUE_LEN: usize = 32 * 1024;
 
+pub(crate) fn freshness_lifetime(headers: &HeaderMap, shared: bool, limit: u64) -> Option<u64> {
+    let mut max_age = None;
+    let mut shared_age = None;
+    for value in headers.get_all("cache-control") {
+        for directive in value.to_str().ok()?.split(',') {
+            let (name, value) = directive
+                .trim()
+                .split_once('=')
+                .unwrap_or((directive.trim(), ""));
+            let name = name.trim();
+            if name.eq_ignore_ascii_case("no-store") || name.eq_ignore_ascii_case("no-cache") {
+                return None;
+            }
+            let slot = if name.eq_ignore_ascii_case("max-age") {
+                &mut max_age
+            } else if name.eq_ignore_ascii_case("s-maxage") {
+                &mut shared_age
+            } else {
+                continue;
+            };
+            if slot.is_some() {
+                return None;
+            }
+            *slot = Some(value.trim().trim_matches('"').parse::<u64>().ok()?);
+        }
+    }
+    let lifetime = (if shared {
+        shared_age.or(max_age)
+    } else {
+        max_age
+    })
+    .or_else(|| {
+        let expires = httpdate::parse_http_date(headers.get("expires")?.to_str().ok()?).ok()?;
+        let date = httpdate::parse_http_date(headers.get("date")?.to_str().ok()?).ok()?;
+        Some(expires.duration_since(date).unwrap_or_default().as_secs())
+    })?;
+    Some(lifetime.min(limit))
+}
+
+pub(crate) fn response_age(
+    headers: &HeaderMap,
+    now: SystemTime,
+    delay: Duration,
+) -> Option<Duration> {
+    if headers.get_all("age").iter().count() > 1 || headers.get_all("date").iter().count() > 1 {
+        return None;
+    }
+    let age = match headers.get("age") {
+        Some(value) => Duration::from_secs(value.to_str().ok()?.parse::<u64>().ok()?),
+        None => Duration::ZERO,
+    };
+    let apparent = match headers.get("date") {
+        Some(value) => now
+            .duration_since(httpdate::parse_http_date(value.to_str().ok()?).ok()?)
+            .unwrap_or_default(),
+        None => Duration::ZERO,
+    };
+    Some(apparent.max(age.saturating_add(delay)))
+}
+
+pub(crate) fn request_bypasses_cache(headers: &HeaderMap) -> bool {
+    [
+        "if-range",
+        "if-none-match",
+        "if-modified-since",
+        "if-match",
+        "if-unmodified-since",
+    ]
+    .iter()
+    .any(|name| headers.contains_key(*name))
+        || headers.get_all("cache-control").iter().any(|value| {
+            value.to_str().map_or(true, |value| {
+                value.split(',').any(|directive| {
+                    let (name, _) = directive
+                        .trim()
+                        .split_once('=')
+                        .unwrap_or((directive.trim(), ""));
+                    ["no-cache", "no-store", "max-age", "min-fresh"]
+                        .iter()
+                        .any(|candidate| name.trim().eq_ignore_ascii_case(candidate))
+                })
+            })
+        })
+        || headers.get_all("pragma").iter().any(|value| {
+            value.to_str().map_or(true, |value| {
+                value
+                    .split(',')
+                    .any(|v| v.trim().eq_ignore_ascii_case("no-cache"))
+            })
+        })
+}
+
+pub(crate) fn stream_cache_fresh(headers: &HeaderMap) -> bool {
+    headers.contains_key("date")
+        && freshness_lifetime(headers, true, u64::MAX)
+            .zip(response_age(headers, SystemTime::now(), Duration::ZERO))
+            .is_some_and(|(lifetime, age)| age < Duration::from_secs(lifetime))
+}
+
 fn get_cache_path_in(directory: &str, url: &str) -> String {
     let hash = Sha256::digest(url.as_bytes());
     format!("{directory}/{}.bin", hex::encode(&hash[..16]))
@@ -64,7 +163,13 @@ where
 
         let h_name = axum::http::header::HeaderName::from_bytes(key_str.as_bytes()).ok()?;
         let h_val = axum::http::header::HeaderValue::from_bytes(&v_buf).ok()?;
-        headers.insert(h_name, h_val);
+        headers.append(h_name, h_val);
+    }
+    if status_code != 200
+        || headers.contains_key("content-range")
+        || headers.contains_key("set-cookie")
+    {
+        return None;
     }
     Some((status_code, headers))
 }
@@ -118,6 +223,9 @@ pub async fn load_stream_from_disk(
     }
     let mut reader = BufReader::new(file);
     let (status, mut headers) = read_cache_header(&mut reader).await?;
+    if !stream_cache_fresh(&headers) {
+        return None;
+    }
     let body_offset = reader.stream_position().await.ok()?;
     let body_len = metadata.len().checked_sub(body_offset)?;
     if body_len > max_entry_size as u64 {
@@ -152,6 +260,12 @@ pub async fn write_cache_header<W>(
 where
     W: AsyncWrite + Unpin,
 {
+    if status != 200 || headers.contains_key("content-range") || headers.contains_key("set-cookie")
+    {
+        return Err(io::Error::other(
+            "response is not a complete shared cache entry... /ᐠ - ˕ -マ",
+        ));
+    }
     let header_count = u16::try_from(headers.len()).map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -287,82 +401,51 @@ pub async fn disk_cache_cleanup_task(
         tokio::time::sleep(next_interval).await;
         let mut total_size = 0u64;
         let now = SystemTime::now();
-
-        for cache_dir in &cache_dirs {
-            let mut entries = match fs::read_dir(cache_dir).await {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
-
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                if let Ok(metadata) = entry.metadata().await {
-                    if metadata.is_file() {
-                        let size = metadata.len();
-                        let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
-                        let age_secs = now
-                            .duration_since(modified)
-                            .unwrap_or(Duration::from_secs(0))
-                            .as_secs();
-
-                        if age_secs > max_age_secs {
-                            if fs::remove_file(entry.path()).await.is_ok() {
-                                tracing::debug!(
-                                    "deleted old cache entry {:?}{}",
-                                    entry.path(),
-                                    crate::POSITIVE
-                                );
-                            }
-                            continue;
-                        }
-                        total_size += size;
-                    }
-                }
-            }
-        }
-
-        if total_size <= max_bytes {
-            next_interval = if total_size < max_bytes / 2 {
-                base_interval.saturating_mul(2)
-            } else {
-                base_interval
-            };
-            continue;
-        }
-
         let mut files = Vec::new();
         for cache_dir in &cache_dirs {
-            let mut entries = match fs::read_dir(cache_dir).await {
-                Ok(entries) => entries,
-                Err(_) => continue,
+            let Ok(mut entries) = fs::read_dir(cache_dir).await else {
+                continue;
             };
             while let Ok(Some(entry)) = entries.next_entry().await {
-                if let Ok(metadata) = entry.metadata().await {
-                    if metadata.is_file() {
-                        files.push((
-                            entry.path(),
-                            metadata.len(),
-                            metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                        ));
-                    }
+                let Ok(metadata) = entry.metadata().await else {
+                    continue;
+                };
+                if !metadata.is_file() {
+                    continue;
                 }
+                let modified = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+                let expired =
+                    now.duration_since(modified).unwrap_or_default().as_secs() > max_age_secs;
+                if expired && fs::remove_file(entry.path()).await.is_ok() {
+                    continue;
+                }
+                if entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "tmp")
+                {
+                    continue;
+                }
+                total_size = total_size.saturating_add(metadata.len());
+                files.push(std::cmp::Reverse((modified, entry.path(), metadata.len())));
             }
         }
-        files.sort_by_key(|&(_, _, modified)| modified);
-
-        for (path, size, modified) in files {
-            let age_secs = now
-                .duration_since(modified)
-                .unwrap_or(Duration::from_secs(0))
-                .as_secs();
-            if age_secs > max_age_secs || total_size > max_bytes {
-                if fs::remove_file(&path).await.is_ok() {
+        if total_size > max_bytes {
+            let mut oldest = std::collections::BinaryHeap::from(files);
+            let target = max_bytes.saturating_mul(9) / 10;
+            while total_size > target {
+                let Some(std::cmp::Reverse((_, path, size))) = oldest.pop() else {
+                    break;
+                };
+                if fs::remove_file(path).await.is_ok() {
                     total_size = total_size.saturating_sub(size);
-                    tracing::debug!("deleted old cache entry {:?}{}", path, crate::POSITIVE);
                 }
-            } else if total_size <= max_bytes {
-                break;
             }
         }
-        next_interval = base_interval / 2;
+        next_interval = if total_size < max_bytes / 2 {
+            base_interval.saturating_mul(2)
+        } else {
+            base_interval
+        };
     }
 }

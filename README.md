@@ -3,6 +3,10 @@ a really cool web-proxy
 
 [![join our discord](https://invidget.switchblade.xyz/4GeWaGPh6c)](https://discord.gg/4GeWaGPh6c)
 
+<h5>
+leave a star or give credits if you like, fork, or take any ideas from this project pls pls!!
+</h5>
+
 ## features
 - nice ui
 - thousands of games aggregated from multiple sources
@@ -28,12 +32,12 @@ bun dev
 ```
 
 ## credits
-- [selenite](https://selenite.cc/) - game source
-- [edurocks](https://www.edurocks.org/) - game source
+- [truffled](https://truffled.lol/) - game source
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
 - [wasm.rip](https://wasm.rip/) - game source
+- [edurocks](https://www.edurocks.org/) - game source
+- [selenite](https://selenite.cc/) - game source
 - [velara](https://velara.cc/) - game source
-- [truffled](https://truffled.lol/) - game source
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 - [sapphire](https://github.com/x8rr/sapphire) - rivet's base
 

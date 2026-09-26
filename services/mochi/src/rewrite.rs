@@ -1,11 +1,15 @@
 use crate::constants::{MOCHI_PREFIX, PART_1, PART_2};
 use crate::encoding::encode_mochi_url;
-use lol_html::{element, html_content::ContentType, HtmlRewriter, Settings};
+use lol_html::{element, html_content::ContentType, HtmlRewriter, MemorySettings, Settings};
 use std::cell::RefCell;
 use std::rc::Rc;
 use url::Url;
 
-pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8> {
+pub fn rewrite_html(
+    body: &[u8],
+    target_url: &Url,
+    base_url_str: &str,
+) -> Result<Vec<u8>, lol_html::errors::RewritingError> {
     let base_url_owned = base_url_str.to_string();
     let current_base = Rc::new(RefCell::new(target_url.clone()));
     let base_for_updater = current_base.clone();
@@ -61,6 +65,10 @@ pub fn rewrite_html(body: &[u8], target_url: &Url, base_url_str: &str) -> Vec<u8
     let mut output = Vec::with_capacity(body.len() + 2048);
     let mut rewriter = HtmlRewriter::new(
         Settings {
+            memory_settings: MemorySettings {
+                max_allowed_memory_usage: 4 * 1024 * 1024,
+                ..MemorySettings::default()
+            },
             element_content_handlers: vec![
                 element!("html", move |el| {
                     if !*script_injected_for_html.borrow() {
@@ -158,14 +166,14 @@ setTimeout(function(){clearInterval(_iv);},15000);
                             } else {
                                 href
                             };
-                        let _ = el.set_attribute("href", &proxy_href);
+                        el.set_attribute("href", &proxy_href)?;
                     }
                     Ok(())
                 }),
                 element!("link[href]", move |el| {
                     if let Some(val) = el.get_attribute("href") {
                         if let Some(rewritten) = rw1(&val) {
-                            let _ = el.set_attribute("href", &rewritten);
+                            el.set_attribute("href", &rewritten)?;
                         }
                     }
                     Ok(())
@@ -177,11 +185,11 @@ setTimeout(function(){clearInterval(_iv);},15000);
                             if prefix.len() >= 8 && prefix.chars().all(|c| c.is_ascii_hexdigit()) {
                                 let real_type = &type_val[dash_pos + 1..];
                                 if real_type == "module" {
-                                    let _ = el.set_attribute("type", "module");
+                                    el.set_attribute("type", "module")?;
                                 } else if real_type == "text/javascript" {
                                     el.remove_attribute("type");
                                 } else {
-                                    let _ = el.set_attribute("type", real_type);
+                                    el.set_attribute("type", real_type)?;
                                 }
                             }
                         }
@@ -191,7 +199,7 @@ setTimeout(function(){clearInterval(_iv);},15000);
                 element!("script[src]", move |el| {
                     if let Some(val) = el.get_attribute("src") {
                         if let Some(rewritten) = rw2(&val) {
-                            let _ = el.set_attribute("src", &rewritten);
+                            el.set_attribute("src", &rewritten)?;
                         }
                     }
                     Ok(())
@@ -199,7 +207,7 @@ setTimeout(function(){clearInterval(_iv);},15000);
                 element!("img[src], input[src], track[src]", move |el| {
                     if let Some(val) = el.get_attribute("src") {
                         if let Some(rewritten) = rw3(&val) {
-                            let _ = el.set_attribute("src", &rewritten);
+                            el.set_attribute("src", &rewritten)?;
                         }
                     }
                     Ok(())
@@ -209,12 +217,12 @@ setTimeout(function(){clearInterval(_iv);},15000);
                     move |el| {
                         if let Some(val) = el.get_attribute("src") {
                             if let Some(rewritten) = rw5(&val) {
-                                let _ = el.set_attribute("src", &rewritten);
+                                el.set_attribute("src", &rewritten)?;
                             }
                         }
                         if let Some(val) = el.get_attribute("poster") {
                             if let Some(rewritten) = rw5(&val) {
-                                let _ = el.set_attribute("poster", &rewritten);
+                                el.set_attribute("poster", &rewritten)?;
                             }
                         }
                         Ok(())
@@ -223,7 +231,7 @@ setTimeout(function(){clearInterval(_iv);},15000);
                 element!("a[href], area[href]", move |el| {
                     if let Some(val) = el.get_attribute("href") {
                         if let Some(rewritten) = rw6(&val) {
-                            let _ = el.set_attribute("href", &rewritten);
+                            el.set_attribute("href", &rewritten)?;
                         }
                     }
                     Ok(())
@@ -240,7 +248,7 @@ setTimeout(function(){clearInterval(_iv);},15000);
                         };
                         if let Some(val) = el.get_attribute(attr) {
                             if let Some(rewritten) = rw7(&val) {
-                                let _ = el.set_attribute(attr, &rewritten);
+                                el.set_attribute(attr, &rewritten)?;
                             }
                         }
                         Ok(())
@@ -251,7 +259,7 @@ setTimeout(function(){clearInterval(_iv);},15000);
                         let current_base = base_for_style.borrow().clone();
                         let rewritten = rewrite_css_urls(&style_val, &current_base);
                         if rewritten != style_val {
-                            let _ = el.set_attribute("style", &rewritten);
+                            el.set_attribute("style", &rewritten)?;
                         }
                     }
                     Ok(())
@@ -264,18 +272,18 @@ setTimeout(function(){clearInterval(_iv);},15000);
         },
     );
 
-    let _ = rewriter.write(body);
-    let _ = rewriter.end();
+    rewriter.write(body)?;
+    rewriter.end()?;
 
     if !*script_injected.borrow() {
         let full_script = format!("{}{}{}", PART_1, base_url_owned, PART_2);
         let mut new_output = Vec::with_capacity(full_script.len() + output.len());
         new_output.extend_from_slice(full_script.as_bytes());
         new_output.extend_from_slice(&output);
-        return new_output;
+        return Ok(new_output);
     }
 
-    output
+    Ok(output)
 }
 
 pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {

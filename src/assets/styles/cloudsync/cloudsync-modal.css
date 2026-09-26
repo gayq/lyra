@@ -7,7 +7,7 @@
   font-size: 14px;
   outline: none;
   padding: 10px;
-  transition: background-color 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease);
   width: 100%;
 }
 
@@ -50,7 +50,7 @@
   background: var(--btn-secondary-bg);
   color: var(--text-white);
   margin-top: 10px;
-  transition: background-color 0.1s ease, transform 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
   width: 60%;
 }
 

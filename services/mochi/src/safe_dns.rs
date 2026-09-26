@@ -19,7 +19,7 @@ impl Resolve for PublicDnsResolver {
                 )
                 .into());
             }
-            if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+            if !addresses_are_public(&addresses) {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "host resolves to a non-public address... /ᐠ - ˕ -マ",
@@ -51,7 +51,8 @@ pub fn validate_public_target(url: &url::Url) -> Result<(), &'static str> {
         .ok_or("target host is missing... /ᐠ - ˕ -マ")?;
     validate_hostname(host).map_err(|_| "reserved target hostname... /ᐠ - ˕ -マ")?;
 
-    host.parse::<IpAddr>()
+    host.trim_matches(['[', ']'])
+        .parse::<IpAddr>()
         .map(|ip| {
             is_public_ip(ip)
                 .then_some(())
@@ -60,7 +61,7 @@ pub fn validate_public_target(url: &url::Url) -> Result<(), &'static str> {
         .unwrap_or(Ok(()))
 }
 
-pub async fn validate_public_target_dns(url: &url::Url) -> Result<(), &'static str> {
+pub async fn resolve_public_target(url: &url::Url) -> Result<Vec<SocketAddr>, &'static str> {
     validate_public_target(url)?;
     let port = url
         .port_or_known_default()
@@ -68,8 +69,8 @@ pub async fn validate_public_target_dns(url: &url::Url) -> Result<(), &'static s
     let host = url
         .host_str()
         .ok_or("target host is missing... /ᐠ - ˕ -マ")?;
-    if host.parse::<IpAddr>().is_ok() {
-        return Ok(());
+    if let Ok(ip) = host.trim_matches(['[', ']']).parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, port)]);
     }
 
     let addresses = tokio::net::lookup_host((host, port))
@@ -79,10 +80,14 @@ pub async fn validate_public_target_dns(url: &url::Url) -> Result<(), &'static s
     if addresses.is_empty() {
         return Err("target host has no addresses... /ᐠ - ˕ -マ");
     }
-    if addresses.iter().any(|address| !is_public_ip(address.ip())) {
+    if !addresses_are_public(&addresses) {
         return Err("target host resolves to a non-public address... /ᐠ - ˕ -マ");
     }
-    Ok(())
+    Ok(addresses)
+}
+
+fn addresses_are_public(addresses: &[SocketAddr]) -> bool {
+    !addresses.is_empty() && addresses.iter().all(|address| is_public_ip(address.ip()))
 }
 
 fn validate_hostname(host: &str) -> io::Result<()> {
@@ -122,9 +127,14 @@ fn is_public_ipv4(ip: Ipv4Addr) -> bool {
         || octets[0] >= 240
         || (octets[0] == 100 && (64..=127).contains(&octets[1]))
         || (octets[0] == 198 && (18..=19).contains(&octets[1])))
+        && !(octets[0] == 192
+            && ((octets[1] == 0 && octets[2] == 0) || (octets[1] == 88 && octets[2] == 99)))
 }
 
 fn is_public_ipv6(ip: Ipv6Addr) -> bool {
+    if let Some(ipv4) = ip.to_ipv4_mapped() {
+        return is_public_ipv4(ipv4);
+    }
     if ip.is_unspecified()
         || ip.is_loopback()
         || ip.is_unique_local()
@@ -137,8 +147,8 @@ fn is_public_ipv6(ip: Ipv6Addr) -> bool {
     if segments[0] == 0x2001 && segments[1] == 0x0db8 {
         return false;
     }
-    if let Some(ipv4) = ip.to_ipv4_mapped() {
-        return is_public_ipv4(ipv4);
-    }
-    true
+    (segments[0] & 0xe000) == 0x2000
+        && segments[0] != 0x2002
+        && !(segments[0] == 0x2001 && segments[1] < 0x0200)
+        && !(segments[0] == 0x3fff && segments[1] < 0x1000)
 }

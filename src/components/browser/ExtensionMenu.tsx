@@ -406,6 +406,8 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
             type="button"
             key={extension.id}
             class={`rivet-toolbar-trigger${isOpen ? " active" : ""}`}
+            data-tooltip={extension.name.toLowerCase()}
+            aria-label={extension.name}
             aria-expanded={extension.hasPopup ? isOpen : undefined}
             aria-haspopup={extension.hasPopup ? "dialog" : undefined}
             onClick={(event) => {

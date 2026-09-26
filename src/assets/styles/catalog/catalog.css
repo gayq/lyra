@@ -66,7 +66,7 @@ body.anime-view .anime-topbar {
   margin-top: -53px;
   width: 100%;
   min-width: 0;
-  transition: opacity 0.1s ease, max-width 0.1s ease;
+  transition: opacity var(--motion-control) var(--motion-ease), max-width var(--motion-control) var(--motion-ease);
   max-width: 520px;
   contain: layout style;
 }
@@ -138,7 +138,7 @@ body.anime-view .anime-page {
   padding: 0;
   box-sizing: border-box;
   display: block;
-  transition: transform 0.1s ease;
+  transition: transform var(--motion-control) var(--motion-ease);
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -179,7 +179,7 @@ body.anime-view .anime-page {
   inset: 0;
   background: var(--game-card-overlay);
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition: opacity var(--motion-enter) var(--motion-ease);
   pointer-events: none;
   z-index: 1;
 }
@@ -214,9 +214,9 @@ body.anime-view .anime-page {
   opacity: 0;
   filter: brightness(var(--game-cover-brightness));
   transition:
-    opacity 0.1s ease,
-    filter 0.1s ease,
-    transform 0.1s ease;
+    opacity var(--motion-control) var(--motion-ease),
+    filter var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 .game-cover.loaded img,
@@ -261,7 +261,7 @@ body.anime-view .anime-page {
     var(--skeleton-alt-to) 100%
   );
   transform: translate3d(100%, 0, 0);
-  animation: skeleton-transform 1s infinite linear;
+  animation: skeleton-transform var(--motion-shimmer) infinite linear;
   will-change: transform;
   pointer-events: none;
 }

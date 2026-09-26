@@ -14,6 +14,7 @@ import {
 import { loadCloudSync } from "./loaders.ts";
 import { warmProxyRuntime } from "../core/proxy/proxyRuntime.ts";
 import "../assets/styles/base/themes.css";
+import "../assets/styles/base/motion.css";
 import "../assets/styles/base/index.css";
 import "../assets/styles/browser/tabs.css";
 import "../assets/styles/browser/rivet.css";

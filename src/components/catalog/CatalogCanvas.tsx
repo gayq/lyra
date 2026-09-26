@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef } from "preact/hooks";
+import { motionDuration } from "../../core/ui/motion.ts";
+import { prefersReducedMotion } from "../../core/config/advancedSettings.ts";
 import { getDefaultScrollTarget } from "../../core/ui/dom.ts";
 import { canvasHit, canvasLayout, canvasWindow } from "./canvasLayout.ts";
 
@@ -49,7 +51,11 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       painted?: { amount: number; opacity: number; ready: boolean };
     }>();
     const transitions = new Map<number, { from: number; to: number; start: number }>();
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const systemMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = prefersReducedMotion();
+    let controlDuration = motionDuration("control", canvas);
+    let enterDuration = motionDuration("enter", canvas);
+    let shimmerDuration = motionDuration("shimmer", canvas);
     const connection = (navigator as Navigator & {
       connection?: { saveData?: boolean; effectiveType?: string };
     }).connection;
@@ -86,7 +92,7 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     const progress = (index: number, now: number, duration: number) => {
       const transition = transitions.get(index);
       if (!transition) return index === hovered ? 1 : 0;
-      const t = reducedMotion.matches ? 1 : Math.min(1, (now - transition.start) / duration);
+      const t = reducedMotion || duration <= 0 ? 1 : Math.min(1, (now - transition.start) / duration);
       return transition.from + (transition.to - transition.from) * cssEase(t);
     };
     const hover = (next: number) => {
@@ -94,7 +100,7 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       const now = performance.now();
       for (const index of [hovered, next]) {
         if (index >= 0) transitions.set(index, {
-          from: progress(index, now, 100), to: index === next ? 1 : 0, start: now,
+          from: progress(index, now, controlDuration), to: index === next ? 1 : 0, start: now,
         });
       }
       hovered = next;
@@ -152,6 +158,10 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       if (!height) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (styleDirty) {
+        reducedMotion = prefersReducedMotion();
+        controlDuration = motionDuration("control", canvas);
+        enterDuration = motionDuration("enter", canvas);
+        shimmerDuration = motionDuration("shimmer", canvas);
         const style = getComputedStyle(canvas);
         fontFamily = style.fontFamily;
         cardRadius = parseFloat(style.getPropertyValue("--radius-item"));
@@ -172,10 +182,10 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       const end = Math.min(count, Math.ceil((offset + height) / layout.stride) * layout.columns);
       const used = new Set<string>();
       for (let index = start; index < end; index++) {
-        const amount = progress(index, now, 100);
+        const amount = progress(index, now, controlDuration);
         const transition = transitions.get(index);
         if (transition) {
-          if (!reducedMotion.matches && now - transition.start < 100) animating = true;
+          if (!reducedMotion && now - transition.start < controlDuration) animating = true;
           else transitions.delete(index);
         }
         const x = (index % layout.columns) * (layout.cardWidth + layout.gap);
@@ -192,8 +202,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         if (url) used.add(url);
         const image = card && url ? cover(card, url) : undefined;
         const ready = !!(image?.complete && image.naturalWidth);
-        const opacity = ready && !reducedMotion.matches
-          ? cssEase(Math.min(1, (now - (loadedAt.get(image!) ?? now - 100)) / 100)) : 1;
+        const opacity = ready && !reducedMotion && enterDuration > 0
+          ? cssEase(Math.min(1, (now - (loadedAt.get(image!) ?? now - enterDuration)) / enterDuration)) : 1;
         if (opacity < 1) animating = true;
         const previous = entry?.painted;
         if (!fullRedraw && !loading && previous?.amount === amount &&
@@ -213,8 +223,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           ctx.beginPath();
           ctx.roundRect(x + 8, y + h - 22, w * 0.65, 8, detailRadius);
           ctx.fill();
-          if (!reducedMotion.matches) {
-            const left = x + ((now % 1000) / 1000 * 2 - 1) * w;
+          if (!reducedMotion && shimmerDuration > 0) {
+            const left = x + ((now % shimmerDuration) / shimmerDuration * 2 - 1) * w;
             const shimmer = ctx.createLinearGradient(left, 0, left + w, 0);
             shimmer.addColorStop(0, "transparent");
             shimmer.addColorStop(0.5, color("--skeleton-alt-via", "#555"));
@@ -334,12 +344,12 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     const invalidateStyle = () => { styleDirty = true; schedule(); };
     const theme = new MutationObserver(invalidateStyle);
     for (const node of [document.documentElement, document.body]) {
-      theme.observe(node, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+      theme.observe(node, { attributes: true, attributeFilter: ["class", "style", "data-theme", "data-motion"] });
     }
     scroll.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     document.fonts.addEventListener("loadingdone", invalidateStyle);
-    reducedMotion.addEventListener("change", invalidateStyle);
+    systemMotion.addEventListener("change", invalidateStyle);
     canvas.addEventListener("mousemove", move);
     canvas.addEventListener("mouseleave", leave);
     canvas.addEventListener("click", click);
@@ -353,7 +363,7 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       scroll.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       document.fonts.removeEventListener("loadingdone", invalidateStyle);
-      reducedMotion.removeEventListener("change", invalidateStyle);
+      systemMotion.removeEventListener("change", invalidateStyle);
       canvas.removeEventListener("mousemove", move);
       canvas.removeEventListener("mouseleave", leave);
       canvas.removeEventListener("click", click);

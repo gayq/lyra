@@ -21,6 +21,7 @@ import { toast } from "../ui/toast";
 import { registerRivetBridge } from "./rivetBridge.ts";
 import { applyRivetAppearance } from "./rivetAppearance.ts";
 import { ensureUblockOrigin } from "./rivetUblock.ts";
+import { resolveRivetDns } from "./rivetDns.ts";
 import { NEGATIVE } from "../runtime/messages.ts";
 
 type LyraTab = (typeof store.tabs)[number];
@@ -266,6 +267,7 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
 
 function createHostBindings(): RivetHostBindings {
   return {
+    resolveDns: resolveRivetDns,
     getTabId: (win) => tabForWindow(win)?.id ?? null,
     getTab: (tabId) => {
       const tab = store.tabs.find((candidate) => candidate.id === tabId);

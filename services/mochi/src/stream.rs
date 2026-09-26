@@ -24,7 +24,8 @@ use tokio_util::io::ReaderStream;
 use url::Url;
 
 mod megavid;
-mod tryembed;
+mod range;
+mod subtitles;
 
 const MEGAPLAY_BASE: &str = "https://megaplay.buzz";
 const MEGAPLAY_REFERER: &str = "https://megaplay.buzz/api";
@@ -39,17 +40,15 @@ const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 enum StreamProvider {
     Megaplay,
     Megavid,
-    Tryembed,
 }
 
 impl StreamProvider {
-    const ALL: [Self; 3] = [Self::Megaplay, Self::Megavid, Self::Tryembed];
+    const ALL: [Self; 2] = [Self::Megaplay, Self::Megavid];
 
     fn id(self) -> &'static str {
         match self {
             Self::Megaplay => "megaplay",
             Self::Megavid => "megavid",
-            Self::Tryembed => "tryembed",
         }
     }
 
@@ -57,14 +56,13 @@ impl StreamProvider {
         match self {
             Self::Megaplay => "https://megaplay.buzz/",
             Self::Megavid => "https://megavid.buzz/",
-            Self::Tryembed => "https://tryembed.us.cc/",
         }
     }
 
     fn supports(self, key: &EpisodeKey) -> bool {
         match self {
             Self::Megaplay => true,
-            Self::Megavid | Self::Tryembed => key.anilist_id > 0 || key.mal_id > 0,
+            Self::Megavid => key.anilist_id > 0 || key.mal_id > 0,
         }
     }
 
@@ -76,7 +74,6 @@ impl StreamProvider {
         match self {
             Self::Megaplay => resolve_megaplay(client, key).await,
             Self::Megavid => megavid::resolve(client, key).await,
-            Self::Tryembed => tryembed::resolve(client, key).await,
         }
     }
 }
@@ -182,6 +179,26 @@ struct ResolvedSource {
     metadata: SourceMetadata,
 }
 
+impl ResolvedSource {
+    fn cache_weight(&self, key: &EpisodeKey) -> u32 {
+        let strings = self.playlist_url.len()
+            + self.fallback_playlist_url.as_ref().map_or(0, String::len)
+            + self.master.len()
+            + self.internal_id.len()
+            + self.language.as_ref().map_or(0, String::len)
+            + self.metadata.server.as_ref().map_or(0, String::len)
+            + key.anikoto_episode_id.len()
+            + key.language.len()
+            + key.session.len();
+        let tracks: usize = self
+            .tracks
+            .iter()
+            .map(|t| t.url.len() + t.label.len() + t.language.len() + t.kind.len() + 128)
+            .sum();
+        u32::try_from(strings.saturating_add(tracks).saturating_add(512)).unwrap_or(u32::MAX)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum ResolveError {
     Invalid,
@@ -210,24 +227,25 @@ where
         STREAM_METRICS
             .upstream_attempts
             .fetch_add(1, Ordering::Relaxed);
-        match tokio::time::timeout(remaining, build().send()).await {
+        let (client, request) = build().build_split();
+        let request = request.map_err(|_| ResolveError::Invalid)?;
+        crate::safe_dns::validate_public_target(request.url())
+            .map_err(|_| ResolveError::Invalid)?;
+        let safe_to_retry = crate::proxy::safe_to_retry(request.method());
+        match tokio::time::timeout(remaining, client.execute(request)).await {
             Ok(Ok(response)) => {
                 let retryable = response.status() == StatusCode::TOO_MANY_REQUESTS
                     || response.status() == StatusCode::BAD_GATEWAY
                     || response.status() == StatusCode::SERVICE_UNAVAILABLE
                     || response.status() == StatusCode::GATEWAY_TIMEOUT;
-                if !retryable {
+                if !retryable || !safe_to_retry {
                     return Ok(response);
                 }
                 if attempt + 1 == ATTEMPTS {
                     STREAM_METRICS
                         .upstream_errors
                         .fetch_add(1, Ordering::Relaxed);
-                    return if response.status() == StatusCode::TOO_MANY_REQUESTS {
-                        Err(ResolveError::RateLimited)
-                    } else {
-                        Err(ResolveError::Upstream)
-                    };
+                    return Ok(response);
                 }
                 STREAM_METRICS
                     .upstream_retries
@@ -244,11 +262,11 @@ where
                     STREAM_METRICS
                         .upstream_errors
                         .fetch_add(1, Ordering::Relaxed);
-                    return Err(ResolveError::Upstream);
+                    return Ok(response);
                 }
                 tokio::time::sleep(retry_after).await;
             }
-            Ok(Err(_)) | Err(_) if attempt + 1 < ATTEMPTS => {
+            Ok(Err(_)) | Err(_) if safe_to_retry && attempt + 1 < ATTEMPTS => {
                 STREAM_METRICS
                     .upstream_retries
                     .fetch_add(1, Ordering::Relaxed);
@@ -280,6 +298,9 @@ async fn read_body_limited(
     response: reqwest::Response,
     max_bytes: usize,
 ) -> Result<Bytes, ResolveError> {
+    if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        return Err(ResolveError::RateLimited);
+    }
     if response
         .content_length()
         .is_some_and(|length| length > max_bytes as u64)
@@ -308,7 +329,12 @@ static SOURCE_CACHE: LazyLock<Cache<(StreamProvider, EpisodeKey), Arc<ResolvedSo
     LazyLock::new(|| {
         Cache::builder()
             .time_to_live(Duration::from_secs(10 * 60))
-            .max_capacity(10_000)
+            .max_capacity(32 * 1024 * 1024)
+            .weigher(
+                |(_, key): &(StreamProvider, EpisodeKey), source: &Arc<ResolvedSource>| {
+                    source.cache_weight(key)
+                },
+            )
             .build()
     });
 
@@ -329,7 +355,8 @@ impl SourceSession {
 static SESSION_SOURCES: LazyLock<Cache<EpisodeKey, Arc<SourceSession>>> = LazyLock::new(|| {
     Cache::builder()
         .time_to_idle(Duration::from_secs(6 * 60 * 60))
-        .max_capacity(10_000)
+        .max_capacity(32 * 1024 * 1024)
+        .weigher(|key: &EpisodeKey, session: &Arc<SourceSession>| session.source.cache_weight(key))
         .build()
 });
 
@@ -1819,6 +1846,16 @@ fn parse_byte_range(value: &str, length: usize) -> Result<(usize, usize), ()> {
     (start <= end).then_some((start, end)).ok_or(())
 }
 
+fn set_cached_age(headers: &mut HeaderMap) {
+    if let Some(age) =
+        crate::cache::response_age(headers, std::time::SystemTime::now(), Duration::ZERO)
+    {
+        if let Ok(value) = HeaderValue::from_str(&age.as_secs().to_string()) {
+            headers.insert("age", value);
+        }
+    }
+}
+
 fn cached_response(
     cached: Arc<CachedResponse>,
     method: &Method,
@@ -1827,6 +1864,7 @@ fn cached_response(
 ) -> Response {
     let mut status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
     let mut headers = cached.headers.clone();
+    set_cached_age(&mut headers);
     let upstream_content_type = headers.get(CONTENT_TYPE).cloned();
     headers.insert(
         CONTENT_TYPE,
@@ -1967,6 +2005,7 @@ async fn disk_cached_response(
     let total_len = usize::try_from(cached.body_len).map_err(|_| ResolveError::TooLarge)?;
     let mut status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
     let mut headers = cached.headers;
+    set_cached_age(&mut headers);
     headers.insert("X-Cache", cache_status.header());
     headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     headers.remove(CONTENT_RANGE);
@@ -2041,6 +2080,7 @@ async fn disk_cached_response(
 }
 
 struct SegmentFill {
+    cacheable: bool,
     cache_key: String,
     cache: Cache<String, Arc<CachedResponse>>,
     headers: HeaderMap,
@@ -2051,14 +2091,12 @@ struct SegmentFill {
     disk: Option<StreamCacheWriter>,
     disk_failed: bool,
     sender: Option<mpsc::Sender<std::io::Result<Bytes>>>,
-    downstream_range: Option<(usize, usize)>,
     downstream_cancelled: bool,
     bytes: usize,
 }
 
 impl SegmentFill {
     async fn push(&mut self, chunk: Bytes) -> Result<(), ResolveError> {
-        let chunk_start = self.bytes;
         let next_len = self
             .bytes
             .checked_add(chunk.len())
@@ -2069,35 +2107,14 @@ impl SegmentFill {
         self.bytes = next_len;
 
         if let Some(sender) = self.sender.as_ref() {
-            let downstream = if let Some((range_start, range_end)) = self.downstream_range {
-                let chunk_end = next_len.saturating_sub(1);
-                if chunk_end < range_start || chunk_start > range_end {
-                    None
-                } else {
-                    let start = range_start.saturating_sub(chunk_start);
-                    let end = (range_end + 1).saturating_sub(chunk_start).min(chunk.len());
-                    (start < end).then(|| chunk.slice(start..end))
-                }
+            if sender.send(Ok(chunk.clone())).await.is_err() {
+                self.sender = None;
+                self.record_downstream_cancellation();
             } else {
-                Some(chunk.clone())
-            };
-            if let Some(downstream) = downstream {
-                let downstream_len = downstream.len();
-                if sender.send(Ok(downstream)).await.is_err() {
-                    self.sender = None;
-                    self.record_downstream_cancellation();
-                } else {
-                    STREAM_METRICS
-                        .bytes_served
-                        .fetch_add(downstream_len as u64, Ordering::Relaxed);
-                }
+                STREAM_METRICS
+                    .bytes_served
+                    .fetch_add(chunk.len() as u64, Ordering::Relaxed);
             }
-        }
-        if self
-            .downstream_range
-            .is_some_and(|(_, range_end)| next_len > range_end)
-        {
-            self.sender.take();
         }
 
         if let Some(writer) = self.disk.as_mut() {
@@ -2128,7 +2145,10 @@ impl SegmentFill {
     async fn fail_downstream(&mut self) {
         if let Some(sender) = self.sender.take() {
             let error = std::io::Error::other("upstream media stream failed... /ᐠ - ˕ -マ");
-            if sender.send(Err(error)).await.is_err() {
+            if !matches!(
+                tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, sender.send(Err(error))).await,
+                Ok(Ok(()))
+            ) {
                 self.record_downstream_cancellation();
             }
         }
@@ -2169,7 +2189,30 @@ impl SegmentFill {
             self.cache.insert(self.cache_key.clone(), cached).await;
             published = true;
         }
-        published.then_some(()).ok_or(ResolveError::Upstream)
+        (published || !self.cacheable)
+            .then_some(())
+            .ok_or(ResolveError::Upstream)
+    }
+}
+
+async fn fill_from_stream(
+    fill: &mut SegmentFill,
+    chunks: impl futures_util::Stream<Item = Result<Bytes, reqwest::Error>>,
+) -> Result<(), ResolveError> {
+    futures_util::pin_mut!(chunks);
+    loop {
+        let chunk = tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, chunks.next())
+            .await
+            .map_err(|_| ResolveError::Upstream)?;
+        let Some(chunk) = chunk else {
+            return Ok(());
+        };
+        tokio::time::timeout(
+            UPSTREAM_BODY_TIMEOUT,
+            fill.push(chunk.map_err(|_| ResolveError::Upstream)?),
+        )
+        .await
+        .map_err(|_| ResolveError::Upstream)??;
     }
 }
 
@@ -2179,23 +2222,11 @@ async fn run_segment_fill(
     response: reqwest::Response,
     started_at: Instant,
     mut fill_guard: tokio::sync::OwnedMutexGuard<Option<bool>>,
-    completion: tokio::sync::oneshot::Sender<Result<(), ResolveError>>,
     _permit: adaptive_capacity::AdaptivePermit,
 ) {
-    let mut upstream = response.bytes_stream();
-    let read_result = tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, async {
-        for chunk in initial_chunks {
-            fill.push(chunk).await?;
-        }
-        while let Some(chunk) = upstream.next().await {
-            fill.push(chunk.map_err(|_| ResolveError::Upstream)?)
-                .await?;
-        }
-        Ok::<(), ResolveError>(())
-    })
-    .await
-    .map_err(|_| ResolveError::Upstream)
-    .and_then(|result| result);
+    let chunks = futures_util::stream::iter(initial_chunks.into_iter().map(Ok))
+        .chain(response.bytes_stream());
+    let read_result = fill_from_stream(&mut fill, chunks).await;
 
     let result = match read_result {
         Ok(()) => fill.finish().await,
@@ -2230,7 +2261,6 @@ async fn run_segment_fill(
         fill.fail_downstream().await;
     }
     *fill_guard = Some(result.is_ok());
-    let _ = completion.send(result);
 }
 
 async fn get_cached_upstream_resource(
@@ -2243,7 +2273,7 @@ async fn get_cached_upstream_resource(
     request_headers: &HeaderMap,
 ) -> Result<Response, ResolveError> {
     let cache_key = format!(
-        "anikoto:{}:{}:{upstream_url}",
+        "anikoto:v2:{}:{}:{upstream_url}",
         provider.id(),
         if inspect_media_prefix {
             "stripped"
@@ -2254,8 +2284,26 @@ async fn get_cached_upstream_resource(
     let max_entry_size = state.stream_max_entry_size;
     let mut coalesced = false;
 
+    if crate::cache::request_bypasses_cache(request_headers) {
+        return range::uncached_resource(
+            state,
+            upstream_url,
+            provider,
+            inspect_media_prefix,
+            accept,
+            method,
+            request_headers,
+        )
+        .await;
+    }
+
     loop {
-        if let Some(cached) = state.stream_cache.get(&cache_key).await {
+        if let Some(cached) = state
+            .stream_cache
+            .get(&cache_key)
+            .await
+            .filter(|entry| crate::cache::stream_cache_fresh(&entry.headers))
+        {
             STREAM_METRICS
                 .segment_memory_hits
                 .fetch_add(1, Ordering::Relaxed);
@@ -2289,6 +2337,19 @@ async fn get_cached_upstream_resource(
             .await;
         }
 
+        if request_headers.contains_key(RANGE) || method == Method::HEAD {
+            return range::uncached_resource(
+                state,
+                upstream_url,
+                provider,
+                inspect_media_prefix,
+                accept,
+                method,
+                request_headers,
+            )
+            .await;
+        }
+
         let slot = state
             .stream_fills
             .get_with(cache_key.clone(), async {
@@ -2312,7 +2373,12 @@ async fn get_cached_upstream_resource(
             }
         };
 
-        if let Some(cached) = state.stream_cache.get(&cache_key).await {
+        if let Some(cached) = state
+            .stream_cache
+            .get(&cache_key)
+            .await
+            .filter(|entry| crate::cache::stream_cache_fresh(&entry.headers))
+        {
             drop(fill_guard);
             STREAM_METRICS
                 .segment_memory_hits
@@ -2367,19 +2433,36 @@ async fn get_cached_upstream_resource(
                 return Err(error);
             }
         };
-        if response.status() == StatusCode::NOT_FOUND {
+        if response.status() != StatusCode::OK || response.headers().contains_key(CONTENT_RANGE) {
             *fill_guard = Some(false);
-            return Err(ResolveError::NotFound);
-        }
-        if !response.status().is_success() {
-            *fill_guard = Some(false);
-            return Err(ResolveError::Upstream);
+            let status = response.status();
+            let headers = crate::proxy::build_safe_response_headers(response.headers(), true);
+            return Ok(range::stream_response(
+                response, permit, status, headers, 0, None,
+            ));
         }
 
+        let received_at = std::time::SystemTime::now();
+        let ttl = crate::cache::freshness_lifetime(
+            response.headers(),
+            true,
+            state.disk_cache_max_age_secs,
+        )
+        .zip(crate::cache::response_age(
+            response.headers(),
+            received_at,
+            started_at.elapsed(),
+        ))
+        .map(|(lifetime, age)| Duration::from_secs(lifetime).saturating_sub(age).as_secs())
+        .unwrap_or(0);
+        let cacheable = ttl > 0 && crate::proxy::response_allows_shared_cache(response.headers());
+
         let raw_len = response.content_length();
-        let max_prefix_len = inspect_media_prefix
-            .then_some(SEGMENT_PREFIX_BYTES)
-            .unwrap_or(0);
+        let max_prefix_len = if inspect_media_prefix {
+            SEGMENT_PREFIX_BYTES
+        } else {
+            0
+        };
         if raw_len
             .is_some_and(|length| length > max_entry_size.saturating_add(max_prefix_len) as u64)
         {
@@ -2451,43 +2534,40 @@ async fn get_cached_upstream_resource(
             );
         }
         cache_headers.insert(
-            "Cache-Control",
-            HeaderValue::from_static("public, max-age=86400, stale-if-error=604800, no-transform"),
+            "date",
+            HeaderValue::from_str(&httpdate::fmt_http_date(received_at))
+                .map_err(|_| ResolveError::Upstream)?,
+        );
+        cache_headers.insert(
+            "cache-control",
+            if cacheable {
+                HeaderValue::from_str(&format!(
+                    "public, max-age={ttl}, must-revalidate, no-transform"
+                ))
+                .map_err(|_| ResolveError::Upstream)?
+            } else {
+                HeaderValue::from_static("no-store")
+            },
         );
 
-        let (disk, disk_failed) =
+        let (disk, disk_failed) = if !cacheable {
+            (None, false)
+        } else {
             match StreamCacheWriter::create(&cache_key, StatusCode::OK.as_u16(), &cache_headers)
                 .await
             {
                 Ok(writer) => (Some(writer), false),
                 Err(_) => (None, true),
-            };
-        let range_value = request_headers
-            .get(RANGE)
-            .and_then(|value| value.to_str().ok());
-        if range_value.is_some() {
-            STREAM_METRICS
-                .range_requests
-                .fetch_add(1, Ordering::Relaxed);
-        }
-        let parsed_range = match (range_value, expected_len) {
-            (Some(range), Some(length)) => Some(parse_byte_range(range, length)),
-            _ => None,
+            }
         };
-        let deferred_range = range_value.is_some() && expected_len.is_none();
-        let invalid_range = matches!(parsed_range, Some(Err(())));
-        let downstream_range = parsed_range.and_then(Result::ok);
-        let (sender, receiver) = if method != Method::HEAD && !invalid_range && !deferred_range {
-            let (sender, receiver) = mpsc::channel(state.channel_buffer.max(1));
-            (Some(sender), Some(receiver))
-        } else {
-            (None, None)
-        };
+        let (sender, receiver) = mpsc::channel(state.channel_buffer.max(1));
         let ram_limit = state.ram_cache_limit.min(max_entry_size);
         let ram_capacity = expected_len.unwrap_or_default().min(ram_limit);
-        let ram = (ram_limit > 0 && expected_len.is_none_or(|length| length <= ram_limit))
-            .then(|| BytesMut::with_capacity(ram_capacity));
+        let ram =
+            (cacheable && ram_limit > 0 && expected_len.is_none_or(|length| length <= ram_limit))
+                .then(|| BytesMut::with_capacity(ram_capacity));
         let fill = SegmentFill {
+            cacheable,
             cache_key: cache_key.clone(),
             cache: state.stream_cache.clone(),
             headers: cache_headers.clone(),
@@ -2497,12 +2577,10 @@ async fn get_cached_upstream_resource(
             ram,
             disk,
             disk_failed,
-            sender,
-            downstream_range,
+            sender: Some(sender),
             downstream_cancelled: false,
             bytes: 0,
         };
-        let (completion_sender, completion_receiver) = tokio::sync::oneshot::channel();
         fill_attempt.hand_off();
         tokio::spawn(run_segment_fill(
             fill,
@@ -2510,87 +2588,14 @@ async fn get_cached_upstream_resource(
             response,
             started_at,
             fill_guard,
-            completion_sender,
             permit,
         ));
 
-        if deferred_range {
-            match completion_receiver.await {
-                Ok(Ok(())) => {
-                    if let Some(cached) = state.stream_cache.get(&cache_key).await {
-                        return Ok(cached_response(
-                            cached,
-                            method,
-                            request_headers,
-                            CacheStatus::Miss,
-                        ));
-                    }
-                    if let Some(cached) = load_stream_from_disk(
-                        &cache_key,
-                        max_entry_size,
-                        state.disk_cache_max_age_secs,
-                    )
-                    .await
-                    {
-                        return disk_cached_response(
-                            cached,
-                            method,
-                            request_headers,
-                            CacheStatus::Miss,
-                        )
-                        .await;
-                    }
-                    return Err(ResolveError::Upstream);
-                }
-                Ok(Err(error)) => return Err(error),
-                Err(_) => return Err(ResolveError::Upstream),
-            }
-        }
-
-        if invalid_range {
-            let length = expected_len.unwrap_or_default();
-            let mut response = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
-            response
-                .headers_mut()
-                .insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-            response
-                .headers_mut()
-                .insert("X-Cache", CacheStatus::Miss.header());
-            if let Ok(value) = HeaderValue::from_str(&format!("bytes */{length}")) {
-                response.headers_mut().insert(CONTENT_RANGE, value);
-            }
-            return Ok(response);
-        }
-
-        let mut downstream_headers = cache_headers;
-        downstream_headers.insert("X-Cache", CacheStatus::Miss.header());
-        downstream_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-        let mut status = StatusCode::OK;
-        if let Some((start, end)) = downstream_range {
-            status = StatusCode::PARTIAL_CONTENT;
-            let length = expected_len.unwrap_or_default();
-            downstream_headers.insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(&(end - start + 1).to_string())
-                    .map_err(|_| ResolveError::Upstream)?,
-            );
-            downstream_headers.insert(
-                CONTENT_RANGE,
-                HeaderValue::from_str(&format!("bytes {start}-{end}/{length}"))
-                    .map_err(|_| ResolveError::Upstream)?,
-            );
-        }
-        let body = if method == Method::HEAD {
-            Body::empty()
-        } else {
-            let Some(receiver) = receiver else {
-                return Err(ResolveError::Upstream);
-            };
-            Body::from_stream(ReceiverStream::new(receiver))
-        };
-        let mut downstream = Response::new(body);
-        *downstream.status_mut() = status;
-        *downstream.headers_mut() = downstream_headers;
+        cache_headers.insert("X-Cache", CacheStatus::Miss.header());
+        cache_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        let mut downstream = Response::new(Body::from_stream(ReceiverStream::new(receiver)));
+        *downstream.status_mut() = StatusCode::OK;
+        *downstream.headers_mut() = cache_headers;
         return Ok(downstream);
     }
 }
@@ -2726,11 +2731,11 @@ async fn track_handler(
         source.provider,
         false,
         "text/vtt,text/plain,application/octet-stream",
-        method,
-        request_headers,
+        &Method::GET,
+        &HeaderMap::new(),
     )
     .await;
-    let mut downstream = match fetched {
+    let downstream = match fetched {
         Ok(response) => response,
         Err(ResolveError::NotFound | ResolveError::Upstream) => {
             invalidate_source(key, &source, &[]).await;
@@ -2746,22 +2751,14 @@ async fn track_handler(
                 source.provider,
                 false,
                 "text/vtt,text/plain,application/octet-stream",
-                method,
-                request_headers,
+                &Method::GET,
+                &HeaderMap::new(),
             )
             .await?
         }
         Err(error) => return Err(error),
     };
-    downstream.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("text/vtt; charset=utf-8"),
-    );
-    downstream.headers_mut().insert(
-        "Cache-Control",
-        HeaderValue::from_static("public, max-age=86400, stale-if-error=604800"),
-    );
-    Ok(downstream)
+    subtitles::response(downstream, method, request_headers).await
 }
 
 #[derive(Serialize)]
@@ -3010,4 +3007,19 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
         HeaderValue::from_static("no-store, max-age=0"),
     );
     response
+}
+
+pub async fn reclaim_caches() {
+    SOURCE_CACHE.invalidate_all();
+    SESSION_SOURCES.invalidate_all();
+    PLAYLIST_CACHE.invalidate_all();
+    FAILED_SOURCES.invalidate_all();
+    RESOURCE_PROBES.invalidate_all();
+    tokio::join!(
+        SOURCE_CACHE.run_pending_tasks(),
+        SESSION_SOURCES.run_pending_tasks(),
+        PLAYLIST_CACHE.run_pending_tasks(),
+        FAILED_SOURCES.run_pending_tasks(),
+        RESOURCE_PROBES.run_pending_tasks()
+    );
 }

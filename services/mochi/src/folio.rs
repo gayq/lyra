@@ -131,8 +131,19 @@ pub async fn request_handler(
         sensitive_request,
     );
     let now = now_ms();
-    let cached = lookup_cache(&state, session_key.as_ref(), &public_key).await;
-    if let Some(entry) = cached.as_ref().filter(|entry| entry.fresh_until_ms > now) {
+    let generation = state.folio_cache_generation.load(Ordering::Acquire);
+    let cache_request = (method == Method::GET || method == Method::HEAD)
+        && !upstream_headers.contains_key("range")
+        && !crate::cache::request_bypasses_cache(&upstream_headers);
+    let cached = if cache_request {
+        lookup_cache(&state, session_key.as_ref(), &public_key).await
+    } else {
+        None
+    };
+    if let Some(entry) = cached.as_ref().filter(|entry| {
+        entry.fresh_until_ms > now
+            && generation == state.folio_cache_generation.load(Ordering::Acquire)
+    }) {
         state
             .folio_metrics
             .cache_hits
@@ -168,6 +179,7 @@ pub async fn request_handler(
         request = request.body(reqwest::Body::wrap_stream(body.into_data_stream()));
     }
 
+    let request_started = std::time::Instant::now();
     let upstream = match request.send().await {
         Ok(response) => response,
         Err(error) => {
@@ -184,11 +196,27 @@ pub async fn request_handler(
         }
     };
 
+    if (!matches!(method, Method::GET | Method::HEAD | Method::OPTIONS)
+        || crate::cache::request_bypasses_cache(&upstream_headers))
+        && (upstream.status().is_success() || upstream.status().is_redirection())
+    {
+        invalidate_target(&state, target.as_str()).await;
+    }
+
     if upstream.status() == reqwest::StatusCode::NOT_MODIFIED {
         if let Some(stale) = cached {
-            let refreshed = Arc::new(refresh_cached_response(stale.as_ref(), upstream.headers()));
+            let refreshed = Arc::new(refresh_cached_response(
+                stale.as_ref(),
+                upstream.headers(),
+                request_started.elapsed(),
+                state.folio_cache_max_ttl_secs,
+            ));
             let key = session_key.as_ref().unwrap_or(&public_key).clone();
-            state.folio_cache.insert(key, refreshed.clone()).await;
+            if refreshed.fresh_until_ms > now_ms() {
+                publish_cache(&state, key, refreshed.clone(), generation).await;
+            } else {
+                state.folio_cache.invalidate(&key).await;
+            }
             state
                 .folio_metrics
                 .cache_revalidations
@@ -200,7 +228,8 @@ pub async fn request_handler(
     let status = upstream.status();
     let status_text = status.canonical_reason().unwrap_or("").to_owned();
     let upstream_url = upstream.url().to_string();
-    let raw_headers = raw_headers(upstream.headers());
+    let stored_at_ms = now_ms();
+    let raw_headers = aged_headers(upstream.headers(), request_started.elapsed());
     let cache_policy = cache_policy(
         status.as_u16(),
         &raw_headers,
@@ -208,7 +237,7 @@ pub async fn request_handler(
         session.is_some(),
         state.folio_cache_max_ttl_secs,
     );
-    let cache_key = if cache_policy.is_some() {
+    let cache_key = if cache_request && cache_policy.is_some() {
         if sensitive_request || has_directive(&raw_headers, "private") {
             session_key
         } else {
@@ -234,11 +263,13 @@ pub async fn request_handler(
                 status: status.as_u16(),
                 status_text,
                 url: upstream_url,
+                request_url: target.to_string(),
                 raw_headers,
                 body: Bytes::new(),
                 fresh_until_ms,
+                stored_at_ms,
             });
-            state.folio_cache.insert(cache_key, entry).await;
+            publish_cache(&state, cache_key, entry, generation).await;
         }
         return response_with_meta(Body::empty(), &meta);
     }
@@ -274,13 +305,15 @@ pub async fn request_handler(
                         return;
                     }
                 }
-                Err(error) => {
+                Err(_) => {
                     state_for_stream
                         .folio_metrics
                         .upstream_errors
                         .fetch_add(1, Ordering::Relaxed);
                     let _ = sender
-                        .send(Err(std::io::Error::other(error.to_string())))
+                        .send(Err(std::io::Error::other(
+                            "upstream stream failed... /ᐠ - ˕ -マ",
+                        )))
                         .await;
                     return;
                 }
@@ -292,15 +325,45 @@ pub async fn request_handler(
                 status: status.as_u16(),
                 status_text,
                 url: upstream_url,
+                request_url: target.to_string(),
                 raw_headers,
                 body: finish_cached_body(buffer),
                 fresh_until_ms,
+                stored_at_ms,
             });
-            state_for_stream.folio_cache.insert(cache_key, entry).await;
+            publish_cache(&state_for_stream, cache_key, entry, generation).await;
         }
     });
 
     response_with_meta(Body::from_stream(ReceiverStream::new(receiver)), &meta)
+}
+
+async fn invalidate_target(state: &AppState, target: &str) {
+    state.folio_cache_generation.fetch_add(1, Ordering::AcqRel);
+    let keys = state
+        .folio_cache
+        .iter()
+        .filter(|(_, entry)| entry.request_url == target)
+        .map(|(key, _)| key)
+        .collect::<Vec<_>>();
+    for key in keys {
+        state.folio_cache.invalidate(key.as_ref()).await;
+    }
+}
+
+async fn publish_cache(
+    state: &AppState,
+    key: String,
+    entry: Arc<FolioCachedResponse>,
+    generation: u64,
+) {
+    if generation != state.folio_cache_generation.load(Ordering::Acquire) {
+        return;
+    }
+    state.folio_cache.insert(key.clone(), entry).await;
+    if generation != state.folio_cache_generation.load(Ordering::Acquire) {
+        state.folio_cache.invalidate(&key).await;
+    }
 }
 
 fn finish_cached_body(buffer: BytesMut) -> Bytes {
@@ -441,39 +504,49 @@ fn cache_policy(
     {
         return None;
     }
-    let cache_control = raw_header(headers, "cache-control")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if cache_control
-        .split(',')
-        .any(|value| value.trim() == "no-store")
-    {
-        return None;
-    }
     if (sensitive_request || has_directive(headers, "private")) && !has_session {
         return None;
     }
 
-    let max_age = cache_control.split(',').find_map(|part| {
-        let (name, value) = part.trim().split_once('=')?;
-        matches!(name.trim(), "s-maxage" | "max-age")
-            .then(|| value.trim().trim_matches('"').parse::<u64>().ok())
-            .flatten()
-    });
-    if let Some(max_age) = max_age {
-        return Some(max_age.min(max_ttl_secs));
+    let mut parsed = HeaderMap::new();
+    for (name, value) in headers {
+        parsed.append(
+            HeaderName::from_bytes(name.as_bytes()).ok()?,
+            HeaderValue::from_str(value).ok()?,
+        );
     }
-    cache_control
-        .split(',')
-        .any(|value| value.trim() == "immutable")
-        .then_some(max_ttl_secs.min(24 * 3600))
+    if parsed.get_all("vary").iter().any(|value| {
+        value.to_str().map_or(true, |value| {
+            value.split(',').any(|name| name.trim() == "*")
+        })
+    }) {
+        return None;
+    }
+    let shared = !sensitive_request && !has_directive(headers, "private");
+    let lifetime = crate::cache::freshness_lifetime(&parsed, shared, max_ttl_secs)?;
+    let age = crate::cache::response_age(&parsed, SystemTime::now(), std::time::Duration::ZERO)?;
+    Some(
+        std::time::Duration::from_secs(lifetime)
+            .saturating_sub(age)
+            .as_secs(),
+    )
 }
 
 fn has_directive(headers: &[(String, String)], directive: &str) -> bool {
-    raw_header(headers, "cache-control")
-        .unwrap_or_default()
-        .split(',')
-        .any(|value| value.trim().eq_ignore_ascii_case(directive))
+    headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case("cache-control"))
+        .any(|(_, value)| {
+            value.split(',').any(|value| {
+                value
+                    .trim()
+                    .split('=')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .eq_ignore_ascii_case(directive)
+            })
+        })
 }
 
 fn raw_headers(headers: &HeaderMap) -> Vec<(String, String)> {
@@ -492,11 +565,26 @@ fn raw_header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str
         .map(|(_, value)| value.as_str())
 }
 
+fn aged_headers(headers: &HeaderMap, delay: std::time::Duration) -> Vec<(String, String)> {
+    let mut raw = raw_headers(headers);
+    let age = crate::cache::response_age(headers, SystemTime::now(), delay)
+        .map(|age| {
+            age.as_secs()
+                .saturating_add(u64::from(age.subsec_nanos() > 0))
+        })
+        .unwrap_or(u64::MAX);
+    raw.retain(|(name, _)| !name.eq_ignore_ascii_case("age"));
+    raw.push(("age".into(), age.to_string()));
+    raw
+}
+
 fn refresh_cached_response(
     cached: &FolioCachedResponse,
     headers: &HeaderMap,
+    delay: std::time::Duration,
+    max_ttl_secs: u64,
 ) -> FolioCachedResponse {
-    let replacement = raw_headers(headers);
+    let replacement = aged_headers(headers, delay);
     let replacement_names = replacement
         .iter()
         .map(|(name, _)| name.to_ascii_lowercase())
@@ -508,14 +596,16 @@ fn refresh_cached_response(
         .cloned()
         .collect::<Vec<_>>();
     raw_headers.extend(replacement);
-    let ttl = cache_policy(cached.status, &raw_headers, false, true, 24 * 3600).unwrap_or(0);
+    let ttl = cache_policy(cached.status, &raw_headers, false, true, max_ttl_secs).unwrap_or(0);
     FolioCachedResponse {
         status: cached.status,
         status_text: cached.status_text.clone(),
         url: cached.url.clone(),
+        request_url: cached.request_url.clone(),
         raw_headers,
         body: cached.body.clone(),
         fresh_until_ms: now_ms().saturating_add(ttl.saturating_mul(1000)),
+        stored_at_ms: now_ms(),
     }
 }
 
@@ -524,11 +614,18 @@ fn response_has_no_body(status: u16) -> bool {
 }
 
 fn cached_response(entry: &FolioCachedResponse, cache: &'static str) -> Response {
+    let mut raw_headers = entry.raw_headers.clone();
+    let age = raw_header(&raw_headers, "age")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(now_ms().saturating_sub(entry.stored_at_ms).div_ceil(1000));
+    raw_headers.retain(|(name, _)| !name.eq_ignore_ascii_case("age"));
+    raw_headers.push(("age".into(), age.to_string()));
     let meta = UpstreamMeta {
         status: entry.status,
         status_text: entry.status_text.clone(),
         url: entry.url.clone(),
-        raw_headers: entry.raw_headers.clone(),
+        raw_headers,
         cache,
     };
     response_with_meta(Body::from(entry.body.clone()), &meta)
@@ -575,13 +672,4 @@ fn gateway_error(status: StatusCode, message: &'static str) -> Response {
         negative_message(message),
     )
         .into_response()
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .try_into()
-        .unwrap_or(u64::MAX)
 }

@@ -6,6 +6,7 @@ import {
   readMotionPreference,
 } from "../core/config/advancedSettings.ts";
 import "../assets/styles/base/themes.css";
+import "../assets/styles/base/motion.css";
 import "../assets/styles/anime/episode-selector.css";
 import "../assets/styles/player/player.css";
 import "../assets/styles/toast/toast.css";

@@ -1,3 +1,4 @@
+mod admission;
 mod cache;
 mod constants;
 mod encoding;
@@ -9,6 +10,7 @@ mod rewrite;
 mod safe_dns;
 mod state;
 mod stream;
+mod test_support;
 mod tuning;
 mod websocket;
 
@@ -96,6 +98,9 @@ fn main() -> AppResult<()> {
 
 fn public_redirect_policy() -> Policy {
     Policy::custom(|attempt| {
+        if attempt.previous().len() >= 10 {
+            return attempt.error("too many redirects... /ᐠ - ˕ -マ");
+        }
         let url = attempt.url();
         let port_allowed = url
             .port_or_known_default()
@@ -111,6 +116,7 @@ fn public_redirect_policy() -> Policy {
                     && !normalized.ends_with(".internal")
                     && !normalized.ends_with(".home.arpa")
                     && normalized
+                        .trim_matches(['[', ']'])
                         .parse::<std::net::IpAddr>()
                         .map(safe_dns::is_public_ip)
                         .unwrap_or(true)
@@ -165,6 +171,8 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .build();
 
     let asset_client = Client::builder()
+        .no_proxy()
+        .retry(reqwest::retry::never())
         .user_agent(BROWSER_USER_AGENT)
         .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
         .redirect(public_redirect_policy())
@@ -179,6 +187,8 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .build()?;
 
     let html_client = Client::builder()
+        .no_proxy()
+        .retry(reqwest::retry::never())
         .user_agent(BROWSER_USER_AGENT)
         .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
         .redirect(public_redirect_policy())
@@ -186,13 +196,15 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .pool_max_idle_per_host(tuning.pool_idle_per_host_html)
         .tcp_nodelay(true)
         .tcp_keepalive(Duration::from_secs(60))
-        .timeout(Duration::from_secs(120))
+        .read_timeout(Duration::from_secs(60))
         .connect_timeout(Duration::from_secs(10))
         .http2_keep_alive_interval(Duration::from_secs(15))
         .http2_keep_alive_timeout(Duration::from_secs(20))
         .build()?;
 
     let raw_client = Client::builder()
+        .no_proxy()
+        .retry(reqwest::retry::never())
         .user_agent(BROWSER_USER_AGENT)
         .redirect(Policy::none())
         .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
@@ -256,6 +268,10 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
     );
 
     let state = Arc::new(AppState {
+        websocket_permit: Arc::new(tokio::sync::Semaphore::new(admission::limit(
+            "MOCHI_WEBSOCKETS",
+            256,
+        ))),
         memory_pressure: Arc::new(memory::MemoryPressure::default()),
         html_client,
         asset_client,
@@ -264,6 +280,7 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         stream_cache,
         stream_fills,
         folio_cache,
+        folio_cache_generation: Default::default(),
         folio_metrics: FolioMetrics::default(),
         blocklist_matcher,
         caching_inflight: DashMap::new(),
@@ -373,15 +390,40 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         ))
         .layer(CompressionLayer::new().compress_when(compression_predicate))
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            admission::Admission::from_env(),
+            admission::admit,
+        ))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
-        .tcp_nodelay(true)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("shutting down...");
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .tcp_nodelay(true)
+    .with_graceful_shutdown(async {
+        shutdown_signal().await;
+        tracing::info!("shutting down...");
+    })
+    .await?;
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                tokio::select! { _ = tokio::signal::ctrl_c() => {}, _ = terminate.recv() => {} }
+            }
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }

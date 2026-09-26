@@ -27,7 +27,7 @@ body.games-view .games-topbar {
   padding: 8px;
   box-sizing: border-box;
   opacity: 1;
-  transition: opacity 100ms ease;
+  transition: opacity var(--motion-control) var(--motion-ease);
   z-index: 2;
 }
 

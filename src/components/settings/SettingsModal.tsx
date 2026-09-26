@@ -710,7 +710,7 @@ export default function SettingsModal({
                 <p>install chrome extensions into the browser.</p>
               <div class="rivet-manager-actions">
                 <label class="rivet-file-button rivet-action-primary">
-                  {extensionBusy ? "working…" : "upload extension"}
+                  {extensionBusy ? "1 sec…" : "upload extension"}
                   <input
                     type="file"
                     accept=".zip,.crx,application/zip"

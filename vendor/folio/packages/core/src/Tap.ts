@@ -11,9 +11,7 @@ type Callback<T extends Description> = (
 ) => void | Promise<void>;
 
 export type TapOrder = {
-	/** Run before these plugins. */
 	before?: readonly string[];
-	/** Run after these plugins. */
 	after?: readonly string[];
 };
 
@@ -114,13 +112,21 @@ export class Tap {
 	static dispatch<T extends Description>(
 		hook: T,
 		context: T["context"],
-		props: T["props"]
+		props: T["props"],
+		sequential = false
 	): Promise<void[]> | null {
 		const internal = hook as unknown as InternalHookDescription;
 		let callbacks = internal.tap.callbacks[internal.key];
 		if (!callbacks || callbacks.length === 0) return null;
 
 		callbacks = sortCallbacks([...callbacks] as CallbackInfo<T>[]);
+		if (sequential) {
+			return (async () => {
+				const results: void[] = [];
+				for (const cb of callbacks) results.push(await cb.callback(context, props));
+				return results;
+			})();
+		}
 
 		const results = callbacks.map((cb) => cb.callback(context, props));
 		return Promise_all(results);

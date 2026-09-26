@@ -49,7 +49,7 @@
   text-align: left;
   font-weight: 400;
   margin-bottom: 10px;
-  transition: color 0.1s ease;
+  transition: color var(--motion-control) var(--motion-ease);
 }
 
 #settings-modal select {
@@ -63,8 +63,8 @@
   font-size: 14px;
   outline: none;
   transition:
-    background-color 0.1s ease,
-    border-color 0.1s ease;
+    background-color var(--motion-control) var(--motion-ease),
+    border-color var(--motion-control) var(--motion-ease);
 }
 
 #settings-modal select:focus {
@@ -102,7 +102,7 @@
   max-width: 300px;
   margin-bottom: 15px;
   user-select: none;
-  transition: background-color 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease);
 }
 
 .settings-selector-selected,
@@ -122,7 +122,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  transition: background-color 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease);
 }
 
 .settings-selector-selected:hover,
@@ -151,7 +151,7 @@
   color: var(--color-icon-muted);
   width: 18px;
   height: 18px;
-  transition: transform 0.12s ease;
+  transition: transform var(--motion-control) var(--motion-ease);
   flex-shrink: 0;
   transform-origin: center center;
 }
@@ -194,8 +194,8 @@
   transform-origin: top right;
   will-change: opacity, transform;
   transition:
-    opacity 0.12s ease,
-    transform 0.12s ease;
+    opacity var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
   z-index: 100;
   padding: 3px 0;
   contain: layout style paint;
@@ -229,8 +229,8 @@
   width: 93%;
   margin: 0 auto;
   transition:
-    background-color 0.1s ease,
-    color 0.1s ease;
+    background-color var(--motion-control) var(--motion-ease),
+    color var(--motion-control) var(--motion-ease);
 }
 
 .settings-selector-options div:hover,
@@ -256,7 +256,7 @@ input[type="checkbox"] {
   position: relative;
   outline: none;
   cursor: pointer;
-  transition: background-color 0.1s;
+  transition: background-color var(--motion-control) var(--motion-ease);
 }
 
 input[type="checkbox"]:checked {
@@ -273,8 +273,8 @@ input[type="checkbox"]::before {
   top: 5px;
   left: 6px;
   transition:
-    transform 0.1s ease,
-    background-color 0.1s ease;
+    transform var(--motion-control) var(--motion-ease),
+    background-color var(--motion-control) var(--motion-ease);
   will-change: transform;
 }
 
@@ -309,7 +309,7 @@ input[type="checkbox"]:checked:hover::before {
 }
 
 .settings {
-  transition: color 0.1s ease;
+  transition: color var(--motion-control) var(--motion-ease);
 }
 
 .settings.active-icon {
@@ -330,7 +330,7 @@ input[type="checkbox"]:checked:hover::before {
   display: flex;
   align-items: center;
   gap: 6px;
-  transition: color 0.1s ease;
+  transition: color var(--motion-control) var(--motion-ease);
 }
 
 .tab-button svg {
@@ -342,8 +342,8 @@ input[type="checkbox"]:checked:hover::before {
   flex-shrink: 0;
   margin-right: 6px;
   transition:
-    background-color 0.1s ease,
-    transform 0.1s ease;
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 .tab-button:hover {
@@ -404,8 +404,8 @@ input[type="checkbox"]:checked:hover::before {
   padding: 8px 12px;
   text-align: center;
   transition:
-    background-color 0.1s ease,
-    transform 0.1s ease;
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 #settings-modal .rivet-action-primary {

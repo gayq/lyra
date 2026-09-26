@@ -1,0 +1,41 @@
+:root {
+  --motion-control: 120ms;
+  --motion-enter: 180ms;
+  --motion-exit: 120ms;
+  --motion-reveal: 320ms;
+  --motion-shimmer: 1000ms;
+  --motion-spin: 800ms;
+  --motion-idle: 800ms;
+  --motion-groom: 1200ms;
+  --motion-ease: ease;
+  --motion-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion="full"]) { --motion-hover-scale: 1; }
+  html:not([data-motion="full"]),
+  html:not([data-motion="full"]) *,
+  html:not([data-motion="full"]) *::before,
+  html:not([data-motion="full"]) *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html[data-motion="reduced"] { --motion-hover-scale: 1; }
+html[data-motion="reduced"],
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}

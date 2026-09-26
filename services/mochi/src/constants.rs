@@ -13,8 +13,14 @@ pub const PART_1: &str = r##"<script>
         if (navigator.serviceWorker) {
             Object.defineProperty(navigator, 'serviceWorker', {
                 value: {
-                    register: function() { return new Promise(() => {}); }, 
-                    ready: new Promise(() => {}),
+                    register: function() { return Promise.reject(new DOMException('service workers are unavailable... /ᐠ - ˕ -マ', 'NotSupportedError')); },
+                    get ready() {
+                        var result = Promise.reject(new DOMException('service workers are unavailable... /ᐠ - ˕ -マ', 'NotSupportedError'));
+                        result.catch(function() {});
+                        return result;
+                    },
+                    controller: null,
+                    getRegistration: function() { return Promise.resolve(undefined); },
                     addEventListener: function() {},
                     removeEventListener: function() {},
                     getRegistrations: function() { return Promise.resolve([]); }

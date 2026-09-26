@@ -162,6 +162,11 @@ export interface RivetContextMenuRequest {
 }
 
 export interface RivetHostBindings {
+  resolveDns?: (hostname: string, flags: string[]) => Promise<{
+    addresses: string[];
+    canonicalName?: string;
+    isTRR: boolean;
+  }>;
   getTabId: (win: Window) => number | null;
   getTab: (tabId: number) => TabInfo | null;
   getAllTabs: () => TabInfo[];

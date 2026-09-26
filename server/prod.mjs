@@ -6,6 +6,7 @@ import net from "net";
 import path from "path";
 import { availableParallelism, totalmem } from "os";
 import { httpError } from "./errors.mjs";
+import { createDnsService } from "./dns.mjs";
 import {
   NEGATIVE,
   negativeMessage,
@@ -75,6 +76,7 @@ const API_LIMIT_MAX = HOST_CORES * 250;
 const API_LIMIT_MAX_CLIENTS = Math.max(2_000, Math.floor(HOST_MEMORY_BYTES / (1024 * 1024)) * 8);
 const apiHits = new Map();
 const searchSuggestionService = createSearchSuggestionService();
+const dnsService = createDnsService();
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -566,6 +568,7 @@ async function appFetch(req, server) {
   }
 
   if (isMochiPath(pathname)) return proxyToMochi(req);
+  if (pathname === "/api/dns") return dnsService.handle(req);
 
   if (method === "OPTIONS") {
     return new Response(null, {

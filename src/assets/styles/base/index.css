@@ -47,7 +47,7 @@ body.anime-view .anime-topbar::before {
         transparent 100%
     );
     opacity: 0;
-    transition: opacity 0.1s ease;
+    transition: opacity var(--motion-control) var(--motion-ease);
     z-index: -1;
     pointer-events: none;
     contain: paint;
@@ -106,8 +106,8 @@ body.is-resizing .iframe {
     overflow: hidden;
     padding: 10px;
     transition:
-        margin-left 0.14s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.14s cubic-bezier(0.4, 0, 0.2, 1),
+        margin-left var(--motion-enter) var(--motion-ease),
+        opacity var(--motion-enter) var(--motion-ease),
         visibility 0s;
     white-space: nowrap;
     width: 220px;
@@ -149,9 +149,9 @@ body.sidebar-hidden .sidebar {
     margin-left: -220px;
     opacity: 0;
     transition:
-        margin-left 0.14s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.14s cubic-bezier(0.4, 0, 0.2, 1),
-        visibility 0s 0.14s;
+        margin-left var(--motion-enter) var(--motion-ease),
+        opacity var(--motion-enter) var(--motion-ease),
+        visibility 0s var(--motion-enter);
     visibility: hidden;
 }
 
@@ -172,8 +172,8 @@ body.split-view #iframe-container {
     gap: 0;
     height: 99%;
     transition:
-        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        transform var(--motion-control) var(--motion-ease),
+        opacity var(--motion-control) var(--motion-ease);
 }
 
 body.is-picking-split #iframe-container .iframe,
@@ -190,9 +190,9 @@ body.split-view #iframe-container .iframe {
     top: auto;
     transform: translateZ(0);
     transition:
-        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-        border-radius 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        transform var(--motion-control) var(--motion-ease),
+        opacity var(--motion-control) var(--motion-ease),
+        border-radius var(--motion-control) var(--motion-ease);
     z-index: 0;
 }
 
@@ -207,13 +207,13 @@ body.split-view #iframe-container .iframe.active {
 
 body.is-picking-split #iframe-container .iframe.active-split-left,
 body.split-view #iframe-container .iframe.active-split-left {
-    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn var(--motion-enter) var(--motion-ease);
     display: block;
     order: 1;
 }
 
 body.split-view #iframe-container .iframe.active-split-right {
-    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn var(--motion-enter) var(--motion-ease);
     display: block;
     order: 3;
 }
@@ -228,7 +228,7 @@ body.split-view #iframe-container .iframe.active-split-right {
     overflow: hidden;
     position: relative;
     transform: translateZ(0);
-    transition: opacity 0.1s ease;
+    transition: opacity var(--motion-control) var(--motion-ease);
     width: calc(100% - 10px);
     z-index: 1;
 }
@@ -252,9 +252,9 @@ body.split-view #iframe-container .iframe.active-split-right {
     position: absolute;
     top: 0;
     transition:
-        transform 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-        opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1),
-        border-radius 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+        transform var(--motion-control) var(--motion-ease),
+        opacity var(--motion-control) var(--motion-ease),
+        border-radius var(--motion-control) var(--motion-ease);
     width: 100%;
     z-index: 2;
 }
@@ -278,7 +278,7 @@ body.split-view #iframe-container .iframe.active-split-right {
 }
 
 body.split-view #iframe-resize-divider {
-    animation: splitIn 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: splitIn var(--motion-enter) var(--motion-ease);
     background-color: var(--split-divider-bg);
     cursor: ew-resize;
     flex-shrink: 0;
@@ -404,8 +404,8 @@ body.browser-view .main-nav {
     padding: 8px;
     text-decoration: none;
     transition:
-        background-color 0.1s ease,
-        color 0.1s ease;
+        background-color var(--motion-control) var(--motion-ease),
+        color var(--motion-control) var(--motion-ease);
 }
 
 .nav-controls a[data-tooltip],
@@ -450,7 +450,7 @@ body.browser-view .main-nav {
     justify-content: center;
     padding: 8px;
     text-decoration: none;
-    transition: background-color 0.01s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
 }
 
 #toggle-sidebar-btn:hover {
@@ -474,8 +474,8 @@ body.browser-view .main-nav {
     position: relative;
     text-decoration: none;
     transition:
-        background-color 0.1s ease,
-        transform 0.1s ease;
+        background-color var(--motion-control) var(--motion-ease),
+        transform var(--motion-control) var(--motion-ease);
 }
 
 .icon-btn:hover {
@@ -502,6 +502,8 @@ body.anime-view #anime-icon svg path {
 
 .icon-btn[data-tooltip]:hover::before,
 .icon-btn[data-tooltip]:hover::after,
+.rivet-toolbar-trigger[data-tooltip]:hover::before,
+.rivet-toolbar-trigger[data-tooltip]:hover::after,
 .nav-controls a[data-tooltip]:hover::before,
 .nav-controls a[data-tooltip]:hover::after,
 .window-controls a[data-tooltip]:hover::before,
@@ -512,6 +514,7 @@ body.anime-view #anime-icon svg path {
 }
 
 .icon-btn[data-tooltip]:hover::before,
+.rivet-toolbar-trigger[data-tooltip]:hover::before,
 .nav-controls a[data-tooltip]:hover::before,
 .window-controls a[data-tooltip]:hover::before,
 .omnibox-icon[data-tooltip]:hover::before {
@@ -526,10 +529,11 @@ body.anime-view #anime-icon svg path {
     background: var(--bg-surface-3);
     pointer-events: none;
     z-index: 1299;
-    animation: tooltip-arrow-in 0.12s ease forwards;
+    animation: tooltip-arrow-in var(--motion-enter) var(--motion-ease) forwards;
 }
 
 .icon-btn[data-tooltip]:hover::after,
+.rivet-toolbar-trigger[data-tooltip]:hover::after,
 .nav-controls a[data-tooltip]:hover::after,
 .window-controls a[data-tooltip]:hover::after,
 .omnibox-icon[data-tooltip]:hover::after {
@@ -546,7 +550,7 @@ body.anime-view #anime-icon svg path {
     white-space: nowrap;
     pointer-events: none;
     z-index: 1300;
-    animation: tooltip-in 0.12s ease forwards;
+    animation: tooltip-in var(--motion-enter) var(--motion-ease) forwards;
 }
 
 @keyframes tooltip-in {
@@ -585,7 +589,7 @@ body.anime-view #anime-icon svg path {
     font-size: 16px;
     margin-top: 2px;
     padding: 10px 25px;
-    transition: background-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
     width: auto;
 }
 
@@ -615,8 +619,8 @@ body.anime-view #anime-icon svg path {
     padding: 10px 15px;
     text-decoration: none;
     transition:
-        background-color 0.1s ease,
-        transform 0.1s ease;
+        background-color var(--motion-control) var(--motion-ease),
+        transform var(--motion-control) var(--motion-ease);
 }
 
 .text-icon-btn:hover {
@@ -656,7 +660,7 @@ body.anime-view #anime-icon svg path {
     outline: none;
     padding: 10px 15px 10px 42px;
     text-align: left;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
     width: 100%;
 }
 
@@ -692,9 +696,9 @@ body.anime-view #anime-icon svg path {
     padding: 5px;
     box-sizing: content-box;
     transition:
-        background-color 0.1s ease,
-        color 0.1s ease,
-        transform 0.1s ease;
+        background-color var(--motion-control) var(--motion-ease),
+        color var(--motion-control) var(--motion-ease),
+        transform var(--motion-control) var(--motion-ease);
 }
 
 .omnibox-icon > svg {
@@ -751,7 +755,7 @@ body.anime-view #anime-icon svg path {
     padding-left: 2px;
     position: relative;
     text-align: left;
-    transition: color 0.1s ease;
+    transition: color var(--motion-control) var(--motion-ease);
     white-space: nowrap;
 }
 
@@ -762,7 +766,7 @@ body.anime-view #anime-icon svg path {
 
 #oneko {
     background-image: url(/assets/images/gifs/oneko.gif);
-    animation: onekoIdle 0.8s steps(1) infinite;
+    animation: onekoIdle var(--motion-idle) steps(1) infinite;
     height: 32px;
     image-rendering: pixelated;
     margin-left: -7px;
@@ -838,7 +842,7 @@ body.anime-view #anime-icon svg path {
     outline: none;
     padding: 18px;
     position: relative;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
     width: calc(100% - 90px);
     min-width: 0;
     z-index: 3;
@@ -862,7 +866,7 @@ body.anime-view #anime-icon svg path {
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    transition: color 0.1s ease;
+    transition: color var(--motion-control) var(--motion-ease);
     z-index: 4;
 }
 
@@ -926,7 +930,7 @@ body.anime-view #anime-icon svg path {
     border-radius: calc(var(--radius-bar) - 0.8px);
     inset: 0.8px;
     position: absolute;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
     z-index: 2;
 }
 
@@ -940,7 +944,7 @@ body.anime-view #anime-icon svg path {
     position: relative;
     text-decoration: none;
     text-decoration: underline;
-    transition: color 0.1s ease;
+    transition: color var(--motion-control) var(--motion-ease);
 }
 
 .link:hover {
@@ -956,8 +960,8 @@ body.anime-view #anime-icon svg path {
     position: fixed;
     top: 0;
     transition:
-        opacity 0.1s ease,
-        visibility 0s 0.1s;
+        opacity var(--motion-control) var(--motion-ease),
+        visibility 0s var(--motion-control);
     visibility: hidden;
     width: 100%;
     will-change: opacity;
@@ -968,7 +972,7 @@ body.anime-view #anime-icon svg path {
 #overlay.show {
     opacity: 1;
     pointer-events: auto;
-    transition: opacity 0.1s ease-in-out;
+    transition: opacity var(--motion-control) var(--motion-ease);
     visibility: visible;
 }
 
@@ -989,7 +993,7 @@ body.anime-view #anime-icon svg path {
     max-width: 410px;
     max-height: 80vh;
     overflow-y: auto;
-    transition: opacity 0.1s ease;
+    transition: opacity var(--motion-control) var(--motion-ease);
     z-index: 999999;
     flex-direction: column;
     contain: layout style paint;
@@ -1030,12 +1034,12 @@ body.anime-view #anime-icon svg path {
 
 .popup.modal-visible,
 .settings-modal.modal-visible {
-    animation: modalIn 0.1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: modalIn var(--motion-enter) var(--motion-ease-enter) forwards;
 }
 
 .popup.modal-closing,
 .settings-modal.modal-closing {
-    animation: modalOut 0.1s cubic-bezier(0.4, 0, 1, 1) forwards;
+    animation: modalOut var(--motion-exit) var(--motion-ease-exit) forwards;
     pointer-events: none;
 }
 
@@ -1058,7 +1062,7 @@ body.anime-view #anime-icon svg path {
     position: absolute;
     right: 10px;
     top: 10px;
-    transition: color 0.1s ease, transform 0.1s ease;
+    transition: color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
     width: 30px;
     z-index: 1000;
 }
@@ -1086,7 +1090,7 @@ body.anime-view #anime-icon svg path {
 }
 
 #updateSuccess {
-    animation: fadeIn 0.1s forwards;
+    animation: fadeIn var(--motion-enter) var(--motion-ease-enter) forwards;
     backdrop-filter: blur(10px);
     background-color: var(--bg-body);
     border-radius: var(--radius-dialog);
@@ -1099,7 +1103,7 @@ body.anime-view #anime-icon svg path {
     text-align: center;
     top: 46%;
     transform: translate(-50%, -50%);
-    transition: opacity 0.1s ease;
+    transition: opacity var(--motion-control) var(--motion-ease);
     width: 250px;
     z-index: 999999;
     contain: layout style paint;
@@ -1120,7 +1124,7 @@ body.anime-view #anime-icon svg path {
 }
 
 #updateSuccess.fade-out {
-    animation: fadeOut 0.1s forwards;
+    animation: fadeOut var(--motion-exit) var(--motion-ease-exit) forwards;
 }
 
 .popup .input-container input {
@@ -1131,7 +1135,7 @@ body.anime-view #anime-icon svg path {
     margin-bottom: 5px;
     outline: none;
     padding: 12px;
-    transition: background-color 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease);
     width: 100%;
 }
 
@@ -1143,7 +1147,7 @@ body.anime-view #anime-icon svg path {
     cursor: pointer;
     font-size: 16px;
     padding: 10px;
-    transition: background-color 0.1s ease, transform 0.1s ease;
+    transition: background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
     width: 48%;
 }
 
@@ -1247,11 +1251,11 @@ body.anime-view #anime-icon svg path {
     flex-shrink: 0;
     margin-left: -20px;
     margin-bottom: -15px;
-    animation: onekoIdle 0.8s steps(1) infinite;
+    animation: onekoIdle var(--motion-idle) steps(1) infinite;
 }
 
 .sidebar-footer.loading .sidebar-footer-oneko {
-    animation: onekoGroom 1.2s steps(1) infinite;
+    animation: onekoGroom var(--motion-groom) steps(1) infinite;
 }
 
 html.modal-motion-paused #oneko,
@@ -1334,7 +1338,7 @@ html.theme-transitioning #iframe-container .iframe.active-split-right > iframe {
 }
 
 html.theme-transitioning::view-transition-group(root) {
-    animation-duration: 0.45s;
+    animation-duration: var(--motion-reveal);
 }
 
 html.theme-transitioning::view-transition-old(root),
@@ -1349,7 +1353,7 @@ html.theme-transitioning::view-transition-old(root) {
 
 html.theme-transitioning::view-transition-new(root) {
     z-index: 9999;
-    animation: circle-reveal 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: circle-reveal var(--motion-reveal) var(--motion-ease);
 }
 
 html.theme-transitioning::view-transition-group(theme-iframe-active),
@@ -1448,32 +1452,4 @@ html.theme-transitioning::view-transition-new(theme-iframe-right) {
     .footer {
         padding: 0 16px 18px;
     }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    html:not([data-motion="full"]) {
-        --motion-hover-scale: 1;
-    }
-
-    html:not([data-motion="full"]) *,
-    html:not([data-motion="full"]) *::before,
-    html:not([data-motion="full"]) *::after {
-        animation-duration: 0.001ms !important;
-        animation-iteration-count: 1 !important;
-        scroll-behavior: auto !important;
-        transition-duration: 0.001ms !important;
-    }
-}
-
-html[data-motion="reduced"] {
-    --motion-hover-scale: 1;
-}
-
-html[data-motion="reduced"] *,
-html[data-motion="reduced"] *::before,
-html[data-motion="reduced"] *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.001ms !important;
 }

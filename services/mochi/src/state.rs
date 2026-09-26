@@ -21,9 +21,11 @@ pub struct FolioCachedResponse {
     pub status: u16,
     pub status_text: String,
     pub url: String,
+    pub request_url: String,
     pub raw_headers: Vec<(String, String)>,
     pub body: Bytes,
     pub fresh_until_ms: u64,
+    pub stored_at_ms: u64,
 }
 
 impl FolioCachedResponse {
@@ -36,6 +38,7 @@ impl FolioCachedResponse {
             .len()
             .saturating_add(key.len())
             .saturating_add(self.url.capacity())
+            .saturating_add(self.request_url.capacity())
             .saturating_add(self.status_text.capacity())
             .saturating_add(self.raw_headers.capacity() * std::mem::size_of::<(String, String)>())
             .saturating_add(headers)
@@ -57,6 +60,7 @@ pub struct FolioMetrics {
 }
 
 pub struct AppState {
+    pub websocket_permit: Arc<tokio::sync::Semaphore>,
     pub memory_pressure: Arc<crate::memory::MemoryPressure>,
     pub html_client: Client,
     pub asset_client: Client,
@@ -65,6 +69,7 @@ pub struct AppState {
     pub stream_cache: Cache<String, Arc<CachedResponse>>,
     pub stream_fills: Cache<String, Arc<Mutex<Option<bool>>>>,
     pub folio_cache: Cache<String, Arc<FolioCachedResponse>>,
+    pub folio_cache_generation: AtomicU64,
     pub folio_metrics: FolioMetrics,
     pub blocklist_matcher: Arc<AhoCorasick>,
     pub caching_inflight: DashMap<String, ()>,

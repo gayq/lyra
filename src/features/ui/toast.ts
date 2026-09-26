@@ -1,3 +1,4 @@
+import { motionDuration } from "../../core/ui/motion.ts";
 import { svgIcon } from "../../core/ui/svgIcon";
 import {
   normalizeToastType,
@@ -243,14 +244,14 @@ function initToast(): void {
       const shouldDismiss = dragDelta > 50 || velocity > 0.5;
       if (shouldDismiss) {
         toast.style.transition =
-          "transform 0.2s cubic-bezier(0.4, 0, 1, 1), opacity 0.2s cubic-bezier(0.4, 0, 1, 1)";
+          "transform var(--motion-exit) var(--motion-ease-exit), opacity var(--motion-exit) var(--motion-ease-exit)";
         toast.style.transform = `translateY(${dragDelta + 80}px) scale(0.9)`;
         toast.style.opacity = "0";
         const cleanup = () => {
           if (toast.parentNode) toast.remove();
         };
         toast.addEventListener("transitionend", cleanup, { once: true });
-        setTimeout(cleanup, 300);
+        setTimeout(cleanup, motionDuration("exit", toast) + 50);
         if (activeToasts.has(toast)) {
           activeToasts.get(toast)!.clear();
           activeToasts.delete(toast);
@@ -259,7 +260,7 @@ function initToast(): void {
         updateToastPositions(toastContainer!.matches(":hover"));
       } else {
         toast.style.transition =
-          "transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), opacity 0.1s ease-out";
+          "transform var(--motion-enter) var(--motion-ease-enter), opacity var(--motion-control) var(--motion-ease)";
         updateToastPositions(toastContainer!.matches(":hover"));
         toast.style.opacity = "1";
         controller.start();
@@ -309,7 +310,7 @@ function initToast(): void {
       if (toast.parentNode) toast.remove();
     };
     toast.addEventListener("transitionend", cleanup, { once: true });
-    setTimeout(cleanup, 400);
+    setTimeout(cleanup, motionDuration("exit", toast) + 50);
 
     updateToastPositions(toastContainer!.matches(":hover"));
   }

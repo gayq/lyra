@@ -7,6 +7,7 @@ import { Agent, createServer, request } from "http";
 import express from "express";
 import { createDevRuntime } from "./dev-secrets.mjs";
 import { httpError } from "./errors.mjs";
+import { createDnsService } from "./dns.mjs";
 import {
   NEGATIVE,
   negativeMessage,
@@ -28,6 +29,7 @@ process.on("exit", () => cleanupOnExit());
 Object.assign(process.env, devRuntime.env);
 const DEV_SERVICE_ENV = devRuntime.env;
 const searchSuggestionService = createSearchSuggestionService();
+const dnsService = createDnsService();
 
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
 const DEV_MOCHI_PORT = Number.parseInt(process.env.MOCHI_PORT || "4002", 10);
@@ -335,6 +337,17 @@ app.get("/b", (req, res) => {
   res.send(bundle);
 });
 app.get("/api/search/suggestions", serveSearchSuggestions);
+app.all("/api/dns", async (req, res) => {
+  const response = await dnsService.handle(new Request(new URL(req.originalUrl, "http://localhost"), {
+    method: req.method,
+    headers: {
+      "x-rivet-dns": req.get("x-rivet-dns") || "",
+      "sec-fetch-site": req.get("sec-fetch-site") || "",
+    },
+  }));
+  response.headers.forEach((value, name) => res.setHeader(name, value));
+  res.status(response.status).send(await response.text());
+});
 app.use(proxyDevService);
 
 const swStaticOpts = { maxAge: 0, etag: true };

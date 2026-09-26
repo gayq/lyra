@@ -21,8 +21,8 @@
   justify-content: center;
   cursor: pointer;
   transition:
-    background-color 0.1s ease,
-    transform 0.1s ease;
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 .episode-selector-button:not(:disabled):hover {

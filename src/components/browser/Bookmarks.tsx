@@ -12,6 +12,8 @@ import {
   IconPlusMedium,
   IconVideoClip,
   IconAudio,
+  IconGamecontroller,
+  IconSushi,
 } from "../icons";
 import type { IconProps } from "../icons/IconBase";
 import "../../assets/styles/browser/bookmarks.css";
@@ -24,10 +26,35 @@ function getBookmarks(): Bookmark[] {
       localStorage.setItem("lyra-bookmarks", JSON.stringify(defaults));
       return defaults;
     }
-    return JSON.parse(raw);
+    const bookmarks: Bookmark[] = JSON.parse(raw);
+    const soundcloudIndex = bookmarks.findIndex(
+      (bookmark) =>
+        bookmark.name.toLowerCase() === "soundcloud" &&
+        canonicalize(bookmark.url) === canonicalize("https://soundcloud.com/"),
+    );
+    if (soundcloudIndex !== -1) {
+      if (bookmarks.some((bookmark) => isInternalBookmark(bookmark.url, "anime"))) {
+        bookmarks.splice(soundcloudIndex, 1);
+      } else {
+        bookmarks[soundcloudIndex] = { name: "anime", url: "lyra://anime" };
+      }
+      if (
+        bookmarks.length < 5 &&
+        !bookmarks.some((bookmark) => isInternalBookmark(bookmark.url, "games"))
+      ) {
+        bookmarks.push({ name: "games", url: "lyra://games" });
+      }
+      saveBookmarks(bookmarks);
+    }
+    return bookmarks;
   } catch {
     return [];
   }
+}
+
+function isInternalBookmark(url: string, page?: "anime" | "games"): boolean {
+  const match = url.match(/^lyra:\/\/(anime|games)\/?$/i);
+  return !!match && (!page || match[1]!.toLowerCase() === page);
 }
 
 function saveBookmarks(bookmarks: Bookmark[]) {
@@ -51,7 +78,7 @@ const BookmarkIcon = memo(function BookmarkIcon({
       /^fa[srbltd]? /.test(bookmark.icon));
 
   let src = bookmark.icon;
-  if (!isFaIcon && !src) {
+  if (!isInternalBookmark(bookmark.url) && !isFaIcon && !src) {
     try {
       const faviconUrl = `https://www.google.com/s2/favicons?domain=${new URL(bookmark.url).hostname}&sz=64`;
       src = "/!cover!/" + encodeMochiUrl(faviconUrl) + "/";
@@ -91,6 +118,21 @@ const BookmarkIcon = memo(function BookmarkIcon({
         </div>
       );
     }
+  }
+
+  if (isInternalBookmark(bookmark.url, "anime")) {
+    return (
+      <div class="bookmark-icon">
+        <IconSushi size={22} solid />
+      </div>
+    );
+  }
+  if (isInternalBookmark(bookmark.url, "games")) {
+    return (
+      <div class="bookmark-icon">
+        <IconGamecontroller solid />
+      </div>
+    );
   }
 
   if (image.errored) {
@@ -175,14 +217,18 @@ export default function Bookmarks() {
     const name = nameRef.current?.value?.trim() ?? "";
     let rawUrl = urlRef.current?.value?.trim() ?? "";
     if (!name || !rawUrl) {
-      toast.error("name and url cannot be empty", "warning");
+      toast.error("name and url cannot be empty... /ᐠ - ˕ -マ", "warning");
       return;
     }
-    if (!/^https?:\/\//i.test(rawUrl)) rawUrl = "https://" + rawUrl;
+    if (isInternalBookmark(rawUrl)) {
+      rawUrl = rawUrl.toLowerCase().replace(/\/$/, "");
+    } else if (!/^https?:\/\//i.test(rawUrl)) {
+      rawUrl = "https://" + rawUrl;
+    }
     try {
-      new URL(rawUrl);
+      if (!isInternalBookmark(rawUrl)) new URL(rawUrl);
     } catch {
-      toast.error("please enter a valid url", "warning");
+      toast.error("please enter a valid url... /ᐠ - ˕ -マ", "warning");
       return;
     }
     const canonUrl = canonicalize(rawUrl);
@@ -190,11 +236,11 @@ export default function Bookmarks() {
     const others =
       editIndex !== null ? bm.filter((_, i) => i !== editIndex) : bm;
     if (others.some((s) => canonicalize(s.url) === canonUrl)) {
-      toast.error("that bookmark url already exists", "warning");
+      toast.error("that bookmark url already exists... /ᐠ - ˕ -マ", "warning");
       return;
     }
     if (editIndex === null && bm.length >= 5) {
-      toast.error("you can only have 5 bookmarks", "warning");
+      toast.error("you can only have 5 bookmarks... /ᐠ - ˕ -マ", "warning");
       return;
     }
 
@@ -232,7 +278,13 @@ export default function Bookmarks() {
                 class="bookmark-link"
                 onClick={(e) => {
                   e.preventDefault();
-                  (window.Lyra as any)?.handleSearch(bookmark.url);
+                  if (isInternalBookmark(bookmark.url, "anime")) {
+                    window.showAnimeMenu?.();
+                  } else if (isInternalBookmark(bookmark.url, "games")) {
+                    window.showGameMenu?.();
+                  } else {
+                    (window.Lyra as any)?.handleSearch(bookmark.url);
+                  }
                 }}
               >
                 <BookmarkIcon bookmark={bookmark} />

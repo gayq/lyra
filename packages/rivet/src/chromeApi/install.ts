@@ -17,6 +17,7 @@ import {
   traceCalls,
 } from "./common";
 import type { ChromeApiContext } from "./context";
+import { createDnsApi } from "./dns";
 import { createNetworkApis } from "./network";
 import { createPlatformApis } from "./platform";
 import { createRuntimeApis } from "./runtime";
@@ -95,6 +96,7 @@ export function installChromeApi(
   };
 
   const { runtime, extension } = createRuntimeApis(context);
+  const dns = createDnsApi(context);
   const storage = createStorageApi(context);
   const { tabs, windows } = createTabApis(context);
   const {
@@ -147,7 +149,7 @@ export function installChromeApi(
     contextMenus,
     notifications,
     cookies,
-    dns: undefined,
+    get dns() { return ext.grantedPermissions.has("dns") ? dns : undefined; },
     webRequest,
     contentScripts,
     declarativeNetRequest,

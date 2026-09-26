@@ -20,8 +20,8 @@
   font-weight: 400;
   border: 1px solid var(--toast-border);
   transition:
-    transform 0.3s ease,
-    opacity 0.3s ease;
+    transform var(--motion-enter) var(--motion-ease),
+    opacity var(--motion-enter) var(--motion-ease);
   display: flex;
   align-items: center;
   overflow: hidden;
@@ -34,6 +34,8 @@
 }
 
 .toast.is-hiding {
+  transition-duration: var(--motion-exit);
+  transition-timing-function: var(--motion-ease-exit);
   pointer-events: none !important;
 }
 
@@ -74,7 +76,7 @@
   border-radius: var(--radius-item);
   font-size: 11px;
   cursor: pointer;
-  transition: background-color 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease);
 }
 
 .toast-btn:hover {

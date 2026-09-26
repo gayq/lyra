@@ -22,7 +22,7 @@
   margin: 0 -2px 5px 0;
   flex-shrink: 0;
   box-sizing: border-box;
-  transition: background-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
 }
 
 #add-tab-btn svg {
@@ -66,7 +66,7 @@
   flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
-  transition: background-color 0.1s ease, color 0.1s ease, transform 0.1s ease;
+  transition: background-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
 }
 
 .tab:hover {
@@ -104,7 +104,7 @@
   inset: 0;
   background: linear-gradient(90deg, var(--skeleton-from) 0%, var(--skeleton-via) 50%, var(--skeleton-to) 100%);
   transform: translate3d(100%, 0, 0);
-  animation: skeleton-transform 1s infinite linear;
+  animation: skeleton-transform var(--motion-shimmer) infinite linear;
   will-change: transform;
 }
 
@@ -113,7 +113,7 @@
   height: 100%;
   object-fit: contain;
   opacity: 0;
-  transition: opacity 0.1s ease;
+  transition: opacity var(--motion-control) var(--motion-ease);
   display: block;
 }
 
@@ -133,8 +133,8 @@
       black calc(100% - 44px),
       transparent 100%);
   transition:
-    mask-image 0.1s ease,
-    -webkit-mask-image 0.1s ease;
+    mask-image var(--motion-control) var(--motion-ease),
+    -webkit-mask-image var(--motion-control) var(--motion-ease);
 }
 
 .tab:hover .tab-title,
@@ -159,7 +159,7 @@
   padding: 0;
   opacity: 0;
   border-radius: 50%;
-  transition: opacity 0.1s ease, color 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+  transition: opacity var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
 }
 
 .tab-close svg {

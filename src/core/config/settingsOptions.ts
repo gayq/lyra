@@ -1,7 +1,7 @@
 export const DEFAULT_SETTINGS = {
   transport: "epoxy",
   searchEngine: "duckduckgo",
-  gameSource: "selenite",
+  gameSource: "truffled",
   theme: "default",
   siteCloaking: "coursera",
   linkCloaking: "none",
@@ -9,12 +9,12 @@ export const DEFAULT_SETTINGS = {
 
 export const TRANSPORT_OPTIONS = ["epoxy", "libcurl"] as const;
 export const GAME_SOURCE_OPTIONS = [
-  "selenite",
-  "edurocks",
+  "truffled",
   "gn-math",
   "wasm.rip",
+  "edurocks",
+  "selenite",
   "velara",
-  "truffled",
 ] as const;
 export const SITE_CLOAKING_OPTIONS = [
   "coursera",
