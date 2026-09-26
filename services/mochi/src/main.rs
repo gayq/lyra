@@ -10,7 +10,6 @@ mod rewrite;
 mod safe_dns;
 mod state;
 mod stream;
-mod test_support;
 mod tuning;
 mod websocket;
 
