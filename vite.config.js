@@ -23,6 +23,15 @@ export default defineConfig({
       "Cross-Origin-Resource-Policy": "cross-origin",
     },
   },
+  worker: {
+    rolldownOptions: {
+      output: {
+        entryFileNames: `${assetPath}.js`,
+        chunkFileNames: `${assetPath}.js`,
+        assetFileNames: `${assetPath}[extname]`,
+      },
+    },
+  },
   build: {
     outDir: "../dist",
     emptyOutDir: true,
@@ -31,13 +40,18 @@ export default defineConfig({
     target: "baseline-widely-available",
     minify: "terser",
     terserOptions: {
-      compress: { drop_console: true, passes: 2 },
+      compress: {
+        drop_console: true,
+        passes: 2,
+      },
       mangle: true,
     },
     cssMinify: "lightningcss",
     assetsInlineLimit: 8192,
     rolldownOptions: {
-      checks: { pluginTimings: false },
+      checks: {
+        pluginTimings: false,
+      },
       input: {
         main: resolve(__dirname, "src/index.html"),
         404: resolve(__dirname, "src/404.html"),
