@@ -156,3 +156,4 @@ pub async fn handle_socket(client_socket: WebSocket, ws_stream: UpstreamSocket) 
         _ = upstream_to_client => {}
     }
 }
+

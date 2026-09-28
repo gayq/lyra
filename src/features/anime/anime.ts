@@ -1,6 +1,9 @@
 import { encodeMochiUrl } from "../../core/runtime/utils.ts";
 import { cacheKey } from "../../core/runtime/cacheNamespace.ts";
-import { catalogMatchRank, normalizeCatalogText } from "../games/catalogSearch.ts";
+import {
+  catalogMatchRank,
+  normalizeCatalogText,
+} from "../games/catalogSearch.ts";
 import { RequestError } from "../../core/runtime/messages.ts";
 import {
   appendMegaPlayParams,
@@ -23,7 +26,7 @@ export interface AnimeEntry {
   genres?: string[] | undefined;
   adult?: boolean | undefined;
   category?: AnimeEntryCategory | undefined;
-   
+
   ids?: AnimeIds | undefined;
   seasons?: AnimeSeason[] | undefined;
   anilistId?: number | undefined;
@@ -127,16 +130,12 @@ function classifyAnimeCategory(
   if (normalizedFormat === "TV" || normalizedFormat === "TV_SHORT") {
     return "main-season";
   }
-  if (
-    normalizedRelation === "prequel" ||
-    normalizedRelation === "sequel"
-  ) {
+  if (normalizedRelation === "prequel" || normalizedRelation === "sequel") {
     return "main-season";
   }
   return "unknown";
 }
 
- 
 function normalizeAnimeRating(value: unknown): number | undefined {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
@@ -155,8 +154,13 @@ export function episodeNumbersForCount(
     : [];
 }
 
-export function playableAnimeParts(parts: readonly AnimeSeasonPart[]): AnimeSeasonPart[] {
-  const end = parts.findIndex((part) => !Number.isInteger(part.episodeCount) || (part.episodeCount || 0) <= 0);
+export function playableAnimeParts(
+  parts: readonly AnimeSeasonPart[],
+): AnimeSeasonPart[] {
+  const end = parts.findIndex(
+    (part) =>
+      !Number.isInteger(part.episodeCount) || (part.episodeCount || 0) <= 0,
+  );
   return parts.slice(0, end < 0 ? parts.length : end);
 }
 
@@ -196,7 +200,14 @@ export function buildAnimePlaybackUrl({
   });
   appendMegaPlayParams(params, ids);
   if (!isAnimeMovieFormat(format)) {
-    params.set("season", String(season !== undefined && Number.isInteger(season) && season > 0 ? season : seasonNumberFromTitle(title) || 1));
+    params.set(
+      "season",
+      String(
+        season !== undefined && Number.isInteger(season) && season > 0
+          ? season
+          : seasonNumberFromTitle(title) || 1,
+      ),
+    );
   }
   if (sourceEpisode && sourceEpisode > 0 && sourceEpisode !== episode) {
     params.set("source_episode", String(sourceEpisode));
@@ -349,9 +360,7 @@ function kitsuResourceToAnime(
     _episodeCountSource: attributes?.episodeCount != null ? "kitsu" : undefined,
     _normalizedTitle: normalizeCatalogText(title),
     _searchText: normalizeCatalogText(
-      [title, titles.en, titles.en_jp, titles.ja_jp]
-        .filter(Boolean)
-        .join(" "),
+      [title, titles.en, titles.en_jp, titles.ja_jp].filter(Boolean).join(" "),
     ),
   };
 }
@@ -456,10 +465,7 @@ const anikotoSeriesCache = new Map<
   string,
   { expiresAt: number; episodes: AnimeEpisodeMapping[] }
 >();
-const anikotoSeriesPromises = new Map<
-  string,
-  Promise<AnimeEpisodeMapping[]>
->();
+const anikotoSeriesPromises = new Map<string, Promise<AnimeEpisodeMapping[]>>();
 const ANIME_FEED_CACHE_KEY_PREFIX = "lyra-anime-feed-entries";
 const ANIME_SEARCH_CACHE_KEY_PREFIX = "lyra-anime-search-entries";
 const ANIME_EPISODE_CACHE_KEY_PREFIX = "lyra-anime-episode-count";
@@ -749,10 +755,7 @@ async function fetchKitsuEpisodeCount(kitsuId: string): Promise<number> {
   return Number.isInteger(count) && (count || 0) > 0 ? count! : 0;
 }
 
-function formatsCanShareTitle(
-  left?: string,
-  right?: string,
-): boolean {
+function formatsCanShareTitle(left?: string, right?: string): boolean {
   const a = left?.toUpperCase();
   const b = right?.toUpperCase();
   if (!a || !b || a === b) return true;
@@ -768,23 +771,25 @@ function seasonNumberFromTitle(title: string): number | undefined {
     return explicitNumber;
   }
 
-  
-  
   if (/\b(?:part|cour)\s*\d+\b/i.test(title)) return undefined;
 
-  
-  
-  
   const trailingNumber = title.match(/\s([2-9]|1[0-2])\s*$/i);
   const number = Number(trailingNumber?.[1]);
   return Number.isInteger(number) && number > 0 ? number : undefined;
 }
 
-const SEASON_ID_PROVIDERS = ["mal", "anilist", "kitsu", "anidb", "anikoto"] as const;
+const SEASON_ID_PROVIDERS = [
+  "mal",
+  "anilist",
+  "kitsu",
+  "anidb",
+  "anikoto",
+] as const;
 
 function conflictingSeasonIds(left: AnimeIds, right: AnimeIds): boolean {
-  return SEASON_ID_PROVIDERS.some((provider) =>
-    left[provider] && right[provider] && left[provider] !== right[provider],
+  return SEASON_ID_PROVIDERS.some(
+    (provider) =>
+      left[provider] && right[provider] && left[provider] !== right[provider],
   );
 }
 
@@ -800,17 +805,23 @@ function sharedProviderIdentity(left: AnimeEntry, right: AnimeEntry): boolean {
     malId: right.malId,
   });
   if (conflictingSeasonIds(leftIds, rightIds)) return false;
-  return SEASON_ID_PROVIDERS.some((provider) => leftIds[provider] && leftIds[provider] === rightIds[provider]);
+  return SEASON_ID_PROVIDERS.some(
+    (provider) => leftIds[provider] && leftIds[provider] === rightIds[provider],
+  );
 }
 
 function metadataRank(entry: AnimeEntry): number {
-  return { jikan: 4, anilist: 3, kitsu: 2, anikoto: 1 }[entry._metadataSource || "anikoto"];
+  return { jikan: 4, anilist: 3, kitsu: 2, anikoto: 1 }[
+    entry._metadataSource || "anikoto"
+  ];
 }
 
 function mergeSeasonMetadata(existing: AnimeEntry, incoming: AnimeEntry): void {
   const preferIncoming = metadataRank(incoming) > metadataRank(existing);
-  if (preferIncoming || existing.year == null) existing.year = incoming.year ?? existing.year;
-  if (preferIncoming || !existing.format) existing.format = incoming.format || existing.format;
+  if (preferIncoming || existing.year == null)
+    existing.year = incoming.year ?? existing.year;
+  if (preferIncoming || !existing.format)
+    existing.format = incoming.format || existing.format;
   if (preferIncoming) {
     existing.title = incoming.title;
     existing.category = incoming.category;
@@ -824,17 +835,14 @@ function mergeEpisodeCount(
   incomingIds: AnimeIds,
 ): void {
   const incomingCount = incoming.episodeCount;
-  if (!Number.isInteger(incomingCount) || !incomingCount || incomingCount < 1) return;
+  if (!Number.isInteger(incomingCount) || !incomingCount || incomingCount < 1)
+    return;
   const existingCount = existing.episodeCount || 0;
   const incomingSource =
     incoming._episodeCountSource ||
     (incomingIds.anikoto ? "anikoto" : undefined);
-  const existingRank = episodeCountSourceRank(
-    existing._episodeCountSource,
-  );
-  const incomingRank = episodeCountSourceRank(
-    incomingSource,
-  );
+  const existingRank = episodeCountSourceRank(existing._episodeCountSource);
+  const incomingRank = episodeCountSourceRank(incomingSource);
   if (!existingCount || incomingRank > existingRank) {
     existing.episodeCount = incomingCount;
     existing._episodeCountSource = incomingSource;
@@ -867,12 +875,14 @@ export function mergeAnimeEntries(
       anilistId: entry.anilistId,
       malId: entry.malId,
     });
-    const existing = entries.find((candidate) =>
-      sharedProviderIdentity(candidate, entry) ||
-      (normalizeCatalogText(candidate.title) === normalizeCatalogText(entry.title) &&
-        formatsCanShareTitle(candidate.format, entry.format) &&
-        !conflictingSeasonIds(candidate.ids || {}, ids) &&
-        (candidate.year || 0) === (entry.year || 0)),
+    const existing = entries.find(
+      (candidate) =>
+        sharedProviderIdentity(candidate, entry) ||
+        (normalizeCatalogText(candidate.title) ===
+          normalizeCatalogText(entry.title) &&
+          formatsCanShareTitle(candidate.format, entry.format) &&
+          !conflictingSeasonIds(candidate.ids || {}, ids) &&
+          (candidate.year || 0) === (entry.year || 0)),
     );
     if (!existing) {
       const individual = { ...entry, ids };
@@ -883,7 +893,9 @@ export function mergeAnimeEntries(
     mergeEpisodeCount(existing, entry, ids);
     existing.ids = mergeAnimeIds(existing.ids, ids);
     existing._searchText = normalizeCatalogText(
-      [existing._searchText, existing.title, entry._searchText, entry.title].filter(Boolean).join(" "),
+      [existing._searchText, existing.title, entry._searchText, entry.title]
+        .filter(Boolean)
+        .join(" "),
     );
     mergeSeasonMetadata(existing, entry);
     existing.anilistId ||= ids.anilist ? Number(ids.anilist) : undefined;
@@ -994,9 +1006,7 @@ function saveToCacheKey(cacheKey: string, anime: AnimeEntry[]): AnimeEntry[] {
       expiresAt: Date.now() + ANIME_FEED_CACHE_TTL_MS,
     };
     localStorage.setItem(cacheKey, JSON.stringify(stored));
-  } catch {
-    
-  }
+  } catch {}
   return anime;
 }
 
@@ -1124,17 +1134,21 @@ export async function searchAnime(
     if (!forceRefresh && typeof sessionStorage !== "undefined") {
       const cached = sessionStorage.getItem(searchCacheKey);
       if (cached) {
-        const stored = JSON.parse(cached) as { expiresAt?: number; results?: AnimeEntry[] };
-        if ((stored.expiresAt || 0) > Date.now() && Array.isArray(stored.results)) {
+        const stored = JSON.parse(cached) as {
+          expiresAt?: number;
+          results?: AnimeEntry[];
+        };
+        if (
+          (stored.expiresAt || 0) > Date.now() &&
+          Array.isArray(stored.results)
+        ) {
           const results = applySearchFields(stored.results);
           onUpdate?.(results);
           return results;
         }
       }
     }
-  } catch {
-    
-  }
+  } catch {}
 
   const inFlight = searchAnimePromises.get(searchCacheKey);
   if (inFlight && !forceRefresh && !signal && !onUpdate) return inFlight;
@@ -1177,13 +1191,22 @@ export async function searchAnime(
       }),
   ])
     .then(() => {
-  if (signal?.aborted) {
-    throw new DOMException("anime request aborted... /ᐠ - ˕ -マ", "AbortError");
-  }
+      if (signal?.aborted) {
+        throw new DOMException(
+          "anime request aborted... /ᐠ - ˕ -マ",
+          "AbortError",
+        );
+      }
       if (providersCompleted === 0) return [];
       try {
         if (results.length > 0 && typeof sessionStorage !== "undefined") {
-          sessionStorage.setItem(searchCacheKey, JSON.stringify({ results, expiresAt: Date.now() + METADATA_CACHE_TTL_MS }));
+          sessionStorage.setItem(
+            searchCacheKey,
+            JSON.stringify({
+              results,
+              expiresAt: Date.now() + METADATA_CACHE_TTL_MS,
+            }),
+          );
         }
       } catch {}
       return results;
@@ -1220,9 +1243,7 @@ export function resetAnimeCache(): void {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith("lyra-anime-feed-")) localStorage.removeItem(key);
     }
-  } catch {
-    
-  }
+  } catch {}
 }
 
 const METADATA_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -1232,12 +1253,16 @@ const _jikanEpsPromises = new Map<string, Promise<number>>();
 async function fetchIdentityEpisodeCount(ids: AnimeIds): Promise<number> {
   if (ids.mal) {
     try {
-      const response = await fetch(`/api/anime/episodes/${encodeURIComponent(ids.mal)}?count_only=true`, {
-        signal: AbortSignal.timeout(20_000),
-      });
+      const response = await fetch(
+        `/api/anime/episodes/${encodeURIComponent(ids.mal)}?count_only=true`,
+        {
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
       if (response.ok) {
-        const payload = await response.json() as { count?: number };
-        if (Number.isInteger(payload.count) && (payload.count || 0) > 0) return payload.count!;
+        const payload = (await response.json()) as { count?: number };
+        if (Number.isInteger(payload.count) && (payload.count || 0) > 0)
+          return payload.count!;
       }
     } catch {}
     return 0;
@@ -1270,12 +1295,12 @@ export function chooseEpisodeCount(
   knownCount?: number,
   resolvedCount?: number,
 ): number {
-  const known = Number.isInteger(knownCount) && (knownCount || 0) > 0
-    ? knownCount || 0
-    : 0;
-  const resolved = Number.isInteger(resolvedCount) && (resolvedCount || 0) > 0
-    ? resolvedCount || 0
-    : 0;
+  const known =
+    Number.isInteger(knownCount) && (knownCount || 0) > 0 ? knownCount || 0 : 0;
+  const resolved =
+    Number.isInteger(resolvedCount) && (resolvedCount || 0) > 0
+      ? resolvedCount || 0
+      : 0;
   return resolved || known;
 }
 
@@ -1295,8 +1320,16 @@ export async function fetchAnimeEpisodeCount(
     episodeIdentityKey,
   );
   try {
-    const stored = JSON.parse(sessionStorage.getItem(storageKey) || "null") as { count?: number; expiresAt?: number } | null;
-    if (stored && Number.isInteger(stored.count) && (stored.count || 0) > 0 && (stored.expiresAt || 0) > Date.now()) {
+    const stored = JSON.parse(sessionStorage.getItem(storageKey) || "null") as {
+      count?: number;
+      expiresAt?: number;
+    } | null;
+    if (
+      stored &&
+      Number.isInteger(stored.count) &&
+      (stored.count || 0) > 0 &&
+      (stored.expiresAt || 0) > Date.now()
+    ) {
       const value = { count: stored.count!, expiresAt: stored.expiresAt! };
       _jikanEpsCache.set(episodeIdentityKey, value);
       return value.count;

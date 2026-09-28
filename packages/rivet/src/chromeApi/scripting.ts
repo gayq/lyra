@@ -40,10 +40,8 @@ export function createScriptingApis(
         css: options.css ?? [],
         runAt:
           (options.runAt as
-            | "document_start"
-            | "document_end"
-            | "document_idle"
-            | undefined) ?? "document_idle",
+            "document_start" | "document_end" | "document_idle" | undefined) ??
+          "document_idle",
         allFrames: options.allFrames ?? false,
       };
       registry.contentScripts.push(entry);
@@ -339,9 +337,7 @@ export function createScriptingApis(
         if (update.js !== undefined) script.js = update.js;
         if (update.runAt !== undefined) {
           script.runAt = update.runAt as
-            | "document_start"
-            | "document_end"
-            | "document_idle";
+            "document_start" | "document_end" | "document_idle";
         }
         if (update.allFrames !== undefined) script.allFrames = update.allFrames;
       }

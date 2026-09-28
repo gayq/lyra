@@ -71,7 +71,6 @@
   transform: scale(1.02);
 }
 
-
 #close-game-menu i {
   font-size: 11.5px;
   line-height: 0;
@@ -554,7 +553,6 @@ input[type="checkbox"]:checked:hover::before {
   .settings-item {
     padding: 12px 8px;
   }
-
 
   .settings-tabs {
     flex: 0 0 auto;

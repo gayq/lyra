@@ -9,7 +9,8 @@ import {
 } from "./urlScheme";
 import { NEGATIVE, negativeMessage } from "./messages";
 
-const RESOURCE_ATTR_RE = /(<(?:script|link|img)\b[^>]*\s(?:src|href)=["'])([^"']+)(["'][^>]*>)/gi;
+const RESOURCE_ATTR_RE =
+  /(<(?:script|link|img)\b[^>]*\s(?:src|href)=["'])([^"']+)(["'][^>]*>)/gi;
 export const CONTENT_SCRIPT_STYLE_ATTRIBUTE = "data-rivet-content-style";
 
 export type NativeDomOperations = {
@@ -22,39 +23,54 @@ export type NativeDomOperations = {
   prepareScript?: (code: string) => string;
 };
 
-function defineNavigatorValue(win: Window, property: string, value: string): void {
+function defineNavigatorValue(
+  win: Window,
+  property: string,
+  value: string,
+): void {
   try {
     Object.defineProperty(win.navigator, property, {
       configurable: true,
       get: () => value,
     });
-  } catch {
-  }
+  } catch {}
 }
 
 function installChromiumUserAgent(win: Window): void {
   const nativeUserAgent = win.navigator.userAgent;
   if (/\bChrom(?:e|ium)\/\d+/.test(nativeUserAgent)) return;
-  const platform = /^Mozilla\/5\.0 \(([^)]*)\)/.exec(nativeUserAgent)?.[1]
-    ?.replace(/;\s*rv:[^;)]+/, "") ?? "X11; Linux x86_64";
+  const platform =
+    /^Mozilla\/5\.0 \(([^)]*)\)/
+      .exec(nativeUserAgent)?.[1]
+      ?.replace(/;\s*rv:[^;)]+/, "") ?? "X11; Linux x86_64";
   const userAgent = `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36`;
   defineNavigatorValue(win, "userAgent", userAgent);
   defineNavigatorValue(win, "appVersion", userAgent.replace(/^Mozilla\//, ""));
   defineNavigatorValue(win, "vendor", "Google Inc.");
 }
 
-export async function rewriteExtHtml(extId: string, html: string, pagePath: string): Promise<string> {
+export async function rewriteExtHtml(
+  extId: string,
+  html: string,
+  pagePath: string,
+): Promise<string> {
   const resourcePath = pagePath.replace(/[?#].*$/, "").replace(/^\//, "");
   const pageDir = extensionPathDir(resourcePath);
-  let result = html.replace(RESOURCE_ATTR_RE, (full, prefix: string, url: string, suffix: string) => {
-    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|data:|blob:)/i.test(url)) return full; 
-    return `${prefix}${buildExtensionUrl(extId, resolveExtensionResourcePath(pageDir, url))}${suffix}`;
-  });
+  let result = html.replace(
+    RESOURCE_ATTR_RE,
+    (full, prefix: string, url: string, suffix: string) => {
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|data:|blob:)/i.test(url)) return full;
+      return `${prefix}${buildExtensionUrl(extId, resolveExtensionResourcePath(pageDir, url))}${suffix}`;
+    },
+  );
   const headBootstrap = `<base href="${rivetExtensionBase(extId)}${pageDir ? `${pageDir}/` : ""}">`;
   if (/<head[^>]*>/i.test(result)) {
     result = result.replace(/<head([^>]*)>/i, `<head$1>${headBootstrap}`);
   } else {
-    result = result.replace(/<html([^>]*)>/i, `<html$1><head>${headBootstrap}</head>`);
+    result = result.replace(
+      /<html([^>]*)>/i,
+      `<html$1><head>${headBootstrap}</head>`,
+    );
   }
   return result;
 }
@@ -79,7 +95,11 @@ export function bootstrapExtensionFrame(
       const win = frame.contentWindow;
       if (!win) {
         frame.removeEventListener("load", onLoad);
-        reject(new Error(negativeMessage("rivet bootstrap frame has no window after load")));
+        reject(
+          new Error(
+            negativeMessage("rivet bootstrap frame has no window after load"),
+          ),
+        );
         return;
       }
       if (!isCurrent()) {
@@ -107,24 +127,40 @@ interface DeferredDocumentScript {
   code: string;
 }
 
-function deferDocumentScripts(html: string): { html: string; scripts: DeferredDocumentScript[] } {
+function deferDocumentScripts(html: string): {
+  html: string;
+  scripts: DeferredDocumentScript[];
+} {
   const scripts: DeferredDocumentScript[] = [];
-  const deferredHtml = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi, (_tag, attributes: string, code: string) => {
-    const index = scripts.push({ attributes, code }) - 1;
-    return `<script type="application/x-rivet-deferred" data-rivet-script-index="${index}"></script>`;
-  });
+  const deferredHtml = html.replace(
+    /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi,
+    (_tag, attributes: string, code: string) => {
+      const index = scripts.push({ attributes, code }) - 1;
+      return `<script type="application/x-rivet-deferred" data-rivet-script-index="${index}"></script>`;
+    },
+  );
   return { html: deferredHtml, scripts };
 }
 
 function waitForDocumentLoad(win: Window): Promise<Window> {
   const frame = win.frameElement as HTMLIFrameElement | null;
   if (!frame) return Promise.resolve(win);
-  return new Promise((resolve) => frame.addEventListener("load", () => resolve(frame.contentWindow ?? win), { once: true }));
+  return new Promise((resolve) =>
+    frame.addEventListener("load", () => resolve(frame.contentWindow ?? win), {
+      once: true,
+    }),
+  );
 }
 
-async function activateDocumentScript(win: Window, definition: DeferredDocumentScript, index: number): Promise<void> {
+async function activateDocumentScript(
+  win: Window,
+  definition: DeferredDocumentScript,
+  index: number,
+): Promise<void> {
   const doc = win.document;
-  const placeholder = doc.querySelector(`script[data-rivet-script-index="${index}"]`);
+  const placeholder = doc.querySelector(
+    `script[data-rivet-script-index="${index}"]`,
+  );
   if (!placeholder) return;
 
   const template = doc.createElement("template");
@@ -132,7 +168,8 @@ async function activateDocumentScript(win: Window, definition: DeferredDocumentS
   const parsed = template.content.firstElementChild;
   const script = doc.createElement("script");
   if (parsed) {
-    for (const attribute of parsed.attributes) script.setAttribute(attribute.name, attribute.value);
+    for (const attribute of parsed.attributes)
+      script.setAttribute(attribute.name, attribute.value);
   }
   script.textContent = definition.code;
 
@@ -145,10 +182,18 @@ async function activateDocumentScript(win: Window, definition: DeferredDocumentS
   if (script.type !== "module") script.async = false;
   await new Promise<void>((resolve) => {
     script.addEventListener("load", () => resolve(), { once: true });
-    script.addEventListener("error", () => {
-      console.warn("[rivet] extension page script failed to load", script.src || `inline script ${index}`, NEGATIVE);
-      resolve();
-    }, { once: true });
+    script.addEventListener(
+      "error",
+      () => {
+        console.warn(
+          "[rivet] extension page script failed to load",
+          script.src || `inline script ${index}`,
+          NEGATIVE,
+        );
+        resolve();
+      },
+      { once: true },
+    );
     placeholder.replaceWith(script);
   });
 }
@@ -185,7 +230,11 @@ export async function writeDocument(
   return realm;
 }
 
-export function injectScript(win: Window, code: string, nativeDom?: NativeDomOperations): void {
+export function injectScript(
+  win: Window,
+  code: string,
+  nativeDom?: NativeDomOperations,
+): void {
   try {
     const doc = win.document;
     if (nativeDom) {
@@ -203,7 +252,11 @@ export function injectScript(win: Window, code: string, nativeDom?: NativeDomOpe
   }
 }
 
-export function injectScriptFromUrl(win: Window, url: string, isModule: boolean): Promise<void> {
+export function injectScriptFromUrl(
+  win: Window,
+  url: string,
+  isModule: boolean,
+): Promise<void> {
   return new Promise((resolve) => {
     try {
       const doc = win.document;
@@ -211,10 +264,14 @@ export function injectScriptFromUrl(win: Window, url: string, isModule: boolean)
       if (isModule) script.type = "module";
       script.src = url;
       script.addEventListener("load", () => resolve(), { once: true });
-      script.addEventListener("error", (e) => {
-        console.warn("[rivet] script url failed to load", url, e, NEGATIVE);
-        resolve();
-      }, { once: true });
+      script.addEventListener(
+        "error",
+        (e) => {
+          console.warn("[rivet] script url failed to load", url, e, NEGATIVE);
+          resolve();
+        },
+        { once: true },
+      );
       (doc.head || doc.documentElement).appendChild(script);
     } catch (e) {
       console.warn("[rivet] script url injection failed", e, NEGATIVE);
@@ -234,11 +291,15 @@ export function installClassicWorkerGlobals(
     `${win.location.origin}${RIVET_PREFIX}${targetExtId}/${path.replace(/^\//, "")}`;
   const resolveImportUrl = (specifier: string): string => {
     const extensionUrl = decodeRivetUrl(specifier);
-    if (extensionUrl) return buildFrameExtensionUrl(extensionUrl.extId, extensionUrl.path);
+    if (extensionUrl)
+      return buildFrameExtensionUrl(extensionUrl.extId, extensionUrl.path);
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(specifier)) {
       return new URL(specifier, win.location.href).href;
     }
-    const importPath = resolveExtensionResourcePath(specifier.startsWith("/") ? "" : workerDir, specifier);
+    const importPath = resolveExtensionResourcePath(
+      specifier.startsWith("/") ? "" : workerDir,
+      specifier,
+    );
     return buildFrameExtensionUrl(extId, importPath);
   };
 
@@ -267,7 +328,9 @@ export function installClassicWorkerGlobals(
       request.open("GET", url, false);
       request.send();
       if (request.status < 200 || request.status >= 300) {
-        throw new Error(negativeMessage("rivet worker dependency could not be loaded"));
+        throw new Error(
+          negativeMessage("rivet worker dependency could not be loaded"),
+        );
       }
       workerGlobal.eval(`${request.responseText}\n//# sourceURL=${url}`);
     }
@@ -281,7 +344,11 @@ export function installClassicWorkerGlobals(
   };
 }
 
-export function injectStyle(win: Window, css: string, nativeDom?: NativeDomOperations): void {
+export function injectStyle(
+  win: Window,
+  css: string,
+  nativeDom?: NativeDomOperations,
+): void {
   try {
     const doc = win.document;
     if (nativeDom) {

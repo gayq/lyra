@@ -3,7 +3,12 @@ export function encodeMochiTarget(url: string): string {
   const encoded = encodeURIComponent(url);
   let binary = "";
   for (let index = 0; index < encoded.length; index++) {
-    binary += String.fromCharCode(encoded.charCodeAt(index) ^ key.charCodeAt(index % key.length));
+    binary += String.fromCharCode(
+      encoded.charCodeAt(index) ^ key.charCodeAt(index % key.length),
+    );
   }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }

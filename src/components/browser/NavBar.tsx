@@ -1,7 +1,6 @@
 import { useCallback } from "preact/hooks";
 import { store, useStore } from "../../state/store.ts";
 import {
-  getBestKnownUrl,
   reloadIframe,
   navigateHistory,
   stopIframeLoading,

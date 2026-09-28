@@ -1,7 +1,4 @@
-import {
-  createRivetFramePlugins,
-  initializeRivet,
-} from "./rivet";
+import { createRivetFramePlugins, initializeRivet } from "./rivet";
 import type { ProxyTransport } from "@mercuryworkshop/proxy-transports";
 import { MochiTransport, resolveMochiOrigin } from "./mochiTransport";
 import { negativeMessage } from "../runtime/messages.ts";
@@ -64,9 +61,15 @@ type FolioRuntimeGlobals = {
 
 interface FolioGlobals {
   Controller?: FolioControllerConstructor;
-  ManagedPlugin?: new (name: string, dependencies: string[]) => {
+  ManagedPlugin?: new (
+    name: string,
+    dependencies: string[],
+  ) => {
     install(frame: unknown): void;
-    tap(hook: unknown, callback: (...args: any[]) => void | Promise<void>): void;
+    tap(
+      hook: unknown,
+      callback: (...args: any[]) => void | Promise<void>,
+    ): void;
   };
 }
 
@@ -98,12 +101,17 @@ function getControllerConstructor(): FolioControllerConstructor {
   const globals = (window as unknown as { $folioController?: FolioGlobals })
     .$folioController;
   if (!globals?.Controller) {
-    throw new Error(negativeMessage("source-built folio controller is not loaded"));
+    throw new Error(
+      negativeMessage("source-built folio controller is not loaded"),
+    );
   }
   return globals.Controller;
 }
 
-async function createTransport(name: string, wispUrl: string): Promise<ProxyTransport> {
+async function createTransport(
+  name: string,
+  wispUrl: string,
+): Promise<ProxyTransport> {
   let fallback: ProxyTransport;
   if (name === "libcurl") {
     const transportPath = runtimeAssetPath("libcurl", "index.mjs");
@@ -284,7 +292,12 @@ async function storeHotAsset(
   rawHeaders: [string, string][],
 ): Promise<HotAssetEntry | null> {
   const maxAgeMs = hotCacheMaxAgeMs(rawHeaders);
-  if (maxAgeMs <= 0 || meta.status !== 200 || BODYLESS_STATUS.has(meta.status)) {
+  if (
+    maxAgeMs <= 0 ||
+    meta.status !== 200 ||
+    BODYLESS_STATUS.has(meta.status)
+  ) {
+    void response.body?.cancel().catch(() => {});
     return null;
   }
 
@@ -296,11 +309,36 @@ async function storeHotAsset(
     Number.isFinite(contentLength) &&
     contentLength > FOLIO_HOT_CACHE_MAX_ENTRY_BYTES
   ) {
+    void response.body?.cancel().catch(() => {});
     return null;
   }
 
-  const body = await response.arrayBuffer();
-  if (body.byteLength > FOLIO_HOT_CACHE_MAX_ENTRY_BYTES) return null;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = response.body?.getReader();
+  if (reader) {
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > FOLIO_HOT_CACHE_MAX_ENTRY_BYTES) {
+          void reader.cancel().catch(() => {});
+          return null;
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const body = bytes.buffer;
 
   const entry: HotAssetEntry = {
     body,
@@ -316,12 +354,10 @@ async function storeHotAsset(
 }
 
 function createMochiAcceleratorPlugin(): unknown {
-  
-  
-  
   if (generalMochiTransportEnabled) return null;
-  const controllerGlobals = (window as unknown as { $folioController?: FolioGlobals })
-    .$folioController;
+  const controllerGlobals = (
+    window as unknown as { $folioController?: FolioGlobals }
+  ).$folioController;
   const folioGlobals = (window as unknown as { $folio?: Record<string, any> })
     .$folio;
   const ManagedPlugin = controllerGlobals?.ManagedPlugin;
@@ -397,17 +433,16 @@ function createMochiAcceleratorPlugin(): unknown {
           if (props.earlyResponse) return;
 
           const cacheCopy = rawResponse.clone();
-          const pending = storeHotAsset(
-            cacheKey,
-            cacheCopy,
-            meta,
-            rawHeaders,
-          ).finally(() => {
-            hotAssetPending.delete(cacheKey);
-          });
+          const pending = storeHotAsset(cacheKey, cacheCopy, meta, rawHeaders)
+            .catch(() => null)
+            .finally(() => {
+              hotAssetPending.delete(cacheKey);
+            });
           hotAssetPending.set(cacheKey, pending);
 
-          const body = BODYLESS_STATUS.has(meta.status) ? null : rawResponse.body;
+          const body = BODYLESS_STATUS.has(meta.status)
+            ? null
+            : rawResponse.body;
           const nativeResponse = new Response(body, {
             status: meta.status,
             statusText: meta.status_text ?? meta.statusText ?? "",
@@ -428,19 +463,25 @@ function createMochiAcceleratorPlugin(): unknown {
 }
 
 function createFolioHttpCachePlugin(): unknown {
-  const folioUtils = (window as unknown as {
-    $folioUtils?: { HttpCachePlugin?: new () => unknown };
-  }).$folioUtils;
+  const folioUtils = (
+    window as unknown as {
+      $folioUtils?: { HttpCachePlugin?: new () => unknown };
+    }
+  ).$folioUtils;
   if (!folioUtils?.HttpCachePlugin) return null;
   return new folioUtils.HttpCachePlugin();
 }
 
 function createFolioLinkHandlerPlugins(iframe: HTMLIFrameElement): unknown[] {
-  const folioUtils = (window as unknown as {
-    $folioUtils?: {
-      LinkHandlerPlugin?: new (onNewTab: (url: string, active: boolean) => void) => unknown;
-    };
-  }).$folioUtils;
+  const folioUtils = (
+    window as unknown as {
+      $folioUtils?: {
+        LinkHandlerPlugin?: new (
+          onNewTab: (url: string, active: boolean) => void,
+        ) => unknown;
+      };
+    }
+  ).$folioUtils;
   if (!folioUtils?.LinkHandlerPlugin) return [];
 
   return [
@@ -462,8 +503,9 @@ function createFolioLinkHandlerPlugins(iframe: HTMLIFrameElement): unknown[] {
 }
 
 function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
-  const controllerGlobals = (window as unknown as { $folioController?: FolioGlobals })
-    .$folioController;
+  const controllerGlobals = (
+    window as unknown as { $folioController?: FolioGlobals }
+  ).$folioController;
   const ManagedPlugin = controllerGlobals?.ManagedPlugin;
   if (!ManagedPlugin) return null;
 
@@ -477,9 +519,10 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
       this.tap(frame.hooks.init.post, (context: FolioPageState) => {
         if (!context.isTopLevel || !context.window?.document) return;
 
-        const win = context.window as Window & typeof globalThis & {
-          __lyraFolioPageStateInstalled?: boolean;
-        };
+        const win = context.window as Window &
+          typeof globalThis & {
+            __lyraFolioPageStateInstalled?: boolean;
+          };
         if (win.__lyraFolioPageStateInstalled) return;
         win.__lyraFolioPageStateInstalled = true;
 
@@ -494,9 +537,12 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
               ? fallback
               : fallback instanceof win.URL
                 ? fallback.href
-              : context.client?.url?.href || win.location.href;
+                : context.client?.url?.href || win.location.href;
           try {
-            return new URL(candidate, context.client?.url?.href || win.location.href).href;
+            return new URL(
+              candidate,
+              context.client?.url?.href || win.location.href,
+            ).href;
           } catch {
             return String(candidate || "");
           }
@@ -525,13 +571,15 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
         };
 
         const readMemory = () => {
-          const memory = (win.performance as Performance & {
-            memory?: {
-              usedJSHeapSize?: number;
-              totalJSHeapSize?: number;
-              jsHeapSizeLimit?: number;
-            };
-          }).memory;
+          const memory = (
+            win.performance as Performance & {
+              memory?: {
+                usedJSHeapSize?: number;
+                totalJSHeapSize?: number;
+                jsHeapSizeLimit?: number;
+              };
+            }
+          ).memory;
           if (!memory || typeof memory.usedJSHeapSize !== "number") return null;
           return {
             usedJSHeapSize: memory.usedJSHeapSize,
@@ -558,7 +606,8 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
               reason,
               win.navigation?.currentEntry?.key,
             ]);
-            if (signature === lastSignature && reason !== "history-push") return;
+            if (signature === lastSignature && reason !== "history-push")
+              return;
             lastSignature = signature;
 
             const payload: Record<string, unknown> = {
@@ -575,8 +624,10 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
               rawFavicon: favicon,
               historyLength,
               historyState,
-              navigationType: reason === "init"
-                ? win.navigation?.activation?.navigationType ?? "load" : reason,
+              navigationType:
+                reason === "init"
+                  ? (win.navigation?.activation?.navigationType ?? "load")
+                  : reason,
               historyKey: win.navigation?.currentEntry?.key,
               navigationVersion,
               history: {
@@ -595,7 +646,10 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
           if (reason !== "metadata") {
             send();
           } else if (pendingTimer === null) {
-            pendingTimer = win.setTimeout(() => { pendingTimer = null; send(); }, 0);
+            pendingTimer = win.setTimeout(() => {
+              pendingTimer = null;
+              send();
+            }, 0);
           }
         };
 
@@ -608,7 +662,10 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
               ...args: Parameters<History["pushState"]>
             ) {
               const result = original.apply(this, args);
-              emit(method === "pushState" ? "history-push" : "history-replace", args[2]);
+              emit(
+                method === "pushState" ? "history-push" : "history-replace",
+                args[2],
+              );
               return result;
             };
           } catch {}
@@ -639,16 +696,29 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
         };
 
         observeHead();
-        doc.addEventListener("DOMContentLoaded", () => emit("domcontentloaded"), {
-          once: true,
-        });
+        doc.addEventListener(
+          "DOMContentLoaded",
+          () => emit("domcontentloaded"),
+          {
+            once: true,
+          },
+        );
         win.addEventListener("load", () => emit("load"), { capture: true });
-        win.addEventListener("pageshow", (event) => {
-          if (event.persisted) navigationVersion = iframe.dataset.navigationVersion;
-          emit(event.persisted ? "traverse" : "pageshow");
-        }, { capture: true });
-        win.addEventListener("popstate", () => emit("popstate"), { capture: true });
-        win.addEventListener("hashchange", () => emit("hashchange"), { capture: true });
+        win.addEventListener(
+          "pageshow",
+          (event) => {
+            if (event.persisted)
+              navigationVersion = iframe.dataset.navigationVersion;
+            emit(event.persisted ? "traverse" : "pageshow");
+          },
+          { capture: true },
+        );
+        win.addEventListener("popstate", () => emit("popstate"), {
+          capture: true,
+        });
+        win.addEventListener("hashchange", () => emit("hashchange"), {
+          capture: true,
+        });
 
         emit("init");
       });
@@ -675,41 +745,48 @@ export async function initializeFolioController(options: {
 
   currentTransportKey = transportKey;
   const pending = (async () => {
-    const transport = await createTransport(options.transport, options.wispUrl);
+    const [, readyController] = await Promise.all([
+      initializeRivet(),
+      (async () => {
+        const transport = await createTransport(
+          options.transport,
+          options.wispUrl,
+        );
+        if (controller) {
+          controller.setServiceWorker(options.serviceWorker);
+          controller.setTransport(transport);
+        } else {
+          const Controller = getControllerConstructor();
+          const folioGlobals = (
+            window as unknown as {
+              $folio?: FolioRuntimeGlobals;
+            }
+          ).$folio;
+          const nextController = new Controller({
+            serviceworker: options.serviceWorker,
+            transport,
+            config: folioRuntimeConfig(),
+            folioConfig:
+              folioGlobals?.defaultConfig ?? folioGlobals?.defaultConfigDev,
+          });
+          await nextController.wait();
+          controller = nextController;
+          try {
+            folioGlobals?.prewarmRewriter?.();
+          } catch {}
+        }
+        return controller;
+      })(),
+    ]);
 
-    if (controller) {
-      controller.setServiceWorker(options.serviceWorker);
-      controller.setTransport(transport);
-    } else {
-      const Controller = getControllerConstructor();
-      const folioGlobals = (window as unknown as {
-        $folio?: FolioRuntimeGlobals;
-      }).$folio;
-      const nextController = new Controller({
-        serviceworker: options.serviceWorker,
-        transport,
-        config: folioRuntimeConfig(),
-        folioConfig:
-          folioGlobals?.defaultConfig ?? folioGlobals?.defaultConfigDev,
-      });
-      await nextController.wait();
-      controller = nextController;
-      try {
-        folioGlobals?.prewarmRewriter?.();
-      } catch {}
-    }
-
-    await initializeRivet();
-
-    const app = ((window as unknown as Record<string, unknown>)[
-      "Lyra"
-    ] ??= {}) as Record<string, unknown>;
-    app.folioController = controller;
+    const app = ((window as unknown as Record<string, unknown>)["Lyra"] ??=
+      {}) as Record<string, unknown>;
+    app.folioController = readyController;
     app.navigateFolio = navigateFolioIframe;
     app.ensureFolioFrame = ensureFolioFrame;
     app.releaseFolioFrame = releaseFolioFrame;
 
-    return controller;
+    return readyController;
   })();
   readyPromise = pending;
 

@@ -1,8 +1,4 @@
-type GameMetricStage =
-  | "catalog"
-  | "launch"
-  | "iframe-load"
-  | "iframe-timeout";
+type GameMetricStage = "catalog" | "launch" | "iframe-load" | "iframe-timeout";
 
 export type GameMetric = {
   stage: GameMetricStage;
@@ -23,10 +19,10 @@ const metrics: GameMetric[] = [];
 function notify(metric: GameMetric): void {
   if (typeof window === "undefined") return;
   try {
-    window.dispatchEvent(new CustomEvent("lyra:game-metric", { detail: metric }));
-  } catch {
-    
-  }
+    window.dispatchEvent(
+      new CustomEvent("lyra:game-metric", { detail: metric }),
+    );
+  } catch {}
 }
 
 export function recordGameMetric(
@@ -34,7 +30,8 @@ export function recordGameMetric(
 ): GameMetric {
   const next = { ...metric, at: metric.at ?? Date.now() };
   metrics.push(next);
-  if (metrics.length > MAX_METRICS) metrics.splice(0, metrics.length - MAX_METRICS);
+  if (metrics.length > MAX_METRICS)
+    metrics.splice(0, metrics.length - MAX_METRICS);
   notify(next);
   return next;
 }

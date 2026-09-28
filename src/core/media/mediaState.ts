@@ -37,16 +37,15 @@ export interface MediaLike {
 }
 
 export interface MediaStateHints {
-   
   sourceReady?: boolean;
-   
+
   buffering?: boolean;
   bufferingReason?: Exclude<MediaBufferingReason, null> | null;
-   
+
   error?: string | null;
-   
+
   durationHint?: number | null;
-   
+
   logicalOffset?: number;
 }
 
@@ -79,7 +78,9 @@ function finiteNonNegative(value: number): number | null {
 
 function mediaErrorMessage(media: MediaLike): string | null {
   if (!media.error) return null;
-  const code = Number.isInteger(media.error.code) ? media.error.code : "unknown";
+  const code = Number.isInteger(media.error.code)
+    ? media.error.code
+    : "unknown";
   return negativeMessage(`media playback failed (code ${code})`);
 }
 
@@ -95,9 +96,7 @@ function readBufferedRanges(
       if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
         ranges.push({ start, end });
       }
-    } catch {
-      
-    }
+    } catch {}
   }
   return ranges;
 }
@@ -109,7 +108,9 @@ export function readMediaState(
   const logicalOffset = finiteNonNegative(hints.logicalOffset ?? 0) ?? 0;
   const sourceReady = hints.sourceReady ?? media.readyState > 0;
   const metadataReady = sourceReady && media.readyState > 0;
-  const currentTime = metadataReady ? finiteNonNegative(media.currentTime) : null;
+  const currentTime = metadataReady
+    ? finiteNonNegative(media.currentTime)
+    : null;
   const rawDuration = metadataReady ? finiteNonNegative(media.duration) : null;
   const durationHint = finiteNonNegative(hints.durationHint ?? Number.NaN);
   const duration =
@@ -120,7 +121,10 @@ export function readMediaState(
       : rawDuration + logicalOffset;
   const progress =
     currentTime !== null && duration !== null && duration > 0
-      ? Math.max(0, Math.min(100, ((currentTime + logicalOffset) / duration) * 100))
+      ? Math.max(
+          0,
+          Math.min(100, ((currentTime + logicalOffset) / duration) * 100),
+        )
       : null;
   const mediaError = mediaErrorMessage(media);
   const error = hints.error?.trim() || mediaError;
@@ -144,8 +148,7 @@ export function readMediaState(
         : hints.bufferingReason === "waiting"
           ? "waiting"
           : "buffering";
-  }
-  else status = "playing";
+  } else status = "playing";
 
   return {
     status,
@@ -154,14 +157,14 @@ export function readMediaState(
       status === "buffering" || status === "waiting" || status === "stalled",
     bufferingReason:
       status === "buffering" || status === "waiting" || status === "stalled"
-        ? hints.bufferingReason ?? (status === "stalled" ? "stalled" : "waiting")
+        ? (hints.bufferingReason ??
+          (status === "stalled" ? "stalled" : "waiting"))
         : null,
     playing: status === "playing",
     paused: media.paused,
     ended: media.ended,
     seeking: media.seeking,
-    currentTime:
-      currentTime === null ? null : currentTime + logicalOffset,
+    currentTime: currentTime === null ? null : currentTime + logicalOffset,
     duration,
     progress,
     buffered: metadataReady ? readBufferedRanges(media, logicalOffset) : [],
@@ -170,7 +173,9 @@ export function readMediaState(
       : 0,
     muted: Boolean(media.muted),
     playbackRate: Number.isFinite(media.playbackRate) ? media.playbackRate : 1,
-    renderedWidth: Number.isFinite(media.videoWidth) ? Math.max(0, media.videoWidth) : 0,
+    renderedWidth: Number.isFinite(media.videoWidth)
+      ? Math.max(0, media.videoWidth)
+      : 0,
     renderedHeight: Number.isFinite(media.videoHeight)
       ? Math.max(0, media.videoHeight)
       : 0,

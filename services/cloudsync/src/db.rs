@@ -87,5 +87,26 @@ pub fn init_pool(
         [],
     )?;
 
+    init_sync_transfers(&conn)?;
+
     Ok(pool)
+}
+
+pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS sync_uploads (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            parts INTEGER NOT NULL,
+            committed INTEGER NOT NULL DEFAULT 0,
+            touched INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_uploads_user ON sync_uploads(user_id);
+        CREATE TABLE IF NOT EXISTS sync_chunks (
+            upload_id TEXT NOT NULL REFERENCES sync_uploads(id) ON DELETE CASCADE,
+            part INTEGER NOT NULL,
+            data_blob BLOB NOT NULL,
+            PRIMARY KEY (upload_id, part)
+        );",
+    )
 }

@@ -1,4 +1,10 @@
-import { dbDeleteEntries, dbGetEntries, dbGetAllKeys, dbPutEntries, EXT_STORAGE_STORE } from "../db";
+import {
+  dbDeleteEntries,
+  dbGetEntries,
+  dbGetAllKeys,
+  dbPutEntries,
+  EXT_STORAGE_STORE,
+} from "../db";
 import type { RivetRegistry } from "../registry";
 import { cloneForRealm } from "./common";
 import type { ChromeApiContext } from "./context";
@@ -9,17 +15,24 @@ async function storageGet(
   keys: unknown,
 ): Promise<Record<string, unknown>> {
   const prefix = `${extId}/${area}/`;
-  const requested = typeof keys === "string" ? [keys]
-    : Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string")
-    : keys && typeof keys === "object" ? Object.keys(keys) : [];
+  const requested =
+    typeof keys === "string"
+      ? [keys]
+      : Array.isArray(keys)
+        ? keys.filter((key): key is string => typeof key === "string")
+        : keys && typeof keys === "object"
+          ? Object.keys(keys)
+          : [];
   const entries = await dbGetEntries(
     EXT_STORAGE_STORE,
     keys === null || keys === undefined
       ? IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true)
       : [...new Set(requested)].map((key) => prefix + key),
   );
-  const defaults = keys && typeof keys === "object" && !Array.isArray(keys)
-    ? Object.entries(keys) : [];
+  const defaults =
+    keys && typeof keys === "object" && !Array.isArray(keys)
+      ? Object.entries(keys)
+      : [];
   return Object.fromEntries([
     ...defaults,
     ...entries.map(([key, value]) => [key.slice(prefix.length), value]),
@@ -33,7 +46,9 @@ async function storageSet(
 ): Promise<void> {
   await dbPutEntries(
     EXT_STORAGE_STORE,
-    Object.entries(items).map(([key, value]) => [`${extId}/${area}/${key}`, value] as const),
+    Object.entries(items).map(
+      ([key, value]) => [`${extId}/${area}/${key}`, value] as const,
+    ),
   );
 }
 
@@ -42,18 +57,28 @@ async function storageRemove(
   area: string,
   keys: string | string[],
 ): Promise<void> {
-  await dbDeleteEntries(EXT_STORAGE_STORE, [...new Set(Array.isArray(keys) ? keys : [keys])]
-    .map((key) => `${extId}/${area}/${key}`));
+  await dbDeleteEntries(
+    EXT_STORAGE_STORE,
+    [...new Set(Array.isArray(keys) ? keys : [keys])].map(
+      (key) => `${extId}/${area}/${key}`,
+    ),
+  );
 }
 
 async function storageClear(extId: string, area: string): Promise<void> {
   const prefix = `${extId}/${area}/`;
-  await dbDeleteEntries(EXT_STORAGE_STORE, IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true));
+  await dbDeleteEntries(
+    EXT_STORAGE_STORE,
+    IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true),
+  );
 }
 
 async function storageGetKeys(extId: string, area: string): Promise<string[]> {
   const prefix = `${extId}/${area}/`;
-  const keys = await dbGetAllKeys(EXT_STORAGE_STORE, IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true));
+  const keys = await dbGetAllKeys(
+    EXT_STORAGE_STORE,
+    IDBKeyRange.bound(prefix, `${extId}/${area}0`, false, true),
+  );
   return (keys as string[]).map((key) => key.slice(prefix.length));
 }
 

@@ -1,6 +1,6 @@
 import path from "path";
 import { cp, mkdir, readFile, readdir, writeFile } from "fs/promises";
-import { brotliCompressSync, constants as zlibConstants, gzipSync, } from "zlib";
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from "zlib";
 import { createHash } from "crypto";
 import JavaScriptObfuscator from "javascript-obfuscator";
 import { createSourceBuildId } from "./build-id.mjs";
@@ -13,27 +13,53 @@ const SENSITIVE_STRING_PATTERN =
 const ZERO_MATCH_TERM = /games?|proxy/gi;
 
 export const FOLIO_RUNTIME_TOKENS = [
-  "$folio", "$folioController", "$folioUtils",
-  "$folio$wrap", "$folio__", "$folio$prop", "$folio$clean",
-  "$folio$import", "$folio$rewrite", "$folio$meta",
-  "$folio$wrappostmessage", "$folio$pushsourcemap", "$folio$tryset",
-  "$folio$temploc", "$folio$tempunused",
-  "$folioerr", "$folio$setrealmfn",
-  "$folio$messagetype", "$folio$origin", "$folio$data",
-  "folio client global", "folio realm pollutant",
-  "folio original onevent function", "controller frame handle",
+  "$folio",
+  "$folioController",
+  "$folioUtils",
+  "$folio$wrap",
+  "$folio__",
+  "$folio$prop",
+  "$folio$clean",
+  "$folio$import",
+  "$folio$rewrite",
+  "$folio$meta",
+  "$folio$wrappostmessage",
+  "$folio$pushsourcemap",
+  "$folio$tryset",
+  "$folio$temploc",
+  "$folio$tempunused",
+  "$folioerr",
+  "$folio$setrealmfn",
+  "$folio$messagetype",
+  "$folio$origin",
+  "$folio$data",
+  "folio client global",
+  "folio realm pollutant",
+  "folio original onevent function",
+  "controller frame handle",
   "folio-injected",
-  "FolioClient", "FolioFetchHandler", "FolioFetchTrackedClient", "FolioHeaders",
-  "FOLIOCLIENT", "FOLIOCLIENTNAME", "assertRuntimeFolioVersion",
-  "ManagedPlugin", "CatchEscapedLinksPlugin", "EventHandlerPlugin",
-  "HttpCachePlugin", "LinkHandlerPlugin", "UrlWatcherPlugin",
+  "FolioClient",
+  "FolioFetchHandler",
+  "FolioFetchTrackedClient",
+  "FolioHeaders",
+  "FOLIOCLIENT",
+  "FOLIOCLIENTNAME",
+  "assertRuntimeFolioVersion",
+  "ManagedPlugin",
+  "CatchEscapedLinksPlugin",
+  "EventHandlerPlugin",
+  "HttpCachePlugin",
+  "LinkHandlerPlugin",
+  "UrlWatcherPlugin",
 ];
 
 export function createFolioTokenMap(buildId) {
-  return new Map(FOLIO_RUNTIME_TOKENS.map((token) => [
-    token,
-    `x${createHash("sha256").update(`${buildId}\0folio-runtime\0${token}`).digest("hex").slice(0, 20)}`,
-  ]));
+  return new Map(
+    FOLIO_RUNTIME_TOKENS.map((token) => [
+      token,
+      `x${createHash("sha256").update(`${buildId}\0folio-runtime\0${token}`).digest("hex").slice(0, 20)}`,
+    ]),
+  );
 }
 
 const OBFUSCATION_OPTIONS = {
@@ -73,11 +99,23 @@ const BASIC_OBFUSCATION_OPTIONS = {
 const RUNTIME_ASSETS = [
   {
     logicalPath: "/bmux/worker.js",
-    source: ["node_modules", "@mercuryworkshop", "bare-mux", "dist", "worker.js"],
+    source: [
+      "node_modules",
+      "@mercuryworkshop",
+      "bare-mux",
+      "dist",
+      "worker.js",
+    ],
   },
   ...["epoxy", "libcurl"].map((transport) => ({
     logicalPath: `/${transport}/index.mjs`,
-    source: ["node_modules", "@mercuryworkshop", `${transport}-transport`, "dist", "index.mjs"],
+    source: [
+      "node_modules",
+      "@mercuryworkshop",
+      `${transport}-transport`,
+      "dist",
+      "index.mjs",
+    ],
   })),
   { logicalPath: "/b/fl/folio.js", source: ["public", "b", "fl", "folio.js"] },
   {
@@ -88,8 +126,14 @@ const RUNTIME_ASSETS = [
     logicalPath: "/b/fl/controller.sw.js",
     source: ["public", "b", "fl", "controller.sw.js"],
   },
-  { logicalPath: "/b/fl/folio.wasm", source: ["public", "b", "fl", "folio.wasm"] },
-  { logicalPath: "/b/rv/router.js", source: ["public", "b", "rv", "router.js"] },
+  {
+    logicalPath: "/b/fl/folio.wasm",
+    source: ["public", "b", "fl", "folio.wasm"],
+  },
+  {
+    logicalPath: "/b/rv/router.js",
+    source: ["public", "b", "rv", "router.js"],
+  },
   {
     logicalPath: "/b/rivet/ublock.crx",
     source: ["packages", "rivet", "extensions", "ublock.crx"],
@@ -149,10 +193,12 @@ function opaqueFileName(logicalPath, buildId) {
 }
 
 export function createRuntimePathMap(buildId) {
-  return Object.fromEntries(RUNTIME_ASSETS.map(({ logicalPath }) => [
-    logicalPath,
-    `/${opaqueFileName(logicalPath, buildId)}`,
-  ]));
+  return Object.fromEntries(
+    RUNTIME_ASSETS.map(({ logicalPath }) => [
+      logicalPath,
+      `/${opaqueFileName(logicalPath, buildId)}`,
+    ]),
+  );
 }
 
 function addSensitiveToken(tokens, token) {
@@ -219,7 +265,8 @@ function containsAppCode(chunk, projectRoot) {
   const appRoot = path.join(projectRoot, "src") + path.sep;
   const rivetRoot = path.join(projectRoot, "packages", "rivet") + path.sep;
   return Object.keys(chunk.modules ?? {}).some(
-    (moduleId) => moduleId.startsWith(appRoot) || moduleId.startsWith(rivetRoot),
+    (moduleId) =>
+      moduleId.startsWith(appRoot) || moduleId.startsWith(rivetRoot),
   );
 }
 
@@ -241,11 +288,19 @@ export default function lyraPlugin(
       }
       return {
         define: {
-          __LYRA_WISP_PATH__: JSON.stringify(command === "build" ? wispPath : "/w/"),
+          __LYRA_WISP_PATH__: JSON.stringify(
+            command === "build" ? wispPath : "/w/",
+          ),
           __LYRA_BUILD_ID__: JSON.stringify(command === "build" ? buildId : ""),
-          __LYRA_RUNTIME_PATHS__: JSON.stringify(command === "build"
-            ? Object.fromEntries(Object.entries(createRuntimePathMap(buildId)).map(([key, value]) => [key.slice(1), value]))
-            : {}),
+          __LYRA_RUNTIME_PATHS__: JSON.stringify(
+            command === "build"
+              ? Object.fromEntries(
+                  Object.entries(createRuntimePathMap(buildId)).map(
+                    ([key, value]) => [key.slice(1), value],
+                  ),
+                )
+              : {},
+          ),
         },
       };
     },
@@ -282,10 +337,15 @@ export default function lyraPlugin(
       const cssTokenMap = new Map([
         ...createCssTokenMap(cssSources, buildId),
         ...createFolioTokenMap(buildId),
-        ["bare-mux-path", `x${createHash("sha256").update(`${buildId}\0bare-mux-path`).digest("hex").slice(0, 20)}`],
+        [
+          "bare-mux-path",
+          `x${createHash("sha256").update(`${buildId}\0bare-mux-path`).digest("hex").slice(0, 20)}`,
+        ],
       ]);
 
-      const pathAliases = new Map(Object.entries(createRuntimePathMap(buildId)));
+      const pathAliases = new Map(
+        Object.entries(createRuntimePathMap(buildId)),
+      );
       const runtimeBundleFileName = opaqueFileName("/b/all.js", buildId);
       pathAliases.set("/b/all.js", `/${runtimeBundleFileName}`);
 
@@ -407,11 +467,7 @@ export default function lyraPlugin(
           continue;
         }
 
-        sourceCode = rewriteBuildTokens(
-          sourceCode,
-          cssTokenMap,
-          pathAliases,
-        );
+        sourceCode = rewriteBuildTokens(sourceCode, cssTokenMap, pathAliases);
         sourceCode = obfuscateSource(
           sourceCode,
           containsAppCode(chunk, projectRoot)
@@ -433,9 +489,12 @@ export default function lyraPlugin(
             } else if (/\.(js|css|html|mjs)$/.test(entry.name)) {
               const contents = await readFile(filePath);
               await Promise.all([
-                writeFile(filePath + ".br", brotliCompressSync(contents, {
-                  params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
-                })),
+                writeFile(
+                  filePath + ".br",
+                  brotliCompressSync(contents, {
+                    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
+                  }),
+                ),
                 writeFile(filePath + ".gz", gzipSync(contents, { level: 9 })),
               ]);
             }

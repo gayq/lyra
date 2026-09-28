@@ -107,7 +107,11 @@ function _decodeUrlUncached(encodedUrl: string): string {
   } catch (_e) {}
 
   try {
-    const runtime = (window as unknown as { $folio?: { routeDestination: (url: string) => string | null } }).$folio;
+    const runtime = (
+      window as unknown as {
+        $folio?: { routeDestination: (url: string) => string | null };
+      }
+    ).$folio;
     const url = new URL(encodedUrl, window.location.origin);
     if (url.origin === window.location.origin && url.pathname === "/f") {
       return runtime?.routeDestination(url.href) ?? encodedUrl;
@@ -153,12 +157,18 @@ export function getProxyUrl(url: string): string {
   return _memoSet(_proxyUrlCache, url, "/!!/" + encoded + "/");
 }
 
-export function normalizeGameHistoryUrl(candidate: string | null | undefined): string | null {
+export function normalizeGameHistoryUrl(
+  candidate: string | null | undefined,
+): string | null {
   if (!candidate || typeof candidate !== "string") return null;
   const cached = _memoGet(_normalizedGameUrlCache, candidate);
   if (cached !== undefined) return cached;
 
-  return _memoSet(_normalizedGameUrlCache, candidate, _normalizeGameHistoryUrlUncached(candidate));
+  return _memoSet(
+    _normalizedGameUrlCache,
+    candidate,
+    _normalizeGameHistoryUrlUncached(candidate),
+  );
 }
 
 function _normalizeGameHistoryUrlUncached(candidate: string): string | null {
@@ -167,7 +177,10 @@ function _normalizeGameHistoryUrlUncached(candidate: string): string | null {
     if (parsed.hostname && parsed.hostname.includes("gn-math.dev")) {
       const rawId = parsed.searchParams.get("id");
       if (rawId) {
-        const cleanId = decodeURIComponent(rawId).trim().split(/[?&#]/)[0]!.trim();
+        const cleanId = decodeURIComponent(rawId)
+          .trim()
+          .split(/[?&#]/)[0]!
+          .trim();
         if (cleanId) {
           return `${parsed.protocol}//${parsed.host}/?id=${encodeURIComponent(cleanId)}`;
         }

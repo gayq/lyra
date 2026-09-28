@@ -19,7 +19,10 @@ function numberValue(name, fallback) {
 
 const urls = values("--url");
 const durationSeconds = numberValue("--duration", 15);
-const concurrency = numberValue("--concurrency", Math.max(4, availableParallelism() * 8));
+const concurrency = numberValue(
+  "--concurrency",
+  Math.max(4, availableParallelism() * 8),
+);
 const timeoutMs = numberValue("--timeout", 10_000);
 
 if (urls.length === 0) {
@@ -74,7 +77,9 @@ async function benchmark(url) {
     requests,
     failures,
     requests_per_second: Number((requests / elapsedSeconds).toFixed(2)),
-    mebibytes_per_second: Number((bytes / 1024 / 1024 / elapsedSeconds).toFixed(2)),
+    mebibytes_per_second: Number(
+      (bytes / 1024 / 1024 / elapsedSeconds).toFixed(2),
+    ),
     latency_ms: {
       p50: Number(percentile(latencies, 0.5).toFixed(2)),
       p95: Number(percentile(latencies, 0.95).toFixed(2)),

@@ -16,7 +16,9 @@ function cloneMessage(value: unknown): unknown {
   try {
     return JSON.parse(JSON.stringify(value) ?? "null");
   } catch {
-    throw new Error(negativeMessage("extension message could not be serialized"));
+    throw new Error(
+      negativeMessage("extension message could not be serialized"),
+    );
   }
 }
 
@@ -35,15 +37,19 @@ export function createRuntimeApis(context: ChromeApiContext) {
     senderDocumentId,
   } = context;
   let lastError: { message: string } | undefined;
-  const canReceive = (target: ExtensionState | undefined): target is ExtensionState => {
+  const canReceive = (
+    target: ExtensionState | undefined,
+  ): target is ExtensionState => {
     if (!target?.enabled) return false;
-    if (target.id === extId || !target.manifest.externally_connectable) return true;
+    if (target.id === extId || !target.manifest.externally_connectable)
+      return true;
     const ids = target.manifest.externally_connectable.ids;
     return Boolean(ids?.includes("*") || ids?.includes(extId));
   };
   const messageHubs = (target: ExtensionState | undefined) => {
     if (!canReceive(target)) return [];
-    const event = target.id === extId ? "runtimeOnMessage" : "runtimeOnMessageExternal";
+    const event =
+      target.id === extId ? "runtimeOnMessage" : "runtimeOnMessageExternal";
     return [target.background?.events, target.popupEvents]
       .filter((recipient) => recipient && recipient !== events)
       .map((recipient) => recipient![event]);
@@ -69,9 +75,13 @@ export function createRuntimeApis(context: ChromeApiContext) {
       buildExtensionUrl(extId, path == null ? "" : String(path)),
     reload: () => ext.reloadBackground?.(),
     sendMessage: (...args: unknown[]) => {
-      const callback = typeof args[args.length - 1] === "function"
-        ? args.pop() as (response: unknown) => void : undefined;
-      const hasTarget = args.length >= 3 || (args.length === 2 && (typeof args[0] === "string" || args[0] == null));
+      const callback =
+        typeof args[args.length - 1] === "function"
+          ? (args.pop() as (response: unknown) => void)
+          : undefined;
+      const hasTarget =
+        args.length >= 3 ||
+        (args.length === 2 && (typeof args[0] === "string" || args[0] == null));
       const targetExt = hasTarget ? String(args[0] || extId) : extId;
       const message = hasTarget ? args[1] : args[0];
       let payload: unknown;
@@ -90,7 +100,10 @@ export function createRuntimeApis(context: ChromeApiContext) {
         tab: tabId !== null ? buildTabObject(host, tabId, realm) : undefined,
       };
       const send = async () => {
-        if (serializationFailed) throw new Error(negativeMessage("extension message could not be serialized"));
+        if (serializationFailed)
+          throw new Error(
+            negativeMessage("extension message could not be serialized"),
+          );
         let target = registry.get(targetExt);
         let hubs = messageHubs(target);
         while (
@@ -104,9 +117,14 @@ export function createRuntimeApis(context: ChromeApiContext) {
           target = registry.get(targetExt);
           hubs = messageHubs(target);
         }
-        if (!hubs.some((hub) => hub.hasListeners())) throw new Error(negativeMessage("extension message receiver is unavailable"));
+        if (!hubs.some((hub) => hub.hasListeners()))
+          throw new Error(
+            negativeMessage("extension message receiver is unavailable"),
+          );
         const response = await dispatchMessage(hubs, payload, sender);
-        return response === undefined ? undefined : cloneForRealm(realm, cloneMessage(response));
+        return response === undefined
+          ? undefined
+          : cloneForRealm(realm, cloneMessage(response));
       };
       const responsePromise = send();
       if (callback) {
@@ -182,12 +200,14 @@ export function createRuntimeApis(context: ChromeApiContext) {
         name,
         sender,
         postMessage: (message: unknown) => {
-          if (disconnected) throw new Error(negativeMessage("extension port is disconnected"));
+          if (disconnected)
+            throw new Error(negativeMessage("extension port is disconnected"));
           const payload = cloneMessage(message);
           if (!connected) pendingMessages.push(payload);
-          else queueMicrotask(() => {
-            if (!disconnected) remoteSide.onMessage.fire(payload, remotePort);
-          });
+          else
+            queueMicrotask(() => {
+              if (!disconnected) remoteSide.onMessage.fire(payload, remotePort);
+            });
         },
         disconnect: () => disconnectFrom("caller"),
         onMessage: callerSide.onMessage.toApi(),
@@ -197,10 +217,15 @@ export function createRuntimeApis(context: ChromeApiContext) {
         name,
         sender,
         postMessage: (message: unknown) => {
-          if (disconnected) throw new Error(negativeMessage("extension port is disconnected"));
+          if (disconnected)
+            throw new Error(negativeMessage("extension port is disconnected"));
           const payload = cloneMessage(message);
           queueMicrotask(() => {
-            if (!disconnected) callerSide.onMessage.fire(cloneForRealm(realm, payload), callerPort);
+            if (!disconnected)
+              callerSide.onMessage.fire(
+                cloneForRealm(realm, payload),
+                callerPort,
+              );
           });
         },
         disconnect: () => disconnectFrom("remote"),
@@ -218,9 +243,15 @@ export function createRuntimeApis(context: ChromeApiContext) {
 
       const deliver = (target: ExtensionState | undefined) => {
         if (disconnected) return;
-        const event = targetExt === extId ? "runtimeOnConnect" : "runtimeOnConnectExternal";
+        const event =
+          targetExt === extId ? "runtimeOnConnect" : "runtimeOnConnectExternal";
         const recipients = canReceive(target)
-          ? [target.background?.events, target.popupEvents].filter((recipient) => recipient && recipient !== events && recipient[event].hasListeners())
+          ? [target.background?.events, target.popupEvents].filter(
+              (recipient) =>
+                recipient &&
+                recipient !== events &&
+                recipient[event].hasListeners(),
+            )
           : [];
         if (!recipients.length) {
           disconnectFrom("remote");
@@ -236,7 +267,12 @@ export function createRuntimeApis(context: ChromeApiContext) {
         pendingMessages.length = 0;
       };
       const target = registry.get(targetExt);
-      if (target?.background || !target?.resolveBackgroundReady || !canReceive(target) || (isBackground && targetExt === extId)) {
+      if (
+        target?.background ||
+        !target?.resolveBackgroundReady ||
+        !canReceive(target) ||
+        (isBackground && targetExt === extId)
+      ) {
         deliver(target);
       } else {
         void waitForBackground(targetExt).then((readyTarget) => {
@@ -246,7 +282,9 @@ export function createRuntimeApis(context: ChromeApiContext) {
 
       return callerPort;
     },
-    get lastError() { return lastError; },
+    get lastError() {
+      return lastError;
+    },
     getPlatformInfo: (cb?: (info: unknown) => void) => {
       const result = { os: "linux", arch: "x86-64", nacl_arch: "x86_64" };
       cb?.(result);

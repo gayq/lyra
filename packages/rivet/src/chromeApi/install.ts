@@ -64,7 +64,8 @@ export function installChromeApi(
   installExtensionNetwork(realm, senderUrl);
   const events = createRealmEvents();
   const frameId = senderFrameId ?? (tabId === null ? undefined : 0);
-  const documentId = senderDocumentId ?? (tabId === null ? undefined : generateDocumentId());
+  const documentId =
+    senderDocumentId ?? (tabId === null ? undefined : generateDocumentId());
   if (isBackground) {
     registry.removeWebRequestListeners(extId);
   } else if (
@@ -149,7 +150,9 @@ export function installChromeApi(
     contextMenus,
     notifications,
     cookies,
-    get dns() { return ext.grantedPermissions.has("dns") ? dns : undefined; },
+    get dns() {
+      return ext.grantedPermissions.has("dns") ? dns : undefined;
+    },
     webRequest,
     contentScripts,
     declarativeNetRequest,

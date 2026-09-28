@@ -67,15 +67,9 @@ const Tab = memo(function Tab({
     >
       <TabIcon favicon={favicon} eager={isActive} />
       <span class="tab-title">
-        {isLoading && title === "new tab"
-          ? "fetching data..."
-          : title}
+        {isLoading && title === "new tab" ? "fetching data..." : title}
       </span>
-      <button
-        class="tab-close"
-        aria-label="close tab"
-        onClick={onCloseClick}
-      >
+      <button class="tab-close" aria-label="close tab" onClick={onCloseClick}>
         <IconCrossMedium />
       </button>
     </div>
@@ -91,7 +85,8 @@ export default function Sidebar() {
   );
   const isSplitPairDefined =
     splitPair.left !== null && splitPair.right !== null;
-  const isSplitLayout = isSplitPairDefined &&
+  const isSplitLayout =
+    isSplitPairDefined &&
     (activeTabId === splitPair.left || activeTabId === splitPair.right);
   const playerStatus = activeTab?.playerStatus || "idle";
   const pageLoading = activeTab?.isLoading === true;

@@ -9,11 +9,7 @@ import {
 import { runtimeAssetPath, wispPath } from "../runtime/build.ts";
 
 type ConnectionState =
-  | "IDLE"
-  | "CONNECTING"
-  | "CONNECTED"
-  | "FAILED"
-  | "RECONNECTING";
+  "IDLE" | "CONNECTING" | "CONNECTED" | "FAILED" | "RECONNECTING";
 
 interface AppConfig {
   transport: string;
@@ -94,13 +90,20 @@ class LyraConnectionManager {
     this._isRecovering = false;
     this._tabWasHiddenWhileConnected = false;
 
-    const app = ((window as unknown as Record<string, unknown>)["Lyra"] ??= {}) as typeof window.Lyra;
+    const app = ((window as unknown as Record<string, unknown>)["Lyra"] ??=
+      {}) as typeof window.Lyra;
     app.transportReady = this._transportReadyPromise;
 
     app.waitForTransport = async (timeoutMs = 10000) => {
-      if (this._transportReadyPromise._settled && this.state !== STATES.CONNECTED) {
+      if (
+        this._transportReadyPromise._settled &&
+        this.state !== STATES.CONNECTED
+      ) {
         this._resetTransportReady();
-      } else if (this._transportReadyPromise._settled && this.state === STATES.CONNECTED) {
+      } else if (
+        this._transportReadyPromise._settled &&
+        this.state === STATES.CONNECTED
+      ) {
         const verified = await this._verifyTransport();
         if (!verified) {
           this._resetTransportReady();
@@ -111,14 +114,18 @@ class LyraConnectionManager {
         this._transportReadyPromise,
         new Promise<void>((_, reject) =>
           setTimeout(
-            () => reject(new Error(negativeMessage("transport setup timed out"))),
+            () =>
+              reject(new Error(negativeMessage("transport setup timed out"))),
             timeoutMs,
           ),
         ),
       ]);
     };
 
-    if (document.readyState === "complete" || document.readyState === "interactive") {
+    if (
+      document.readyState === "complete" ||
+      document.readyState === "interactive"
+    ) {
       this.start();
     } else {
       window.addEventListener("DOMContentLoaded", () => this.start());
@@ -175,11 +182,17 @@ class LyraConnectionManager {
       localStorage.removeItem("backend");
       this.appConfig.transport = localStorage.getItem("transport") || "epoxy";
     } catch {
-      this.updateStatus("could not access local storage; using defaults", "error");
+      this.updateStatus(
+        "could not access local storage; using defaults",
+        "error",
+      );
     }
   }
 
-  async ensureWispServerConnection(url: string, timeout: number = 1500): Promise<void> {
+  async ensureWispServerConnection(
+    url: string,
+    timeout: number = 1500,
+  ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let ws: WebSocket | undefined;
       let settled = false;
@@ -229,7 +242,10 @@ class LyraConnectionManager {
         this.bareMuxConnection.getTransport(),
         new Promise<string>((_, reject) =>
           setTimeout(
-            () => reject(new Error(negativeMessage("transport verification timed out"))),
+            () =>
+              reject(
+                new Error(negativeMessage("transport verification timed out")),
+              ),
             4000,
           ),
         ),
@@ -284,10 +300,13 @@ class LyraConnectionManager {
       }
 
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const wispHost = (isLocalDev && window.location.port === '4444')
-        ? `${window.location.hostname}:4001`
-        : window.location.host;
+      const isLocalDev =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1";
+      const wispHost =
+        isLocalDev && window.location.port === "4444"
+          ? `${window.location.hostname}:4001`
+          : window.location.host;
       this.currentWispUrl = `${protocol}://${wispHost}${wispPath}`;
 
       await this.ensureWispServerConnection(this.currentWispUrl, 10000);
@@ -320,7 +339,9 @@ class LyraConnectionManager {
 
       const transportModule = TRANSPORT_MAP[this.appConfig.transport];
       if (!transportModule) {
-        throw new Error(negativeMessage(`unknown transport: ${this.appConfig.transport}`));
+        throw new Error(
+          negativeMessage(`unknown transport: ${this.appConfig.transport}`),
+        );
       }
 
       await this.bareMuxConnection.setTransport(transportModule, [
@@ -329,14 +350,17 @@ class LyraConnectionManager {
 
       const transportVerified = await this._verifyTransport();
       if (!transportVerified) {
-        throw new Error(negativeMessage("transport verification failed after setup"));
+        throw new Error(
+          negativeMessage("transport verification failed after setup"),
+        );
       }
 
-      const serviceWorker =
-        registration.active || registration.waiting;
+      const serviceWorker = registration.active || registration.waiting;
       if (!serviceWorker) {
         throw new Error(
-          negativeMessage("folio service worker was unavailable after registration"),
+          negativeMessage(
+            "folio service worker was unavailable after registration",
+          ),
         );
       }
       await initializeFolioController({
@@ -366,7 +390,10 @@ class LyraConnectionManager {
     if (this._retryCount < 10) {
       const delay = Math.min(Math.pow(2, this._retryCount) * 500, 15000);
       this._retryCount++;
-      this.updateStatus(`retrying in ${delay / 1000}s... (attempt ${this._retryCount}/10)`, "info");
+      this.updateStatus(
+        `retrying in ${delay / 1000}s... (attempt ${this._retryCount}/10)`,
+        "info",
+      );
       await new Promise<void>((res) => setTimeout(res, delay));
       await this.initializeApp(true);
     } else {
@@ -438,7 +465,11 @@ class LyraConnectionManager {
     try {
       await this.ensureWispServerConnection(this.currentWispUrl, 3000);
 
-      if (forceReapply && this.state === STATES.CONNECTED && this.bareMuxConnection) {
+      if (
+        forceReapply &&
+        this.state === STATES.CONNECTED &&
+        this.bareMuxConnection
+      ) {
         this._resetTransportReady();
         console.warn(
           "wake recovery: refreshing proxy transports after repeated failures",
@@ -461,11 +492,17 @@ class LyraConnectionManager {
         return;
       }
 
-      console.warn("wake recovery: transport unavailable; reapplying", NEGATIVE);
+      console.warn(
+        "wake recovery: transport unavailable; reapplying",
+        NEGATIVE,
+      );
       this._resetTransportReady();
       const recovered = await this._reapplyTransport();
       if (recovered) {
-        console.log("wake recovery: transport recovered after reapply", POSITIVE);
+        console.log(
+          "wake recovery: transport recovered after reapply",
+          POSITIVE,
+        );
         this.setState(STATES.CONNECTED);
         return;
       }
@@ -505,12 +542,22 @@ class LyraConnectionManager {
       try {
         ctrl.postMessage({ type: "lyra-prefetch", url: message.url });
       } catch (e) {
-        console.warn("failed to post a message to the service worker:", e, NEGATIVE);
+        console.warn(
+          "failed to post a message to the service worker:",
+          e,
+          NEGATIVE,
+        );
       }
     });
 
-    const applyLiveChanges = async (updateFn: () => Promise<void>): Promise<void> => {
-      if (this.state === STATES.CONNECTING || this.state === STATES.RECONNECTING) return;
+    const applyLiveChanges = async (
+      updateFn: () => Promise<void>,
+    ): Promise<void> => {
+      if (
+        this.state === STATES.CONNECTING ||
+        this.state === STATES.RECONNECTING
+      )
+        return;
 
       this.updateStatus("switching engine...", "info");
       this._resetTransportReady();
@@ -552,10 +599,7 @@ class LyraConnectionManager {
         if (resumeFromHidden && this.state === STATES.CONNECTED) {
           this._resetTransportReady();
         }
-        setTimeout(
-          () => void this.recoverOnWake(),
-          0,
-        );
+        setTimeout(() => void this.recoverOnWake(), 0);
       }
     });
 
@@ -567,20 +611,26 @@ class LyraConnectionManager {
     });
 
     if (navigator.serviceWorker) {
-      navigator.serviceWorker.addEventListener("message", (event: MessageEvent) => {
-        const message = event.data as { type?: string; failures?: number } | null;
-        if (message?.type !== "transport-error") return;
-        if (this.state !== STATES.CONNECTED) return;
+      navigator.serviceWorker.addEventListener(
+        "message",
+        (event: MessageEvent) => {
+          const message = event.data as {
+            type?: string;
+            failures?: number;
+          } | null;
+          if (message?.type !== "transport-error") return;
+          if (this.state !== STATES.CONNECTED) return;
 
-        const failures = message.failures ?? 1;
-        if (failures < 3) return;
-        console.warn(
-          `transport error reported by the service worker (${failures} consecutive failures); recovering`,
-          NEGATIVE,
-        );
-        this._resetTransportReady();
-        void this.recoverOnWake({ forceReapply: true });
-      });
+          const failures = message.failures ?? 1;
+          if (failures < 3) return;
+          console.warn(
+            `transport error reported by the service worker (${failures} consecutive failures); recovering`,
+            NEGATIVE,
+          );
+          this._resetTransportReady();
+          void this.recoverOnWake({ forceReapply: true });
+        },
+      );
     }
 
     document.addEventListener("newTransport", (e) =>

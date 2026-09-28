@@ -1,5 +1,8 @@
 import type { PlayerStatus } from "../../state/store.ts";
-import { negativeMessage, positiveMessage } from "../../core/runtime/messages.ts";
+import {
+  negativeMessage,
+  positiveMessage,
+} from "../../core/runtime/messages.ts";
 
 const FOOTER_TEXT: Record<PlayerStatus, string> = {
   idle: "",

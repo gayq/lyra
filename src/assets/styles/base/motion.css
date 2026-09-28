@@ -13,7 +13,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html:not([data-motion="full"]) { --motion-hover-scale: 1; }
+  html:not([data-motion="full"]) {
+    --motion-hover-scale: 1;
+  }
   html:not([data-motion="full"]),
   html:not([data-motion="full"]) *,
   html:not([data-motion="full"]) *::before,
@@ -27,7 +29,9 @@
   }
 }
 
-html[data-motion="reduced"] { --motion-hover-scale: 1; }
+html[data-motion="reduced"] {
+  --motion-hover-scale: 1;
+}
 html[data-motion="reduced"],
 html[data-motion="reduced"] *,
 html[data-motion="reduced"] *::before,

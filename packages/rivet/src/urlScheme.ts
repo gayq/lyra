@@ -20,7 +20,10 @@ export function chromeExtensionUrl(extId: string, path: string): string {
   return `chrome-extension://${extId}/${path.replace(/^\//, "")}`;
 }
 
-export function resolveExtensionResourcePath(pageDir: string, ref: string): string {
+export function resolveExtensionResourcePath(
+  pageDir: string,
+  ref: string,
+): string {
   if (ref.startsWith("/")) return ref.replace(/^\//, "");
   const fakeBase = `rivet://x/${pageDir ? `${pageDir}/` : ""}`;
   const resolved = new URL(ref, fakeBase);
@@ -32,7 +35,9 @@ export function extensionPathDir(path: string): string {
   return slash === -1 ? "" : path.slice(0, slash);
 }
 
-export function decodeRivetPath(pathname: string): { extId: string; path: string } | null {
+export function decodeRivetPath(
+  pathname: string,
+): { extId: string; path: string } | null {
   if (!pathname.startsWith(RIVET_PREFIX)) return null;
   const rest = pathname.slice(RIVET_PREFIX.length);
   const slash = rest.indexOf("/");
@@ -43,7 +48,9 @@ export function decodeRivetPath(pathname: string): { extId: string; path: string
   return { extId, path };
 }
 
-export function decodeRivetUrl(input: string): { extId: string; path: string } | null {
+export function decodeRivetUrl(
+  input: string,
+): { extId: string; path: string } | null {
   try {
     const url = new URL(input, globalThis.location.href);
     if (url.protocol === "chrome-extension:") {
@@ -54,7 +61,9 @@ export function decodeRivetUrl(input: string): { extId: string; path: string } |
     }
     if (url.origin !== globalThis.location.origin) return null;
     const decoded = decodeRivetPath(url.pathname);
-    return decoded ? { ...decoded, path: `${decoded.path}${url.search}${url.hash}` } : null;
+    return decoded
+      ? { ...decoded, path: `${decoded.path}${url.search}${url.hash}` }
+      : null;
   } catch {
     return null;
   }

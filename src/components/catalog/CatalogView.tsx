@@ -87,8 +87,14 @@ export default function CatalogView<T>({
           class={gridClassName}
           style={gridVisible || showSkeleton ? "display:block" : "display:none"}
         >
-          <CatalogCanvas items={items} getCard={getCard} onSelect={onSelect}
-            anime={anime} loading={showSkeleton} active={visible && active && (gridVisible || showSkeleton)} />
+          <CatalogCanvas
+            items={items}
+            getCard={getCard}
+            onSelect={onSelect}
+            anime={anime}
+            loading={showSkeleton}
+            active={visible && active && (gridVisible || showSkeleton)}
+          />
         </div>
         {emptyMessage && <p class="no-results">{emptyMessage}</p>}
         {statusMessage && <p class="no-results">{statusMessage}</p>}

@@ -50,7 +50,9 @@
   background: var(--btn-secondary-bg);
   color: var(--text-white);
   margin-top: 10px;
-  transition: background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
+  transition:
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
   width: 60%;
 }
 

@@ -7,10 +7,18 @@ export interface Bookmark {
 }
 
 export const DEFAULT_BOOKMARKS: Bookmark[] = [
-  { name: "mangas", url: "https://atsu.moe/", icon: `/!cover!/${encodeMochiUrl("https://atsu.moe/favicon.ico")}/` },
+  {
+    name: "mangas",
+    url: "https://atsu.moe/",
+    icon: `/!cover!/${encodeMochiUrl("https://atsu.moe/favicon.ico")}/`,
+  },
   { name: "games", url: "lyra://games" },
   { name: "anime", url: "lyra://anime" },
-  { name: "ao3", url: "https://archiveofourown.org/", icon: `/!cover!/${encodeMochiUrl("https://archiveofourown.org/favicon.ico")}/` },
+  {
+    name: "ao3",
+    url: "https://archiveofourown.org/",
+    icon: `/!cover!/${encodeMochiUrl("https://archiveofourown.org/favicon.ico")}/`,
+  },
   { name: "youtube", url: "https://youtube.com/" },
 ];
 

@@ -8,7 +8,10 @@ interface SeekBarOptions {
   format(time: number): string;
 }
 
-export function attachSeekBar(bar: HTMLElement, options: SeekBarOptions): () => void {
+export function attachSeekBar(
+  bar: HTMLElement,
+  options: SeekBarOptions,
+): () => void {
   let pointer: number | null = null;
   let frame: number | null = null;
   let clientX = 0;
@@ -17,8 +20,12 @@ export function attachSeekBar(bar: HTMLElement, options: SeekBarOptions): () => 
   const position = () => {
     bounds ??= bar.getBoundingClientRect();
     const duration = options.duration();
-    if (!(duration > 0) || !Number.isFinite(duration) || bounds.width <= 0) return null;
-    return Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width)) * duration;
+    if (!(duration > 0) || !Number.isFinite(duration) || bounds.width <= 0)
+      return null;
+    return (
+      Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width)) *
+      duration
+    );
   };
   const paint = () => {
     frame = null;
@@ -85,7 +92,9 @@ export function attachSeekBar(bar: HTMLElement, options: SeekBarOptions): () => 
     bounds = null;
     options.preview.hidden = true;
   };
-  const resize = () => { bounds = null; };
+  const resize = () => {
+    bounds = null;
+  };
   const blur = () => finish(false);
   const keydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && pointer !== null) {
@@ -94,14 +103,19 @@ export function attachSeekBar(bar: HTMLElement, options: SeekBarOptions): () => 
       finish(false);
       return;
     }
-    if (event.altKey || event.ctrlKey || event.metaKey || pointer !== null) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || pointer !== null)
+      return;
     const duration = options.duration();
     if (!(duration > 0) || !Number.isFinite(duration)) return;
     const current = options.currentTime() ?? 0;
     const targets: Record<string, number> = {
-      ArrowLeft: current - 5, ArrowRight: current + 5,
-      ArrowDown: current - 5, ArrowUp: current + 5,
-      Home: 0, End: duration, PageDown: current - duration / 10,
+      ArrowLeft: current - 5,
+      ArrowRight: current + 5,
+      ArrowDown: current - 5,
+      ArrowUp: current + 5,
+      Home: 0,
+      End: duration,
+      PageDown: current - duration / 10,
       PageUp: current + duration / 10,
     };
     if (!(event.key in targets)) return;

@@ -29,6 +29,7 @@ import {
 import {
   ANIME_QUALITY_KEY,
   ANIME_SETTING_KEYS,
+  readAnimeLanguage,
   readAnimeQuality,
   readAnimeSetting,
 } from "../../core/media/animeSettings.ts";
@@ -143,7 +144,9 @@ function resolvePlayerStatus(
   return detailsLoading ? "loading" : status;
 }
 
-function parsePlaybackEpisodeParts(value: string | null): PlaybackEpisodePartRange[] {
+function parsePlaybackEpisodeParts(
+  value: string | null,
+): PlaybackEpisodePartRange[] {
   if (!value) return [];
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -167,7 +170,9 @@ function parsePlaybackEpisodeParts(value: string | null): PlaybackEpisodePartRan
       ) {
         return [];
       }
-      return [{ start, end, ids: normalizeAnimeIds(candidate.ids as AnimeIds) }];
+      return [
+        { start, end, ids: normalizeAnimeIds(candidate.ids as AnimeIds) },
+      ];
     });
   } catch {
     return [];
@@ -273,7 +278,8 @@ function isEnglishSubtitle(track: StreamSubtitleTrack): boolean {
 
 function qualityLabel(height: number, bitrate: number): string {
   if (height > 0) {
-    const rate = bitrate > 0 ? ` · ${(bitrate / 1_000_000).toFixed(1)} mbps` : "";
+    const rate =
+      bitrate > 0 ? ` · ${(bitrate / 1_000_000).toFixed(1)} mbps` : "";
     return `${height}p${rate}`;
   }
   return bitrate > 0 ? `${(bitrate / 1_000_000).toFixed(1)} mbps` : "source";
@@ -309,7 +315,6 @@ function hlsLoadPolicy(
   };
 }
 
-
 function readPlayerStorage(key: string): string | null {
   try {
     return localStorage.getItem(key);
@@ -328,11 +333,12 @@ export default function Player() {
   const malId = parseInt(params.get("mal_id") || "0", 10);
   const anikotoEpisodeId = params.get("anikoto_episode_id") || "";
   const identityIds = useMemo(
-    () => normalizeAnimeIds({
-      anilist: anilistId,
-      mal: malId,
-      anikotoEpisode: anikotoEpisodeId,
-    }),
+    () =>
+      normalizeAnimeIds({
+        anilist: anilistId,
+        mal: malId,
+        anikotoEpisode: anikotoEpisodeId,
+      }),
     [anilistId, malId, anikotoEpisodeId],
   );
   const episodeParts = useMemo(
@@ -347,31 +353,39 @@ export default function Player() {
       String(initialEpisode || (anikotoEpisodeId ? 1 : 0)),
     10,
   );
-  const initialLanguage = params.get("language") === "dub" ? "dub" : "sub";
+  const initialLanguage = params.has("language")
+    ? params.get("language") === "dub"
+      ? "dub"
+      : "sub"
+    : readAnimeLanguage();
   const [language, setLanguage] = useState<"sub" | "dub">(initialLanguage);
-  const [activeAnikotoEpisodeId, setActiveAnikotoEpisodeId] = useState(
-    anikotoEpisodeId,
-  );
+  const [activeAnikotoEpisodeId, setActiveAnikotoEpisodeId] =
+    useState(anikotoEpisodeId);
   const [activePartRange, setActivePartRange] =
     useState<PlaybackEpisodePartRange | null>(initialPart || null);
   const [activePartIds, setActivePartIds] = useState<AnimeIds>(
     initialPart?.ids || identityIds,
   );
   const [episodeOffset, setEpisodeOffset] = useState(
-    initialPart ? initialPart.start - 1 : Math.max(0, initialEpisode - initialSourceEpisode),
+    initialPart
+      ? initialPart.start - 1
+      : Math.max(0, initialEpisode - initialSourceEpisode),
   );
   const playbackIds = useMemo(
-    () => normalizeAnimeIds({
-      ...(activePartRange ? activePartIds : identityIds),
-      anikotoEpisode: activeAnikotoEpisodeId,
-    }),
+    () =>
+      normalizeAnimeIds({
+        ...(activePartRange ? activePartIds : identityIds),
+        anikotoEpisode: activeAnikotoEpisodeId,
+      }),
     [identityIds, activePartRange, activePartIds, activeAnikotoEpisodeId],
   );
   const initialEpisodeCount = parseInt(params.get("episode_count") || "0", 10);
   const format = params.get("format") || "";
   const currentSeason: AnimeSeason = {
     id: animeIdentityCacheKey({ ids: identityIds }),
-    title, ids: identityIds, format,
+    title,
+    ids: identityIds,
+    format,
     number: Number(params.get("season")) || 1,
     episodeCount: initialEpisodeCount,
     year: Number(params.get("year")) || undefined,
@@ -379,12 +393,13 @@ export default function Player() {
   const [episodeNumber, setEpisodeNumber] = useState(
     hasEpisodeParam ? Math.max(0, initialEpisode) : anikotoEpisodeId ? 1 : 0,
   );
-  const [confirmedEpisodeNumber, setConfirmedEpisodeNumber] = useState<number | null>(
-    null,
-  );
+  const [confirmedEpisodeNumber, setConfirmedEpisodeNumber] = useState<
+    number | null
+  >(null);
   const sourceEpisodeNumber = Math.max(
     0,
-    episodeNumber - (activePartRange ? activePartRange.start - 1 : episodeOffset),
+    episodeNumber -
+      (activePartRange ? activePartRange.start - 1 : episodeOffset),
   );
   const [episodeCount, setEpisodeCount] = useState(
     mergeEpisodeCount(initialEpisodeCount, initialEpisode),
@@ -490,23 +505,27 @@ export default function Player() {
   });
   const manifestDurationRef = useRef<number | null>(null);
   const sourceGenerationRef = useRef(0);
-  const [confirmedLanguage, setConfirmedLanguage] = useState<"sub" | "dub" | null>(
-    null,
-  );
-  const [introMarker, setIntroMarker] = useState<
-    { start: number; end: number } | null
+  const [confirmedLanguage, setConfirmedLanguage] = useState<
+    "sub" | "dub" | null
   >(null);
-  const [outroMarker, setOutroMarker] = useState<
-    { start: number; end: number } | null
-  >(null);
+  const [introMarker, setIntroMarker] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
+  const [outroMarker, setOutroMarker] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(() =>
     Boolean(document.fullscreenElement),
   );
   const [showControls, setShowControls] = useState(true);
-  const [externalSubtitles, setSubtitleTracks] = useState<StreamSubtitleTrack[]>(
-    [],
-  );
-  const [embeddedSubtitles, setEmbeddedSubtitles] = useState<StreamSubtitleTrack[]>([]);
+  const [externalSubtitles, setSubtitleTracks] = useState<
+    StreamSubtitleTrack[]
+  >([]);
+  const [embeddedSubtitles, setEmbeddedSubtitles] = useState<
+    StreamSubtitleTrack[]
+  >([]);
   const subtitleTracks = useMemo(
     () => [...externalSubtitles, ...embeddedSubtitles],
     [externalSubtitles, embeddedSubtitles],
@@ -563,9 +582,7 @@ export default function Player() {
       if (typeof tabId === "number") {
         parentLyra?.setPlayerStatus?.(tabId, status);
       }
-    } catch {
-      
-    }
+    } catch {}
   }, []);
   const videoSrc = baseVideoSrc;
   const displayDuration = mediaState.duration ?? 0;
@@ -588,14 +605,27 @@ export default function Player() {
     const next = readMediaState(video, mediaHintsRef.current);
     mediaStateRef.current = next;
     setMediaState((previous) => {
-      const sameTime = Math.floor(previous.currentTime ?? -1) === Math.floor(next.currentTime ?? -1);
-      const sameBuffer = previous.buffered.length === next.buffered.length &&
-        previous.buffered.every((range, index) =>
-          range.start === next.buffered[index]!.start && range.end === next.buffered[index]!.end);
-      return sameTime && sameBuffer &&
-        (Object.keys(next) as (keyof MediaState)[]).every((key) =>
-          key === "currentTime" || key === "progress" || key === "buffered" || previous[key] === next[key])
-        ? previous : next;
+      const sameTime =
+        Math.floor(previous.currentTime ?? -1) ===
+        Math.floor(next.currentTime ?? -1);
+      const sameBuffer =
+        previous.buffered.length === next.buffered.length &&
+        previous.buffered.every(
+          (range, index) =>
+            range.start === next.buffered[index]!.start &&
+            range.end === next.buffered[index]!.end,
+        );
+      return sameTime &&
+        sameBuffer &&
+        (Object.keys(next) as (keyof MediaState)[]).every(
+          (key) =>
+            key === "currentTime" ||
+            key === "progress" ||
+            key === "buffered" ||
+            previous[key] === next[key],
+        )
+        ? previous
+        : next;
     });
   }, []);
 
@@ -618,7 +648,8 @@ export default function Player() {
       }
       if (timeDisplayRef.current) {
         const label = `${time === null ? "--:--" : formatTime(time)} / ${durationLabelRef.current}`;
-        if (timeDisplayRef.current.textContent !== label) timeDisplayRef.current.textContent = label;
+        if (timeDisplayRef.current.textContent !== label)
+          timeDisplayRef.current.textContent = label;
         seekBarRef.current?.setAttribute("aria-valuetext", label);
       }
       seekBarRef.current?.setAttribute("aria-valuenow", String(time ?? 0));
@@ -650,9 +681,19 @@ export default function Player() {
     setShowControls(true);
     hideTimerRef.current = setTimeout(() => {
       const video = videoRef.current;
-      const focused = containerRef.current?.querySelector(".player-controls :focus-visible");
-      if (video && !video.paused && !video.ended && !selectorOpenRef.current &&
-          !scrubbingRef.current && !volumeDraggingRef.current && !focused) setShowControls(false);
+      const focused = containerRef.current?.querySelector(
+        ".player-controls :focus-visible",
+      );
+      if (
+        video &&
+        !video.paused &&
+        !video.ended &&
+        !selectorOpenRef.current &&
+        !scrubbingRef.current &&
+        !volumeDraggingRef.current &&
+        !focused
+      )
+        setShowControls(false);
     }, 3000);
   }, []);
 
@@ -684,7 +725,9 @@ export default function Player() {
 
   useEffect(() => {
     if (
-      (!playbackIds.mal && !playbackIds.anilist && !playbackIds.anikotoEpisode) ||
+      (!playbackIds.mal &&
+        !playbackIds.anilist &&
+        !playbackIds.anikotoEpisode) ||
       isAnimeMovieFormat(format) ||
       episodeParts.length > 1
     ) {
@@ -748,9 +791,7 @@ export default function Player() {
     (seconds: number) => {
       const video = videoRef.current;
       if (!video || !Number.isFinite(seconds)) return;
-      const durationLimit =
-        displayDuration ||
-        cleanDuration(video.duration);
+      const durationLimit = displayDuration || cleanDuration(video.duration);
       const target =
         durationLimit > 0
           ? Math.max(0, Math.min(durationLimit, seconds))
@@ -783,16 +824,21 @@ export default function Player() {
     });
   }, [videoSrc, seekTo, renderPlaybackTime, resetTimer]);
 
-  const handleVolume = useCallback((event: Event) => {
-    const volume = Number((event.target as HTMLInputElement).value);
-    const video = videoRef.current;
-    if (!video || !Number.isFinite(volume)) return;
-    video.volume = Math.max(0, Math.min(1, volume / 100));
-    video.muted = false;
-    if (video.volume > 0) lastVolumeRef.current = video.volume;
-    try { localStorage.setItem("lyra-anime-volume", String(volume)); } catch {}
-    syncMediaState();
-  }, [syncMediaState]);
+  const handleVolume = useCallback(
+    (event: Event) => {
+      const volume = Number((event.target as HTMLInputElement).value);
+      const video = videoRef.current;
+      if (!video || !Number.isFinite(volume)) return;
+      video.volume = Math.max(0, Math.min(1, volume / 100));
+      video.muted = false;
+      if (video.volume > 0) lastVolumeRef.current = video.volume;
+      try {
+        localStorage.setItem("lyra-anime-volume", String(volume));
+      } catch {}
+      syncMediaState();
+    },
+    [syncMediaState],
+  );
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -810,7 +856,8 @@ export default function Player() {
   const toggleFullscreen = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
-    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    const video = videoRef.current as
+      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
     if (document.fullscreenElement === container) {
       void document.exitFullscreen().catch(() => {});
     } else if (container.requestFullscreen) {
@@ -872,7 +919,10 @@ export default function Player() {
     document.addEventListener("animeSettingUpdated", onAnimeSettingUpdated);
     return () => {
       window.removeEventListener("storage", onStorage);
-      document.removeEventListener("animeSettingUpdated", onAnimeSettingUpdated);
+      document.removeEventListener(
+        "animeSettingUpdated",
+        onAnimeSettingUpdated,
+      );
     };
   }, [clearAutoNext]);
 
@@ -899,7 +949,7 @@ export default function Player() {
         playIntentRef.current;
       const resumeTime = video
         ? video.currentTime
-        : currentTimeRef.current ?? 0;
+        : (currentTimeRef.current ?? 0);
       if (resumeTime > 0) {
         try {
           localStorage.setItem(
@@ -946,10 +996,14 @@ export default function Player() {
       for (const key of ["anilist_id", "mal_id", "anikoto_episode_id"]) {
         currentUrl.searchParams.delete(key);
       }
-      appendMegaPlayParams(currentUrl.searchParams, nextPart?.ids || identityIds);
+      appendMegaPlayParams(
+        currentUrl.searchParams,
+        nextPart?.ids || identityIds,
+      );
       currentUrl.searchParams.delete("mochi_url");
       window.history.replaceState(null, "", currentUrl);
-    }, [
+    },
+    [
       episodeCount,
       episodeNumber,
       currentSeason.number,
@@ -958,7 +1012,8 @@ export default function Player() {
       identityIds,
       clearAutoNext,
       syncMediaState,
-    ]);
+    ],
+  );
 
   const startAutoNext = useCallback(() => {
     const nextEp = episodeNumber + 1;
@@ -1084,21 +1139,25 @@ export default function Player() {
       });
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_event, data) => {
         if (!isCurrentHls()) return;
-        setEmbeddedSubtitles(data.subtitleTracks.map((track, index) => ({
-          label: track.name || track.lang || `subtitles ${index + 1}`,
-          language: track.lang || "und",
-          src: "",
-          hlsIndex: index,
-          default: track.default,
-        })));
+        setEmbeddedSubtitles(
+          data.subtitleTracks.map((track, index) => ({
+            label: track.name || track.lang || `subtitles ${index + 1}`,
+            language: track.lang || "und",
+            src: "",
+            hlsIndex: index,
+            default: track.default,
+          })),
+        );
       });
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
         if (!isCurrentHls()) return;
-        setAudioTracks(hls.audioTracks.map((track, index) => ({
-          label: track.name || track.lang || `audio ${index + 1}`,
-          language: track.lang || "und",
-          default: track.default,
-        })));
+        setAudioTracks(
+          hls.audioTracks.map((track, index) => ({
+            label: track.name || track.lang || `audio ${index + 1}`,
+            language: track.lang || "und",
+            default: track.default,
+          })),
+        );
         setActiveAudioTrack(hls.audioTrack);
       });
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, manifest) => {
@@ -1156,7 +1215,9 @@ export default function Player() {
             : -1,
         );
         recordStreamDiagnostic("manifest_ready", {
-          elapsedMs: Math.round(performance.now() - sessionStartedAtRef.current),
+          elapsedMs: Math.round(
+            performance.now() - sessionStartedAtRef.current,
+          ),
           levels: manifest.levels.length,
         });
       });
@@ -1187,9 +1248,7 @@ export default function Player() {
       hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, trackInfo) => {
         if (!isCurrentHls()) return;
         const track = Number(trackInfo.id);
-        setActiveAudioTrack(
-          Number.isInteger(track) && track >= 0 ? track : -1,
-        );
+        setActiveAudioTrack(Number.isInteger(track) && track >= 0 ? track : -1);
         syncMediaState({ sourceReady: true });
       });
       hls.on(Hls.Events.FRAG_LOADED, (_event, fragmentInfo) => {
@@ -1200,7 +1259,9 @@ export default function Player() {
         const stats = fragmentInfo.frag.stats;
         const loading = stats.loading;
         recordStreamDiagnostic("first_segment", {
-          elapsedMs: Math.round(performance.now() - sessionStartedAtRef.current),
+          elapsedMs: Math.round(
+            performance.now() - sessionStartedAtRef.current,
+          ),
           bytes: stats.loaded,
           ttfbMs: Math.round(loading.first - loading.start),
           downloadMs: Math.round(loading.end - loading.first),
@@ -1221,7 +1282,9 @@ export default function Player() {
           hlsError.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT
         ) {
           syncMediaState({
-            error: negativeMessage("stream is unavailable, try another episode or reload"),
+            error: negativeMessage(
+              "stream is unavailable, try another episode or reload",
+            ),
             buffering: false,
           });
           return;
@@ -1275,10 +1338,23 @@ export default function Player() {
     }
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       const updateTracks = () => {
-        const sidecars = new Set(Array.from(video.querySelectorAll("track"), (track) => track.track));
-        setEmbeddedSubtitles(Array.from(video.textTracks)
-          .filter((track) => !sidecars.has(track) && (track.kind === "subtitles" || track.kind === "captions"))
-          .map((track) => ({ src: "", label: track.label, language: track.language, nativeTrack: track })));
+        const sidecars = new Set(
+          Array.from(video.querySelectorAll("track"), (track) => track.track),
+        );
+        setEmbeddedSubtitles(
+          Array.from(video.textTracks)
+            .filter(
+              (track) =>
+                !sidecars.has(track) &&
+                (track.kind === "subtitles" || track.kind === "captions"),
+            )
+            .map((track) => ({
+              src: "",
+              label: track.label,
+              language: track.language,
+              nativeTrack: track,
+            })),
+        );
       };
       video.textTracks.addEventListener("addtrack", updateTracks);
       video.textTracks.addEventListener("removetrack", updateTracks);
@@ -1364,20 +1440,24 @@ export default function Player() {
     );
   }, [qualityOptions]);
 
-  const chooseQuality = useCallback((index: number) => {
-    const hls = hlsRef.current;
-    if (!hls) return;
-    if (
-      !applyQualitySelection(
-        hls,
-        index,
-        qualityOptions.map((option) => option.index),
+  const chooseQuality = useCallback(
+    (index: number) => {
+      const hls = hlsRef.current;
+      if (!hls) return;
+      if (
+        !applyQualitySelection(
+          hls,
+          index,
+          qualityOptions.map((option) => option.index),
+        )
       )
-    ) return;
-    setSelectedQuality(index);
-    if (index < 0) refreshAutoQuality();
-    setOpenSelector(null);
-  }, [qualityOptions, refreshAutoQuality]);
+        return;
+      setSelectedQuality(index);
+      if (index < 0) refreshAutoQuality();
+      setOpenSelector(null);
+    },
+    [qualityOptions, refreshAutoQuality],
+  );
 
   useEffect(() => {
     if (qualityOptions.length === 0) return;
@@ -1392,7 +1472,8 @@ export default function Player() {
           level,
           qualityOptions.map((option) => option.index),
         )
-      ) return;
+      )
+        return;
       setSelectedQuality(level);
       if (level < 0) refreshAutoQuality();
       setOpenSelector(null);
@@ -1489,7 +1570,6 @@ export default function Player() {
         setOutroMarker(info?.outro || null);
         const tracks = Array.isArray(info?.tracks) ? info.tracks : [];
         setSubtitleTracks(tracks);
-
       })
       .catch((err) => {
         if (
@@ -1535,7 +1615,8 @@ export default function Player() {
     if (!video) return;
     const selected = subtitleTracks[selectedSubtitle];
     for (const track of Array.from(video.textTracks)) {
-      if (track.kind === "subtitles" || track.kind === "captions") track.mode = "disabled";
+      if (track.kind === "subtitles" || track.kind === "captions")
+        track.mode = "disabled";
     }
     const hls = hlsRef.current;
     if (hls) {
@@ -1549,11 +1630,13 @@ export default function Player() {
     } else if (selected?.hlsIndex !== undefined) {
       loaded = selectedSubtitle;
     } else if (selected) {
-      const element = Array.from(video.querySelectorAll<HTMLTrackElement>("track"))
-        .find((track) => track.getAttribute("src") === selected.src);
+      const element = Array.from(
+        video.querySelectorAll<HTMLTrackElement>("track"),
+      ).find((track) => track.getAttribute("src") === selected.src);
       if (element) {
         element.track.mode = "showing";
-        if (element.readyState === HTMLTrackElement.LOADED) loaded = selectedSubtitle;
+        if (element.readyState === HTMLTrackElement.LOADED)
+          loaded = selectedSubtitle;
       }
     }
     setActiveSubtitle(loaded);
@@ -1565,21 +1648,36 @@ export default function Player() {
       const video = videoRef.current;
       if (!video) return;
       for (const track of Array.from(video.textTracks)) {
-        if (track.kind === "subtitles" || track.kind === "captions") track.mode = "disabled";
+        if (track.kind === "subtitles" || track.kind === "captions")
+          track.mode = "disabled";
       }
     };
   }, [applySubtitleSelection, videoSrc]);
 
   useEffect(() => {
     const saved = subtitlePreferenceRef.current;
-    const preferred = subtitleTracks.findIndex((track) => subtitlePreference(track) === saved);
+    const preferred = subtitleTracks.findIndex(
+      (track) => subtitlePreference(track) === saved,
+    );
     const english = subtitleTracks.findIndex(isEnglishSubtitle);
     const defaultTrack = subtitleTracks.findIndex((track) => track.default);
-    const next = saved === "off" ? -1 : preferred >= 0 ? preferred :
-      english >= 0 ? english : defaultTrack >= 0 ? defaultTrack : subtitleTracks.length ? 0 : -1;
+    const next =
+      saved === "off"
+        ? -1
+        : preferred >= 0
+          ? preferred
+          : english >= 0
+            ? english
+            : defaultTrack >= 0
+              ? defaultTrack
+              : subtitleTracks.length
+                ? 0
+                : -1;
     if (next >= 0) {
       lastSubtitleRef.current = next;
-      lastSubtitlePreferenceRef.current = subtitlePreference(subtitleTracks[next]!);
+      lastSubtitlePreferenceRef.current = subtitlePreference(
+        subtitleTracks[next]!,
+      );
     }
     setSelectedSubtitle(next);
   }, [subtitleTracks]);
@@ -1680,7 +1778,8 @@ export default function Player() {
       try {
         const info = await fetchStreamInfo(params, controller.signal);
         if (
-          controller.signal.aborted || requestContext !== sourceContextRef.current ||
+          controller.signal.aborted ||
+          requestContext !== sourceContextRef.current ||
           requestGeneration !== sourceContextGenerationRef.current
         ) {
           return;
@@ -1690,10 +1789,21 @@ export default function Player() {
             negativeMessage(`${nextLanguage} audio could not be confirmed`),
           );
         }
-        sourceSwitchTimeRef.current = Math.max(0, pendingSeekRef.current ?? video?.currentTime ?? 0);
+        sourceSwitchTimeRef.current = Math.max(
+          0,
+          pendingSeekRef.current ?? video?.currentTime ?? 0,
+        );
         playAfterSeekRef.current = playIntentRef.current;
         if (video && video.currentTime > 0) {
-          try { localStorage.setItem(resumeKey, JSON.stringify({ currentTime: video.currentTime, timestamp: Date.now() })); } catch {}
+          try {
+            localStorage.setItem(
+              resumeKey,
+              JSON.stringify({
+                currentTime: video.currentTime,
+                timestamp: Date.now(),
+              }),
+            );
+          } catch {}
         }
         const currentUrl = new URL(window.location.href);
         currentUrl.searchParams.set("language", nextLanguage);
@@ -1702,17 +1812,26 @@ export default function Player() {
         setLanguage(nextLanguage);
       } catch (error) {
         if (
-          controller.signal.aborted || requestContext !== sourceContextRef.current ||
+          controller.signal.aborted ||
+          requestContext !== sourceContextRef.current ||
           requestGeneration !== sourceContextGenerationRef.current
         ) {
           return;
         }
         recordStreamDiagnostic("audio_language_error", {
           language: nextLanguage,
-          code: error instanceof RequestError ? error.code : "AUDIO_LANGUAGE_UNAVAILABLE",
+          code:
+            error instanceof RequestError
+              ? error.code
+              : "AUDIO_LANGUAGE_UNAVAILABLE",
           status: error instanceof RequestError ? error.status : undefined,
         });
-        showToast("error", "language is unavailable for this episode", undefined, 4000);
+        showToast(
+          "error",
+          "language is unavailable for this episode",
+          undefined,
+          4000,
+        );
       } finally {
         if (languageRequestRef.current === controller) {
           languageRequestRef.current = null;
@@ -1720,16 +1839,8 @@ export default function Player() {
         }
       }
     },
-    [
-      language,
-      changingLanguage,
-      resumeKey,
-      sourceEpisodeNumber,
-      playbackIds,
-    ],
+    [language, changingLanguage, resumeKey, sourceEpisodeNumber, playbackIds],
   );
-
-
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1738,7 +1849,8 @@ export default function Player() {
     const context = sourceContextKey;
     let lastKnownTime = 0;
     const isCurrentMedia = () =>
-      mediaSession === mediaSessionRef.current && videoRef.current === video &&
+      mediaSession === mediaSessionRef.current &&
+      videoRef.current === video &&
       context === sourceContextRef.current;
 
     const boundedTime = (seconds: number) => {
@@ -1764,7 +1876,11 @@ export default function Player() {
     };
     const clearSettledPendingSeek = () => {
       const pending = pendingSeekRef.current;
-      if (pending !== null && !video.seeking && Math.abs(effectiveTime() - pending) < 0.25) {
+      if (
+        pending !== null &&
+        !video.seeking &&
+        Math.abs(effectiveTime() - pending) < 0.25
+      ) {
         pendingSeekRef.current = null;
       }
     };
@@ -1879,7 +1995,11 @@ export default function Player() {
     };
     const handleBuffering = (reason: "waiting" | "stalled") => {
       if (!isCurrentMedia()) return;
-      if (reason === "stalled" && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+      if (
+        reason === "stalled" &&
+        video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+      )
+        return;
       syncMediaState({ buffering: true, bufferingReason: reason });
       if (
         firstFrameRecordedRef.current &&
@@ -1904,9 +2024,7 @@ export default function Player() {
         video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
       syncMediaState({
         sourceReady: true,
-        ...(hasFutureData
-          ? { buffering: false, bufferingReason: null }
-          : {}),
+        ...(hasFutureData ? { buffering: false, bufferingReason: null } : {}),
       });
       restorePendingSeek();
       resumePlaybackIfWanted();
@@ -2001,24 +2119,31 @@ export default function Player() {
       ["stalled", handleStalled],
       ["progress", handleProgress],
       ["volumechange", handleVolumeChange],
-      ["seeking", () => {
-        if (!isCurrentMedia()) return;
-        renderPlaybackTime(effectiveTime());
-        syncPlaybackState();
-      }],
-      ["seeked", () => {
-        if (!isCurrentMedia()) return;
-        clearSettledPendingSeek();
-        if (video.paused && !playIntentRef.current) hlsRef.current?.pauseBuffering();
-        const needsBuffering =
-          !video.paused &&
-          !video.ended &&
-          video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
-        syncMediaState({
-          buffering: needsBuffering,
-          bufferingReason: needsBuffering ? "seeking" : null,
-        });
-      }],
+      [
+        "seeking",
+        () => {
+          if (!isCurrentMedia()) return;
+          renderPlaybackTime(effectiveTime());
+          syncPlaybackState();
+        },
+      ],
+      [
+        "seeked",
+        () => {
+          if (!isCurrentMedia()) return;
+          clearSettledPendingSeek();
+          if (video.paused && !playIntentRef.current)
+            hlsRef.current?.pauseBuffering();
+          const needsBuffering =
+            !video.paused &&
+            !video.ended &&
+            video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
+          syncMediaState({
+            buffering: needsBuffering,
+            bufferingReason: needsBuffering ? "seeking" : null,
+          });
+        },
+      ],
       ["ratechange", syncPlaybackState],
       ["resize", syncPlaybackState],
     ];
@@ -2027,9 +2152,20 @@ export default function Player() {
     }
     const saveResume = () => {
       if (!isCurrentMedia() || video.currentTime <= 0) return;
-      try { localStorage.setItem(resumeKey, JSON.stringify({ currentTime: video.currentTime, timestamp: Date.now() })); } catch {}
+      try {
+        localStorage.setItem(
+          resumeKey,
+          JSON.stringify({
+            currentTime: video.currentTime,
+            timestamp: Date.now(),
+          }),
+        );
+      } catch {}
     };
-    const syncOnVisibility = () => { syncPlaybackState(); if (document.hidden) saveResume(); };
+    const syncOnVisibility = () => {
+      syncPlaybackState();
+      if (document.hidden) saveResume();
+    };
     window.addEventListener("pagehide", saveResume);
     document.addEventListener("visibilitychange", syncOnVisibility);
     window.addEventListener("focus", syncOnVisibility);
@@ -2037,7 +2173,8 @@ export default function Player() {
     syncPlaybackState();
 
     return () => {
-      if (mediaSessionRef.current === mediaSession) mediaSessionRef.current += 1;
+      if (mediaSessionRef.current === mediaSession)
+        mediaSessionRef.current += 1;
       finishRebuffer();
       recordStreamDiagnostic("playback_qoe", {
         rebufferCount: rebufferCountRef.current,
@@ -2063,26 +2200,33 @@ export default function Player() {
         nativeRetryTimerRef.current = null;
       }
     };
-  }, [
-    episodeNumber,
-    resumeKey,
-    videoSrc,
-    renderPlaybackTime,
-    syncMediaState,
-  ]);
+  }, [episodeNumber, resumeKey, videoSrc, renderPlaybackTime, syncMediaState]);
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
       const target = event.target instanceof Element ? event.target : null;
       if (event.key === "Escape" && selectorOpenRef.current) {
         event.preventDefault();
-        containerRef.current?.querySelector<HTMLElement>('[aria-expanded="true"]')?.focus();
+        containerRef.current
+          ?.querySelector<HTMLElement>('[aria-expanded="true"]')
+          ?.focus();
         setOpenSelector(null);
         resetTimer();
         return;
       }
-      if (target?.closest('input, textarea, select, button, a, [role="slider"], [contenteditable]:not([contenteditable="false"])')) return;
+      if (
+        target?.closest(
+          'input, textarea, select, button, a, [role="slider"], [contenteditable]:not([contenteditable="false"])',
+        )
+      )
+        return;
       const video = videoRef.current;
       if (!video) return;
       if (
@@ -2123,14 +2267,24 @@ export default function Player() {
           event.preventDefault();
           video.volume = Math.min(1, video.volume + 0.05);
           video.muted = false;
-          try { localStorage.setItem("lyra-anime-volume", String(video.volume * 100)); } catch {}
+          try {
+            localStorage.setItem(
+              "lyra-anime-volume",
+              String(video.volume * 100),
+            );
+          } catch {}
           syncMediaState();
           break;
         case "arrowdown":
           event.preventDefault();
           video.volume = Math.max(0, video.volume - 0.05);
           video.muted = false;
-          try { localStorage.setItem("lyra-anime-volume", String(video.volume * 100)); } catch {}
+          try {
+            localStorage.setItem(
+              "lyra-anime-volume",
+              String(video.volume * 100),
+            );
+          } catch {}
           syncMediaState();
           break;
         case "m":
@@ -2166,8 +2320,10 @@ export default function Player() {
   ]);
 
   useEffect(() => {
-    const updateFullscreenState = () =>
-      { setIsFullscreen(document.fullscreenElement === containerRef.current); resetTimer(); };
+    const updateFullscreenState = () => {
+      setIsFullscreen(document.fullscreenElement === containerRef.current);
+      resetTimer();
+    };
     document.addEventListener("fullscreenchange", updateFullscreenState);
     return () =>
       document.removeEventListener("fullscreenchange", updateFullscreenState);
@@ -2189,8 +2345,13 @@ export default function Player() {
         controlsFrameRef.current = null;
       }
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      if (!selectorOpenRef.current && !scrubbingRef.current && !volumeDraggingRef.current &&
-          !container.querySelector(":focus-visible")) setShowControls(false);
+      if (
+        !selectorOpenRef.current &&
+        !scrubbingRef.current &&
+        !volumeDraggingRef.current &&
+        !container.querySelector(":focus-visible")
+      )
+        setShowControls(false);
     };
     const finishVolumeDrag = () => {
       if (!volumeDraggingRef.current) return;
@@ -2273,11 +2434,18 @@ export default function Player() {
   }, [title, poster]);
 
   const bufferedRanges = mediaState.buffered;
-  const controlsVisible = showControls || mediaState.paused || mediaState.ended || Boolean(loadError) || openSelector !== null;
+  const controlsVisible =
+    showControls ||
+    mediaState.paused ||
+    mediaState.ended ||
+    Boolean(loadError) ||
+    openSelector !== null;
   useEffect(() => {
     const video = videoRef.current;
-    const controls = containerRef.current?.querySelector<HTMLElement>(".player-controls");
-    if (video && controls) return attachCaptionLayout(video, controls, controlsVisible);
+    const controls =
+      containerRef.current?.querySelector<HTMLElement>(".player-controls");
+    if (video && controls)
+      return attachCaptionLayout(video, controls, controlsVisible);
   }, [controlsVisible, subtitleTracks, selectedSubtitle]);
   const playControlActive = !mediaState.paused && !mediaState.ended;
   const requestedQuality =
@@ -2364,17 +2532,15 @@ export default function Player() {
         </video>
         {loadError && (
           <div class="video-loading is-error">
-            <span class="loading-status">{negativeMessage("stream load failed")}</span>
+            <span class="loading-status">
+              {negativeMessage("stream load failed")}
+            </span>
             <span class="loading-speed">{loadError}</span>
           </div>
         )}
 
         {(loading || buffering) && !loadError && (
-          <div
-            class="video-loading"
-            role="status"
-            aria-label="loading video"
-          />
+          <div class="video-loading" role="status" aria-label="loading video" />
         )}
         {activeSkip && (
           <button
@@ -2386,7 +2552,11 @@ export default function Player() {
           </button>
         )}
         {autoNext && (
-          <div class="player-next-episode-card" role="status" aria-live="polite">
+          <div
+            class="player-next-episode-card"
+            role="status"
+            aria-live="polite"
+          >
             <div class="player-next-episode-copy">
               <span>up next</span>
               <strong>episode {autoNext.episode}</strong>
@@ -2429,13 +2599,22 @@ export default function Player() {
             <div ref={seekPreviewRef} class="seek-preview" hidden />
             {bufferedRanges.map((range, index) => {
               if (!displayDuration) return null;
-              const left = Math.max(0, Math.min(100, (range.start / displayDuration) * 100));
-              const right = Math.max(0, Math.min(100, (range.end / displayDuration) * 100));
+              const left = Math.max(
+                0,
+                Math.min(100, (range.start / displayDuration) * 100),
+              );
+              const right = Math.max(
+                0,
+                Math.min(100, (range.end / displayDuration) * 100),
+              );
               return (
                 <div
                   class="seek-bar-buffered"
                   key={`${range.start}-${range.end}-${index}`}
-                  style={{ left: `${left}%`, width: `${Math.max(0, right - left)}%` }}
+                  style={{
+                    left: `${left}%`,
+                    width: `${Math.max(0, right - left)}%`,
+                  }}
                 />
               );
             })}
@@ -2496,10 +2675,22 @@ export default function Player() {
                   max="100"
                   value={muted ? 0 : volume}
                   onInput={handleVolume}
-                  onPointerDown={() => { volumeDraggingRef.current = true; resetTimer(); }}
-                  onPointerUp={() => { volumeDraggingRef.current = false; resetTimer(); }}
-                  onPointerCancel={() => { volumeDraggingRef.current = false; resetTimer(); }}
-                  onLostPointerCapture={() => { volumeDraggingRef.current = false; resetTimer(); }}
+                  onPointerDown={() => {
+                    volumeDraggingRef.current = true;
+                    resetTimer();
+                  }}
+                  onPointerUp={() => {
+                    volumeDraggingRef.current = false;
+                    resetTimer();
+                  }}
+                  onPointerCancel={() => {
+                    volumeDraggingRef.current = false;
+                    resetTimer();
+                  }}
+                  onLostPointerCapture={() => {
+                    volumeDraggingRef.current = false;
+                    resetTimer();
+                  }}
                   aria-label="volume"
                 />
               </div>
@@ -2546,31 +2737,46 @@ export default function Player() {
                       <strong>{title}</strong>
                     </div>
                   </div>
-                  {episodeSelectorRendered && (<EpisodePickerModal
-                        embedded
-                        visible={episodeSelectorRendered}
-                        title={title}
-                        type="anime"
-                        ids={identityIds}
-                        posterUrl={poster}
-                        format={format}
-                        year={Number(params.get("year")) || undefined}
-                        episodeCount={Math.max(episodeCount, episodeNumber)}
-                        seasons={[{ ...currentSeason, episodeCount: Math.max(episodeCount, episodeNumber) }]}
-                        initialSeasonId={currentSeason?.id}
-                        currentEpisode={confirmedEpisodeNumber ?? undefined}
-                        initialLanguage={language}
-                        onClose={() => setOpenSelector(null)}
-                        onPlay={(playerUrl) => {
-                          const next = new URL(playerUrl, window.location.origin);
-                          const seasonNumber = currentSeason?.number || Number(params.get("season")) || 1;
-                          if (Number(next.searchParams.get("season")) === seasonNumber) {
-                            changeEpisode(Number(next.searchParams.get("episode")));
-                          } else {
-                            window.location.assign(playerUrl);
-                          }
-                        }}
-                      />)}
+                  {episodeSelectorRendered && (
+                    <EpisodePickerModal
+                      embedded
+                      visible={episodeSelectorRendered}
+                      title={title}
+                      type="anime"
+                      ids={identityIds}
+                      posterUrl={poster}
+                      format={format}
+                      year={Number(params.get("year")) || undefined}
+                      episodeCount={Math.max(episodeCount, episodeNumber)}
+                      seasons={[
+                        {
+                          ...currentSeason,
+                          episodeCount: Math.max(episodeCount, episodeNumber),
+                        },
+                      ]}
+                      initialSeasonId={currentSeason?.id}
+                      currentEpisode={confirmedEpisodeNumber ?? undefined}
+                      initialLanguage={language}
+                      onClose={() => setOpenSelector(null)}
+                      onPlay={(playerUrl) => {
+                        const next = new URL(playerUrl, window.location.origin);
+                        const seasonNumber =
+                          currentSeason?.number ||
+                          Number(params.get("season")) ||
+                          1;
+                        if (
+                          Number(next.searchParams.get("season")) ===
+                          seasonNumber
+                        ) {
+                          changeEpisode(
+                            Number(next.searchParams.get("episode")),
+                          );
+                        } else {
+                          window.location.assign(playerUrl);
+                        }
+                      }}
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -2615,46 +2821,51 @@ export default function Player() {
             </div>
             {audioTracks.length > 1 &&
               (hlsRef.current?.audioTracks || []).length > 1 && (
-              <div class="player-control-popover player-audio-selector">
-                <button
-                  type="button"
-                  class={`player-selector-selected${openSelector === "audio" ? " is-open" : ""}`}
-                  aria-haspopup="listbox"
-                  aria-expanded={openSelector === "audio"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setOpenSelector((current) =>
-                      current === "audio" ? null : "audio",
-                    );
-                  }}
-                >
-                  <span>{activeAudioTrack >= 0 ? activeAudioLabel : "audio ?"}</span>
-                  <IconChevronBottom size={12} class="selector-chevron" />
-                </button>
-                <div
-                  class={`player-selector-options${openSelector === "audio" ? " is-open" : ""}`}
-                  role="listbox"
-                  aria-hidden={openSelector !== "audio"}
-                >
-                  {audioTracks.map((track, index) => (
-                    <button
-                      type="button"
-                      role="option"
-                      tabIndex={openSelector === "audio" ? 0 : -1}
-                      aria-selected={activeAudioTrack === index}
-                      class={activeAudioTrack === index ? "is-active" : ""}
-                      key={`${track.language}-${track.label}-${index}`}
-                      onClick={() => chooseAudioTrack(index)}
-                    >
-                      <span>{track.label}</span>
-                      {activeAudioTrack === index && (
-                        <IconCheckCircle2 size={12} class="player-option-check" />
-                      )}
-                    </button>
-                  ))}
+                <div class="player-control-popover player-audio-selector">
+                  <button
+                    type="button"
+                    class={`player-selector-selected${openSelector === "audio" ? " is-open" : ""}`}
+                    aria-haspopup="listbox"
+                    aria-expanded={openSelector === "audio"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setOpenSelector((current) =>
+                        current === "audio" ? null : "audio",
+                      );
+                    }}
+                  >
+                    <span>
+                      {activeAudioTrack >= 0 ? activeAudioLabel : "audio ?"}
+                    </span>
+                    <IconChevronBottom size={12} class="selector-chevron" />
+                  </button>
+                  <div
+                    class={`player-selector-options${openSelector === "audio" ? " is-open" : ""}`}
+                    role="listbox"
+                    aria-hidden={openSelector !== "audio"}
+                  >
+                    {audioTracks.map((track, index) => (
+                      <button
+                        type="button"
+                        role="option"
+                        tabIndex={openSelector === "audio" ? 0 : -1}
+                        aria-selected={activeAudioTrack === index}
+                        class={activeAudioTrack === index ? "is-active" : ""}
+                        key={`${track.language}-${track.label}-${index}`}
+                        onClick={() => chooseAudioTrack(index)}
+                      >
+                        <span>{track.label}</span>
+                        {activeAudioTrack === index && (
+                          <IconCheckCircle2
+                            size={12}
+                            class="player-option-check"
+                          />
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             <div class="player-control-popover player-subtitle-control">
               <button
                 type="button"
@@ -2757,14 +2968,20 @@ export default function Player() {
                     )}
                   </button>
                   {[...qualityOptions]
-                    .sort((left, right) => right.height - left.height || right.bitrate - left.bitrate)
+                    .sort(
+                      (left, right) =>
+                        right.height - left.height ||
+                        right.bitrate - left.bitrate,
+                    )
                     .map((option) => (
                       <button
                         type="button"
                         role="option"
                         tabIndex={openSelector === "quality" ? 0 : -1}
                         aria-selected={selectedQuality === option.index}
-                        class={selectedQuality === option.index ? "is-active" : ""}
+                        class={
+                          selectedQuality === option.index ? "is-active" : ""
+                        }
                         key={`${option.index}-${option.label}`}
                         onClick={() => chooseQuality(option.index)}
                       >
@@ -2794,7 +3011,6 @@ export default function Player() {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

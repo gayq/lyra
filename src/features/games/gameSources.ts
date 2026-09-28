@@ -1,4 +1,8 @@
-import { getProxyUrl, encodeMochiUrl, decodeUrl } from "../../core/runtime/utils";
+import {
+  getProxyUrl,
+  encodeMochiUrl,
+  decodeUrl,
+} from "../../core/runtime/utils";
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import type { GameSourceKey } from "../../core/config/settingsOptions";
 
@@ -167,7 +171,9 @@ function decodeEdurocksStringLiteral(
   if (!value) return "";
   try {
     const parsed = JSON.parse(value);
-    return typeof parsed === "string" ? decodeEdurocksText(parsed, decodeMap) : "";
+    return typeof parsed === "string"
+      ? decodeEdurocksText(parsed, decodeMap)
+      : "";
   } catch {
     return "";
   }
@@ -198,7 +204,9 @@ function resolveEdurocksAssetReference(
   if (reference.startsWith("/!!/")) {
     const sourceUrl = decodeUrl(reference);
     if (!sourceUrl.startsWith("http://") && !sourceUrl.startsWith("https://")) {
-      throw new Error(negativeMessage("edurocks proxy asset url could not be decoded"));
+      throw new Error(
+        negativeMessage("edurocks proxy asset url could not be decoded"),
+      );
     }
     return { requestUrl: reference, sourceUrl };
   }
@@ -224,7 +232,10 @@ async function fetchEdurocksAsset(
     );
   }
   const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > EDUROCKS_ASSET_MAX_BYTES) {
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > EDUROCKS_ASSET_MAX_BYTES
+  ) {
     throw new Error(negativeMessage("edurocks asset response is too large"));
   }
   const body = await response.text();
@@ -269,8 +280,7 @@ async function findEdurocksCatalogModule(
   return catalogBody
     ? {
         body: catalogBody,
-        encodedAlphabet:
-          encodedAlphabet ?? EDUROCKS_FALLBACK_ENCODED_ALPHABET,
+        encodedAlphabet: encodedAlphabet ?? EDUROCKS_FALLBACK_ENCODED_ALPHABET,
       }
     : null;
 }
@@ -311,7 +321,10 @@ async function resolveEdurocksCatalogResponse(
   return catalog;
 }
 
-function arrayPayload(payload: unknown, source: GameSourceKey): UnknownRecord[] {
+function arrayPayload(
+  payload: unknown,
+  source: GameSourceKey,
+): UnknownRecord[] {
   if (!Array.isArray(payload)) {
     throw new GameCatalogError("catalog payload is not an array", {
       kind: "upstream-data",
@@ -333,7 +346,11 @@ function absoluteHttpUrl(value: unknown, origin: string): string | null {
   }
 }
 
-function proxiedCoverUrl(value: unknown, origin: string, fallbackPath = ""): string {
+function proxiedCoverUrl(
+  value: unknown,
+  origin: string,
+  fallbackPath = "",
+): string {
   const url = absoluteHttpUrl(value || fallbackPath, origin);
   return url ? `/!cover!/${encodeMochiUrl(url)}/` : "";
 }
@@ -371,10 +388,7 @@ function parseSelenite(payload: unknown): GameEntry[] {
     if (!directory || !name) return [];
     const gameUrl = `${SOURCE_ORIGINS.selenite}/resources/semag/${encodeURIComponent(directory)}`;
     const coverOrigin = `${SOURCE_ORIGINS.selenite}/resources/semag/${encodeURIComponent(directory)}/`;
-    const coverUrl = proxiedCoverUrl(
-      game.cover ?? game.image,
-      coverOrigin,
-    );
+    const coverUrl = proxiedCoverUrl(game.cover ?? game.image, coverOrigin);
     const mapped = mappedGame("selenite", {
       id: identifier(game.id, directory),
       name,
@@ -477,7 +491,8 @@ function parseGnMath(payload: unknown): GameEntry[] {
   return rows.flatMap((zone) => {
     const id = text(zone.id);
     const name = text(zone.name);
-    if (!id || !name || name.includes("[!]") || name.startsWith("Chat Bot")) return [];
+    if (!id || !name || name.includes("[!]") || name.startsWith("Chat Bot"))
+      return [];
 
     const upstreamUrl = text(zone.url);
     const isExternal = Boolean(
@@ -597,7 +612,8 @@ export function parseGameCatalog(
 }
 
 export function gameCatalogErrorMessage(error: unknown): string {
-  const kind = error instanceof GameCatalogError ? error.kind : "implementation";
+  const kind =
+    error instanceof GameCatalogError ? error.kind : "implementation";
   switch (kind) {
     case "network":
     case "temporary-source":

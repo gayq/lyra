@@ -15,7 +15,10 @@ function mochiTarget(realUrl) {
   const base = mochiBase();
   const normalized = base.endsWith("/") ? base : base + "/";
   return realUrl.startsWith("http")
-    ? `${normalized}${btoa(_adXorDec(encodeURIComponent(realUrl))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}/`
+    ? `${normalized}${btoa(_adXorDec(encodeURIComponent(realUrl)))
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "")}/`
     : `${MOCHI_PREFIX}${realUrl}`;
 }
 
@@ -49,7 +52,11 @@ async function mochiFetch(request, realUrl, timeoutMs = MOCHI_TIMEOUT_MS) {
   }
 }
 
-async function fetchLargeFileStreaming(request, realUrl, timeoutMs = LARGE_TIMEOUT_MS) {
+async function fetchLargeFileStreaming(
+  request,
+  realUrl,
+  timeoutMs = LARGE_TIMEOUT_MS,
+) {
   const headers = new Headers(request.headers);
   const acceptEncoding = request.headers.get("Accept-Encoding") || "";
   if (!acceptEncoding.includes("gzip") && !acceptEncoding.includes("br")) {
@@ -77,8 +84,9 @@ async function fetchLargeFileStreaming(request, realUrl, timeoutMs = LARGE_TIMEO
   }
   const target = mochiTarget(realUrl);
   try {
-    const response = await coalescedFetch(mochiCoalesceKey(request, target), () =>
-      fetchWithTimeout(target, init, timeoutMs),
+    const response = await coalescedFetch(
+      mochiCoalesceKey(request, target),
+      () => fetchWithTimeout(target, init, timeoutMs),
     );
     if (!response) return null;
     const contentLength = response.headers.get("Content-Length");
@@ -229,9 +237,10 @@ async function ensureFolioConfig() {
 
 async function runFolioProxy(engine, event, timeoutMs, notifyOnFailure = true) {
   const controllerTimeoutMs = Math.max(1, timeoutMs - 250);
-  const proxyP = (typeof engine.fetch === "function"
-    ? engine.fetch(event, controllerTimeoutMs)
-    : engine.route(event, controllerTimeoutMs)
+  const proxyP = (
+    typeof engine.fetch === "function"
+      ? engine.fetch(event, controllerTimeoutMs)
+      : engine.route(event, controllerTimeoutMs)
   ).catch((e) => {
     throw e;
   });
@@ -293,7 +302,10 @@ async function handlePrefetchProxyRequest(event) {
       if (isFolio) {
         await ensureFolioConfig();
       }
-      if (typeof engine.shouldRoute === "function" && !engine.shouldRoute(event)) {
+      if (
+        typeof engine.shouldRoute === "function" &&
+        !engine.shouldRoute(event)
+      ) {
         return new Response(null, { status: 204 });
       }
       const response = await runFolioProxy(

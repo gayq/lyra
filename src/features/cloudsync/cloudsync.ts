@@ -1,3 +1,4 @@
+import { uploadSnapshot, downloadSnapshot } from "./syncTransfer.ts";
 import { svgIcon } from "../../core/ui/svgIcon";
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import type { ToastController } from "../../core/ui/toast.ts";
@@ -8,8 +9,9 @@ import {
 } from "../../core/ui/modal.ts";
 import {
   changedDuringUpload,
+  canSyncIndexedDBStore,
+  canSyncStorageValue,
   forgetIndexedDBName,
-  isSensitiveSyncName,
   payloadFingerprint,
   rememberIndexedDBName,
   snapshotFingerprint,
@@ -46,8 +48,7 @@ declare global {
 
 const POLL_INTERVAL = 20000;
 const POLL_MAX_INTERVAL = 60000;
-const DIRTY_DEBOUNCE = 1500;
-const SYNC_TIMEOUT = 60000;
+const SYNC_DELAY = 750;
 
 const LOADING_SCREEN = `
     <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
@@ -69,50 +70,6 @@ function fetchWithTimeout(
   }).finally(() => clearTimeout(id));
 }
 
-async function uploadSnapshot(body: string): Promise<Response> {
-  const rawHeaders = { "Content-Type": "application/json" };
-  if (body.length < 32 * 1024 || typeof CompressionStream === "undefined") {
-    return fetchWithTimeout(
-      "/api/sync/upload",
-      { method: "POST", headers: rawHeaders, body },
-      SYNC_TIMEOUT,
-    );
-  }
-
-  try {
-    const raw = new Blob([body]);
-    const compressed = await new Response(
-      raw.stream().pipeThrough(new CompressionStream("gzip")),
-    ).arrayBuffer();
-    if (compressed.byteLength >= raw.size) {
-      return fetchWithTimeout(
-        "/api/sync/upload",
-        { method: "POST", headers: rawHeaders, body },
-        SYNC_TIMEOUT,
-      );
-    }
-    const response = await fetchWithTimeout(
-      "/api/sync/upload",
-      {
-        method: "POST",
-        headers: {
-          ...rawHeaders,
-          "Content-Encoding": "gzip",
-        },
-        body: compressed,
-      },
-      SYNC_TIMEOUT,
-    );
-    if (response.status !== 415 && response.status !== 422) return response;
-  } catch {}
-
-  return fetchWithTimeout(
-    "/api/sync/upload",
-    { method: "POST", headers: rawHeaders, body },
-    SYNC_TIMEOUT,
-  );
-}
-
 export class CloudSync {
   user: AuthUser;
   syncMeta: SyncMeta;
@@ -124,7 +81,6 @@ export class CloudSync {
   _lastStatusType: string | undefined;
   _uploadRetries: number;
   _mutationVersion: number;
-  _isScanning: boolean;
   _pollInterval: number;
   _checkIntervalId: ReturnType<typeof setInterval> | null;
 
@@ -153,7 +109,6 @@ export class CloudSync {
     this._lastStatusType = undefined;
     this._uploadRetries = 0;
     this._mutationVersion = 0;
-    this._isScanning = false;
     this._pollInterval = POLL_INTERVAL;
     this._checkIntervalId = null;
 
@@ -161,6 +116,8 @@ export class CloudSync {
   }
 
   async init(): Promise<void> {
+    this.hookStorage();
+    this.hookLifecycle();
     let needsLoadingScreen = false;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -194,7 +151,7 @@ export class CloudSync {
         if (this.syncMeta.dirty || !serverUpdatedAt) {
           this.syncMeta.dirty = true;
           this.saveMeta();
-          await this.syncData(true);
+          await this.syncData(!serverUpdatedAt);
         } else if (
           serverUpdatedAt &&
           serverUpdatedAt !== this.syncMeta.last_synced
@@ -217,7 +174,6 @@ export class CloudSync {
     document.addEventListener("toggleCloudSyncModal", () =>
       this.toggleCloudSyncModal(),
     );
-    this.hookStorage();
 
     if (this.isAuthenticated) {
       this.startPolling();
@@ -265,7 +221,7 @@ export class CloudSync {
       if (this.syncMeta.dirty || !serverUpdatedAt) {
         this.syncMeta.dirty = true;
         this.saveMeta();
-        await this.syncData(true);
+        await this.syncData(!serverUpdatedAt);
       } else if (
         serverUpdatedAt &&
         serverUpdatedAt !== this.syncMeta.last_synced
@@ -296,7 +252,9 @@ export class CloudSync {
 
   async checkAuthStatus(): Promise<void> {
     try {
-      const response = await fetchWithTimeout("/api/auth/me", { cache: "no-store" });
+      const response = await fetchWithTimeout("/api/auth/me", {
+        cache: "no-store",
+      });
       if (response.ok) {
         const authPayload = await response.json();
         this.user = authPayload.user;
@@ -320,38 +278,61 @@ export class CloudSync {
 
   hookStorage(): void {
     const self = this;
-    const hookWebStorage = (storage: Storage): void => {
+    if (typeof Storage !== "undefined") {
+      const storage = Storage.prototype;
+      const tracked = (value: Storage): boolean =>
+        value === localStorage || value === sessionStorage;
       const originalSetItem = storage.setItem;
       storage.setItem = function (key: string, value: string): void {
-        originalSetItem.call(storage, key, value);
-        if (!isSensitiveSyncName(key)) self.markDirty();
+        key = String(key);
+        const previous = this.getItem(key);
+        originalSetItem.call(this, key, value);
+        if (
+          tracked(this) &&
+          previous !== String(value) &&
+          (canSyncStorageValue(key, String(value)) ||
+            (previous !== null && canSyncStorageValue(key, previous)))
+        )
+          self.markDirty();
       };
 
       const originalRemoveItem = storage.removeItem;
       storage.removeItem = function (key: string): void {
-        originalRemoveItem.call(storage, key);
-        if (!isSensitiveSyncName(key)) self.markDirty();
+        key = String(key);
+        const previous = this.getItem(key);
+        originalRemoveItem.call(this, key);
+        if (
+          tracked(this) &&
+          previous !== null &&
+          canSyncStorageValue(key, previous)
+        )
+          self.markDirty();
       };
 
       const originalClear = storage.clear;
       storage.clear = function (): void {
-        originalClear.call(storage);
-        self.markDirty();
+        const hadValues = this.length > 0;
+        originalClear.call(this);
+        if (tracked(this) && hadValues) self.markDirty();
       };
-    };
-    hookWebStorage(localStorage);
-    hookWebStorage(sessionStorage);
+    }
 
     window.addEventListener("storage", (e: StorageEvent) => {
-      if (!self.isAuthenticated || self.isRestoring) return;
+      if (self.isRestoring) return;
       if (e.storageArea !== localStorage && e.storageArea !== sessionStorage)
         return;
       if (e.key === null) return self.markDirty();
-      if (isSensitiveSyncName(e.key)) return;
+      if (
+        ![e.oldValue, e.newValue].some(
+          (value) => value !== null && canSyncStorageValue(e.key!, value),
+        )
+      )
+        return;
       self.markDirty();
     });
 
     if (typeof IDBObjectStore !== "undefined") {
+      const observedTransactions = new WeakSet<IDBTransaction>();
       type IDBMutableMethod = "put" | "add" | "delete" | "clear";
       const hookIDB = (method: IDBMutableMethod): void => {
         const proto = IDBObjectStore.prototype as unknown as Record<
@@ -361,8 +342,19 @@ export class CloudSync {
         const original = proto[method] as (...args: unknown[]) => IDBRequest;
         if (!original) return;
         proto[method] = function (this: IDBObjectStore, ...args: unknown[]) {
-          self.markDirty();
-          return original.apply(this, args);
+          const request = original.apply(this, args);
+          if (
+            canSyncIndexedDBStore(this.transaction.db.name, this.name) &&
+            !observedTransactions.has(this.transaction)
+          ) {
+            observedTransactions.add(this.transaction);
+            this.transaction.addEventListener(
+              "complete",
+              () => self.markDirty(),
+              { once: true },
+            );
+          }
+          return request;
         };
       };
       hookIDB("put");
@@ -411,7 +403,9 @@ export class CloudSync {
 
     const browserCookieStore = (
       globalThis as unknown as {
-        cookieStore?: { addEventListener?: (type: string, listener: () => void) => void };
+        cookieStore?: {
+          addEventListener?: (type: string, listener: () => void) => void;
+        };
       }
     ).cookieStore;
     browserCookieStore?.addEventListener?.("change", () => self.markDirty());
@@ -435,48 +429,49 @@ export class CloudSync {
     }
   }
 
+  hookLifecycle(): void {
+    const flush = (): void => {
+      if (this.isRestoring || (!this.isAuthenticated && !this.user.id)) return;
+      this.markDirty();
+      void this.syncData();
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flush();
+    });
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("pageshow", () => {
+      if (this.syncMeta.dirty) void this.syncData();
+    });
+    window.addEventListener("online", () => {
+      if (this.syncMeta.dirty) void this.syncData();
+    });
+  }
+
+  scheduleSync(delay = SYNC_DELAY): void {
+    if (this.syncTimeout !== null || this.isSyncing) return;
+    this.syncTimeout = setTimeout(() => {
+      this.syncTimeout = null;
+      void this.syncData();
+    }, delay);
+  }
+
   markDirty(): void {
-    if (!this.isAuthenticated || this.isRestoring) return;
+    if (this.isRestoring || (!this.isAuthenticated && !this.user.id)) return;
     this._mutationVersion++;
     if (!this.syncMeta.dirty) {
       this.syncMeta.dirty = true;
       this.saveMeta();
     }
 
-    if (this.syncTimeout) clearTimeout(this.syncTimeout);
-
     this.updateStatus("syncing...", "loading");
-
-    this.syncTimeout = setTimeout(() => {
-      this.syncData();
-    }, DIRTY_DEBOUNCE);
+    this.scheduleSync();
   }
 
   async checkForChanges(): Promise<void> {
-    if (
-      !this.isAuthenticated ||
-      this.isSyncing ||
-      this.isRestoring ||
-      this._isScanning
-    ) {
+    if (!this.isAuthenticated || this.isSyncing || this.isRestoring) {
       return;
     }
-    if (this.syncMeta.dirty) {
-      await this.syncData();
-      return;
-    }
-    if (typeof window.lyraExportAllData !== "function") return;
-    this._isScanning = true;
-    try {
-      const fingerprint = await snapshotFingerprint(
-        await window.lyraExportAllData(),
-      );
-      if (fingerprint !== this.syncMeta.fingerprint) this.markDirty();
-    } catch {
-      console.warn("[cloudsync] storage scan failed... /ᐠ - ˕ -マ");
-    } finally {
-      this._isScanning = false;
-    }
+    await this.syncData();
   }
 
   async poll(): Promise<void> {
@@ -495,8 +490,11 @@ export class CloudSync {
     manual: boolean = false,
     retryCount: number = 0,
   ): Promise<void> {
-    if (!this.isAuthenticated || this.isSyncing) return;
+    if (!this.isAuthenticated || this.isSyncing || this.isRestoring) return;
+    if (this.syncTimeout !== null) clearTimeout(this.syncTimeout);
+    this.syncTimeout = null;
     this.isSyncing = true;
+    let acknowledged = false;
 
     try {
       if (typeof window.lyraExportAllData !== "function") {
@@ -522,19 +520,27 @@ export class CloudSync {
       const body = JSON.stringify(snapshot);
       const fingerprint = await payloadFingerprint(body);
 
-      const response = await uploadSnapshot(body);
+      const unchanged =
+        !manual &&
+        this.syncMeta.last_synced !== null &&
+        fingerprint === this.syncMeta.fingerprint;
+      this.syncMeta.dirty = true;
+      this.saveMeta();
+      const response = unchanged ? null : await uploadSnapshot(body);
 
-      if (response.ok) {
-        const uploadResult = await response.json();
+      if (response === null || response.ok) {
+        const uploadResult = response === null ? null : await response.json();
+        acknowledged = true;
         const uploadWasStale = changedDuringUpload(
           snapshotVersion,
           this._mutationVersion,
         );
         this.syncMeta.dirty = uploadWasStale;
         this.syncMeta.fingerprint = fingerprint;
-        this.syncMeta.last_synced =
-          uploadResult.updated_at ||
-          new Date().toISOString().replace("T", " ").slice(0, 19);
+        if (uploadResult)
+          this.syncMeta.last_synced =
+            uploadResult.updated_at ||
+            new Date().toISOString().replace("T", " ").slice(0, 19);
         this.saveMeta();
 
         this.updateStatus(
@@ -543,10 +549,6 @@ export class CloudSync {
         );
         this._uploadRetries = 0;
         this.onSyncSuccess();
-        if (uploadWasStale) {
-          if (this.syncTimeout) clearTimeout(this.syncTimeout);
-          this.syncTimeout = setTimeout(() => this.syncData(), DIRTY_DEBOUNCE);
-        }
       } else {
         console.warn(
           `[cloudsync] upload failed with status ${response.status}... /ᐠ - ˕ -マ`,
@@ -606,6 +608,7 @@ export class CloudSync {
       this.onSyncError();
     } finally {
       this.isSyncing = false;
+      if (acknowledged && this.syncMeta.dirty) this.scheduleSync(0);
     }
   }
 
@@ -622,18 +625,19 @@ export class CloudSync {
     let reloading = false;
 
     if (!silent && window.showToast) {
-      restoreToast = window.showToast("info", "restoring data...", "IconArrowRotateClockwise", 0);
+      restoreToast = window.showToast(
+        "info",
+        "restoring data...",
+        "IconArrowRotateClockwise",
+        0,
+      );
     }
 
     const maxRetries = 6;
     const jitter = (): number => Math.floor(Math.random() * 400);
 
     try {
-      const response = await fetchWithTimeout(
-        "/api/sync/download",
-        {},
-        SYNC_TIMEOUT,
-      );
+      const response = await downloadSnapshot();
 
       if (response.status === 429 || response.status >= 500) {
         if (retryCount < maxRetries) {
@@ -696,7 +700,9 @@ export class CloudSync {
           if (typeof exporter !== "function") {
             throw new Error(negativeMessage("export boundary unavailable"));
           }
-          this.syncMeta.fingerprint = await snapshotFingerprint(await exporter());
+          this.syncMeta.fingerprint = await snapshotFingerprint(
+            await exporter(),
+          );
           this.saveMeta();
 
           document.dispatchEvent(new CustomEvent("cloudsync-restored"));
@@ -1000,7 +1006,12 @@ export class CloudSync {
 
     let toastController: ToastController | null = null;
     if (window.showToast)
-      toastController = window.showToast("info", "logging in...", "IconArrowRotateClockwise", 0);
+      toastController = window.showToast(
+        "info",
+        "logging in...",
+        "IconArrowRotateClockwise",
+        0,
+      );
 
     try {
       const response = await fetch("/api/auth/login", {
@@ -1010,10 +1021,9 @@ export class CloudSync {
         body: JSON.stringify({ username, password }),
       });
 
-      const sessionPayload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
+      const sessionPayload = (await response
+        .json()
+        .catch(() => null)) as Record<string, unknown> | null;
 
       if (response.ok && sessionPayload) {
         if (toastController) toastController.hide();
@@ -1054,7 +1064,7 @@ export class CloudSync {
           "fill in both username and password... /ᐠ - ˕ -マ",
           "IconExclamationTriangle",
         );
-        else this.showError("fill in both fields... /ᐠ - ˕ -マ");
+      else this.showError("fill in both fields... /ᐠ - ˕ -マ");
       return;
     }
 
@@ -1075,10 +1085,9 @@ export class CloudSync {
         body: JSON.stringify({ username, password }),
       });
 
-      const sessionPayload = (await response.json().catch(() => null)) as Record<
-        string,
-        unknown
-      > | null;
+      const sessionPayload = (await response
+        .json()
+        .catch(() => null)) as Record<string, unknown> | null;
 
       if (response.ok && sessionPayload) {
         if (toastController) toastController.hide();
@@ -1171,24 +1180,29 @@ export class CloudSync {
     if (!this.isAuthenticated) return;
 
     if (window.showToast) {
-      window.showToast("info", "confirm deletion... /ᐠ - ˕ -マ", "IconExclamationTriangle", [
-        {
-          text: "cancel",
-          dismiss: true,
-        },
-        {
-          text: "delete",
-          class: "danger-btn",
-          dismiss: true,
-          callback: async () => {
-            await this.performDelete();
+      window.showToast(
+        "info",
+        "confirm deletion... /ᐠ - ˕ -マ",
+        "IconExclamationTriangle",
+        [
+          {
+            text: "cancel",
+            dismiss: true,
           },
-        },
-      ]);
+          {
+            text: "delete",
+            class: "danger-btn",
+            dismiss: true,
+            callback: async () => {
+              await this.performDelete();
+            },
+          },
+        ],
+      );
     } else {
       if (
         confirm(
-      "are you sure? this will delete your account and all synced data permanently... /ᐠ - ˕ -マ",
+          "are you sure? this will delete your account and all synced data permanently... /ᐠ - ˕ -マ",
         )
       ) {
         void this.performDelete();

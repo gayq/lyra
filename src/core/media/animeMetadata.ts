@@ -29,7 +29,8 @@ export function compactAnimePlaybackPath(realUrl: string): string | null {
     sourceEpisode && /^\d+$/.test(sourceEpisode) && Number(sourceEpisode) > 0
       ? sourceEpisode
       : params.get("episode")?.trim() || "";
-  if (/^\d+$/.test(episode) && Number(episode) > 0) compact.set("episode", episode);
+  if (/^\d+$/.test(episode) && Number(episode) > 0)
+    compact.set("episode", episode);
 
   const format = params.get("format")?.trim();
   if (format) compact.set("format", format);
@@ -56,13 +57,11 @@ export function getAnimeDisplayLabel(realUrl: string): string | null {
     if (!title) return null;
 
     const episode = url.searchParams.get("episode")?.trim();
-    const episodeLabel = episode && /^\d+$/.test(episode)
-      ? ` / episode: ${episode}`
-      : "";
+    const episodeLabel =
+      episode && /^\d+$/.test(episode) ? ` / episode: ${episode}` : "";
     const season = url.searchParams.get("season")?.trim();
-    const seasonLabel = season && /^[1-9]\d*$/.test(season)
-      ? ` / season: ${season}`
-      : "";
+    const seasonLabel =
+      season && /^[1-9]\d*$/.test(season) ? ` / season: ${season}` : "";
     return `anime: ${title}${seasonLabel}${episodeLabel}`;
   } catch {
     return null;

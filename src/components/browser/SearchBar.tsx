@@ -18,24 +18,18 @@ function pickPlaceholder(): string {
   try {
     const storedIndex = localStorage.getItem(PLACEHOLDER_INDEX_STORAGE_KEY);
     if (storedIndex !== null) previousIndex = Number(storedIndex);
-  } catch {
-    
-  }
+  } catch {}
 
   let nextIndex = Math.floor(Math.random() * placeholders.length);
   if (placeholders.length > 1 && nextIndex === previousIndex) {
     nextIndex =
-      (nextIndex +
-        1 +
-        Math.floor(Math.random() * (placeholders.length - 1))) %
+      (nextIndex + 1 + Math.floor(Math.random() * (placeholders.length - 1))) %
       placeholders.length;
   }
 
   try {
     localStorage.setItem(PLACEHOLDER_INDEX_STORAGE_KEY, String(nextIndex));
-  } catch {
-    
-  }
+  } catch {}
   return placeholders[nextIndex]!;
 }
 

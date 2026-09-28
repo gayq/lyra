@@ -113,81 +113,99 @@ export function attachSearchLight(
     raf = requestAnimationFrame(animate);
   }
 
-  searchBar.addEventListener("mouseenter", () => {
-    if (prefersReducedMotion()) return;
-    isHovering = true;
-    updateRect();
-    if (raf) cancelAnimationFrame(raf);
-    isSettled = false;
-    raf = requestAnimationFrame(animate);
-
-    lightBg.style.opacity = "1";
-    lightBorder.style.opacity = "1";
-    lightBg.style.transition =
-      "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
-    lightBorder.style.transition =
-      "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
-    lightBg.style.filter = "blur(20px)";
-    lightBorder.style.filter = "blur(6px)";
-
-    if (enterTimer) window.clearTimeout(enterTimer);
-    enterTimer = window.setTimeout(() => {
-      enterTimer = null;
-      if (!isHovering) return;
-      lightBg.style.transform = "scale(1)";
-      lightBg.style.filter = "blur(12px)";
-      lightBorder.style.transform = "scale(1)";
-      lightBorder.style.filter = "blur(4px)";
-    }, 300);
-  }, { signal });
-
-  searchBar.addEventListener("mouseleave", () => {
-    isHovering = false;
-    scaleDirty = false;
-    if (enterTimer) {
-      window.clearTimeout(enterTimer);
-      enterTimer = null;
-    }
-    if (raf) {
-      cancelAnimationFrame(raf);
-      raf = null;
-    }
-    lightBg.style.transition =
-      "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
-    lightBorder.style.transition =
-      "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
-    lightBg.style.opacity = "0";
-    lightBorder.style.opacity = "0";
-    lightBg.style.transform = "scale(0.95)";
-    lightBorder.style.transform = "scale(0.95)";
-    lightBg.style.filter = "blur(30px)";
-    lightBorder.style.filter = "blur(12px)";
-  }, { signal });
-
-  searchBar.addEventListener("mousemove", (e: MouseEvent) => {
-    if (prefersReducedMotion()) return;
-    targetX = e.clientX - rect.left - lightSize / 2;
-    targetY = e.clientY - rect.top - lightSize / 2;
-
-    velocityX = targetX - lastX;
-    velocityY = targetY - lastY;
-    lastX = targetX;
-    lastY = targetY;
-
-    targetScale = Math.min(
-      1.2,
-      1.2 + ((e.clientX - rect.left) / rect.width) * 0.4,
-    );
-    scaleDirty = true;
-
-    if (isSettled && !raf) {
+  searchBar.addEventListener(
+    "mouseenter",
+    () => {
+      if (prefersReducedMotion()) return;
+      isHovering = true;
+      updateRect();
+      if (raf) cancelAnimationFrame(raf);
       isSettled = false;
       raf = requestAnimationFrame(animate);
-    }
-  }, { passive: true, signal });
 
-  window.addEventListener("scroll", scheduleRectUpdate, { passive: true, signal });
-  window.addEventListener("resize", scheduleRectUpdate, { passive: true, signal });
+      lightBg.style.opacity = "1";
+      lightBorder.style.opacity = "1";
+      lightBg.style.transition =
+        "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
+      lightBorder.style.transition =
+        "opacity 0.4s ease, transform 0.4s ease, filter 0.6s ease";
+      lightBg.style.filter = "blur(20px)";
+      lightBorder.style.filter = "blur(6px)";
+
+      if (enterTimer) window.clearTimeout(enterTimer);
+      enterTimer = window.setTimeout(() => {
+        enterTimer = null;
+        if (!isHovering) return;
+        lightBg.style.transform = "scale(1)";
+        lightBg.style.filter = "blur(12px)";
+        lightBorder.style.transform = "scale(1)";
+        lightBorder.style.filter = "blur(4px)";
+      }, 300);
+    },
+    { signal },
+  );
+
+  searchBar.addEventListener(
+    "mouseleave",
+    () => {
+      isHovering = false;
+      scaleDirty = false;
+      if (enterTimer) {
+        window.clearTimeout(enterTimer);
+        enterTimer = null;
+      }
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+      lightBg.style.transition =
+        "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
+      lightBorder.style.transition =
+        "opacity 0.6s ease, transform 0.6s ease, filter 0.6s ease";
+      lightBg.style.opacity = "0";
+      lightBorder.style.opacity = "0";
+      lightBg.style.transform = "scale(0.95)";
+      lightBorder.style.transform = "scale(0.95)";
+      lightBg.style.filter = "blur(30px)";
+      lightBorder.style.filter = "blur(12px)";
+    },
+    { signal },
+  );
+
+  searchBar.addEventListener(
+    "mousemove",
+    (e: MouseEvent) => {
+      if (prefersReducedMotion()) return;
+      targetX = e.clientX - rect.left - lightSize / 2;
+      targetY = e.clientY - rect.top - lightSize / 2;
+
+      velocityX = targetX - lastX;
+      velocityY = targetY - lastY;
+      lastX = targetX;
+      lastY = targetY;
+
+      targetScale = Math.min(
+        1.2,
+        1.2 + ((e.clientX - rect.left) / rect.width) * 0.4,
+      );
+      scaleDirty = true;
+
+      if (isSettled && !raf) {
+        isSettled = false;
+        raf = requestAnimationFrame(animate);
+      }
+    },
+    { passive: true, signal },
+  );
+
+  window.addEventListener("scroll", scheduleRectUpdate, {
+    passive: true,
+    signal,
+  });
+  window.addEventListener("resize", scheduleRectUpdate, {
+    passive: true,
+    signal,
+  });
   document.addEventListener(
     "motionPreferenceUpdated",
     onMotionPreferenceUpdated,

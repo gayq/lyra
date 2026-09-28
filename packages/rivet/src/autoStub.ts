@@ -1,5 +1,8 @@
 const wrapCache = new WeakMap<object, object>();
-const browserWrapCaches = new WeakMap<PromiseConstructor, WeakMap<object, object>>();
+const browserWrapCaches = new WeakMap<
+  PromiseConstructor,
+  WeakMap<object, object>
+>();
 
 export function withMissingMemberFallback<T extends object>(real: T): T {
   const cached = wrapCache.get(real);
@@ -9,12 +12,17 @@ export function withMissingMemberFallback<T extends object>(real: T): T {
     get(target, prop, receiver) {
       if (prop in target) {
         const value = Reflect.get(target, prop, receiver);
-        if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        if (
+          value !== null &&
+          typeof value === "object" &&
+          !Array.isArray(value)
+        ) {
           return withMissingMemberFallback(value as object);
         }
         return value;
       }
-      if (typeof prop !== "string" || prop === "then" || prop === "toJSON") return undefined;
+      if (typeof prop !== "string" || prop === "then" || prop === "toJSON")
+        return undefined;
       if (!missing.has(prop)) missing.set(prop, createAutoStub());
       return missing.get(prop);
     },
@@ -23,7 +31,10 @@ export function withMissingMemberFallback<T extends object>(real: T): T {
   return proxy as T;
 }
 
-export function withBrowserPromiseFallback<T extends object>(real: T, PromiseCtor: PromiseConstructor): T {
+export function withBrowserPromiseFallback<T extends object>(
+  real: T,
+  PromiseCtor: PromiseConstructor,
+): T {
   let browserWrapCache = browserWrapCaches.get(PromiseCtor);
   if (!browserWrapCache) {
     browserWrapCache = new WeakMap();
@@ -35,20 +46,42 @@ export function withBrowserPromiseFallback<T extends object>(real: T, PromiseCto
   const proxy = new Proxy(real, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
         return withBrowserPromiseFallback(value as object, PromiseCtor);
       }
       if (typeof value !== "function") return value;
-      if (prop === "addListener" || prop === "removeListener" || prop === "hasListener" || prop === "hasListeners") return value;
+      if (
+        prop === "addListener" ||
+        prop === "removeListener" ||
+        prop === "hasListener" ||
+        prop === "hasListeners"
+      )
+        return value;
       const cachedFunction = functionCache.get(value);
       if (cachedFunction) return cachedFunction;
       const wrapped = new Proxy(value, {
         apply(fn, _thisArg, args) {
-          if (prop === "sendMessage" && typeof Reflect.get(target, "id") === "string") {
-            const count = args.length - (typeof args[args.length - 1] === "function" ? 1 : 0);
+          if (
+            prop === "sendMessage" &&
+            typeof Reflect.get(target, "id") === "string"
+          ) {
+            const count =
+              args.length -
+              (typeof args[args.length - 1] === "function" ? 1 : 0);
             const options = args[1];
-            if (count === 2 && (options == null || (typeof options === "object" && !Array.isArray(options) &&
-              Object.keys(options).every((key) => key === "includeTlsChannelId")))) {
+            if (
+              count === 2 &&
+              (options == null ||
+                (typeof options === "object" &&
+                  !Array.isArray(options) &&
+                  Object.keys(options).every(
+                    (key) => key === "includeTlsChannelId",
+                  )))
+            ) {
               args = [undefined, ...args];
             }
           }
@@ -83,7 +116,8 @@ function createAutoStub(): unknown {
       if (cached !== undefined) return cached;
       let value: unknown;
       if (prop === "addListener" || prop === "removeListener") value = () => {};
-      else if (prop === "hasListener" || prop === "hasListeners") value = () => false;
+      else if (prop === "hasListener" || prop === "hasListeners")
+        value = () => false;
       else value = createAutoStub();
       cache.set(prop, value);
       return value;
@@ -93,8 +127,7 @@ function createAutoStub(): unknown {
       if (typeof cb === "function") {
         try {
           cb(undefined);
-        } catch {
-        }
+        } catch {}
       }
       return createAutoStub();
     },

@@ -136,7 +136,9 @@ export function createTabApis(context: ChromeApiContext) {
         tab: buildTabObject(host, tabId, realm),
       };
       const responsePromise = dispatchMessage(
-        targets.map(({ events: targetEvents }) => targetEvents.runtimeOnMessage),
+        targets.map(
+          ({ events: targetEvents }) => targetEvents.runtimeOnMessage,
+        ),
         message,
         sender,
       ).then((response) => cloneForRealm(realm, response));
@@ -161,13 +163,15 @@ export function createTabApis(context: ChromeApiContext) {
         typeof tabIdOrDetails === "object" ? tabIdOrDetails : detailsOrCb
       ) as { code?: string; file?: string } | undefined;
       const cb = (typeof detailsOrCb === "function" ? detailsOrCb : maybeCb) as
-        | ((results: unknown[]) => void)
-        | undefined;
+        ((results: unknown[]) => void) | undefined;
       const win =
         actualTabId !== null ? host.getTabWindow?.(actualTabId) : null;
       let result: unknown[] = [];
       if (win && details?.code) {
-        installExtensionNetwork(win, actualTabId === null ? undefined : host.getTab(actualTabId)?.url);
+        installExtensionNetwork(
+          win,
+          actualTabId === null ? undefined : host.getTab(actualTabId)?.url,
+        );
         try {
           result = [
             (win as unknown as { eval: (source: string) => unknown }).eval(
@@ -192,8 +196,7 @@ export function createTabApis(context: ChromeApiContext) {
         typeof tabIdOrDetails === "object" ? tabIdOrDetails : detailsOrCb
       ) as { code?: string } | undefined;
       const cb = (typeof detailsOrCb === "function" ? detailsOrCb : maybeCb) as
-        | (() => void)
-        | undefined;
+        (() => void) | undefined;
       const win =
         actualTabId !== null ? host.getTabWindow?.(actualTabId) : null;
       if (win && details?.code) injectCss(win, details.code);
@@ -229,8 +232,7 @@ export function createTabApis(context: ChromeApiContext) {
           : {}
       ) as { populate?: boolean };
       const cb = (typeof getInfoOrCb === "function" ? getInfoOrCb : maybeCb) as
-        | ((window: unknown) => void)
-        | undefined;
+        ((window: unknown) => void) | undefined;
       const window = {
         id: 1,
         focused: true,
@@ -254,8 +256,7 @@ export function createTabApis(context: ChromeApiContext) {
           : {}
       ) as { populate?: boolean; windowTypes?: string[] };
       const cb = (typeof getInfoOrCb === "function" ? getInfoOrCb : maybeCb) as
-        | ((windows: unknown[]) => void)
-        | undefined;
+        ((windows: unknown[]) => void) | undefined;
       const all =
         getInfo.windowTypes && !getInfo.windowTypes.includes("normal")
           ? []

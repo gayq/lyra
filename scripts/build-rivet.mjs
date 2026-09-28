@@ -8,11 +8,7 @@ const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const rivetRoot = path.join(root, "packages", "rivet");
 const routerOut = path.join(root, "public", "b", "rv");
 const extensionOut = path.join(root, "public", "b", "rivet");
-const ublockOriginSource = path.join(
-  rivetRoot,
-  "extensions",
-  "ublock.crx",
-);
+const ublockOriginSource = path.join(rivetRoot, "extensions", "ublock.crx");
 
 async function buildRouter() {
   await rm(routerOut, { recursive: true, force: true });
@@ -35,10 +31,7 @@ async function buildRouter() {
 async function buildUblockOrigin() {
   await rm(extensionOut, { recursive: true, force: true });
   await mkdir(extensionOut, { recursive: true });
-  await copyFile(
-    ublockOriginSource,
-    path.join(extensionOut, "ublock.crx"),
-  );
+  await copyFile(ublockOriginSource, path.join(extensionOut, "ublock.crx"));
 }
 
 await buildRouter();

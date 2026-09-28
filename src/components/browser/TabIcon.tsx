@@ -1,10 +1,9 @@
 import { useState } from "preact/hooks";
 import { svgIcon } from "../../core/ui/svgIcon";
 
-const DEFAULT_FAVICON =
-  `data:image/svg+xml,${encodeURIComponent(
-    svgIcon("IconGlobe", { size: 18, style: "color:#818181" }),
-  )}`;
+const DEFAULT_FAVICON = `data:image/svg+xml,${encodeURIComponent(
+  svgIcon("IconGlobe", { size: 18, style: "color:#818181" }),
+)}`;
 
 export function TabIcon({
   favicon,
@@ -13,7 +12,9 @@ export function TabIcon({
   favicon: string | null | undefined;
   eager: boolean | undefined;
 }) {
-  return <TabIconInner key={favicon || "default"} favicon={favicon} eager={eager} />;
+  return (
+    <TabIconInner key={favicon || "default"} favicon={favicon} eager={eager} />
+  );
 }
 
 function TabIconInner({

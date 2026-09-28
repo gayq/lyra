@@ -2,9 +2,14 @@ import { negativeMessage } from "./messages";
 
 export function crxToZip(buffer: ArrayBuffer): ArrayBuffer {
   const view = new DataView(buffer);
-  const magic = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
+  const magic = String.fromCharCode(
+    view.getUint8(0),
+    view.getUint8(1),
+    view.getUint8(2),
+    view.getUint8(3),
+  );
   if (magic !== "Cr24") {
-    return buffer; 
+    return buffer;
   }
   const version = view.getUint32(4, true);
   let zipStart: number;
@@ -16,7 +21,9 @@ export function crxToZip(buffer: ArrayBuffer): ArrayBuffer {
     const headerSize = view.getUint32(8, true);
     zipStart = 12 + headerSize;
   } else {
-    throw new Error(negativeMessage("extension package version is unsupported"));
+    throw new Error(
+      negativeMessage("extension package version is unsupported"),
+    );
   }
   return buffer.slice(zipStart);
 }

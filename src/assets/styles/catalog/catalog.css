@@ -66,7 +66,9 @@ body.anime-view .anime-topbar {
   margin-top: -53px;
   width: 100%;
   min-width: 0;
-  transition: opacity var(--motion-control) var(--motion-ease), max-width var(--motion-control) var(--motion-ease);
+  transition:
+    opacity var(--motion-control) var(--motion-ease),
+    max-width var(--motion-control) var(--motion-ease);
   max-width: 520px;
   contain: layout style;
 }
@@ -187,12 +189,6 @@ body.anime-view .anime-page {
 .game-card:hover::after,
 .anime-card:hover::after {
   opacity: 1;
-}
-
-.game-card:focus-visible,
-.anime-card:focus-visible {
-  outline: 2px solid var(--accent-color, #fff);
-  outline-offset: 3px;
 }
 
 .game-cover,

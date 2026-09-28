@@ -36,11 +36,15 @@ import type { InstalledExtensionSummary } from "../../../packages/rivet/src/inde
 import { HISTORY_STORAGE_KEY } from "../../core/browser/history.ts";
 import "../../assets/styles/settings/settings-modal.css";
 import {
+  ANIME_LANGUAGE_KEY,
+  ANIME_LANGUAGE_OPTIONS,
   ANIME_QUALITY_KEY,
   ANIME_QUALITY_OPTIONS,
   ANIME_SETTING_KEYS,
+  readAnimeLanguage,
   readAnimeQuality,
   readAnimeSetting,
+  type AnimeLanguage,
   type AnimeQuality,
 } from "../../core/media/animeSettings.ts";
 import {
@@ -54,10 +58,7 @@ import {
   resolveGameSource,
 } from "../../core/config/settingsOptions.ts";
 
-const iconMap: Record<
-  string,
-  (props: IconProps) => any
-> = {
+const iconMap: Record<string, (props: IconProps) => any> = {
   IconSettingsSliderHor,
   IconColorPalette,
   IconPaintBrush,
@@ -197,16 +198,18 @@ export default function SettingsModal({
   const [searchEngine, setSearchEngine] = useState(
     () => localStorage.getItem("searchEngine") || DEFAULT_SETTINGS.searchEngine,
   );
-  const [gameSource, setGameSource] = useState<string>(
-    () => resolveGameSource(localStorage.getItem("gameSource")),
+  const [gameSource, setGameSource] = useState<string>(() =>
+    resolveGameSource(localStorage.getItem("gameSource")),
   );
-  const [theme, setTheme] = useState<string>(
-    () => resolveTheme(localStorage.getItem("theme")),
+  const [theme, setTheme] = useState<string>(() =>
+    resolveTheme(localStorage.getItem("theme")),
   );
   const [siteCloaking, setSiteCloaking] = useState(() => {
     const storedValue =
       localStorage.getItem("siteCloaking") || DEFAULT_SETTINGS.siteCloaking;
-    return storedValue === "default" ? DEFAULT_SETTINGS.siteCloaking : storedValue;
+    return storedValue === "default"
+      ? DEFAULT_SETTINGS.siteCloaking
+      : storedValue;
   });
   const [linkCloaking, setLinkCloaking] = useState(
     () => localStorage.getItem("linkCloaking") || DEFAULT_SETTINGS.linkCloaking,
@@ -232,6 +235,9 @@ export default function SettingsModal({
   const [autoSkipIntroOutro, setAutoSkipIntroOutro] = useState(() =>
     readAnimeSetting("autoSkipIntroOutro"),
   );
+  const [animeLanguage, setAnimeLanguage] = useState<AnimeLanguage>(() =>
+    readAnimeLanguage(),
+  );
   const [animeQuality, setAnimeQuality] = useState<AnimeQuality>(() =>
     readAnimeQuality(),
   );
@@ -250,7 +256,9 @@ export default function SettingsModal({
     appWindow.__lyraStuffData.then((serviceMetadata: any) => {
       if (serviceMetadata && typeof serviceMetadata.version === "string") {
         const build =
-          typeof serviceMetadata.build === "string" ? `~${serviceMetadata.build}` : "";
+          typeof serviceMetadata.build === "string"
+            ? `~${serviceMetadata.build}`
+            : "";
         setVersionInfo(`v${serviceMetadata.version}${build}`);
       }
     });
@@ -460,340 +468,329 @@ export default function SettingsModal({
         </div>
         <div class="settings-content-wrapper">
           {activeTab === "preferences" && (
-          <div class="tab-content active">
-            <div class="settings-item">
-              <label>search engine</label>
-              <p>the engine that is used for your search queries.</p>
-              <Selector
-                label="search-engine"
-                value={searchEngine}
-                options={SEARCH_ENGINE_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) =>
-                  handleSetting("searchEngine", v, setSearchEngine)
-                }
-              />
+            <div class="tab-content active">
+              <div class="settings-item">
+                <label>search engine</label>
+                <p>the engine that is used for your search queries.</p>
+                <Selector
+                  label="search-engine"
+                  value={searchEngine}
+                  options={SEARCH_ENGINE_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) =>
+                    handleSetting("searchEngine", v, setSearchEngine)
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>game source</label>
+                <p>where all the games are fetched from.</p>
+                <Selector
+                  label="game-source"
+                  value={gameSource}
+                  options={GAME_SOURCE_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) =>
+                    handleSetting("gameSource", v, setGameSource)
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>prevent closing</label>
+                <p>prevent the tab from being closed.</p>
+                <Toggle
+                  id="prevent-closing-toggle"
+                  checked={preventClosing}
+                  onChange={(v) =>
+                    handleToggle("preventClosing", v, setPreventClosing)
+                  }
+                />
+              </div>
             </div>
-            <div class="settings-item">
-              <label>game source</label>
-              <p>where all the games are fetched from.</p>
-              <Selector
-                label="game-source"
-                value={gameSource}
-                options={GAME_SOURCE_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) => handleSetting("gameSource", v, setGameSource)}
-              />
-            </div>
-            <div class="settings-item">
-              <label>prevent closing</label>
-              <p>prevent the tab from being closed.</p>
-              <Toggle
-                id="prevent-closing-toggle"
-                checked={preventClosing}
-                onChange={(v) =>
-                  handleToggle("preventClosing", v, setPreventClosing)
-                }
-              />
-            </div>
-          </div>
           )}
 
           {activeTab === "anime" && (
-          <div class="tab-content active">
-            <div class="settings-item">
-              <label>preferred quality</label>
-              <p>choose the quality used when an anime starts.</p>
-              <Selector
-                label="anime-quality"
-                value={animeQuality}
-                options={ANIME_QUALITY_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(value) =>
-                  handleSetting(
-                    ANIME_QUALITY_KEY,
-                    value,
-                    (next) => setAnimeQuality(next as AnimeQuality),
-                  )
-                }
-              />
+            <div class="tab-content active">
+              <div class="settings-item">
+                <label>preferred audio</label>
+                <p>choose the default audio for anime, if avaliable.</p>
+                <Selector
+                  label="anime-language"
+                  value={animeLanguage}
+                  options={ANIME_LANGUAGE_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(value) =>
+                    handleSetting(ANIME_LANGUAGE_KEY, value, (next) =>
+                      setAnimeLanguage(next as AnimeLanguage),
+                    )
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>preferred quality</label>
+                <p>choose the default quality for anime, if avaliable.</p>
+                <Selector
+                  label="anime-quality"
+                  value={animeQuality}
+                  options={ANIME_QUALITY_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(value) =>
+                    handleSetting(ANIME_QUALITY_KEY, value, (next) =>
+                      setAnimeQuality(next as AnimeQuality),
+                    )
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>auto skip intro and outro</label>
+                <p>auto skip intro and outro, if available.</p>
+                <Toggle
+                  id="anime-auto-skip-intro-outro-toggle"
+                  checked={autoSkipIntroOutro}
+                  onChange={(value) =>
+                    handleToggle(
+                      ANIME_SETTING_KEYS.autoSkipIntroOutro,
+                      value,
+                      setAutoSkipIntroOutro,
+                    )
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>auto play next episode</label>
+                <p>automatically start the next episode.</p>
+                <Toggle
+                  id="anime-auto-play-next-episode-toggle"
+                  checked={autoPlayNextEpisode}
+                  onChange={(value) =>
+                    handleToggle(
+                      ANIME_SETTING_KEYS.autoPlayNextEpisode,
+                      value,
+                      setAutoPlayNextEpisode,
+                    )
+                  }
+                />
+              </div>
             </div>
-            <div class="settings-item">
-              <label>auto play next episode</label>
-              <p>
-                automatically start the next episode.
-              </p>
-              <Toggle
-                id="anime-auto-play-next-episode-toggle"
-                checked={autoPlayNextEpisode}
-                onChange={(value) =>
-                  handleToggle(
-                    ANIME_SETTING_KEYS.autoPlayNextEpisode,
-                    value,
-                    setAutoPlayNextEpisode,
-                  )
-                }
-              />
-            </div>
-            <div class="settings-item">
-              <label>auto skip intro and outro</label>
-              <p>
-                auto skip intro and outro when
-                available.
-              </p>
-              <Toggle
-                id="anime-auto-skip-intro-outro-toggle"
-                checked={autoSkipIntroOutro}
-                onChange={(value) =>
-                  handleToggle(
-                    ANIME_SETTING_KEYS.autoSkipIntroOutro,
-                    value,
-                    setAutoSkipIntroOutro,
-                  )
-                }
-              />
-            </div>
-          </div>
           )}
 
           {activeTab === "appearance" && (
-          <div class="tab-content active">
-            <div class="settings-item">
-              <label>theme</label>
-              <p>change the look and feel of lyra.</p>
-              <Selector
-                label="theme"
-                value={theme}
-                options={THEME_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) => handleSetting("theme", v, setTheme)}
-              />
+            <div class="tab-content active">
+              <div class="settings-item">
+                <label>theme</label>
+                <p>change the look and feel of lyra.</p>
+                <Selector
+                  label="theme"
+                  value={theme}
+                  options={THEME_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) => handleSetting("theme", v, setTheme)}
+                />
+              </div>
+              <div class="settings-item">
+                <label>motion effects</label>
+                <p>
+                  follow the device setting, reduce motion, or allow full
+                  effects.
+                </p>
+                <Selector
+                  label="motion-preference"
+                  value={motionPreference}
+                  options={MOTION_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(value) =>
+                    handleSetting(ADVANCED_SETTING_KEYS.motion, value, (next) =>
+                      setMotionPreference(next as MotionPreference),
+                    )
+                  }
+                />
+              </div>
             </div>
-            <div class="settings-item">
-              <label>motion effects</label>
-              <p>
-                follow the device setting, reduce motion, or allow full effects.
-              </p>
-              <Selector
-                label="motion-preference"
-                value={motionPreference}
-                options={MOTION_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(value) =>
-                  handleSetting(
-                    ADVANCED_SETTING_KEYS.motion,
-                    value,
-                    (next) => setMotionPreference(next as MotionPreference),
-                  )
-                }
-              />
-            </div>
-          </div>
           )}
 
           {activeTab === "cloaking" && (
-          <div class="tab-content active">
-            <div class="settings-item">
-              <label>site cloaking</label>
-              <p>cloak the site title and favicon as a different site.</p>
-              <Selector
-                label="site-cloaking"
-                value={siteCloaking}
-                options={SITE_CLOAKING_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) =>
-                  handleSetting("siteCloaking", v, setSiteCloaking)
-                }
-              />
+            <div class="tab-content active">
+              <div class="settings-item">
+                <label>site cloaking</label>
+                <p>cloak the site title and favicon as a different site.</p>
+                <Selector
+                  label="site-cloaking"
+                  value={siteCloaking}
+                  options={SITE_CLOAKING_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) =>
+                    handleSetting("siteCloaking", v, setSiteCloaking)
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>link cloaking</label>
+                <p>cloak the site link in the url bar.</p>
+                <Selector
+                  label="link-cloaking"
+                  value={linkCloaking}
+                  options={LINK_CLOAKING_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) =>
+                    handleSetting("linkCloaking", v, setLinkCloaking)
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>focus cloaking</label>
+                <p>cloak the title and favicon when clicking off the tab.</p>
+                <Toggle
+                  id="focus-cloaking-toggle"
+                  checked={focusCloaking}
+                  onChange={(v) =>
+                    handleToggle("focusCloaking", v, setFocusCloaking)
+                  }
+                />
+              </div>
             </div>
-            <div class="settings-item">
-              <label>link cloaking</label>
-              <p>cloak the site link in the url bar.</p>
-              <Selector
-                label="link-cloaking"
-                value={linkCloaking}
-                options={LINK_CLOAKING_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) =>
-                  handleSetting("linkCloaking", v, setLinkCloaking)
-                }
-              />
-            </div>
-            <div class="settings-item">
-              <label>focus cloaking</label>
-              <p>cloak the title and favicon when clicking off the tab.</p>
-              <Toggle
-                id="focus-cloaking-toggle"
-                checked={focusCloaking}
-                onChange={(v) =>
-                  handleToggle("focusCloaking", v, setFocusCloaking)
-                }
-              />
-            </div>
-          </div>
           )}
 
           {activeTab === "advanced" && (
-          <div class="tab-content active">
-            <div class="settings-item">
-              <label>other transport</label>
-              <p>
-                our transport handles http requests; this handles websockets and
-                fallback traffic.
-              </p>
-              <Selector
-                label="transport"
-                value={transport}
-                options={TRANSPORT_OPTIONS}
-                isOpen={openSelector}
-                onOpen={setOpenSelector}
-                onClose={closeSelector}
-                onChange={(v) => handleSetting("transport", v, setTransport)}
-              />
+            <div class="tab-content active">
+              <div class="settings-item">
+                <label>other transport</label>
+                <p>
+                  our transport handles http requests; this handles websockets
+                  and fallback traffic.
+                </p>
+                <Selector
+                  label="transport"
+                  value={transport}
+                  options={TRANSPORT_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(v) => handleSetting("transport", v, setTransport)}
+                />
+              </div>
+              <div class="settings-item">
+                <label>preload engine</label>
+                <p>
+                  load the browser engine early so the first page opens faster.
+                </p>
+                <Toggle
+                  id="preload-proxy-toggle"
+                  checked={preloadProxy}
+                  onChange={(value) =>
+                    handleToggle(
+                      ADVANCED_SETTING_KEYS.preloadProxy,
+                      value,
+                      setPreloadProxy,
+                    )
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>save browsing history</label>
+                <p>
+                  keep visited urls between launches; turning this off removes
+                  saved history.
+                </p>
+                <Toggle
+                  id="save-history-toggle"
+                  checked={saveHistory}
+                  onChange={(value) =>
+                    handleToggle(
+                      ADVANCED_SETTING_KEYS.saveHistory,
+                      value,
+                      setSaveHistory,
+                    )
+                  }
+                />
+              </div>
             </div>
-            <div class="settings-item">
-              <label>preload engine</label>
-              <p>
-                load the browser engine early so the first page opens faster.
-              </p>
-              <Toggle
-                id="preload-proxy-toggle"
-                checked={preloadProxy}
-                onChange={(value) =>
-                  handleToggle(
-                    ADVANCED_SETTING_KEYS.preloadProxy,
-                    value,
-                    setPreloadProxy,
-                  )
-                }
-              />
-            </div>
-            <div class="settings-item">
-              <label>save browsing history</label>
-              <p>
-                keep visited urls between launches; turning this off removes
-                saved history.
-              </p>
-              <Toggle
-                id="save-history-toggle"
-                checked={saveHistory}
-                onChange={(value) =>
-                  handleToggle(
-                    ADVANCED_SETTING_KEYS.saveHistory,
-                    value,
-                    setSaveHistory,
-                  )
-                }
-              />
-            </div>
-          </div>
           )}
 
           {activeTab === "extensions" && (
-          <div class="tab-content active">
-            <div class="settings-item rivet-manager-header">
+            <div class="tab-content active">
+              <div class="settings-item rivet-manager-header">
                 <label>extensions</label>
                 <p>install chrome extensions into the browser.</p>
-              <div class="rivet-manager-actions">
-                <label class="rivet-file-button rivet-action-primary">
-                  {extensionBusy ? "1 sec…" : "upload extension"}
-                  <input
-                    type="file"
-                    accept=".zip,.crx,application/zip"
-                    disabled={extensionBusy}
-                    onChange={(event) => {
-                      const input = event.currentTarget as HTMLInputElement;
-                      const file = input.files?.[0];
-                      if (file) void installExtensionFile(file);
-                      input.value = "";
-                    }}
-                  />
-                </label>
+                <div class="rivet-manager-actions">
+                  <label class="rivet-file-button rivet-action-primary">
+                    {extensionBusy ? "working…" : "upload extension"}
+                    <input
+                      type="file"
+                      accept=".zip,.crx,application/zip"
+                      disabled={extensionBusy}
+                      onChange={(event) => {
+                        const input = event.currentTarget as HTMLInputElement;
+                        const file = input.files?.[0];
+                        if (file) void installExtensionFile(file);
+                        input.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
-            </div>
-            {extensions.length === 0 ? (
-              <div class="settings-item">
-                <p>no extensions installed.</p>
-              </div>
-            ) : (
-              extensions.map((extension) => (
-                <div class="settings-item rivet-extension" key={extension.id}>
-                  <div class="rivet-extension-copy">
-                    {extension.iconUrl ? (
-                      <img src={extension.iconUrl} alt="" />
-                    ) : null}
-                    <div>
-                      <label>{extension.name}</label>
-                      <p>
-                        {extension.version || "unknown version"} ·{" "}
-                        {extension.id}
-                      </p>
+              {extensions.length === 0 ? (
+                <div class="settings-item">
+                  <p>no extensions installed.</p>
+                </div>
+              ) : (
+                extensions.map((extension) => (
+                  <div class="settings-item rivet-extension" key={extension.id}>
+                    <div class="rivet-extension-copy">
+                      {extension.iconUrl ? (
+                        <img src={extension.iconUrl} alt="" />
+                      ) : null}
+                      <div>
+                        <label>{extension.name}</label>
+                        <p>
+                          {extension.version || "unknown version"} ·{" "}
+                          {extension.id}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <div class="rivet-manager-actions">
-                    {extension.hasPopup ? (
+                    <div class="rivet-manager-actions">
                       <button
                         type="button"
                         class="rivet-action-secondary"
-                        onClick={() => {
-                          const rivet = getRivet();
-                          const page = rivet?.getExtensionPopupPage(
+                        onClick={() =>
+                          void getRivet()?.setExtensionEnabled(
                             extension.id,
-                          );
-                          if (page && rivet) {
-                            rivet.host.openExtensionTab?.(
-                              extension.id,
-                              page,
-                              null,
-                            );
-                          }
-                        }}
+                            !extension.enabled,
+                          )
+                        }
                       >
-                        open
+                        {extension.enabled ? "disable" : "enable"}
                       </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      class="rivet-action-secondary"
-                      onClick={() =>
-                        void getRivet()?.setExtensionEnabled(
-                          extension.id,
-                          !extension.enabled,
-                        )
-                      }
-                    >
-                      {extension.enabled ? "disable" : "enable"}
-                    </button>
-                    <button
-                      type="button"
-                      class="rivet-action-secondary"
-                      onClick={() =>
-                        void getRivet()?.uninstallExtension(extension.id)
-                      }
-                    >
-                      uninstall
-                    </button>
+                      <button
+                        type="button"
+                        class="rivet-action-secondary"
+                        onClick={() =>
+                          void getRivet()?.uninstallExtension(extension.id)
+                        }
+                      >
+                        uninstall
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
           )}
-
         </div>
       </div>
       <button

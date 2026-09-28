@@ -30,17 +30,18 @@ function getServerNamespace(): Promise<string | null> {
   if (serverNamespacePromise) return serverNamespacePromise;
 
   const runtimeWindow =
-    typeof window === "undefined"
-      ? null
-      : (window as LyraRuntimeWindow);
+    typeof window === "undefined" ? null : (window as LyraRuntimeWindow);
   const buildPromise =
     runtimeWindow?.__lyraStuffData ??
-    (runtimeWindow ? (runtimeWindow.__lyraStuffData = fetchBuildPayload()) : null);
-  serverNamespacePromise = (buildPromise
-    ? buildPromise
-        .then((payload) => normalizeNamespace(payload?.build))
-        .catch(() => null)
-    : Promise.resolve(null)
+    (runtimeWindow
+      ? (runtimeWindow.__lyraStuffData = fetchBuildPayload())
+      : null);
+  serverNamespacePromise = (
+    buildPromise
+      ? buildPromise
+          .then((payload) => normalizeNamespace(payload?.build))
+          .catch(() => null)
+      : Promise.resolve(null)
   ).then((namespace) => namespace);
   return serverNamespacePromise;
 }

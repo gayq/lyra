@@ -1,7 +1,6 @@
 import type { RivetFacade } from "./rivet.ts";
 
-export const EXTENSION_POPUP_MOUNTED_EVENT =
-  "rivet-extension-popup-mounted";
+export const EXTENSION_POPUP_MOUNTED_EVENT = "rivet-extension-popup-mounted";
 
 let instance: RivetFacade | null = null;
 let mountNewTabOverride: ((tab: unknown) => boolean) | null = null;

@@ -12,7 +12,10 @@ export type FolioManagedPluginConstructor = new (
   install(frame: unknown): void;
   tap(
     hook: unknown,
-    callback: (context: FolioFrameInitContext, props: unknown) => void | Promise<void>,
+    callback: (
+      context: FolioFrameInitContext,
+      props: unknown,
+    ) => void | Promise<void>,
   ): void;
 };
 
@@ -33,8 +36,7 @@ type FolioFrame = {
 
 const contextMenuWindows = new WeakSet<Window>();
 const CONTENT_SCRIPT_DOCUMENT = "__rivetContentScriptDocument";
-const CONTENT_SCRIPT_MUTATION_OBSERVER =
-  "__rivetContentScriptMutationObserver";
+const CONTENT_SCRIPT_MUTATION_OBSERVER = "__rivetContentScriptMutationObserver";
 
 function installContentScriptDocumentProxy(
   win: Window,
@@ -45,15 +47,18 @@ function installContentScriptDocumentProxy(
     get(target, property) {
       const visible = Array.from(target).filter((sheet) => {
         const owner = sheet.ownerNode;
-        return !owner ||
+        return (
+          !owner ||
           !("hasAttribute" in owner) ||
-          !owner.hasAttribute(CONTENT_SCRIPT_STYLE_ATTRIBUTE);
+          !owner.hasAttribute(CONTENT_SCRIPT_STYLE_ATTRIBUTE)
+        );
       });
       if (property === "length") return visible.length;
       if (property === "item") {
         return (index: number) => visible[index] ?? null;
       }
-      if (property === Symbol.iterator) return visible[Symbol.iterator].bind(visible);
+      if (property === Symbol.iterator)
+        return visible[Symbol.iterator].bind(visible);
       if (typeof property === "string" && /^\d+$/.test(property)) {
         return visible[Number(property)];
       }
@@ -115,17 +120,32 @@ function installContentScriptDocumentProxy(
   });
 }
 
-function installContextMenuBridge(win: Window, rivet: Rivet, tabId: number): void {
+function installContextMenuBridge(
+  win: Window,
+  rivet: Rivet,
+  tabId: number,
+): void {
   if (contextMenuWindows.has(win) || !rivet.host.showContextMenu) return;
   contextMenuWindows.add(win);
   win.addEventListener("contextmenu", (rawEvent) => {
     const event = rawEvent as MouseEvent;
-    const target = event.target && typeof (event.target as Element).closest === "function" ? event.target as Element : null;
+    const target =
+      event.target && typeof (event.target as Element).closest === "function"
+        ? (event.target as Element)
+        : null;
     const link = target?.closest("a[href]") as HTMLAnchorElement | null;
-    const media = target?.closest("img,video,audio") as HTMLImageElement | HTMLMediaElement | null;
-    const editable = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || Boolean(target?.closest("[contenteditable='true']"));
+    const media = target?.closest("img,video,audio") as
+      HTMLImageElement | HTMLMediaElement | null;
+    const editable =
+      target?.tagName === "INPUT" ||
+      target?.tagName === "TEXTAREA" ||
+      Boolean(target?.closest("[contenteditable='true']"));
     const selectionText = win.getSelection?.()?.toString().trim() || undefined;
-    const context = selectionText ? "selection" : link ? "link" : media?.tagName.toLowerCase() ?? (editable ? "editable" : "page");
+    const context = selectionText
+      ? "selection"
+      : link
+        ? "link"
+        : (media?.tagName.toLowerCase() ?? (editable ? "editable" : "page"));
     const info = {
       pageUrl: win.location.href,
       frameUrl: win.location.href,
@@ -161,23 +181,21 @@ export function createRivetContentScriptPlugin(
         if (!win) return;
         const url = context.client?.url?.href || win.location.href;
         installContextMenuBridge(win, rivet, tabId);
-        const nativeDom = context.client?.natives && context.client.descriptors
-          ? {
-              natives: context.client.natives,
-              descriptors: context.client.descriptors,
-              ...(context.client.locationProxy
-                ? {
-                    prepareScript: (code: string) =>
-                      `(function(document, MutationObserver) {\n${code}\n}).call(globalThis, globalThis.${CONTENT_SCRIPT_DOCUMENT}, globalThis.${CONTENT_SCRIPT_MUTATION_OBSERVER});`,
-                  }
-                : {}),
-            }
-          : undefined;
+        const nativeDom =
+          context.client?.natives && context.client.descriptors
+            ? {
+                natives: context.client.natives,
+                descriptors: context.client.descriptors,
+                ...(context.client.locationProxy
+                  ? {
+                      prepareScript: (code: string) =>
+                        `(function(document, MutationObserver) {\n${code}\n}).call(globalThis, globalThis.${CONTENT_SCRIPT_DOCUMENT}, globalThis.${CONTENT_SCRIPT_MUTATION_OBSERVER});`,
+                    }
+                  : {}),
+              }
+            : undefined;
         if (context.client?.locationProxy && nativeDom) {
-          installContentScriptDocumentProxy(
-            win,
-            context.client.locationProxy,
-          );
+          installContentScriptDocumentProxy(win, context.client.locationProxy);
         }
         await injectContentScripts(
           win,

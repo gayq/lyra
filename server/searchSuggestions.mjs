@@ -1,6 +1,3 @@
-
-
-
 import { negativeMessage } from "../src/core/runtime/messages.ts";
 import { availableParallelism, totalmem } from "os";
 
@@ -29,7 +26,10 @@ export function normalizeSearchSuggestionQuery(value) {
     .slice(0, SEARCH_SUGGESTION_MAX_QUERY_LENGTH);
 }
 
-function parseGoogleSuggestionPayload(payload, maxResults = SEARCH_SUGGESTION_MAX_RESULTS) {
+function parseGoogleSuggestionPayload(
+  payload,
+  maxResults = SEARCH_SUGGESTION_MAX_RESULTS,
+) {
   if (!Array.isArray(payload) || !Array.isArray(payload[1])) return [];
 
   const suggestions = [];
@@ -103,12 +103,7 @@ export function createSearchSuggestionService({
         }
         const payload = await response.json();
         const suggestions = parseGoogleSuggestionPayload(payload);
-        setBoundedCacheValue(
-          cache,
-          query,
-          suggestions,
-          now() + cacheTtlMs,
-        );
+        setBoundedCacheValue(cache, query, suggestions, now() + cacheTtlMs);
         return suggestions;
       } finally {
         clearTimeout(timeout);

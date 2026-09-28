@@ -7,9 +7,7 @@ import {
 import { applyRivetAppearance } from "../../core/proxy/rivetAppearance";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
 import { store } from "../../state/store.ts";
-import {
-  type InstalledExtensionSummary,
-} from "../../../packages/rivet/src";
+import { type InstalledExtensionSummary } from "../../../packages/rivet/src";
 import { IconPuzzle } from "../icons";
 
 interface ExtensionMenuProps {
@@ -365,7 +363,11 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
         observePopup();
       })
       .catch((error) => {
-        console.error("[rivet] failed to mount extension popup:", error, NEGATIVE);
+        console.error(
+          "[rivet] failed to mount extension popup:",
+          error,
+          NEGATIVE,
+        );
         if (!stopped) requestClose();
       });
 
@@ -449,9 +451,9 @@ export default function ExtensionMenu({ tabId }: ExtensionMenuProps) {
         );
       })}
       {visible &&
-        popupTabId !== null &&
-        selectedId !== null &&
-        (popupTabId === tabId || isClosing) ? (
+      popupTabId !== null &&
+      selectedId !== null &&
+      (popupTabId === tabId || isClosing) ? (
         <>
           <div
             class="rivet-popup-backdrop"

@@ -66,10 +66,16 @@ async function handleLargeFile(request, realUrl) {
       return response;
     }
     const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
-    return fallback || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
+    return (
+      fallback ||
+      new Response(swNegativeMessage("gateway timeout"), { status: 504 })
+    );
   } catch (e) {
     const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
-    return fallback || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
+    return (
+      fallback ||
+      new Response(swNegativeMessage("gateway timeout"), { status: 504 })
+    );
   }
 }
 
@@ -103,7 +109,14 @@ async function tryMatchPrefetchedNav(request, urlKey) {
   return null;
 }
 
-async function runProxyEngine(engine, event, request, url, realUrl, isNavigate) {
+async function runProxyEngine(
+  engine,
+  event,
+  request,
+  url,
+  realUrl,
+  isNavigate,
+) {
   if (isNavigate && request.method === "GET") {
     try {
       const urlKey = prefetchNavCacheKeyRequest(request.url).url;
@@ -140,8 +153,7 @@ function isGoogleVideoUrl(targetUrl) {
   try {
     const hostname = new URL(targetUrl).hostname;
     return (
-      hostname === "googlevideo.com" ||
-      hostname.endsWith(".googlevideo.com")
+      hostname === "googlevideo.com" || hostname.endsWith(".googlevideo.com")
     );
   } catch (e) {
     return false;
@@ -150,7 +162,8 @@ function isGoogleVideoUrl(targetUrl) {
 
 function upstreamOriginFromUrl(locationUrl) {
   try {
-    const url = typeof locationUrl === "string" ? new URL(locationUrl) : locationUrl;
+    const url =
+      typeof locationUrl === "string" ? new URL(locationUrl) : locationUrl;
     if (url.origin !== self.location.origin) return null;
     if (url.pathname.startsWith(MOCHI_PREFIX)) {
       let encoded = url.pathname.slice(MOCHI_PREFIX.length).replace(/\/+$/, "");
@@ -164,7 +177,9 @@ function upstreamOriginFromUrl(locationUrl) {
           if (result.startsWith("http")) return new URL(result).origin;
         } catch {}
       } else {
-        try { return new URL(encoded).origin; } catch {}
+        try {
+          return new URL(encoded).origin;
+        } catch {}
       }
     }
     if (url.pathname === "/f") {
@@ -210,7 +225,8 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         .then((cache) => cache.put(request, clone).catch(() => {}));
       return networkResponse;
     }
-    if (networkResponse && networkResponse.status === 304) return networkResponse;
+    if (networkResponse && networkResponse.status === 304)
+      return networkResponse;
     const cached = await caches.match(request);
     if (cached) return cached;
     if (networkResponse) return networkResponse;
@@ -268,7 +284,11 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
         }
         if (upstreamOrigin) {
           const upstreamUrl = upstreamOrigin + path + (url.search || "");
-          const fallbackResponse = await mochiFetch(request, upstreamUrl, MOCHI_TIMEOUT_MS);
+          const fallbackResponse = await mochiFetch(
+            request,
+            upstreamUrl,
+            MOCHI_TIMEOUT_MS,
+          );
           if (fallbackResponse && fallbackResponse.ok) {
             if (responseFitsCache(fallbackResponse)) {
               const clone = fallbackResponse.clone();
@@ -351,9 +371,12 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
 async function handleRivetNetworkRequest(request, targetUrl) {
   const response = await mochiFetch(request, targetUrl, MOCHI_TIMEOUT_MS);
   if (!response) {
-    return new Response(swNegativeMessage("rivet extension network request failed"), {
-      status: 502,
-    });
+    return new Response(
+      swNegativeMessage("rivet extension network request failed"),
+      {
+        status: 502,
+      },
+    );
   }
 
   const headers = new Headers(response.headers);
@@ -382,9 +405,12 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       rivetRouter.route(event).catch((error) => {
         console.error("rivet service-worker route failed:", error, NEGATIVE);
-        return new Response(swNegativeMessage("rivet extension request failed"), {
-          status: 502,
-        });
+        return new Response(
+          swNegativeMessage("rivet extension request failed"),
+          {
+            status: 502,
+          },
+        );
       }),
     );
     return;
@@ -425,7 +451,11 @@ self.addEventListener("fetch", (event) => {
           try {
             const cached = await caches.match(request);
             if (cached) return cached;
-            const response = await mochiFetch(request, decodedUrl, MOCHI_TIMEOUT_MS);
+            const response = await mochiFetch(
+              request,
+              decodedUrl,
+              MOCHI_TIMEOUT_MS,
+            );
             if (response && response.ok) {
               const clone = response.clone();
               caches.open(RUNTIME_CACHE).then((cache) => {
@@ -434,9 +464,14 @@ self.addEventListener("fetch", (event) => {
               });
               return response;
             }
-            return response || new Response(swNegativeMessage("not found"), { status: 404 });
+            return (
+              response ||
+              new Response(swNegativeMessage("not found"), { status: 404 })
+            );
           } catch {
-            return new Response(swNegativeMessage("request failed"), { status: 502 });
+            return new Response(swNegativeMessage("request failed"), {
+              status: 502,
+            });
           }
         })(),
       );
@@ -455,7 +490,10 @@ self.addEventListener("fetch", (event) => {
       return event.respondWith(
         (async () => {
           const response = await mochiFetch(request, target, MOCHI_TIMEOUT_MS);
-          return response || new Response(swNegativeMessage("gateway timeout"), { status: 504 });
+          return (
+            response ||
+            new Response(swNegativeMessage("gateway timeout"), { status: 504 })
+          );
         })(),
       );
     }
@@ -507,15 +545,27 @@ self.addEventListener("fetch", (event) => {
             return await folio.route(event);
           }
           if (isFolioRoute) {
-            return await folioRouteMissFallback(request, url, realUrl, isNavigate);
+            return await folioRouteMissFallback(
+              request,
+              url,
+              realUrl,
+              isNavigate,
+            );
           }
         }
 
         if (url.origin === self.location.origin && request.method === "GET") {
-          return await handleLocalOriginGet(event, request, url, preloadPromise);
+          return await handleLocalOriginGet(
+            event,
+            request,
+            url,
+            preloadPromise,
+          );
         }
 
-        return new Response(swNegativeMessage("request forbidden"), { status: 403 });
+        return new Response(swNegativeMessage("request forbidden"), {
+          status: 403,
+        });
       } catch (err) {
         if (realUrl && !realUrl.includes(self.location.host)) {
           const mf = await mochiFetch(request, realUrl, MOCHI_TIMEOUT_MS);
@@ -523,7 +573,9 @@ self.addEventListener("fetch", (event) => {
         }
         const fallback = await caches.match(request);
         if (fallback) return fallback;
-        return new Response(swNegativeMessage("request failed"), { status: 500 });
+        return new Response(swNegativeMessage("request failed"), {
+          status: 500,
+        });
       }
     })(),
   );

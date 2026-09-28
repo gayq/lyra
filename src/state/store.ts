@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { HistoryManager } from "../core/browser/history.ts";
-import { initializeIframe,
+import {
+  initializeIframe,
   historyEntry,
   updateHistoryUI,
   cleanupIframe,
@@ -241,7 +242,8 @@ export const store = {
     const wrapper = document.createElement("div");
     wrapper.className = "iframe";
     const iframe = document.createElement("iframe");
-    iframe.allow = "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; cross-origin-isolated;";
+    iframe.allow =
+      "fullscreen; camera; microphone; display-capture; clipboard-read; clipboard-write; autoplay; cross-origin-isolated;";
     iframe.referrerPolicy = "no-referrer";
     iframe.tabIndex = -1;
     wrapper.appendChild(iframe);
@@ -254,11 +256,11 @@ export const store = {
     url: string | null = null,
     title = "new tab",
     isGame = false,
-    gameIcon: string | null = null,
+    icon: string | null = null,
     options: AddTabOptions = {},
   ): Tab {
     const safeTitle = typeof title === "string" ? title : "new tab";
-    const newTabId = lastTabId = Math.max(Date.now(), lastTabId + 1);
+    const newTabId = (lastTabId = Math.max(Date.now(), lastTabId + 1));
     const { iframe, wrapper } = this.createIframe();
     iframe.dataset.tabId = String(newTabId);
     iframe.name = newTabId.toString();
@@ -291,11 +293,11 @@ export const store = {
     if (isGame) {
       newTab.fixedTitle = true;
       newTab.title = safeTitle;
-      if (gameIcon) {
-        newTab.fixedFavicon = true;
-        newTab.favicon = proxyGameFavicon(gameIcon);
-      }
       rememberTabGameLabel(newTab, url, safeTitle);
+    }
+    if (icon) {
+      newTab.fixedFavicon = true;
+      newTab.favicon = proxyGameFavicon(icon);
     }
 
     const iframeFocusHandler = (e: CustomEvent) => {
@@ -340,17 +342,23 @@ export const store = {
     newTab._iframeFocusHandler = iframeFocusHandler as EventListener;
     newTab._iframeElementFocusHandler = iframeElementFocusHandler;
 
-    iframe.addEventListener("iframe-focus", iframeFocusHandler as EventListener);
+    iframe.addEventListener(
+      "iframe-focus",
+      iframeFocusHandler as EventListener,
+    );
     iframe.addEventListener("focus", iframeElementFocusHandler);
     iframe.addEventListener("pointerdown", iframeElementFocusHandler);
     iframe.addEventListener("mouseenter", iframeElementFocusHandler);
 
-    const openerIndex = this.tabs.findIndex((tab) => tab.id === newTab.openerTabId);
+    const openerIndex = this.tabs.findIndex(
+      (tab) => tab.id === newTab.openerTabId,
+    );
     let insertIndex = this.tabs.length;
     if (openerIndex !== -1) {
       insertIndex = openerIndex + 1;
       if (options.active === false) {
-        while (this.tabs[insertIndex]?.openerTabId === newTab.openerTabId) insertIndex++;
+        while (this.tabs[insertIndex]?.openerTabId === newTab.openerTabId)
+          insertIndex++;
       }
     } else newTab.openerTabId = null;
     this.tabs.splice(insertIndex, 0, newTab);
@@ -365,7 +373,8 @@ export const store = {
     }
 
     getRivet()?.notifyTabCreated(newTabId);
-    if (options.active !== false || this.activeTabId === null) this.switchTab(newTabId);
+    if (options.active !== false || this.activeTabId === null)
+      this.switchTab(newTabId);
     else this.notify();
     return newTab;
   },
@@ -398,7 +407,6 @@ export const store = {
       } else {
         document.body.classList.remove("browser-view");
       }
-
     } else {
       document.body.classList.remove("browser-view");
     }
@@ -458,12 +466,21 @@ export const store = {
 
     const wasActive = this.activeTabId === tabId;
     const nextActiveTabId = wasActive
-      ? this.tabs.find((tab) => tab.openerTabId === tabId)?.id
-        ?? (closedTab.openerTabId === null ? undefined :
-          this.tabs.find((tab, index) => index >= tabIndex && tab.openerTabId === closedTab.openerTabId)?.id
-          ?? this.tabs.findLast((tab, index) => index < tabIndex && tab.openerTabId === closedTab.openerTabId)?.id)
-        ?? this.tabs.find((tab) => tab.id === closedTab.openerTabId)?.id
-        ?? this.tabs[tabIndex]?.id ?? this.tabs[tabIndex - 1]?.id ?? null
+      ? (this.tabs.find((tab) => tab.openerTabId === tabId)?.id ??
+        (closedTab.openerTabId === null
+          ? undefined
+          : (this.tabs.find(
+              (tab, index) =>
+                index >= tabIndex && tab.openerTabId === closedTab.openerTabId,
+            )?.id ??
+            this.tabs.findLast(
+              (tab, index) =>
+                index < tabIndex && tab.openerTabId === closedTab.openerTabId,
+            )?.id)) ??
+        this.tabs.find((tab) => tab.id === closedTab.openerTabId)?.id ??
+        this.tabs[tabIndex]?.id ??
+        this.tabs[tabIndex - 1]?.id ??
+        null)
       : null;
     for (const tab of this.tabs) {
       if (tab.openerTabId === tabId) tab.openerTabId = closedTab.openerTabId;
@@ -528,7 +545,10 @@ export const store = {
         (isSplitViewActive || isPicking) && tab.id === this.activeTabId;
       if (isActiveFocus) tab.wrapper.classList.add("active-focus");
 
-      tab.wrapper.classList.toggle("split-focus-shadow", isActiveFocus && (isSplitViewActive || isPicking));
+      tab.wrapper.classList.toggle(
+        "split-focus-shadow",
+        isActiveFocus && (isSplitViewActive || isPicking),
+      );
 
       if (isSplitLeft) leftIframe = tab.wrapper;
       if (isSplitRight) rightIframe = tab.wrapper;
@@ -640,14 +660,23 @@ export const store = {
   },
 
   resetSession() {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    if (
+      typeof window !== "undefined" &&
+      typeof window.dispatchEvent === "function"
+    ) {
       window.dispatchEvent(new CustomEvent("rivet-close-extension-popup"));
     }
     const tabsCopy = [...this.tabs];
     for (const tab of tabsCopy) {
       if (tab.iframe) {
-        tab.iframe.removeEventListener("iframe-focus", tab._iframeFocusHandler!);
-        tab.iframe.removeEventListener("focus", tab._iframeElementFocusHandler!);
+        tab.iframe.removeEventListener(
+          "iframe-focus",
+          tab._iframeFocusHandler!,
+        );
+        tab.iframe.removeEventListener(
+          "focus",
+          tab._iframeElementFocusHandler!,
+        );
         tab.iframe.removeEventListener(
           "pointerdown",
           tab._iframeElementFocusHandler!,
@@ -692,8 +721,13 @@ export const store = {
       const targetUrl = data.decodedUrl || data.url || null;
       if (!targetUrl) return;
       const openerTabId = Number(data.tabId) || null;
-      if (openerTabId !== null && !this.tabs.some((tab) => tab.id === openerTabId)) return;
-      const title = typeof data.title === "string" ? data.title : "fetching data...";
+      if (
+        openerTabId !== null &&
+        !this.tabs.some((tab) => tab.id === openerTabId)
+      )
+        return;
+      const title =
+        typeof data.title === "string" ? data.title : "fetching data...";
       store.addTab(targetUrl, title, false, null, {
         openerTabId,
         active: data.active !== false,
@@ -703,21 +737,21 @@ export const store = {
     if (data && data.type === "page-meta") {
       const isEncoded = !!data.encoded;
       const incomingUrl = isEncoded
-          ? decodePageMetadata(data.decodedUrl || data.url)
+        ? decodePageMetadata(data.decodedUrl || data.url)
         : data.decodedUrl || data.url || data.href || null;
       const incomingDecodedUrl = isEncoded
-          ? decodePageMetadata(data.decodedUrl)
+        ? decodePageMetadata(data.decodedUrl)
         : data.decodedUrl || data.url || data.href || null;
       const incomingTitle = isEncoded
-          ? decodePageMetadata(data.title)
+        ? decodePageMetadata(data.title)
         : typeof data.title === "string"
           ? data.title
           : "";
       const incomingFavicon = isEncoded
-          ? decodePageMetadata(data.favicon)
+        ? decodePageMetadata(data.favicon)
         : data.favicon || data.rawFavicon || null;
       const incomingRawFavicon = isEncoded
-          ? decodePageMetadata(data.rawFavicon)
+        ? decodePageMetadata(data.rawFavicon)
         : data.rawFavicon || data.favicon || null;
       const incomingHistory =
         data.history && typeof data.history === "object" ? data.history : null;
@@ -737,7 +771,9 @@ export const store = {
         typeof data.navigationType === "string" ? data.navigationType : null;
 
       const tabs = store.tabs;
-      const targetTabId = data.tabId ? parseInt(data.tabId as string, 10) : null;
+      const targetTabId = data.tabId
+        ? parseInt(data.tabId as string, 10)
+        : null;
       let targetTab: Tab | null = null;
       const sourceTab = event.source
         ? tabs.find((tab) => tab.iframe?.contentWindow === event.source) || null
@@ -751,9 +787,14 @@ export const store = {
       }
       if (!targetTab && sourceTab) {
         targetTab = sourceTab;
-        if (data.clientId) clientTabMap.set(data.clientId as string, sourceTab.id);
+        if (data.clientId)
+          clientTabMap.set(data.clientId as string, sourceTab.id);
       }
-      if (!targetTab && data.clientId && clientTabMap.has(data.clientId as string)) {
+      if (
+        !targetTab &&
+        data.clientId &&
+        clientTabMap.has(data.clientId as string)
+      ) {
         const mappedId = clientTabMap.get(data.clientId as string);
         targetTab = tabs.find((tab) => tab.id === mappedId) || null;
       }
@@ -766,10 +807,21 @@ export const store = {
         clearExtensionPageForNavigation(targetTab.iframe, targetTab);
       }
       if (data.isTopFrame === false) return;
-      if (data.navigationVersion !== undefined &&
-          data.navigationVersion !== targetTab.iframe.dataset.navigationVersion) return;
-      if (incomingUrl && targetTab.historyManager && (data.source === "folio" || !historyEntry(targetTab.iframe))) {
-        targetTab.historyManager.observe(incomingUrl, incomingNavigationType ?? "metadata", data.historyKey);
+      if (
+        data.navigationVersion !== undefined &&
+        data.navigationVersion !== targetTab.iframe.dataset.navigationVersion
+      )
+        return;
+      if (
+        incomingUrl &&
+        targetTab.historyManager &&
+        (data.source === "folio" || !historyEntry(targetTab.iframe))
+      ) {
+        targetTab.historyManager.observe(
+          incomingUrl,
+          incomingNavigationType ?? "metadata",
+          data.historyKey,
+        );
       }
       if (incomingUrl && !targetTab.isUrlLoaded) {
         targetTab.isUrlLoaded = true;
@@ -825,13 +877,16 @@ export const store = {
       return;
     }
     if (data && data.type === "url-update" && data.url) {
-      const target = this.tabs.find((tab) =>
-        event.source === tab.iframe.contentWindow ||
-        (data.tabId && tab.id === Number(data.tabId)),
+      const target = this.tabs.find(
+        (tab) =>
+          event.source === tab.iframe.contentWindow ||
+          (data.tabId && tab.id === Number(data.tabId)),
       );
-      if (target) this.handleServiceWorkerMessage({
-        data: { ...data, type: "page-meta", tabId: target.id }, source: event.source,
-      } as MessageEvent);
+      if (target)
+        this.handleServiceWorkerMessage({
+          data: { ...data, type: "page-meta", tabId: target.id },
+          source: event.source,
+        } as MessageEvent);
     }
   },
 
@@ -872,7 +927,8 @@ export const store = {
         if (pendingLeftPercent === null) return;
         const leftIframe = getLeftIframe();
         if (leftIframe) {
-          (leftIframe as HTMLElement).style.flexBasis = `${pendingLeftPercent}%`;
+          (leftIframe as HTMLElement).style.flexBasis =
+            `${pendingLeftPercent}%`;
         }
         pendingLeftPercent = null;
       });
@@ -949,13 +1005,20 @@ export const store = {
     };
     window.Lyra.renderTabs = () => this.notify();
     window.Lyra.resetSession = () => this.resetSession();
-    window.Lyra.openNewTabFromServiceWorker = (url: string | null, options: { title?: string; openerTabId?: number } = {}) => {
+    window.Lyra.openNewTabFromServiceWorker = (
+      url: string | null,
+      options: { title?: string; openerTabId?: number } = {},
+    ) => {
       if (!url) return null;
       const tab = this.addTab(url, options.title || "fetching data...");
       if (tab && options.openerTabId) tab.openerTabId = options.openerTabId;
       return tab;
     };
-    window.Lyra.handleSearch = async (query: string, gameName?: string, gameIcon?: string | null) => {
+    window.Lyra.handleSearch = async (
+      query: string,
+      gameName?: string,
+      gameIcon?: string | null,
+    ) => {
       const activeTab = this.getActiveTab();
       if (activeTab) {
         const isStreamingUrl = /^(\/stream\/anime)/.test(query);
@@ -985,7 +1048,6 @@ export const store = {
         await performSearch(query, activeTab as never, gameName);
       }
     };
-
   },
 };
 

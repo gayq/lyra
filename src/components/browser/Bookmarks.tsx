@@ -33,7 +33,9 @@ function getBookmarks(): Bookmark[] {
         canonicalize(bookmark.url) === canonicalize("https://soundcloud.com/"),
     );
     if (soundcloudIndex !== -1) {
-      if (bookmarks.some((bookmark) => isInternalBookmark(bookmark.url, "anime"))) {
+      if (
+        bookmarks.some((bookmark) => isInternalBookmark(bookmark.url, "anime"))
+      ) {
         bookmarks.splice(soundcloudIndex, 1);
       } else {
         bookmarks[soundcloudIndex] = { name: "anime", url: "lyra://anime" };
@@ -110,10 +112,7 @@ const BookmarkIcon = memo(function BookmarkIcon({
     const Icon = legacyIconMap[pascal];
     if (Icon) {
       return (
-        <div
-          class="bookmark-icon"
-          data-bookmark-url={bookmark.url}
-        >
+        <div class="bookmark-icon" data-bookmark-url={bookmark.url}>
           <Icon />
         </div>
       );
@@ -137,11 +136,7 @@ const BookmarkIcon = memo(function BookmarkIcon({
 
   if (image.errored) {
     return (
-      <div
-        class="bookmark-icon"
-      >
-        {bookmark.name.charAt(0).toUpperCase()}
-      </div>
+      <div class="bookmark-icon">{bookmark.name.charAt(0).toUpperCase()}</div>
     );
   }
 
@@ -317,10 +312,7 @@ export default function Bookmarks() {
                 isEditMode && bookmarks.length < 5 ? "list-item" : "none",
             }}
           >
-            <button
-              id="add-bookmark-btn"
-              onClick={() => openPrompt()}
-            >
+            <button id="add-bookmark-btn" onClick={() => openPrompt()}>
               <IconPlusMedium />
             </button>
           </li>

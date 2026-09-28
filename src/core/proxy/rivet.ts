@@ -33,7 +33,10 @@ let ready: Promise<RivetFacade> | null = null;
 let commandListenerInstalled = false;
 let contextMenuElement: HTMLDivElement | null = null;
 const extensionPageMountVersions = new WeakMap<HTMLIFrameElement, number>();
-const extensionPageRouteListeners = new WeakMap<HTMLIFrameElement, { listener: () => void; win: Window }>();
+const extensionPageRouteListeners = new WeakMap<
+  HTMLIFrameElement,
+  { listener: () => void; win: Window }
+>();
 
 function closeRivetContextMenu(): void {
   contextMenuElement?.remove();
@@ -57,11 +60,20 @@ function showRivetContextMenu(request: RivetContextMenuRequest): void {
     const button = document.createElement("button");
     button.type = "button";
     button.disabled = !item.enabled;
-    button.setAttribute("role", item.type === "normal" ? "menuitem" : "menuitemcheckbox");
-    if (item.type !== "normal") button.setAttribute("aria-checked", String(item.checked));
+    button.setAttribute(
+      "role",
+      item.type === "normal" ? "menuitem" : "menuitemcheckbox",
+    );
+    if (item.type !== "normal")
+      button.setAttribute("aria-checked", String(item.checked));
     button.textContent = `${item.type !== "normal" ? (item.checked ? "✓ " : "  ") : ""}${item.title}`;
     button.addEventListener("click", () => {
-      instance?.triggerContextMenu(item.extId, item.id, request.tabId, request.info);
+      instance?.triggerContextMenu(
+        item.extId,
+        item.id,
+        request.tabId,
+        request.info,
+      );
       closeRivetContextMenu();
     });
     menu.appendChild(button);
@@ -71,12 +83,16 @@ function showRivetContextMenu(request: RivetContextMenuRequest): void {
   menu.style.top = `${frameRect.top + request.clientY}px`;
   document.body.appendChild(menu);
   const bounds = menu.getBoundingClientRect();
-  if (bounds.right > window.innerWidth - 8) menu.style.left = `${Math.max(8, window.innerWidth - bounds.width - 8)}px`;
-  if (bounds.bottom > window.innerHeight - 8) menu.style.top = `${Math.max(8, window.innerHeight - bounds.height - 8)}px`;
+  if (bounds.right > window.innerWidth - 8)
+    menu.style.left = `${Math.max(8, window.innerWidth - bounds.width - 8)}px`;
+  if (bounds.bottom > window.innerHeight - 8)
+    menu.style.top = `${Math.max(8, window.innerHeight - bounds.height - 8)}px`;
   contextMenuElement = menu;
 
   setTimeout(() => {
-    window.addEventListener("pointerdown", closeRivetContextMenu, { once: true });
+    window.addEventListener("pointerdown", closeRivetContextMenu, {
+      once: true,
+    });
   }, 0);
 }
 
@@ -114,13 +130,19 @@ function tabForWindow(win: Window): LyraTab | null {
   return null;
 }
 
-function openExtensionPage(extId: string, page: string, requestedTabId: number | null): void {
+function openExtensionPage(
+  extId: string,
+  page: string,
+  requestedTabId: number | null,
+): void {
   const rivet = instance;
   if (!rivet) return;
 
-  let tab = requestedTabId === null
-    ? null
-    : store.tabs.find((candidate) => candidate.id === requestedTabId) ?? null;
+  let tab =
+    requestedTabId === null
+      ? null
+      : (store.tabs.find((candidate) => candidate.id === requestedTabId) ??
+        null);
   if (!tab) tab = store.getReusableActiveTab();
   if (!tab) {
     tab = store.addTab(null, "extension", false, null, {
@@ -142,8 +164,14 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
   if (typeof previousCleanup === "function") previousCleanup();
   const previousRouteListener = extensionPageRouteListeners.get(frame);
   if (previousRouteListener) {
-    previousRouteListener.win.removeEventListener("hashchange", previousRouteListener.listener);
-    previousRouteListener.win.removeEventListener("popstate", previousRouteListener.listener);
+    previousRouteListener.win.removeEventListener(
+      "hashchange",
+      previousRouteListener.listener,
+    );
+    previousRouteListener.win.removeEventListener(
+      "popstate",
+      previousRouteListener.listener,
+    );
     extensionPageRouteListeners.delete(frame);
   }
   const mountVersion = (extensionPageMountVersions.get(frame) ?? 0) + 1;
@@ -169,7 +197,11 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
 
   const recoverReload = () => {
     if (extensionPageMountVersions.get(frame) !== mountVersion) return;
-    if (tab.extensionPage?.extId !== extId || tab.extensionPage.page !== activePage) return;
+    if (
+      tab.extensionPage?.extId !== extId ||
+      tab.extensionPage.page !== activePage
+    )
+      return;
 
     const targetPage = extensionPageReloadTarget(
       activePage,
@@ -188,7 +220,10 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
     }
     const routeListener = extensionPageRouteListeners.get(frame);
     if (routeListener) {
-      routeListener.win.removeEventListener("hashchange", routeListener.listener);
+      routeListener.win.removeEventListener(
+        "hashchange",
+        routeListener.listener,
+      );
       routeListener.win.removeEventListener("popstate", routeListener.listener);
       extensionPageRouteListeners.delete(frame);
     }
@@ -230,9 +265,17 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
 
   const mountPage = async (targetPage: string, recovering = false) => {
     updatePageState(targetPage);
-    const mounted = await rivet.mountExtensionPage(frame, extId, targetPage, tab.id);
+    const mounted = await rivet.mountExtensionPage(
+      frame,
+      extId,
+      targetPage,
+      tab.id,
+    );
     if (extensionPageMountVersions.get(frame) !== mountVersion) return;
-    if (tab.extensionPage?.extId !== extId || tab.extensionPage.page !== targetPage) {
+    if (
+      tab.extensionPage?.extId !== extId ||
+      tab.extensionPage.page !== targetPage
+    ) {
       if (recovering) frame.style.visibility = "";
       return;
     }
@@ -257,9 +300,11 @@ function openExtensionPage(extId: string, page: string, requestedTabId: number |
       favIconUrl: tab.favicon ?? "",
     });
 
-    if (recovering) requestAnimationFrame(() => {
-      if (extensionPageMountVersions.get(frame) === mountVersion) frame.style.visibility = "";
-    });
+    if (recovering)
+      requestAnimationFrame(() => {
+        if (extensionPageMountVersions.get(frame) === mountVersion)
+          frame.style.visibility = "";
+      });
   };
 
   void mountPage(page);
@@ -276,7 +321,8 @@ function createHostBindings(): RivetHostBindings {
     getAllTabs: () => store.tabs.map(toTabInfo),
     getActiveTabId: () => store.activeTabId,
     getTabWindow: (tabId) =>
-      store.tabs.find((candidate) => candidate.id === tabId)?.iframe?.contentWindow ?? null,
+      store.tabs.find((candidate) => candidate.id === tabId)?.iframe
+        ?.contentWindow ?? null,
     navigateTab: (tabId, url) => {
       if (tabId === null) {
         const reusableTab = store.getReusableActiveTab();
@@ -312,14 +358,20 @@ function createHostBindings(): RivetHostBindings {
     },
     openExtensionTab: openExtensionPage,
     closeExtensionPopup: (extId) => {
-      window.dispatchEvent(new CustomEvent("rivet-close-extension-popup", { detail: { extId } }));
+      window.dispatchEvent(
+        new CustomEvent("rivet-close-extension-popup", { detail: { extId } }),
+      );
     },
     showNotification: (title, message) => {
       if ("Notification" in window && Notification.permission === "granted") {
         new Notification(title, { body: message });
         return;
       }
-      toast.info(`${title}${message ? ` — ${message}` : ""}`, "IconCircleInfo", 5000);
+      toast.info(
+        `${title}${message ? ` — ${message}` : ""}`,
+        "IconCircleInfo",
+        5000,
+      );
     },
     showContextMenu: showRivetContextMenu,
   };
@@ -353,7 +405,12 @@ async function mountNewTabOverride(
   page: string,
 ): Promise<void> {
   try {
-    const mounted = await rivet.mountNewTabPage(tab.iframe, extId, page, tab.id);
+    const mounted = await rivet.mountNewTabPage(
+      tab.iframe,
+      extId,
+      page,
+      tab.id,
+    );
     if (!mounted) {
       console.error(
         "[rivet] new-tab override not found:",
@@ -394,7 +451,11 @@ export async function initializeRivet(): Promise<RivetFacade> {
     try {
       await ensureUblockOrigin(rivet);
     } catch (error) {
-      console.error("[rivet] failed to install ublock origin:", error, NEGATIVE);
+      console.error(
+        "[rivet] failed to install ublock origin:",
+        error,
+        NEGATIVE,
+      );
     }
     installCommandListener(rivet);
     registerRivetBridge(rivet, (tab) =>
@@ -417,7 +478,6 @@ export async function initializeRivet(): Promise<RivetFacade> {
   }
 }
 
-
 function applyHeaderChanges(
   rawHeaders: HeadersInit | undefined,
   changes: unknown[],
@@ -425,7 +485,11 @@ function applyHeaderChanges(
   const headers = new Headers(rawHeaders);
   for (const change of changes) {
     if (!change || typeof change !== "object") continue;
-    const record = change as { header?: unknown; operation?: unknown; value?: unknown };
+    const record = change as {
+      header?: unknown;
+      operation?: unknown;
+      value?: unknown;
+    };
     if (typeof record.header !== "string") continue;
     const operation = String(record.operation || "set").toLowerCase();
     if (operation === "remove") headers.delete(record.header);
@@ -438,11 +502,18 @@ function applyHeaderChanges(
   return [...headers.entries()];
 }
 
-function toWebRequestHeaders(rawHeaders: HeadersInit | undefined): WebRequestHeader[] {
-  return [...new Headers(rawHeaders).entries()].map(([name, value]) => ({ name, value }));
+function toWebRequestHeaders(
+  rawHeaders: HeadersInit | undefined,
+): WebRequestHeader[] {
+  return [...new Headers(rawHeaders).entries()].map(([name, value]) => ({
+    name,
+    value,
+  }));
 }
 
-function fromWebRequestHeaders(headers: WebRequestHeader[]): [string, string][] {
+function fromWebRequestHeaders(
+  headers: WebRequestHeader[],
+): [string, string][] {
   return headers.flatMap((header) =>
     typeof header.name === "string" && typeof header.value === "string"
       ? [[header.name, header.value] as [string, string]]
@@ -452,14 +523,25 @@ function fromWebRequestHeaders(headers: WebRequestHeader[]): [string, string][] 
 
 function webRequestType(parsed: any): string {
   const destination = String(parsed?.destination || "");
-  if (destination === "document") return parsed?.isIframe ? "sub_frame" : "main_frame";
+  if (destination === "document")
+    return parsed?.isIframe ? "sub_frame" : "main_frame";
   if (destination === "iframe" || destination === "frame") return "sub_frame";
   if (destination === "style") return "stylesheet";
   if (destination === "script") return "script";
   if (destination === "image") return "image";
   if (destination === "font") return "font";
-  if (destination === "audio" || destination === "video" || destination === "track") return "media";
-  if (destination === "worker" || destination === "sharedworker" || destination === "serviceworker") return "other";
+  if (
+    destination === "audio" ||
+    destination === "video" ||
+    destination === "track"
+  )
+    return "media";
+  if (
+    destination === "worker" ||
+    destination === "sharedworker" ||
+    destination === "serviceworker"
+  )
+    return "other";
   if (destination === "report") return "ping";
   if (parsed?.fetchMode) return "xmlhttprequest";
   return "other";
@@ -470,9 +552,13 @@ function createDnrPlugin(
   rivet: Rivet,
   tabId: number,
 ): InstanceType<FolioManagedPluginConstructor> {
-  const folio = (window as typeof window & {
-    $folio?: { BareResponse?: { fromNativeResponse(response: Response): unknown } };
-  }).$folio;
+  const folio = (
+    window as typeof window & {
+      $folio?: {
+        BareResponse?: { fromNativeResponse(response: Response): unknown };
+      };
+    }
+  ).$folio;
   let nextRequestId = 0;
   const requestIds = new WeakMap<object, string>();
 
@@ -492,7 +578,8 @@ function createDnrPlugin(
     responseHeaders?: WebRequestHeader[],
   ): WebRequestDetails => {
     const parsed = context.parsed;
-    const documentUrl = parsed?.clientUrl?.href || parsed?.referrerSourceUrl?.href;
+    const documentUrl =
+      parsed?.clientUrl?.href || parsed?.referrerSourceUrl?.href;
     const initiator = parsed?.fetchInitiatorOrigin || parsed?.clientUrl?.origin;
     const frameId = parsed?.isIframe ? 1 : 0;
     return {
@@ -526,10 +613,31 @@ function createDnrPlugin(
       this.tap(frame.hooks.fetch.request, async (context: any, props: any) => {
         let requestUrl = props.url?.href;
         if (!requestUrl) return;
-        let requestHeaders = toWebRequestHeaders(props.init?.headers);
+        const beforeRequestListeners =
+          rivet.registry.hasWebRequestListeners("onBeforeRequest");
+        const beforeHeadersListeners = rivet.registry.hasWebRequestListeners(
+          "onBeforeSendHeaders",
+        );
+        const sendHeadersListeners =
+          rivet.registry.hasWebRequestListeners("onSendHeaders");
+        if (
+          !beforeRequestListeners &&
+          !beforeHeadersListeners &&
+          !sendHeadersListeners &&
+          !rivet.hasDeclarativeNetRequestRules()
+        )
+          return;
+        let requestHeaders =
+          beforeRequestListeners ||
+          beforeHeadersListeners ||
+          sendHeadersListeners
+            ? toWebRequestHeaders(props.init?.headers)
+            : undefined;
         const details = detailsFor(context, requestUrl, requestHeaders);
 
-        const beforeRequest = await dispatch("onBeforeRequest", details);
+        const beforeRequest = beforeRequestListeners
+          ? await dispatch("onBeforeRequest", details)
+          : null;
         if (beforeRequest?.cancel) {
           props.earlyResponse = blockedResponse();
           return;
@@ -540,7 +648,11 @@ function createDnrPlugin(
           details.url = requestUrl;
         }
 
-        const beforeHeaders = await dispatch("onBeforeSendHeaders", details);
+        const beforeHeaders = rivet.registry.hasWebRequestListeners(
+          "onBeforeSendHeaders",
+        )
+          ? await dispatch("onBeforeSendHeaders", details)
+          : null;
         if (beforeHeaders?.cancel) {
           props.earlyResponse = blockedResponse();
           return;
@@ -550,9 +662,14 @@ function createDnrPlugin(
           props.init.headers = fromWebRequestHeaders(requestHeaders);
           details.requestHeaders = requestHeaders;
         }
-        void dispatch("onSendHeaders", details).catch((error) => {
-          console.error("[rivet] send-headers dispatch failed:", error, NEGATIVE);
-        });
+        if (rivet.registry.hasWebRequestListeners("onSendHeaders"))
+          void dispatch("onSendHeaders", details).catch((error) => {
+            console.error(
+              "[rivet] send-headers dispatch failed:",
+              error,
+              NEGATIVE,
+            );
+          });
 
         const decision = rivet.checkDeclarativeNetRequest(
           requestUrl,
@@ -566,64 +683,104 @@ function createDnrPlugin(
         } else if (decision.action === "redirect") {
           props.url = new URL(decision.url, requestUrl);
         } else if (decision.headers.length) {
-          props.init.headers = applyHeaderChanges(props.init?.headers, decision.headers);
+          props.init.headers = applyHeaderChanges(
+            props.init?.headers,
+            decision.headers,
+          );
         }
       });
 
-      this.tap(frame.hooks.fetch.preresponse, async (context: any, props: any) => {
-        const requestUrl = context.parsed?.url?.href;
-        if (!requestUrl) return;
-        let responseHeaders = toWebRequestHeaders(props.response.rawHeaders);
-        const details = detailsFor(context, requestUrl, undefined, responseHeaders);
-        details.statusCode = Number(props.response.status) || 0;
-        details.statusLine = `${details.statusCode} ${props.response.statusText || ""}`.trim();
-
-        const received = await dispatch("onHeadersReceived", details);
-        if (received?.cancel) {
-          const blocked = blockedResponse();
-          if (blocked) props.response = blocked;
-          return;
-        }
-        if (received?.responseHeaders) {
-          responseHeaders = received.responseHeaders;
-          props.response.rawHeaders = fromWebRequestHeaders(responseHeaders);
-          details.responseHeaders = responseHeaders;
-        }
-        if (received?.redirectUrl) {
-          const redirected = folio?.BareResponse?.fromNativeResponse(
-            new Response(null, {
-              status: 302,
-              headers: { Location: received.redirectUrl },
-            }),
+      this.tap(
+        frame.hooks.fetch.preresponse,
+        async (context: any, props: any) => {
+          const requestUrl = context.parsed?.url?.href;
+          if (!requestUrl) return;
+          const receivedListeners =
+            rivet.registry.hasWebRequestListeners("onHeadersReceived");
+          const completedListeners =
+            rivet.registry.hasWebRequestListeners("onCompleted");
+          if (
+            !receivedListeners &&
+            !completedListeners &&
+            !rivet.hasDeclarativeNetRequestRules(true)
+          )
+            return;
+          let responseHeaders =
+            receivedListeners || completedListeners
+              ? toWebRequestHeaders(props.response.rawHeaders)
+              : undefined;
+          const details = detailsFor(
+            context,
+            requestUrl,
+            undefined,
+            responseHeaders,
           );
-          if (redirected) props.response = redirected;
-          details.redirectUrl = received.redirectUrl;
-          void dispatch("onBeforeRedirect", details).catch((error) => {
-            console.error(
-              "[rivet] redirect dispatch failed:",
-              error,
-              NEGATIVE,
+          details.statusCode = Number(props.response.status) || 0;
+          details.statusLine =
+            `${details.statusCode} ${props.response.statusText || ""}`.trim();
+
+          const received = receivedListeners
+            ? await dispatch("onHeadersReceived", details)
+            : null;
+          if (received?.cancel) {
+            const blocked = blockedResponse();
+            if (blocked) props.response = blocked;
+            return;
+          }
+          if (received?.responseHeaders) {
+            responseHeaders = received.responseHeaders;
+            props.response.rawHeaders = fromWebRequestHeaders(responseHeaders);
+            details.responseHeaders = responseHeaders;
+          }
+          if (received?.redirectUrl) {
+            const redirected = folio?.BareResponse?.fromNativeResponse(
+              new Response(null, {
+                status: 302,
+                headers: { Location: received.redirectUrl },
+              }),
             );
-          });
-          return;
-        }
+            if (redirected) props.response = redirected;
+            details.redirectUrl = received.redirectUrl;
+            if (rivet.registry.hasWebRequestListeners("onBeforeRedirect"))
+              void dispatch("onBeforeRedirect", details).catch((error) => {
+                console.error(
+                  "[rivet] redirect dispatch failed:",
+                  error,
+                  NEGATIVE,
+                );
+              });
+            return;
+          }
 
-        const decision = rivet.checkDeclarativeNetRequest(
-          requestUrl,
-          details.initiator,
-          details.type,
-        );
-        if (decision?.action === "modifyHeaders" && decision.responseHeaders.length) {
-          props.response.rawHeaders = applyHeaderChanges(
-            props.response.rawHeaders,
-            decision.responseHeaders,
+          const decision = rivet.checkDeclarativeNetRequest(
+            requestUrl,
+            details.initiator,
+            details.type,
+            true,
           );
-          details.responseHeaders = toWebRequestHeaders(props.response.rawHeaders);
-        }
-        void dispatch("onCompleted", details).catch((error) => {
-          console.error("[rivet] completion dispatch failed:", error, NEGATIVE);
-        });
-      });
+          if (
+            decision?.action === "modifyHeaders" &&
+            decision.responseHeaders.length
+          ) {
+            props.response.rawHeaders = applyHeaderChanges(
+              props.response.rawHeaders,
+              decision.responseHeaders,
+            );
+            if (rivet.registry.hasWebRequestListeners("onCompleted"))
+              details.responseHeaders = toWebRequestHeaders(
+                props.response.rawHeaders,
+              );
+          }
+          if (rivet.registry.hasWebRequestListeners("onCompleted"))
+            void dispatch("onCompleted", details).catch((error) => {
+              console.error(
+                "[rivet] completion dispatch failed:",
+                error,
+                NEGATIVE,
+              );
+            });
+        },
+      );
     }
   })("rivet-declarative-net-request", []);
 }

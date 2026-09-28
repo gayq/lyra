@@ -35,7 +35,10 @@ function openDB(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export async function dbGet<T = unknown>(store: string, key: IDBValidKey): Promise<T | undefined> {
+export async function dbGet<T = unknown>(
+  store: string,
+  key: IDBValidKey,
+): Promise<T | undefined> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, "readonly");
@@ -45,7 +48,11 @@ export async function dbGet<T = unknown>(store: string, key: IDBValidKey): Promi
   });
 }
 
-export async function dbPut(store: string, key: IDBValidKey | null, value: unknown): Promise<IDBValidKey> {
+export async function dbPut(
+  store: string,
+  key: IDBValidKey | null,
+  value: unknown,
+): Promise<IDBValidKey> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, "readwrite");
@@ -79,9 +86,13 @@ export async function dbGetEntries<T = unknown>(
       const range = keys as IDBKeyRange;
       const storedKeys = objStore.getAllKeys(range);
       const values = objStore.getAll(range);
-      tx.oncomplete = () => resolve(
-        storedKeys.result.map((key, index) => [key as string, values.result[index] as T]),
-      );
+      tx.oncomplete = () =>
+        resolve(
+          storedKeys.result.map((key, index) => [
+            key as string,
+            values.result[index] as T,
+          ]),
+        );
     }
   });
 }
@@ -128,7 +139,10 @@ export async function dbDelete(store: string, key: IDBValidKey): Promise<void> {
   });
 }
 
-export async function dbDeleteEntries(store: string, keys: readonly IDBValidKey[] | IDBKeyRange): Promise<void> {
+export async function dbDeleteEntries(
+  store: string,
+  keys: readonly IDBValidKey[] | IDBKeyRange,
+): Promise<void> {
   if (Array.isArray(keys) && keys.length === 0) return;
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -168,7 +182,10 @@ export async function dbGetAll<T = unknown>(store: string): Promise<T[]> {
   });
 }
 
-export async function dbGetAllKeys(store: string, range?: IDBKeyRange): Promise<IDBValidKey[]> {
+export async function dbGetAllKeys(
+  store: string,
+  range?: IDBKeyRange,
+): Promise<IDBValidKey[]> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(store, "readonly");

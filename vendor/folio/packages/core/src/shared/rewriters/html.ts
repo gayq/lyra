@@ -1,5 +1,5 @@
 import { ElementType, Parser } from "htmlparser2";
-import { ChildNode, DomHandler, Element, Comment } from "domhandler";
+import { ChildNode, ParentNode, DomHandler, Element, Comment } from "domhandler";
 import render from "dom-serializer";
 import { URLMeta, rewriteUrl } from "@rewriters/url";
 import { rewriteCss } from "@rewriters/css";
@@ -18,9 +18,6 @@ import {
 	JSON_parse,
 	JSON_stringify,
 	TextEncoder_encode,
-	Array_from,
-	String_fromCodePoint,
-	btoa,
 	_URL,
 } from "@/shared/snapshot";
 import { flagEnabled } from "..";
@@ -63,12 +60,24 @@ function isElementNode(node: ChildNode): node is Element {
 	);
 }
 
+class StreamingDomHandler extends DomHandler {
+	isPendingComment(node: ChildNode) {
+		return node.type === ElementType.Comment && this.lastNode === node;
+	}
+
+	release(node: ChildNode) {
+		if (this.lastNode === node) this.lastNode = null;
+		node.parent = node.prev = node.next = null;
+	}
+}
+
 export class IncrementalHtmlRewriter {
-	private readonly handler: DomHandler;
+	private readonly handler: StreamingDomHandler;
 	private readonly parser: Parser;
 	private readonly completedElements = new WeakSet<Element>();
-	private readonly emittedLengths = new WeakMap<ChildNode, number>();
-	private readonly rewrittenNodes = new WeakMap<ChildNode, string>();
+	private readonly closingTags = new WeakMap<Element, string>();
+	private readonly buffered: string[] | null;
+	private injected: boolean;
 	private ended = false;
 
 	constructor(
@@ -76,7 +85,11 @@ export class IncrementalHtmlRewriter {
 		private readonly meta: URLMeta,
 		private readonly htmlcontext: HtmlContext
 	) {
-		this.handler = new DomHandler(undefined, undefined, (element) => {
+		// Whole-document hooks must still see the complete original document.
+		this.buffered = [context.hooks.rewriter.html.pre, context.hooks.rewriter.html.post]
+			.some((hook) => Tap.getTappers(hook).length > 0) ? [] : null;
+		this.injected = !htmlcontext.loadScripts;
+		this.handler = new StreamingDomHandler(undefined, undefined, (element) => {
 			this.completedElements.add(element);
 		});
 		this.parser = new Parser(this.handler, {
@@ -86,17 +99,26 @@ export class IncrementalHtmlRewriter {
 
 	write(html: string) {
 		if (this.ended) {
-			throw new Error("IncrementalHtmlRewriter stream already ended");
+			throw new Error("html rewrite stream already ended... /ᐠ - ˕ -マ");
 		}
-
+		if (this.buffered) {
+			this.buffered.push(html);
+			return "";
+		}
 		this.parser.write(html);
-
 		return this.flush();
 	}
 
 	end(html = "") {
 		if (this.ended) {
 			return "";
+		}
+		if (this.buffered) {
+			this.ended = true;
+			this.buffered.push(html);
+			const source = this.buffered.join("");
+			this.buffered.length = 0;
+			return rewriteHtmlInner(source, this.context, this.meta, this.htmlcontext);
 		}
 
 		if (html) {
@@ -106,49 +128,64 @@ export class IncrementalHtmlRewriter {
 		this.parser.end();
 		this.ended = true;
 
-		return this.flush();
+		return this.flush() + this.inject();
 	}
 
-	private flush() {
+	private inject() {
+		if (this.injected) return "";
+		this.injected = true;
+		return this.context.interface.getInjectScripts(
+			this.meta, this.handler, this.htmlcontext,
+			(src) => new Element("script", { src, "folio-injected": "true" })
+		).map(serializeHtmlNode).join("");
+	}
+
+	private before(node: ChildNode) {
+		if (this.injected) return "";
+		if (isElementNode(node) && (node.name === "html" || node.name === "head")) return "";
+		if (!isElementNode(node) && (node.type !== ElementType.Text || !node.data.trim())) return "";
+		const scripts = this.inject();
+		return node.parent?.type === ElementType.Tag && node.parent.name === "html"
+			? `<head>${scripts}</head>` : scripts;
+	}
+
+	private flush(parent: ParentNode = this.handler.root): string {
 		let output = "";
-
-		for (const node of this.handler.root.childNodes) {
-			const rewritten = this.getAvailableOutput(node);
-			if (rewritten === null) {
-				break;
+		let consumed = 0;
+		for (const node of parent.children) {
+			if (this.handler.isPendingComment(node)) break;
+			if (isElementNode(node)) {
+				// Keep raw text and foreign subtrees intact for their existing rewriters.
+				if (["script", "style", "svg", "math"].includes(node.name)) {
+					if (!this.completedElements.has(node)) break;
+					output += this.before(node);
+					output += serializeHtmlNode(traverseParsedHtml(node, this.context, this.meta));
+				} else {
+					if (!this.closingTags.has(node)) {
+						output += this.before(node);
+						const shell = new Element(node.name, { ...node.attribs }, []);
+						shell.parent = node.parent;
+						const rewritten = traverseParsedHtml(shell, this.context, this.meta);
+						const serialized = serializeHtmlNode(rewritten);
+						const close = `</${node.name}>`;
+						const closing = serialized.endsWith(close) ? close : "";
+						this.closingTags.set(node, closing);
+						output += closing ? serialized.slice(0, -closing.length) : serialized;
+						if (node.name === "head") output += this.inject();
+					}
+					output += this.flush(node);
+					if (!this.completedElements.has(node)) break;
+					output += this.closingTags.get(node);
+				}
+			} else {
+				output += this.before(node) + serializeHtmlNode(node);
 			}
-
-			const emittedLength = this.emittedLengths.get(node) ?? 0;
-			if (rewritten.length > emittedLength) {
-				output += rewritten.slice(emittedLength);
-				this.emittedLengths.set(node, rewritten.length);
-			}
+			this.handler.release(node);
+			consumed++;
 		}
-
+		parent.children.splice(0, consumed);
+		if (parent.children[0]) parent.children[0].prev = null;
 		return output;
-	}
-
-	private getAvailableOutput(node: ChildNode) {
-		if (!isElementNode(node)) {
-			return serializeHtmlNode(node);
-		}
-
-		if (!this.completedElements.has(node)) {
-			return null;
-		}
-
-		let rewritten = this.rewrittenNodes.get(node);
-		if (rewritten === undefined) {
-			rewritten = rewriteHtmlInner(
-				node,
-				this.context,
-				this.meta,
-				this.htmlcontext
-			);
-			this.rewrittenNodes.set(node, rewritten);
-		}
-
-		return rewritten;
 	}
 }
 
@@ -357,6 +394,7 @@ function traverseParsedHtml(
 	if (node.attribs) {
 		for (const rule of htmlRules) {
 			for (const attr in rule) {
+				if (node.attribs[attr] === undefined) continue;
 				const sel = rule[attr.toLowerCase()];
 				if (typeof sel === "function") continue;
 
@@ -375,7 +413,7 @@ function traverseParsedHtml(
 			}
 		}
 		for (const [attr, value] of Object_entries(node.attribs)) {
-			if (eventAttributes.includes(attr)) {
+			if (attr.startsWith("on") && eventAttributes.includes(attr)) {
 				node.attribs[`folio-attr-${attr}`] = value;
 				node.attribs[attr] = rewriteJs(
 					value as string,

@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "preact/hooks";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from "preact/hooks";
 import {
   fetchGameData,
   resetGameCache,
@@ -8,7 +14,10 @@ import {
   type GameEntry,
 } from "../../features/games/games.ts";
 import { negativeMessage } from "../../core/runtime/messages.ts";
-import { hostFromUrl, recordGameMetric } from "../../core/media/gameDiagnostics.ts";
+import {
+  hostFromUrl,
+  recordGameMetric,
+} from "../../core/media/gameDiagnostics.ts";
 import { gamesViewSignal } from "../../core/ui/uiSignals.ts";
 import { svgIcon } from "../../core/ui/svgIcon.ts";
 import { app } from "../../core/runtime/app.ts";
@@ -80,10 +89,12 @@ export default function GamesCatalog({
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        source?: string;
-        games?: GameEntry[];
-      }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          source?: string;
+          games?: GameEntry[];
+        }>
+      ).detail;
       const selectedSource = getStoredGameSource();
       if (!detail?.games || detail.source !== selectedSource) {
         return;
@@ -134,7 +145,11 @@ export default function GamesCatalog({
       recordGameMetric(launchMetric);
 
       if (game.isExternal) {
-        const popup = window.open(game.gameUrl, "_blank", "noopener,noreferrer");
+        const popup = window.open(
+          game.gameUrl,
+          "_blank",
+          "noopener,noreferrer",
+        );
         if (!popup) {
           recordGameMetric({
             ...launchMetric,

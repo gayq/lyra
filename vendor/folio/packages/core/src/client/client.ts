@@ -41,7 +41,6 @@ import {
 	Reflect_construct,
 	Object_getOwnPropertyDescriptor,
 	Object_defineProperty,
-	Object_defineProperties,
 	_Map,
 } from "@/shared/snapshot";
 

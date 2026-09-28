@@ -31,13 +31,18 @@ function base64UrlEncode(value: unknown): string {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
 }
 
 function base64UrlDecode<T>(value: string): T {
   let input = value.replace(/-/g, "+").replace(/_/g, "/");
   while (input.length % 4) input += "=";
-  const bytes = Uint8Array.from(atob(input), (character) => character.charCodeAt(0));
+  const bytes = Uint8Array.from(atob(input), (character) =>
+    character.charCodeAt(0),
+  );
   return JSON.parse(new TextDecoder().decode(bytes)) as T;
 }
 
@@ -189,7 +194,10 @@ export class MochiTransport implements ProxyTransport {
     onmessage: (message: WebSocketDataType) => void,
     onclose: (code: number, reason: string) => void,
     onerror: (error: string) => void,
-  ): [(message: WebSocketDataType) => void, (code: number, reason: string) => void] {
+  ): [
+    (message: WebSocketDataType) => void,
+    (code: number, reason: string) => void,
+  ] {
     return this.fallback.connect(
       url,
       protocols,
@@ -244,7 +252,10 @@ export class MochiTransport implements ProxyTransport {
       redirect: "manual",
       ...(signal === undefined ? {} : { signal }),
     };
-    if (typeof ReadableStream !== "undefined" && body instanceof ReadableStream) {
+    if (
+      typeof ReadableStream !== "undefined" &&
+      body instanceof ReadableStream
+    ) {
       init.duplex = "half";
     }
 
@@ -252,7 +263,9 @@ export class MochiTransport implements ProxyTransport {
       const response = await fetch(requestUrl, init);
       const encodedMeta = response.headers.get("x-mochi-upstream-meta");
       if (!response.ok || !encodedMeta) {
-        throw new Error(negativeMessage(`mochi gateway failed with ${response.status}`));
+        throw new Error(
+          negativeMessage(`mochi gateway failed with ${response.status}`),
+        );
       }
       const meta = base64UrlDecode<MochiMeta>(encodedMeta);
       const rawHeaders = meta.raw_headers ?? meta.rawHeaders;
@@ -262,7 +275,9 @@ export class MochiTransport implements ProxyTransport {
         meta.status! > 599 ||
         !isRawHeaders(rawHeaders)
       ) {
-        throw new Error(negativeMessage("mochi returned invalid upstream metadata"));
+        throw new Error(
+          negativeMessage("mochi returned invalid upstream metadata"),
+        );
       }
       this.failures = 0;
       this.circuitOpenUntil = 0;

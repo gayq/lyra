@@ -8,9 +8,5 @@ try {
   importScripts("/b/rv/router.js");
   rivetRouter = self.$rivetRouter || null;
 } catch (error) {
-  console.error(
-    "failed to load rivet service-worker router:",
-    error,
-    NEGATIVE,
-  );
+  console.error("failed to load rivet service-worker router:", error, NEGATIVE);
 }

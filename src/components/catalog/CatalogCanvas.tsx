@@ -25,7 +25,14 @@ interface Props<T> {
 const MISSING_IMAGE_PATH_DATA =
   "M18.25 3C19.7688 3 21 4.23122 21 5.75V18.25C21 19.7688 19.7688 21 18.25 21H5.75C4.23122 21 3 19.7688 3 18.25V5.75C3 4.23122 4.23122 3 5.75 3H18.25ZM9.2373 13.2373C8.55392 12.5541 7.44608 12.5541 6.7627 13.2373L4.5 15.5V18.25C4.5 18.9404 5.05964 19.5 5.75 19.5H15.5L9.2373 13.2373ZM15 6.5C13.6193 6.5 12.5 7.61929 12.5 9C12.5 10.3807 13.6193 11.5 15 11.5C16.3807 11.5 17.5 10.3807 17.5 9C17.5 7.61929 16.3807 6.5 15 6.5Z";
 
-export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, loading, active }: Props<T>) {
+export default function CatalogCanvas<T>({
+  items,
+  getCard,
+  onSelect,
+  anime,
+  loading,
+  active,
+}: Props<T>) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
@@ -43,23 +50,33 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     const count = loading ? 18 : items.length;
     const images = imagesRef.current;
     const loadedAt = new WeakMap<HTMLImageElement, number>();
-    const cards = new Map<number, {
-      card: CanvasCard;
-      lines?: string[];
-      yearWidth?: number;
-      ratingWidth?: number;
-      painted?: { amount: number; opacity: number; ready: boolean };
-    }>();
-    const transitions = new Map<number, { from: number; to: number; start: number }>();
+    const cards = new Map<
+      number,
+      {
+        card: CanvasCard;
+        lines?: string[];
+        yearWidth?: number;
+        ratingWidth?: number;
+        painted?: { amount: number; opacity: number; ready: boolean };
+      }
+    >();
+    const transitions = new Map<
+      number,
+      { from: number; to: number; start: number }
+    >();
     const systemMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let reducedMotion = prefersReducedMotion();
     let controlDuration = motionDuration("control", canvas);
     let enterDuration = motionDuration("enter", canvas);
     let shimmerDuration = motionDuration("shimmer", canvas);
-    const connection = (navigator as Navigator & {
-      connection?: { saveData?: boolean; effectiveType?: string };
-    }).connection;
-    const lowBandwidth = connection?.saveData || /^(slow-2g|2g|3g)$/.test(connection?.effectiveType || "");
+    const connection = (
+      navigator as Navigator & {
+        connection?: { saveData?: boolean; effectiveType?: string };
+      }
+    ).connection;
+    const lowBandwidth =
+      connection?.saveData ||
+      /^(slow-2g|2g|3g)$/.test(connection?.effectiveType || "");
     let layoutWidth = host.clientWidth;
     let layout = canvasLayout(layoutWidth, count, anime);
     let offset = 0;
@@ -72,7 +89,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     let cardRadius = 0;
     let detailRadius = 0;
     const colors = new Map<string, string>();
-    const color = (name: string, fallback: string) => colors.get(name) || fallback;
+    const color = (name: string, fallback: string) =>
+      colors.get(name) || fallback;
 
     const schedule = () => {
       if (!disposed && !frame) frame = requestAnimationFrame(draw);
@@ -92,16 +110,22 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     const progress = (index: number, now: number, duration: number) => {
       const transition = transitions.get(index);
       if (!transition) return index === hovered ? 1 : 0;
-      const t = reducedMotion || duration <= 0 ? 1 : Math.min(1, (now - transition.start) / duration);
+      const t =
+        reducedMotion || duration <= 0
+          ? 1
+          : Math.min(1, (now - transition.start) / duration);
       return transition.from + (transition.to - transition.from) * cssEase(t);
     };
     const hover = (next: number) => {
       if (next === hovered) return;
       const now = performance.now();
       for (const index of [hovered, next]) {
-        if (index >= 0) transitions.set(index, {
-          from: progress(index, now, controlDuration), to: index === next ? 1 : 0, start: now,
-        });
+        if (index >= 0)
+          transitions.set(index, {
+            from: progress(index, now, controlDuration),
+            to: index === next ? 1 : 0,
+            start: now,
+          });
       }
       hovered = next;
       schedule();
@@ -113,7 +137,10 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         image.decoding = "async";
       }
       if (!image.onload && (!image.complete || !image.src)) {
-        image.onload = () => { loadedAt.set(image!, performance.now()); schedule(); };
+        image.onload = () => {
+          loadedAt.set(image!, performance.now());
+          schedule();
+        };
         image.onerror = () => {
           if (card.cover && url !== card.cover && image!.src !== card.cover) {
             image!.onerror = schedule;
@@ -140,21 +167,37 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         cards.clear();
         fullRedraw = true;
       }
-      if (host.style.height !== `${layout.height}px`) host.style.height = `${layout.height}px`;
-      const viewport = scroll instanceof HTMLElement
-        ? { top: scroll.getBoundingClientRect().top, height: scroll.clientHeight }
-        : { top: 0, height: window.innerHeight };
+      if (host.style.height !== `${layout.height}px`)
+        host.style.height = `${layout.height}px`;
+      const viewport =
+        scroll instanceof HTMLElement
+          ? {
+              top: scroll.getBoundingClientRect().top,
+              height: scroll.clientHeight,
+            }
+          : { top: 0, height: window.innerHeight };
       const hostTop = host.getBoundingClientRect().top;
-      const { offset: nextOffset, height } = canvasWindow(layout, viewport.top - hostTop, viewport.height);
+      const { offset: nextOffset, height } = canvasWindow(
+        layout,
+        viewport.top - hostTop,
+        viewport.height,
+      );
       if (nextOffset !== offset) fullRedraw = true;
       offset = nextOffset;
       if (canvas.style.top !== `${offset}px`) canvas.style.top = `${offset}px`;
-      if (canvas.style.height !== `${height}px`) canvas.style.height = `${height}px`;
+      if (canvas.style.height !== `${height}px`)
+        canvas.style.height = `${height}px`;
       const dpr = window.devicePixelRatio || 1;
       const bitmapWidth = Math.ceil(width * dpr);
       const bitmapHeight = Math.ceil(height * dpr);
-      if (canvas.width !== bitmapWidth) { canvas.width = bitmapWidth; fullRedraw = true; }
-      if (canvas.height !== bitmapHeight) { canvas.height = bitmapHeight; fullRedraw = true; }
+      if (canvas.width !== bitmapWidth) {
+        canvas.width = bitmapWidth;
+        fullRedraw = true;
+      }
+      if (canvas.height !== bitmapHeight) {
+        canvas.height = bitmapHeight;
+        fullRedraw = true;
+      }
       if (!height) return;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       if (styleDirty) {
@@ -166,9 +209,18 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         fontFamily = style.fontFamily;
         cardRadius = parseFloat(style.getPropertyValue("--radius-item"));
         detailRadius = parseFloat(style.getPropertyValue("--radius-detail"));
-        for (const name of ["--game-card-bg", "--skeleton-alt-from", "--skeleton-alt-via",
-          "--game-cover-brightness", "--game-no-cover-line", "--game-card-overlay",
-          "--game-info-text", "--color-green", "--color-yellow", "--color-red"]) {
+        for (const name of [
+          "--game-card-bg",
+          "--skeleton-alt-from",
+          "--skeleton-alt-via",
+          "--game-cover-brightness",
+          "--game-no-cover-line",
+          "--game-card-overlay",
+          "--game-info-text",
+          "--color-green",
+          "--color-yellow",
+          "--color-red",
+        ]) {
           colors.set(name, style.getPropertyValue(name).trim());
         }
         cards.clear();
@@ -179,13 +231,17 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
       const now = performance.now();
       let animating = false;
       const start = Math.floor(offset / layout.stride) * layout.columns;
-      const end = Math.min(count, Math.ceil((offset + height) / layout.stride) * layout.columns);
+      const end = Math.min(
+        count,
+        Math.ceil((offset + height) / layout.stride) * layout.columns,
+      );
       const used = new Set<string>();
       for (let index = start; index < end; index++) {
         const amount = progress(index, now, controlDuration);
         const transition = transitions.get(index);
         if (transition) {
-          if (!reducedMotion && now - transition.start < controlDuration) animating = true;
+          if (!reducedMotion && now - transition.start < controlDuration)
+            animating = true;
           else transitions.delete(index);
         }
         const x = (index % layout.columns) * (layout.cardWidth + layout.gap);
@@ -198,16 +254,32 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           cards.set(index, entry);
         }
         const card = entry?.card;
-        const url = card && (lowBandwidth && card.smallCover ? card.smallCover : card.cover);
+        const url =
+          card &&
+          (lowBandwidth && card.smallCover ? card.smallCover : card.cover);
         if (url) used.add(url);
         const image = card && url ? cover(card, url) : undefined;
         const ready = !!(image?.complete && image.naturalWidth);
-        const opacity = ready && !reducedMotion && enterDuration > 0
-          ? cssEase(Math.min(1, (now - (loadedAt.get(image!) ?? now - enterDuration)) / enterDuration)) : 1;
+        const opacity =
+          ready && !reducedMotion && enterDuration > 0
+            ? cssEase(
+                Math.min(
+                  1,
+                  (now - (loadedAt.get(image!) ?? now - enterDuration)) /
+                    enterDuration,
+                ),
+              )
+            : 1;
         if (opacity < 1) animating = true;
         const previous = entry?.painted;
-        if (!fullRedraw && !loading && previous?.amount === amount &&
-          previous.opacity === opacity && previous.ready === ready) continue;
+        if (
+          !fullRedraw &&
+          !loading &&
+          previous?.amount === amount &&
+          previous.opacity === opacity &&
+          previous.ready === ready
+        )
+          continue;
         if (entry) entry.painted = { amount, opacity, ready };
         if (!fullRedraw) ctx.clearRect(x, y, w, h);
         ctx.save();
@@ -224,7 +296,8 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           ctx.roundRect(x + 8, y + h - 22, w * 0.65, 8, detailRadius);
           ctx.fill();
           if (!reducedMotion && shimmerDuration > 0) {
-            const left = x + ((now % shimmerDuration) / shimmerDuration * 2 - 1) * w;
+            const left =
+              x + (((now % shimmerDuration) / shimmerDuration) * 2 - 1) * w;
             const shimmer = ctx.createLinearGradient(left, 0, left + w, 0);
             shimmer.addColorStop(0, "transparent");
             shimmer.addColorStop(0.5, color("--skeleton-alt-via", "#555"));
@@ -236,10 +309,16 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
         } else if (card && entry) {
           if (ready && image) {
             ctx.globalAlpha = opacity;
-            const scale = Math.max(w / image.naturalWidth, h / image.naturalHeight) * (1 + 0.05 * amount);
-            ctx.drawImage(image, x + (w - image.naturalWidth * scale) / 2,
+            const scale =
+              Math.max(w / image.naturalWidth, h / image.naturalHeight) *
+              (1 + 0.05 * amount);
+            ctx.drawImage(
+              image,
+              x + (w - image.naturalWidth * scale) / 2,
               y + (h - image.naturalHeight * scale) / 2,
-              image.naturalWidth * scale, image.naturalHeight * scale);
+              image.naturalWidth * scale,
+              image.naturalHeight * scale,
+            );
             const brightness = Number(color("--game-cover-brightness", "1"));
             ctx.fillStyle = `rgba(0,0,0,${Math.max(0, 1 - brightness) * (1 - amount)})`;
             ctx.fillRect(x, y, w, h);
@@ -281,8 +360,13 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
           const lines = entry.lines;
           const hasMeta = anime && (card.year || card.rating || card.adult);
           ctx.fillStyle = color("--game-info-text", "#f3f3f3");
-          lines.forEach((text, row) => ctx.fillText(text, x + 8,
-            y + h - 8 - (hasMeta ? 16 : 0) - (lines.length - row) * 14 + 2));
+          lines.forEach((text, row) =>
+            ctx.fillText(
+              text,
+              x + 8,
+              y + h - 8 - (hasMeta ? 16 : 0) - (lines.length - row) * 14 + 2,
+            ),
+          );
           if (hasMeta) {
             let left = x + 8;
             ctx.font = `400 10px ${fontFamily}`;
@@ -293,7 +377,14 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
             }
             if (card.rating) {
               const rating = `★ ${card.rating}`;
-              ctx.fillStyle = color(card.rating >= 8 ? "--color-green" : card.rating >= 6 ? "--color-yellow" : "--color-red", "#fff");
+              ctx.fillStyle = color(
+                card.rating >= 8
+                  ? "--color-green"
+                  : card.rating >= 6
+                    ? "--color-yellow"
+                    : "--color-red",
+                "#fff",
+              );
               ctx.fillText(rating, left, y + h - 18);
               left += (entry.ratingWidth ??= ctx.measureText(rating).width) + 6;
             }
@@ -327,7 +418,14 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     }
     const hit = (event: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      return loading ? -1 : canvasHit(layout, count, event.clientX - rect.left, event.clientY - rect.top + offset);
+      return loading
+        ? -1
+        : canvasHit(
+            layout,
+            count,
+            event.clientX - rect.left,
+            event.clientY - rect.top + offset,
+          );
     };
     const move = (event: MouseEvent) => {
       const next = hit(event);
@@ -341,10 +439,16 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     };
     const resize = new ResizeObserver(schedule);
     resize.observe(host);
-    const invalidateStyle = () => { styleDirty = true; schedule(); };
+    const invalidateStyle = () => {
+      styleDirty = true;
+      schedule();
+    };
     const theme = new MutationObserver(invalidateStyle);
     for (const node of [document.documentElement, document.body]) {
-      theme.observe(node, { attributes: true, attributeFilter: ["class", "style", "data-theme", "data-motion"] });
+      theme.observe(node, {
+        attributes: true,
+        attributeFilter: ["class", "style", "data-theme", "data-motion"],
+      });
     }
     scroll.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
@@ -371,7 +475,9 @@ export default function CatalogCanvas<T>({ items, getCard, onSelect, anime, load
     };
   }, [items, getCard, anime, loading, active]);
 
-  return <div ref={hostRef} class="catalog-canvas-area">
-    <canvas ref={canvasRef} class="catalog-canvas" />
-  </div>;
+  return (
+    <div ref={hostRef} class="catalog-canvas-area">
+      <canvas ref={canvasRef} class="catalog-canvas" />
+    </div>
+  );
 }

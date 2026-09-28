@@ -15,7 +15,10 @@ const sensitiveTerm = "(?:games?|anime|proxy|rivet|folio|lyra)";
 const sensitiveCssPatterns = [
   new RegExp(`[.#][_a-zA-Z][\\w-]*${sensitiveTerm}[\\w-]*`, "i"),
   new RegExp(`--[_a-zA-Z][\\w-]*${sensitiveTerm}[\\w-]*`, "i"),
-  new RegExp(`@(?:-webkit-)?keyframes\\s+[_a-zA-Z][\\w-]*${sensitiveTerm}[\\w-]*`, "i"),
+  new RegExp(
+    `@(?:-webkit-)?keyframes\\s+[_a-zA-Z][\\w-]*${sensitiveTerm}[\\w-]*`,
+    "i",
+  ),
 ];
 const forbiddenText = [
   "bare-mux-path",
@@ -90,7 +93,7 @@ function fail(message, values = []) {
 const packageMetadata = JSON.parse(
   await readFile(path.join(root, "package.json"), "utf8"),
 );
-if (packageMetadata.name !== "lyra" || packageMetadata.version !== "0.1.1") {
+if (packageMetadata.name !== "lyra" || packageMetadata.version !== "0.1.2") {
   fail("application metadata does not match the lyra release");
 }
 
@@ -124,14 +127,17 @@ if (sourceMaps.length > 0) {
 }
 
 const invalidAssetNames = distFiles
-  .filter((filePath) => [".css", ".js", ".mjs"].includes(path.extname(filePath)))
-  .map((filePath) => path.relative(distPath, filePath).replaceAll(path.sep, "/"))
+  .filter((filePath) =>
+    [".css", ".js", ".mjs"].includes(path.extname(filePath)),
+  )
+  .map((filePath) =>
+    path.relative(distPath, filePath).replaceAll(path.sep, "/"),
+  )
   .filter(
     (fileName) =>
       !new RegExp(
         `^assets/${buildMetadata.build}/[A-Za-z0-9_-]{12}\\.(?:css|js)$`,
-      ).test(fileName) &&
-      !/^b\/[a-f0-9]{10,12}\.m?js$/.test(fileName),
+      ).test(fileName) && !/^b\/[a-f0-9]{10,12}\.m?js$/.test(fileName),
   );
 if (invalidAssetNames.length > 0) {
   fail("production script or style names are not opaque", invalidAssetNames);
@@ -143,13 +149,17 @@ for (const filePath of distFiles) {
   const extension = path.extname(filePath).toLowerCase();
   if (extension === ".wasm") {
     const binary = await readFile(filePath);
-    if (["$folioerr", "$folio$setrealmfn"].some((hook) => binary.includes(hook))) {
+    if (
+      ["$folioerr", "$folio$setrealmfn"].some((hook) => binary.includes(hook))
+    ) {
       fail("production wasm contains legacy hook names");
     }
   }
   if (!textExtensions.has(extension)) continue;
   const source = await readFile(filePath, "utf8");
-  const relativePath = path.relative(distPath, filePath).replaceAll(path.sep, "/");
+  const relativePath = path
+    .relative(distPath, filePath)
+    .replaceAll(path.sep, "/");
 
   if (/sourceMappingURL\s*=/.test(source)) {
     leakedFiles.push(`${relativePath}:source-map-comment`);
@@ -164,7 +174,10 @@ for (const filePath of distFiles) {
     if (source.includes(text)) leakedFiles.push(`${relativePath}:${text}`);
   }
   for (const { label, pattern } of signalLimits) {
-    signalCounts.set(label, signalCounts.get(label) + (source.match(pattern)?.length ?? 0));
+    signalCounts.set(
+      label,
+      signalCounts.get(label) + (source.match(pattern)?.length ?? 0),
+    );
   }
 }
 if (leakedFiles.length > 0) {

@@ -203,8 +203,8 @@ function rewriteUrlInternal(
 			paramsInit.set(QP.initiatorOrigin, meta.origin.origin);
 		}
 
-		let paramstring = "";
-		if (paramsInit.toString()) paramstring = "?" + paramsInit.toString();
+		const params = paramsInit.toString();
+		const paramstring = params ? "?" + params : "";
 
 		return (
 			context.prefix.href +

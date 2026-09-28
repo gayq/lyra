@@ -7,13 +7,23 @@ interface CompiledRule {
   domainAnchor: boolean;
 }
 
-const compiledRules = new WeakMap<ExtensionState, {
-  dynamic: DNRRule[];
-  session: DNRRule[];
-  static: DNRRule[];
-  rules: CompiledRule[];
-}>();
-const actionPriority = { allow: 4, block: 3, upgradeScheme: 2, redirect: 1, modifyHeaders: 0 };
+const compiledRules = new WeakMap<
+  ExtensionState,
+  {
+    dynamic: DNRRule[];
+    session: DNRRule[];
+    static: DNRRule[];
+    rules: CompiledRule[];
+    hasResponseHeaders: boolean;
+  }
+>();
+const actionPriority = {
+  allow: 4,
+  block: 3,
+  upgradeScheme: 2,
+  redirect: 1,
+  modifyHeaders: 0,
+};
 
 export function recomputeStaticRules(ext: ExtensionState): void {
   ext.staticRules = [];
@@ -26,7 +36,8 @@ export function recomputeStaticRules(ext: ExtensionState): void {
 function compileRule(rule: DNRRule): CompiledRule {
   const condition = rule.condition;
   let pattern = condition.regexFilter ?? "";
-  const domainAnchor = !condition.regexFilter && Boolean(condition.urlFilter?.startsWith("||"));
+  const domainAnchor =
+    !condition.regexFilter && Boolean(condition.urlFilter?.startsWith("||"));
   if (condition.urlFilter) {
     let source = condition.urlFilter;
     let left = "";
@@ -42,14 +53,24 @@ function compileRule(rule: DNRRule): CompiledRule {
       right = "$";
       source = source.slice(0, -1);
     }
-    pattern = left + source.replace(/[.*+?^$(){}|[\]\\]/g, (char) => {
-      if (char === "*") return ".*";
-      if (char === "^") return "(?:[^a-zA-Z0-9_.%\\-]|$)";
-      return "\\" + char;
-    }) + right;
+    pattern =
+      left +
+      source.replace(/[.*+?^$(){}|[\]\\]/g, (char) => {
+        if (char === "*") return ".*";
+        if (char === "^") return "(?:[^a-zA-Z0-9_.%\\-]|$)";
+        return "\\" + char;
+      }) +
+      right;
   }
   try {
-    return { rule, domainAnchor, filter: new RegExp(pattern, condition.isUrlFilterCaseSensitive ? "" : "i") };
+    return {
+      rule,
+      domainAnchor,
+      filter: new RegExp(
+        pattern,
+        condition.isUrlFilterCaseSensitive ? "" : "i",
+      ),
+    };
   } catch {
     return { rule, domainAnchor, filter: null };
   }
@@ -57,33 +78,101 @@ function compileRule(rule: DNRRule): CompiledRule {
 
 function getRules(ext: ExtensionState): CompiledRule[] {
   const cached = compiledRules.get(ext);
-  if (cached?.dynamic === ext.dynamicRules && cached.session === ext.sessionRules && cached.static === ext.staticRules) {
+  if (
+    cached?.dynamic === ext.dynamicRules &&
+    cached.session === ext.sessionRules &&
+    cached.static === ext.staticRules
+  ) {
     return cached.rules;
   }
   const rules = [...ext.dynamicRules, ...ext.sessionRules, ...ext.staticRules]
-    .sort((a, b) => (b.priority ?? 1) - (a.priority ?? 1) || actionPriority[b.action.type] - actionPriority[a.action.type])
+    .sort(
+      (a, b) =>
+        (b.priority ?? 1) - (a.priority ?? 1) ||
+        actionPriority[b.action.type] - actionPriority[a.action.type],
+    )
     .map((rule) => ({ rule, filter: undefined, domainAnchor: false }));
-  compiledRules.set(ext, { dynamic: ext.dynamicRules, session: ext.sessionRules, static: ext.staticRules, rules });
+  compiledRules.set(ext, {
+    dynamic: ext.dynamicRules,
+    session: ext.sessionRules,
+    static: ext.staticRules,
+    rules,
+    hasResponseHeaders: rules.some(
+      ({ rule }) =>
+        rule.action.type === "modifyHeaders" &&
+        Boolean(rule.action.responseHeaders?.length),
+    ),
+  });
   return rules;
 }
 
-function matchesDomains(host: string, domains: string[] | undefined): boolean {
-  return Boolean(host && domains?.some((domain) => {
-    const normalized = domain.toLowerCase();
-    return host === normalized || host.endsWith("." + normalized);
-  }));
+export function hasDeclarativeNetRequestRules(
+  registry: RivetRegistry,
+  responseOnly = false,
+): boolean {
+  for (const ext of registry.extensions.values()) {
+    if (
+      !ext.enabled ||
+      !(
+        ext.dynamicRules.length ||
+        ext.sessionRules.length ||
+        ext.staticRules.length
+      )
+    )
+      continue;
+    if (!responseOnly) return true;
+    getRules(ext);
+    if (compiledRules.get(ext)!.hasResponseHeaders) return true;
+  }
+  return false;
 }
 
-function ruleMatches(compiled: CompiledRule, requestUrl: string, url: URL, initiatorHost: string, resourceType?: string): boolean {
+function matchesDomains(host: string, domains: string[] | undefined): boolean {
+  return Boolean(
+    host &&
+    domains?.some((domain) => {
+      const normalized = domain.toLowerCase();
+      return host === normalized || host.endsWith("." + normalized);
+    }),
+  );
+}
+
+function ruleMatches(
+  compiled: CompiledRule,
+  requestUrl: string,
+  url: URL,
+  initiatorHost: string,
+  resourceType?: string,
+): boolean {
   const condition = compiled.rule.condition;
-  if (condition.resourceTypes?.length && (!resourceType || !condition.resourceTypes.includes(resourceType))) return false;
-  if (resourceType && condition.excludedResourceTypes?.includes(resourceType)) return false;
-  if (condition.requestDomains?.length && !matchesDomains(url.hostname, condition.requestDomains)) return false;
-  if (matchesDomains(url.hostname, condition.excludedRequestDomains)) return false;
-  if (condition.initiatorDomains?.length && !matchesDomains(initiatorHost, condition.initiatorDomains)) return false;
-  if (matchesDomains(initiatorHost, condition.excludedInitiatorDomains)) return false;
-  if (compiled.filter === undefined) Object.assign(compiled, compileRule(compiled.rule));
-  return Boolean(compiled.filter?.test(compiled.domainAnchor ? url.host + url.pathname + url.search : requestUrl));
+  if (
+    condition.resourceTypes?.length &&
+    (!resourceType || !condition.resourceTypes.includes(resourceType))
+  )
+    return false;
+  if (resourceType && condition.excludedResourceTypes?.includes(resourceType))
+    return false;
+  if (
+    condition.requestDomains?.length &&
+    !matchesDomains(url.hostname, condition.requestDomains)
+  )
+    return false;
+  if (matchesDomains(url.hostname, condition.excludedRequestDomains))
+    return false;
+  if (
+    condition.initiatorDomains?.length &&
+    !matchesDomains(initiatorHost, condition.initiatorDomains)
+  )
+    return false;
+  if (matchesDomains(initiatorHost, condition.excludedInitiatorDomains))
+    return false;
+  if (compiled.filter === undefined)
+    Object.assign(compiled, compileRule(compiled.rule));
+  return Boolean(
+    compiled.filter?.test(
+      compiled.domainAnchor ? url.host + url.pathname + url.search : requestUrl,
+    ),
+  );
 }
 
 interface HeaderOperation {
@@ -101,30 +190,52 @@ function mergeHeaders(
   for (const candidate of operations ?? []) {
     if (!candidate || typeof candidate !== "object") continue;
     const op = candidate as HeaderOperation;
-    if (typeof op.header !== "string" || !["append", "set", "remove"].includes(op.operation)) continue;
+    if (
+      typeof op.header !== "string" ||
+      !["append", "set", "remove"].includes(op.operation)
+    )
+      continue;
     const name = op.header.toLowerCase();
     const previous = applied.get(name);
-    if (previous && (op.operation !== "append" || previous.operation === "remove" ||
-      (previous.operation === "set" && previous.extId !== extId))) continue;
+    if (
+      previous &&
+      (op.operation !== "append" ||
+        previous.operation === "remove" ||
+        (previous.operation === "set" && previous.extId !== extId))
+    )
+      continue;
     if (!previous) applied.set(name, { operation: op.operation, extId });
     target.push({ ...op });
   }
 }
 
-function getRedirectUrl(compiled: CompiledRule, requestUrl: string, url: URL): string | null {
+function getRedirectUrl(
+  compiled: CompiledRule,
+  requestUrl: string,
+  url: URL,
+): string | null {
   const { rule, filter } = compiled;
   const action = rule.action;
   let target = action.redirect?.url;
   if (action.type === "upgradeScheme") {
     if (url.protocol !== "http:" && url.protocol !== "ftp:") return null;
     target = requestUrl.replace(/^(?:http|ftp):/, "https:");
-  } else if (action.redirect?.regexSubstitution && rule.condition.regexFilter && filter) {
+  } else if (
+    action.redirect?.regexSubstitution &&
+    rule.condition.regexFilter &&
+    filter
+  ) {
     const match = filter.exec(requestUrl);
     if (match) {
-      const replacement = action.redirect.regexSubstitution.replace(/\\([0-9\\])/g, (_token, group: string) =>
-        group === "\\" ? "\\" : match[Number(group)] ?? "",
+      const replacement = action.redirect.regexSubstitution.replace(
+        /\\([0-9\\])/g,
+        (_token, group: string) =>
+          group === "\\" ? "\\" : (match[Number(group)] ?? ""),
       );
-      target = requestUrl.slice(0, match.index) + replacement + requestUrl.slice(match.index + match[0].length);
+      target =
+        requestUrl.slice(0, match.index) +
+        replacement +
+        requestUrl.slice(match.index + match[0].length);
     }
   }
   if (!target || target === requestUrl) return null;
@@ -140,7 +251,9 @@ export function checkDeclarativeNetRequest(
   requestUrl: string,
   initiatorUrl?: string,
   resourceType?: string,
+  responseOnly = false,
 ): DNRDecision | null {
+  if (!hasDeclarativeNetRequestRules(registry, responseOnly)) return null;
   let url: URL;
   try {
     url = new URL(requestUrl);
@@ -150,8 +263,7 @@ export function checkDeclarativeNetRequest(
   let initiatorHost = "";
   try {
     if (initiatorUrl) initiatorHost = new URL(initiatorUrl).hostname;
-  } catch {
-  }
+  } catch {}
   let redirect: { url: string; installedAt: number } | undefined;
   const headerRules: { ext: ExtensionState; rules: CompiledRule[] }[] = [];
   for (const ext of registry.extensions.values()) {
@@ -163,7 +275,8 @@ export function checkDeclarativeNetRequest(
       const { rule } = compiled;
       const action = rule.action;
       if (candidate && action.type !== "modifyHeaders") continue;
-      if (!ruleMatches(compiled, requestUrl, url, initiatorHost, resourceType)) continue;
+      if (!ruleMatches(compiled, requestUrl, url, initiatorHost, resourceType))
+        continue;
       if (action.type === "modifyHeaders") {
         if ((rule.priority ?? 1) > allowPriority) headers.push(compiled);
         continue;
@@ -177,7 +290,8 @@ export function checkDeclarativeNetRequest(
         const redirectUrl = getRedirectUrl(compiled, requestUrl, url);
         if (!redirectUrl) continue;
         candidate = true;
-        if (!redirect || ext.installedAt > redirect.installedAt) redirect = { url: redirectUrl, installedAt: ext.installedAt };
+        if (!redirect || ext.installedAt > redirect.installedAt)
+          redirect = { url: redirectUrl, installedAt: ext.installedAt };
       }
     }
     if (headers.length) headerRules.push({ ext, rules: headers });
@@ -186,14 +300,33 @@ export function checkDeclarativeNetRequest(
   if (!headerRules.length) return null;
   const headers: HeaderOperation[] = [];
   const responseHeaders: HeaderOperation[] = [];
-  const requestApplied = new Map<string, { operation: string; extId: string }>();
-  const responseApplied = new Map<string, { operation: string; extId: string }>();
+  const requestApplied = new Map<
+    string,
+    { operation: string; extId: string }
+  >();
+  const responseApplied = new Map<
+    string,
+    { operation: string; extId: string }
+  >();
   headerRules.sort((a, b) => b.ext.installedAt - a.ext.installedAt);
   for (const { ext, rules } of headerRules) {
     for (const { rule } of rules) {
-      mergeHeaders(headers, requestApplied, rule.action.requestHeaders, ext.id);
-      mergeHeaders(responseHeaders, responseApplied, rule.action.responseHeaders, ext.id);
+      if (!responseOnly)
+        mergeHeaders(
+          headers,
+          requestApplied,
+          rule.action.requestHeaders,
+          ext.id,
+        );
+      mergeHeaders(
+        responseHeaders,
+        responseApplied,
+        rule.action.responseHeaders,
+        ext.id,
+      );
     }
   }
-  return headers.length || responseHeaders.length ? { action: "modifyHeaders", headers, responseHeaders } : null;
+  return headers.length || responseHeaders.length
+    ? { action: "modifyHeaders", headers, responseHeaders }
+    : null;
 }

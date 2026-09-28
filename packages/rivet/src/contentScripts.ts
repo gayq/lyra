@@ -1,9 +1,18 @@
 import { installChromeApi } from "./chromeApi";
 import { readExtFileText } from "./fileStore";
-import { injectScript, injectStyle, type NativeDomOperations } from "./htmlInject";
+import {
+  injectScript,
+  injectStyle,
+  type NativeDomOperations,
+} from "./htmlInject";
 import { urlMatchesPatterns } from "./manifest";
 import type { ExtensionState, RivetRegistry } from "./registry";
-import type { ChromeManifestContentScript, ContentScriptAsset, ContentScriptRegistration, RivetHostBindings } from "./types";
+import type {
+  ChromeManifestContentScript,
+  ContentScriptAsset,
+  ContentScriptRegistration,
+  RivetHostBindings,
+} from "./types";
 
 function contentScriptAssetKey(extId: string, path: string): string {
   return `${extId}/${path.replace(/^\/+/, "")}`;
@@ -40,15 +49,28 @@ export async function preloadContentScriptAssets(
       if (typeof asset === "string") assets.add(asset);
     }
   }
-  for (const asset of assets) {
-    const key = contentScriptAssetKey(ext.id, asset);
-    if (registry.contentScriptAssets.has(key)) continue;
-    registry.contentScriptAssets.set(key, await readExtFileText(ext.id, asset.replace(/^\/+/, "")));
+  const pending = [...assets].filter(
+    (asset) =>
+      !registry.contentScriptAssets.has(contentScriptAssetKey(ext.id, asset)),
+  );
+  for (let offset = 0; offset < pending.length; offset += 8) {
+    await Promise.all(
+      pending.slice(offset, offset + 8).map(async (asset) => {
+        registry.contentScriptAssets.set(
+          contentScriptAssetKey(ext.id, asset),
+          await readExtFileText(ext.id, asset.replace(/^\/+/, "")),
+        );
+      }),
+    );
   }
 }
 
-export function registerContentScripts(ext: ExtensionState, registry: RivetRegistry): void {
-  const scripts: ChromeManifestContentScript[] = ext.manifest.content_scripts ?? [];
+export function registerContentScripts(
+  ext: ExtensionState,
+  registry: RivetRegistry,
+): void {
+  const scripts: ChromeManifestContentScript[] =
+    ext.manifest.content_scripts ?? [];
   for (const cs of scripts) {
     registry.contentScripts.push({
       extId: ext.id,
@@ -62,14 +84,20 @@ export function registerContentScripts(ext: ExtensionState, registry: RivetRegis
   }
 }
 
-export function unregisterContentScripts(extId: string, registry: RivetRegistry): void {
+export function unregisterContentScripts(
+  extId: string,
+  registry: RivetRegistry,
+): void {
   for (let i = registry.contentScripts.length - 1; i >= 0; i--) {
-    if (registry.contentScripts[i]?.extId === extId) registry.contentScripts.splice(i, 1);
+    if (registry.contentScripts[i]?.extId === extId)
+      registry.contentScripts.splice(i, 1);
   }
 }
 
 function generateDocumentId(): string {
-  return typeof crypto?.randomUUID === "function" ? crypto.randomUUID().replace(/-/g, "") : Math.random().toString(36).slice(2).padEnd(32, "0");
+  return typeof crypto?.randomUUID === "function"
+    ? crypto.randomUUID().replace(/-/g, "")
+    : Math.random().toString(36).slice(2).padEnd(32, "0");
 }
 
 interface ContentScriptDocumentContext {
@@ -104,7 +132,8 @@ export async function injectContentScripts(
     (cs) =>
       (isTopLevel || cs.allFrames) &&
       urlMatchesPatterns(url, cs.matches, cs.excludeMatches) &&
-      (!cs.includeGlobs?.length || cs.includeGlobs.some((glob) => urlMatchesGlob(url, glob))) &&
+      (!cs.includeGlobs?.length ||
+        cs.includeGlobs.some((glob) => urlMatchesGlob(url, glob))) &&
       !cs.excludeGlobs?.some((glob) => urlMatchesGlob(url, glob)),
   );
   if (!matching.length) return;
@@ -127,7 +156,10 @@ export async function injectContentScripts(
     });
   };
 
-  const byRunAt: Record<ContentScriptRegistration["runAt"], ContentScriptRegistration[]> = {
+  const byRunAt: Record<
+    ContentScriptRegistration["runAt"],
+    ContentScriptRegistration[]
+  > = {
     document_start: [],
     document_end: [],
     document_idle: [],
@@ -143,27 +175,32 @@ export async function injectContentScripts(
       ensureChromeApi(cs.extId);
       for (const asset of cs.css) {
         const cached = cachedContentScriptAsset(cs.extId, asset, registry);
-        const css = cached === undefined
-          ? await readContentScriptAsset(cs.extId, asset)
-          : cached;
+        const css =
+          cached === undefined
+            ? await readContentScriptAsset(cs.extId, asset)
+            : cached;
         if (css) injectStyle(win, css, nativeDom);
       }
       for (const asset of cs.js) {
         const cached = cachedContentScriptAsset(cs.extId, asset, registry);
-        const code = cached === undefined
-          ? await readContentScriptAsset(cs.extId, asset)
-          : cached;
+        const code =
+          cached === undefined
+            ? await readContentScriptAsset(cs.extId, asset)
+            : cached;
         if (code) injectScript(win, code, nativeDom);
       }
     }
   };
 
   const injectCachedGroup = (group: ContentScriptRegistration[]): boolean => {
-    if (group.some((cs) =>
-      [...cs.css, ...cs.js].some(
-        (asset) => cachedContentScriptAsset(cs.extId, asset, registry) === undefined,
-      ),
-    )) {
+    if (
+      group.some((cs) =>
+        [...cs.css, ...cs.js].some(
+          (asset) =>
+            cachedContentScriptAsset(cs.extId, asset, registry) === undefined,
+        ),
+      )
+    ) {
       return false;
     }
     for (const cs of group) {
@@ -184,10 +221,18 @@ export async function injectContentScripts(
     await injectGroup(byRunAt.document_start);
   }
   if (byRunAt.document_end.length) {
-    win.addEventListener("DOMContentLoaded", () => void injectGroup(byRunAt.document_end), { once: true });
+    win.addEventListener(
+      "DOMContentLoaded",
+      () => void injectGroup(byRunAt.document_end),
+      { once: true },
+    );
   }
   if (byRunAt.document_idle.length) {
-    win.addEventListener("load", () => void injectGroup(byRunAt.document_idle), { once: true });
+    win.addEventListener(
+      "load",
+      () => void injectGroup(byRunAt.document_idle),
+      { once: true },
+    );
   }
 }
 
@@ -203,9 +248,14 @@ function urlMatchesGlob(url: string, glob: string): boolean {
   }
 }
 
-async function readContentScriptAsset(extId: string, asset: ContentScriptAsset): Promise<string | null> {
-  if (typeof asset === "string") return readExtFileText(extId, asset.replace(/^\//, ""));
+async function readContentScriptAsset(
+  extId: string,
+  asset: ContentScriptAsset,
+): Promise<string | null> {
+  if (typeof asset === "string")
+    return readExtFileText(extId, asset.replace(/^\//, ""));
   if (typeof asset.code === "string") return asset.code;
-  if (typeof asset.file === "string") return readExtFileText(extId, asset.file.replace(/^\//, ""));
+  if (typeof asset.file === "string")
+    return readExtFileText(extId, asset.file.replace(/^\//, ""));
   return null;
 }

@@ -7,10 +7,7 @@ function withoutEmotionalEnding(message: string): string {
 
   while (changed) {
     changed = false;
-    for (const ending of [
-      NEGATIVE,
-      POSITIVE,
-    ]) {
+    for (const ending of [NEGATIVE, POSITIVE]) {
       if (!base.endsWith(ending)) continue;
       base = base.slice(0, -ending.length).trimEnd();
       changed = true;

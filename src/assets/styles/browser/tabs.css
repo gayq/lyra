@@ -22,7 +22,10 @@
   margin: 0 -2px 5px 0;
   flex-shrink: 0;
   box-sizing: border-box;
-  transition: background-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
+  transition:
+    background-color var(--motion-control) var(--motion-ease),
+    color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 #add-tab-btn svg {
@@ -66,7 +69,10 @@
   flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
-  transition: background-color var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
+  transition:
+    background-color var(--motion-control) var(--motion-ease),
+    color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 .tab:hover {
@@ -102,7 +108,12 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--skeleton-from) 0%, var(--skeleton-via) 50%, var(--skeleton-to) 100%);
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-from) 0%,
+    var(--skeleton-via) 50%,
+    var(--skeleton-to) 100%
+  );
   transform: translate3d(100%, 0, 0);
   animation: skeleton-transform var(--motion-shimmer) infinite linear;
   will-change: transform;
@@ -126,12 +137,16 @@
   overflow: hidden;
   font-size: 13px;
   flex-grow: 1;
-  mask-image: linear-gradient(to right,
-      black calc(100% - 44px),
-      transparent 100%);
-  -webkit-mask-image: linear-gradient(to right,
-      black calc(100% - 44px),
-      transparent 100%);
+  mask-image: linear-gradient(
+    to right,
+    black calc(100% - 44px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    black calc(100% - 44px),
+    transparent 100%
+  );
   transition:
     mask-image var(--motion-control) var(--motion-ease),
     -webkit-mask-image var(--motion-control) var(--motion-ease);
@@ -159,7 +174,11 @@
   padding: 0;
   opacity: 0;
   border-radius: 50%;
-  transition: opacity var(--motion-control) var(--motion-ease), color var(--motion-control) var(--motion-ease), background-color var(--motion-control) var(--motion-ease), transform var(--motion-control) var(--motion-ease);
+  transition:
+    opacity var(--motion-control) var(--motion-ease),
+    color var(--motion-control) var(--motion-ease),
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
 }
 
 .tab-close svg {

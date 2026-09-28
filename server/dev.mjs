@@ -34,7 +34,10 @@ const dnsService = createDnsService();
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
 const DEV_MOCHI_PORT = Number.parseInt(process.env.MOCHI_PORT || "4002", 10);
 const DEV_ISAO_PORT = Number.parseInt(process.env.ISAO_PORT || "4003", 10);
-const DEV_CLOUDSYNC_PORT = Number.parseInt(process.env.CLOUDSYNC_PORT || "4005", 10);
+const DEV_CLOUDSYNC_PORT = Number.parseInt(
+  process.env.CLOUDSYNC_PORT || "4005",
+  10,
+);
 const packageJsonPath = path.join(ROOT, "package.json");
 const srcPath = path.join(ROOT, "src");
 const publicPath = path.join(ROOT, "public");
@@ -122,7 +125,7 @@ const bundleSourceById = {
   1: path.join(baremuxPath, "index.js"),
   2: path.join(publicPath, "b/fl/folio.js"),
   5: path.join(publicPath, "b/fl/controller.api.js"),
-  6: path.join(publicPath, "b/fl/folio-utils.js")
+  6: path.join(publicPath, "b/fl/folio-utils.js"),
 };
 
 const bundleById = {};
@@ -287,7 +290,13 @@ function serveBundleAll(_req, res) {
   res.send(fallbackBundle);
 }
 
-async function transformHtml(vite, req, res, filePath, url = req.originalUrl || req.url) {
+async function transformHtml(
+  vite,
+  req,
+  res,
+  filePath,
+  url = req.originalUrl || req.url,
+) {
   res.setHeader("Cache-Control", NO_STORE_CC);
   try {
     let html = fs.readFileSync(filePath, "utf-8");
@@ -338,13 +347,15 @@ app.get("/b", (req, res) => {
 });
 app.get("/api/search/suggestions", serveSearchSuggestions);
 app.all("/api/dns", async (req, res) => {
-  const response = await dnsService.handle(new Request(new URL(req.originalUrl, "http://localhost"), {
-    method: req.method,
-    headers: {
-      "x-rivet-dns": req.get("x-rivet-dns") || "",
-      "sec-fetch-site": req.get("sec-fetch-site") || "",
-    },
-  }));
+  const response = await dnsService.handle(
+    new Request(new URL(req.originalUrl, "http://localhost"), {
+      method: req.method,
+      headers: {
+        "x-rivet-dns": req.get("x-rivet-dns") || "",
+        "sec-fetch-site": req.get("sec-fetch-site") || "",
+      },
+    }),
+  );
   response.headers.forEach((value, name) => res.setHeader(name, value));
   res.status(response.status).send(await response.text());
 });
@@ -404,7 +415,13 @@ app.get("/s", (req, res) => {
 });
 
 app.get("/stream/anime", (req, res) => {
-  transformHtml(vite, req, res, path.join(srcPath, "player.html"), "/stream/anime");
+  transformHtml(
+    vite,
+    req,
+    res,
+    path.join(srcPath, "player.html"),
+    "/stream/anime",
+  );
 });
 
 app.get("/", (req, res) => {
@@ -429,7 +446,13 @@ const ALL_DEV_SERVICES = [
     requiresEphemeralSecrets: true,
     port: Number.parseInt(process.env.TURN_PORT || "3478", 10),
     command: ["docker", "compose", "-f", "services/turn/compose.yml", "up"],
-    shutdownCommand: ["docker", "compose", "-f", "services/turn/compose.yml", "down"],
+    shutdownCommand: [
+      "docker",
+      "compose",
+      "-f",
+      "services/turn/compose.yml",
+      "down",
+    ],
   },
   {
     name: "nuru",
@@ -527,14 +550,17 @@ function colorize(status) {
 }
 
 function printStatus() {
-  if (statusLineCount > 0) process.stdout.write(`\x1b[${statusLineCount}A\x1b[0J`);
+  if (statusLineCount > 0)
+    process.stdout.write(`\x1b[${statusLineCount}A\x1b[0J`);
 
   const lines = ["", "services:"];
   if (DEV_SERVICES.length === 0) {
     lines.push(" autostart ~ \x1b[33mdisabled\x1b[0m");
   } else {
     for (const svc of DEV_SERVICES) {
-      lines.push(` ${svc.name.padEnd(9)} ~ ${colorize(serviceStatus[svc.name])}`);
+      lines.push(
+        ` ${svc.name.padEnd(9)} ~ ${colorize(serviceStatus[svc.name])}`,
+      );
     }
   }
   lines.push("");
@@ -613,7 +639,9 @@ async function spawnServices() {
     if (portOccupied) {
       setServiceStatus(
         svc.name,
-        svc.requiresEphemeralSecrets ? SERVICE_STATE.ERROR : SERVICE_STATE.EXTERNAL,
+        svc.requiresEphemeralSecrets
+          ? SERVICE_STATE.ERROR
+          : SERVICE_STATE.EXTERNAL,
         svc.requiresEphemeralSecrets
           ? "port is occupied by a stale service"
           : undefined,
@@ -678,7 +706,7 @@ function watchServiceOutput(svc, child) {
       for await (const chunk of stream) {
         const text = decoder.decode(chunk, { stream: true });
         markReady(text);
-        if (showLogs || isError && /error|panic|failed/i.test(text)) {
+        if (showLogs || (isError && /error|panic|failed/i.test(text))) {
           process.stderr.write(`[${svc.name}] ${text}`);
         }
       }
@@ -757,7 +785,7 @@ cleanupOnExit = () => {
 };
 
 server.listen(PORT, () => {
-  console.log(``)
+  console.log(``);
   console.log(positiveMessage(`dev server listening on ${PORT}`));
   spawnServices();
 });

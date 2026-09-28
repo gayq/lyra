@@ -8,9 +8,29 @@ const FOLIO_STORE = "state";
 const FOLIO_COOKIE_KEY = "cookies";
 const FOLIO_CHANNEL = "__folio_controller_channel";
 const IDB_REGISTRY_KEY = "lyra-sync-idb-names";
-const MAX_SITE_RECORD_BYTES = 1024 * 1024;
 
 const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
+const LOCAL_ONLY_DATABASES = new Set(["uBlock0CacheStorage"]);
+
+const LOCAL_STORAGE_PREFIXES = [
+  "lyra-game-cache-",
+  "lyra-anime-feed-entries-",
+  "lyra-anime-search-entries-",
+  "lyra-anime-episode-count-",
+];
+const LOCAL_STORAGE_KEYS = new Set([
+  "lyraVersion",
+  "lyraVersionStamp",
+  "lyraUpdateTarget",
+  "lyraUpdateAttempt",
+]);
+
+export function isLocalOnlySyncStorageKey(name: string): boolean {
+  return (
+    LOCAL_STORAGE_KEYS.has(name) ||
+    LOCAL_STORAGE_PREFIXES.some((prefix) => name.startsWith(prefix))
+  );
+}
 
 const LOCAL_ONLY_KEYS = new Set([
   "auth_user",
@@ -114,9 +134,7 @@ interface SyncCookie {
 }
 
 export interface SyncSnapshot {
-  schemaVersion:
-    | typeof LEGACY_SYNC_SCHEMA_VERSION
-    | typeof SYNC_SCHEMA_VERSION;
+  schemaVersion: typeof LEGACY_SYNC_SCHEMA_VERSION | typeof SYNC_SCHEMA_VERSION;
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
   cookies: SyncCookie[];
@@ -200,7 +218,9 @@ export function isSensitiveSyncName(name: string): boolean {
   ) {
     return true;
   }
-  return normalizedParts(originalLeaf).some((part) => SENSITIVE_PARTS.has(part));
+  return normalizedParts(originalLeaf).some((part) =>
+    SENSITIVE_PARTS.has(part),
+  );
 }
 
 function isSiteStorageName(name: string): boolean {
@@ -217,9 +237,7 @@ function isSiteDatabaseName(name: string): boolean {
 
 function allowsSensitiveDatabase(name: string): boolean {
   return (
-    name === FOLIO_DB ||
-    name === "rivet_extensions" ||
-    isSiteDatabaseName(name)
+    name === FOLIO_DB || name === "rivet_extensions" || isSiteDatabaseName(name)
   );
 }
 
@@ -228,8 +246,9 @@ export function canSyncIndexedDBStore(
   storeName: string,
 ): boolean {
   return (
-    databaseName !== "rivet_extensions" ||
-    !LOCAL_ONLY_RIVET_STORES.has(storeName)
+    !LOCAL_ONLY_DATABASES.has(databaseName) &&
+    (databaseName !== "rivet_extensions" ||
+      !LOCAL_ONLY_RIVET_STORES.has(storeName))
   );
 }
 
@@ -275,9 +294,7 @@ function looksLikeJwt(value: string): boolean {
     parts.length === 3 &&
     parts[0]!.startsWith("eyJ") &&
     parts[1]!.startsWith("eyJ") &&
-    parts.every(
-      (part) => part.length >= 8 && /^[a-zA-Z0-9_-]+$/.test(part),
-    )
+    parts.every((part) => part.length >= 8 && /^[a-zA-Z0-9_-]+$/.test(part))
   );
 }
 
@@ -324,24 +341,20 @@ function containsSensitiveJson(
     return value.some((entry) => containsSensitiveJson(entry, seen));
   }
   for (const [key, entry] of Object.entries(value)) {
-    if (isSensitiveSyncName(key) || containsSensitiveJson(entry, seen)) return true;
+    if (isSensitiveSyncName(key) || containsSensitiveJson(entry, seen))
+      return true;
   }
   return false;
 }
 
-function isSensitiveSyncText(
-  value: string,
-  inspectJson = true,
-): boolean {
+function isSensitiveSyncText(value: string, inspectJson = true): boolean {
   if (containsCredentialText(value)) return true;
   if (!inspectJson || value.length > 1024 * 1024) return false;
   const trimmed = value.trim();
-  if (
-    !(
-      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-      (trimmed.startsWith("[") && trimmed.endsWith("]"))
-    )
-  ) {
+  if (!(
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  )) {
     return false;
   }
   try {
@@ -353,8 +366,9 @@ function isSensitiveSyncText(
 
 export function canSyncStorageValue(name: string, value: string): boolean {
   return (
-    isSiteStorageName(name) ||
-    (!isSensitiveSyncName(name) && !isSensitiveSyncText(value))
+    !isLocalOnlySyncStorageKey(name) &&
+    (isSiteStorageName(name) ||
+      (!isSensitiveSyncName(name) && !isSensitiveSyncText(value)))
   );
 }
 
@@ -418,7 +432,8 @@ async function containsSensitiveTextValue(
   }
   if (Array.isArray(value) || value instanceof Set) {
     for (const entry of value) {
-      if (await containsSensitiveTextValue(entry, inspectNames, seen)) return true;
+      if (await containsSensitiveTextValue(entry, inspectNames, seen))
+        return true;
     }
     return false;
   }
@@ -530,7 +545,8 @@ async function encodeValue(
   if (value === undefined) return { type: "undefined" };
   if (typeof value === "boolean") return { type: "boolean", value };
   if (typeof value === "string") return { type: "string", value };
-  if (typeof value === "bigint") return { type: "bigint", value: String(value) };
+  if (typeof value === "bigint")
+    return { type: "bigint", value: String(value) };
   if (typeof value === "number") {
     const encoded = Number.isNaN(value)
       ? "nan"
@@ -573,7 +589,8 @@ async function encodeValue(
     };
   }
   if (ArrayBuffer.isView(value)) {
-    const name = value instanceof DataView ? "DataView" : value.constructor.name;
+    const name =
+      value instanceof DataView ? "DataView" : value.constructor.name;
     const length = "length" in value ? Number(value.length) : value.byteLength;
     return {
       type: "typed_array",
@@ -658,11 +675,7 @@ function encodeBrowserValue(
   value: unknown,
   allowSensitive = false,
 ): Promise<EncodedValue> {
-  return encodeValue(
-    value,
-    { ids: new WeakMap(), nextId: 1 },
-    allowSensitive,
-  );
+  return encodeValue(value, { ids: new WeakMap(), nextId: 1 }, allowSensitive);
 }
 
 function decodeValue(
@@ -726,10 +739,7 @@ function decodeValue(
       const value = new Map<unknown, unknown>();
       references.set(encoded.id, value);
       for (const [key, entry] of encoded.value) {
-        value.set(
-          decodeValue(key, references),
-          decodeValue(entry, references),
-        );
+        value.set(decodeValue(key, references), decodeValue(entry, references));
       }
       return value;
     }
@@ -748,7 +758,10 @@ function decodeValue(
       return value;
     }
     case "typed_array": {
-      const buffer = decodeValue(encoded.value.buffer, references) as ArrayBuffer;
+      const buffer = decodeValue(
+        encoded.value.buffer,
+        references,
+      ) as ArrayBuffer;
       const value = typedArray(
         encoded.value.name,
         buffer,
@@ -759,9 +772,12 @@ function decodeValue(
       return value;
     }
     case "blob": {
-      const value = new Blob([bytesToArrayBuffer(base64ToBytes(encoded.value.bytes))], {
-        type: encoded.value.mediaType,
-      });
+      const value = new Blob(
+        [bytesToArrayBuffer(base64ToBytes(encoded.value.bytes))],
+        {
+          type: encoded.value.mediaType,
+        },
+      );
       references.set(encoded.id, value);
       return value;
     }
@@ -769,7 +785,9 @@ function decodeValue(
       const bytes = base64ToBytes(encoded.value.bytes);
       const value =
         typeof File === "undefined"
-          ? new Blob([bytesToArrayBuffer(bytes)], { type: encoded.value.mediaType })
+          ? new Blob([bytesToArrayBuffer(bytes)], {
+              type: encoded.value.mediaType,
+            })
           : new File([bytesToArrayBuffer(bytes)], encoded.value.name, {
               type: encoded.value.mediaType,
               lastModified: encoded.value.lastModified,
@@ -811,7 +829,9 @@ function exportCookies(cookieHeader: string): Record<string, string> {
     if (!isSensitiveSyncText(value)) cookies[name] = value;
   }
   return Object.fromEntries(
-    Object.entries(cookies).sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(cookies).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
   );
 }
 
@@ -820,7 +840,8 @@ const COOKIE_VALUE_PATTERN = /^[\x21-\x7e]*$/;
 const COOKIE_DOMAIN_PATTERN = /^\.?[a-zA-Z0-9.-]+$/;
 
 function cookieStore(): CookieStoreLike | null {
-  const store = (globalThis as unknown as { cookieStore?: unknown }).cookieStore;
+  const store = (globalThis as unknown as { cookieStore?: unknown })
+    .cookieStore;
   if (
     typeof store !== "object" ||
     store === null ||
@@ -857,7 +878,9 @@ function validCookie(cookie: SyncCookie): boolean {
     cookie.path.length > 1024 ||
     /[;\x00-\x1f\x7f]/.test(cookie.path) ||
     (cookie.expires !== null &&
-      (!Number.isFinite(cookie.expires) || cookie.expires < 0 || cookie.expires > 8.64e15)) ||
+      (!Number.isFinite(cookie.expires) ||
+        cookie.expires < 0 ||
+        cookie.expires > 8.64e15)) ||
     !["strict", "lax", "none"].includes(cookie.sameSite) ||
     (cookie.sameSite === "none" && !cookie.secure) ||
     (cookie.partitioned && !cookie.secure)
@@ -916,21 +939,28 @@ async function exportBrowserCookies(): Promise<SyncCookie[]> {
         ?.protocol === "https:";
     const cookies: SyncCookie[] = [];
     for (const entry of await store.getAll()) {
-      if (typeof entry.name !== "string" || typeof entry.value !== "string") continue;
-      const sameSite = ["strict", "lax", "none"].includes(String(entry.sameSite))
+      if (typeof entry.name !== "string" || typeof entry.value !== "string")
+        continue;
+      const sameSite = ["strict", "lax", "none"].includes(
+        String(entry.sameSite),
+      )
         ? (entry.sameSite as SyncSameSite)
         : "lax";
       const cookie: SyncCookie = {
         name: entry.name,
         value: entry.value,
-        domain: typeof entry.domain === "string" && entry.domain ? entry.domain : null,
+        domain:
+          typeof entry.domain === "string" && entry.domain
+            ? entry.domain
+            : null,
         path: typeof entry.path === "string" && entry.path ? entry.path : "/",
         expires:
           typeof entry.expires === "number" && Number.isFinite(entry.expires)
             ? entry.expires
             : null,
         sameSite,
-        secure: typeof entry.secure === "boolean" ? entry.secure : secureContext,
+        secure:
+          typeof entry.secure === "boolean" ? entry.secure : secureContext,
         partitioned: entry.partitioned === true,
       };
       if (validCookie(cookie)) cookies.push(cookie);
@@ -952,7 +982,11 @@ function parseFolioCookies(value: unknown): Record<string, FolioCookie> {
   if (typeof value !== "string") return {};
   try {
     const parsed = JSON.parse(value);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
       return {};
     }
     const cookies: Record<string, FolioCookie> = {};
@@ -973,16 +1007,13 @@ function parseFolioCookies(value: unknown): Record<string, FolioCookie> {
         cookie.value.length > 4096 ||
         Object.keys(cookie).length > 32 ||
         ["domain", "path", "sameSite"].some(
-          (field) =>
-            field in cookie && typeof cookie[field] !== "string",
+          (field) => field in cookie && typeof cookie[field] !== "string",
         ) ||
         ["hostOnly", "secure", "httpOnly", "partitioned"].some(
-          (field) =>
-            field in cookie && typeof cookie[field] !== "boolean",
+          (field) => field in cookie && typeof cookie[field] !== "boolean",
         ) ||
         ["expires", "maxAge"].some(
-          (field) =>
-            field in cookie && typeof cookie[field] !== "number",
+          (field) => field in cookie && typeof cookie[field] !== "number",
         ) ||
         (typeof cookie.domain === "string" && cookie.domain.length > 253) ||
         (typeof cookie.path === "string" &&
@@ -1078,8 +1109,10 @@ function mergeFolioCookieState(
 function transactionDone(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(syncError("indexeddb transaction aborted"));
-    transaction.onerror = () => reject(syncError("indexeddb transaction failed"));
+    transaction.onabort = () =>
+      reject(syncError("indexeddb transaction aborted"));
+    transaction.onerror = () =>
+      reject(syncError("indexeddb transaction failed"));
   });
 }
 
@@ -1108,8 +1141,7 @@ function saveDatabaseNames(names: Iterable<string>): void {
     const safe = [...new Set(names)]
       .filter(
         (name) =>
-          name &&
-          (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
+          name && (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
       )
       .sort();
     globalThis.localStorage?.setItem(IDB_REGISTRY_KEY, JSON.stringify(safe));
@@ -1117,10 +1149,7 @@ function saveDatabaseNames(names: Iterable<string>): void {
 }
 
 export function rememberIndexedDBName(name: string): void {
-  if (
-    !name ||
-    (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))
-  ) {
+  if (!name || (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))) {
     return;
   }
   const names = registeredDatabaseNames();
@@ -1142,6 +1171,7 @@ async function databaseNames(factory: IDBFactory): Promise<string[]> {
         (name): name is string =>
           typeof name === "string" &&
           name.length > 0 &&
+          !LOCAL_ONLY_DATABASES.has(name) &&
           (allowsSensitiveDatabase(name) || !isSensitiveSyncName(name)),
       )
       .sort();
@@ -1151,6 +1181,7 @@ async function databaseNames(factory: IDBFactory): Promise<string[]> {
 
   const names: string[] = [];
   for (const name of [...registeredDatabaseNames()].sort()) {
+    if (LOCAL_ONLY_DATABASES.has(name)) continue;
     try {
       const database = await openExistingDatabase(factory, name);
       database.close();
@@ -1169,7 +1200,8 @@ function openExistingDatabase(
     request.onupgradeneeded = () => request.transaction?.abort();
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(syncError("indexeddb database open failed"));
-    request.onblocked = () => reject(syncError("indexeddb database open blocked"));
+    request.onblocked = () =>
+      reject(syncError("indexeddb database open blocked"));
   });
 }
 
@@ -1177,7 +1209,9 @@ function keyPath(value: string | string[] | null): KeyPath {
   return Array.isArray(value) ? [...value] : value;
 }
 
-async function readRawRecords(store: IDBObjectStore): Promise<Array<{ key: IDBValidKey; value: unknown }>> {
+async function readRawRecords(
+  store: IDBObjectStore,
+): Promise<Array<{ key: IDBValidKey; value: unknown }>> {
   return new Promise((resolve, reject) => {
     const records: Array<{ key: IDBValidKey; value: unknown }> = [];
     const request = store.openCursor();
@@ -1272,13 +1306,6 @@ async function encodeRecord(
     ) {
       return null;
     }
-    if (
-      isSiteDatabaseName(databaseName) &&
-      new TextEncoder().encode(JSON.stringify(record)).byteLength >
-        MAX_SITE_RECORD_BYTES
-    ) {
-      return null;
-    }
     return record;
   } catch {
     return null;
@@ -1334,10 +1361,11 @@ export async function exportSyncSnapshot(): Promise<SyncSnapshot> {
     databaseNames(factory),
     exportBrowserCookies(),
   ]);
-  const databases = await mapConcurrent(names, 4, async (name) => [
-    name,
-    await exportDatabase(factory, name),
-  ] as const);
+  const databases = await mapConcurrent(
+    names,
+    4,
+    async (name) => [name, await exportDatabase(factory, name)] as const,
+  );
   const indexedDB = Object.fromEntries(databases);
   return {
     schemaVersion: SYNC_SCHEMA_VERSION,
@@ -1429,12 +1457,13 @@ function validEncodedValue(
         (entry) =>
           Array.isArray(entry) &&
           entry.length === 2 &&
-          (allowSensitive || !(
-            isRecord(entry[0]) &&
-            entry[0].type === "string" &&
-            typeof entry[0].value === "string" &&
-            isSensitiveSyncName(entry[0].value)
-          )) &&
+          (allowSensitive ||
+            !(
+              isRecord(entry[0]) &&
+              entry[0].type === "string" &&
+              typeof entry[0].value === "string" &&
+              isSensitiveSyncName(entry[0].value)
+            )) &&
           validEncodedValue(entry[0], ids, allowSensitive) &&
           validEncodedValue(entry[1], ids, allowSensitive),
       )
@@ -1474,10 +1503,9 @@ function validEncodedValue(
 function isSyncSnapshot(value: unknown): value is SyncSnapshot {
   if (
     !isRecord(value) ||
-    ![
-      LEGACY_SYNC_SCHEMA_VERSION,
-      SYNC_SCHEMA_VERSION,
-    ].includes(value.schemaVersion as 2 | 3) ||
+    ![LEGACY_SYNC_SCHEMA_VERSION, SYNC_SCHEMA_VERSION].includes(
+      value.schemaVersion as 2 | 3,
+    ) ||
     Object.keys(value).length !== 5
   ) {
     return false;
@@ -1490,8 +1518,8 @@ function isSyncSnapshot(value: unknown): value is SyncSnapshot {
       Object.entries(entries).some(
         ([key, entry]) =>
           typeof entry !== "string" ||
-          (!includeSensitive || !isSiteStorageName(key)) &&
-            (isSensitiveSyncName(key) || isSensitiveSyncText(entry)),
+          ((!includeSensitive || !isSiteStorageName(key)) &&
+            (isSensitiveSyncName(key) || isSensitiveSyncText(entry))),
       )
     ) {
       return false;
@@ -1499,7 +1527,6 @@ function isSyncSnapshot(value: unknown): value is SyncSnapshot {
   }
   if (
     !Array.isArray(value.cookies) ||
-    value.cookies.length > 1024 ||
     value.cookies.some((entry) => {
       if (!isRecord(entry)) return true;
       const cookie = entry as unknown as SyncCookie;
@@ -1582,6 +1609,7 @@ function replaceStorage(
     if (key !== null) currentKeys.push(key);
   }
   for (const key of currentKeys) {
+    if (isLocalOnlySyncStorageKey(key)) continue;
     const current = storage.getItem(key);
     const replaceSensitive = includeSensitive && isSiteStorageName(key);
     if (
@@ -1594,6 +1622,7 @@ function replaceStorage(
     }
   }
   for (const [key, value] of Object.entries(remote)) {
+    if (isLocalOnlySyncStorageKey(key)) continue;
     storage.setItem(key, value);
   }
 }
@@ -1722,8 +1751,10 @@ function openNewDatabase(
       rememberIndexedDBName(name);
       resolve(request.result);
     };
-    request.onerror = () => reject(syncError("indexeddb database creation failed"));
-    request.onblocked = () => reject(syncError("indexeddb database creation blocked"));
+    request.onerror = () =>
+      reject(syncError("indexeddb database creation failed"));
+    request.onblocked = () =>
+      reject(syncError("indexeddb database creation blocked"));
   });
 }
 
@@ -1735,8 +1766,7 @@ async function reconcileDatabase(
   includeSensitive: boolean,
 ): Promise<IDBDatabase> {
   if (!exists) return openNewDatabase(factory, name, snapshot);
-  const allowSensitive =
-    includeSensitive && allowsSensitiveDatabase(name);
+  const allowSensitive = includeSensitive && allowsSensitiveDatabase(name);
   let database = await openExistingDatabase(factory, name);
   const syncStores = Array.from(database.objectStoreNames).filter(
     (storeName) => allowSensitive || !isSensitiveSyncName(storeName),
@@ -1785,8 +1815,10 @@ async function reconcileDatabase(
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(syncError("indexeddb schema restore failed"));
-    request.onblocked = () => reject(syncError("indexeddb schema restore blocked"));
+    request.onerror = () =>
+      reject(syncError("indexeddb schema restore failed"));
+    request.onblocked = () =>
+      reject(syncError("indexeddb schema restore blocked"));
   });
   return database;
 }
@@ -1828,7 +1860,9 @@ async function replaceRecords(
       value: decodeBrowserValue(record.value),
     })),
   );
-  const remoteByKey = new Map(remoteRecords.map((record) => [record.keyId, record]));
+  const remoteByKey = new Map(
+    remoteRecords.map((record) => [record.keyId, record]),
+  );
   for (const localRecord of localRecords) {
     const encodedKey = await encodeBrowserValue(
       localRecord.key,
@@ -1860,8 +1894,12 @@ async function replaceRecords(
 
   let folioUpdatedAt: number | null = null;
   if (databaseName === FOLIO_DB && storeName === FOLIO_STORE) {
-    const remote = remoteRecords.find((record) => record.key === FOLIO_COOKIE_KEY);
-    const local = localRecords.find((record) => record.key === FOLIO_COOKIE_KEY);
+    const remote = remoteRecords.find(
+      (record) => record.key === FOLIO_COOKIE_KEY,
+    );
+    const local = localRecords.find(
+      (record) => record.key === FOLIO_COOKIE_KEY,
+    );
     if (remote) {
       remote.value = mergeFolioCookieState(
         remote.value,
@@ -1891,8 +1929,10 @@ function deleteDatabase(factory: IDBFactory, name: string): Promise<void> {
       forgetIndexedDBName(name);
       resolve();
     };
-    request.onerror = () => reject(syncError("indexeddb database deletion failed"));
-    request.onblocked = () => reject(syncError("indexeddb database deletion blocked"));
+    request.onerror = () =>
+      reject(syncError("indexeddb database deletion failed"));
+    request.onblocked = () =>
+      reject(syncError("indexeddb database deletion blocked"));
   });
 }
 
@@ -1904,8 +1944,7 @@ async function restoreIndexedDB(
   if (!factory) throw syncError("indexeddb is unavailable");
   const currentNames = await databaseNames(factory);
   for (const name of currentNames) {
-    const replaceSensitive =
-      includeSensitive && allowsSensitiveDatabase(name);
+    const replaceSensitive = includeSensitive && allowsSensitiveDatabase(name);
     if (
       (replaceSensitive || !isSensitiveSyncName(name)) &&
       !hasOwn(remote, name)
@@ -1916,6 +1955,7 @@ async function restoreIndexedDB(
 
   let folioUpdatedAt: number | null = null;
   for (const [databaseName, databaseSnapshot] of Object.entries(remote)) {
+    if (LOCAL_ONLY_DATABASES.has(databaseName)) continue;
     const database = await reconcileDatabase(
       factory,
       databaseName,
@@ -1970,8 +2010,14 @@ function legacyStoreSchema(
   return { keyPath: null, autoIncrement: true };
 }
 
-async function normalizeLegacySnapshot(value: unknown): Promise<SyncSnapshot | null> {
-  if (!isRecord(value) || !isRecord(value.localStorage) || !isRecord(value.indexedDB)) {
+async function normalizeLegacySnapshot(
+  value: unknown,
+): Promise<SyncSnapshot | null> {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.localStorage) ||
+    !isRecord(value.indexedDB)
+  ) {
     return null;
   }
   if (
@@ -2022,7 +2068,9 @@ async function normalizeLegacySnapshot(value: unknown): Promise<SyncSnapshot | n
   }
 
   const indexedDB: Record<string, SyncDatabase> = {};
-  for (const [databaseName, legacyDatabase] of Object.entries(value.indexedDB)) {
+  for (const [databaseName, legacyDatabase] of Object.entries(
+    value.indexedDB,
+  )) {
     const allowSensitive = allowsSensitiveDatabase(databaseName);
     if (
       (!allowSensitive && isSensitiveSyncName(databaseName)) ||

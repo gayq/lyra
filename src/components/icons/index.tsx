@@ -1,9 +1,6 @@
 import IconBase from "./IconBase";
 import type { JSX } from "preact";
-import {
-  ICON_PATHS,
-  type CanonicalIconName,
-} from "./paths";
+import { ICON_PATHS, type CanonicalIconName } from "./paths";
 import type { IconProps } from "./IconBase";
 
 type IconComponent = (props: IconProps) => JSX.Element;
@@ -36,7 +33,6 @@ export const IconSettingsGear4 = makeIcon("IconSettingsGear4");
 export const IconGhost = makeIcon("IconGhost");
 export const IconHeart = makeIcon("IconHeart");
 export const IconHomeOpen = makeIcon("IconHomeOpen");
-export const IconImageAltText = makeIcon("IconImageAltText");
 export const IconChainLink4 = makeIcon("IconChainLink4");
 export const IconMagnifyingGlass2 = makeIcon("IconMagnifyingGlass2");
 export const IconAudio = makeIcon("IconAudio");

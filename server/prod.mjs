@@ -58,7 +58,13 @@ const libcurlPath = path.join(
 );
 
 const MOCHI_PROXY_TIMEOUT_MS = 70_000;
-const MOCHI_PROXY_PATHS = ["/!!/", "/!!raw/", "/!!folio/", "/!cover!/", "/stream/"];
+const MOCHI_PROXY_PATHS = [
+  "/!!/",
+  "/!!raw/",
+  "/!!folio/",
+  "/!cover!/",
+  "/stream/",
+];
 const MOCHI_ORIGIN = (() => {
   try {
     return new URL(
@@ -73,7 +79,10 @@ const API_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const HOST_CORES = Math.max(1, availableParallelism());
 const HOST_MEMORY_BYTES = Math.max(256 * 1024 * 1024, totalmem());
 const API_LIMIT_MAX = HOST_CORES * 250;
-const API_LIMIT_MAX_CLIENTS = Math.max(2_000, Math.floor(HOST_MEMORY_BYTES / (1024 * 1024)) * 8);
+const API_LIMIT_MAX_CLIENTS = Math.max(
+  2_000,
+  Math.floor(HOST_MEMORY_BYTES / (1024 * 1024)) * 8,
+);
 const apiHits = new Map();
 const searchSuggestionService = createSearchSuggestionService();
 const dnsService = createDnsService();
@@ -176,11 +185,18 @@ function baseHeaders(cacheControl, extra = {}) {
 }
 
 function contentType(filePath) {
-  return MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
+  return (
+    MIME_TYPES[path.extname(filePath).toLowerCase()] ||
+    "application/octet-stream"
+  );
 }
 
 function safeJoin(root, pathname, prefix = "") {
-  if (prefix && pathname !== prefix.slice(0, -1) && !pathname.startsWith(prefix)) {
+  if (
+    prefix &&
+    pathname !== prefix.slice(0, -1) &&
+    !pathname.startsWith(prefix)
+  ) {
     return null;
   }
 
@@ -196,7 +212,10 @@ function safeJoin(root, pathname, prefix = "") {
 
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(resolvedRoot, rel);
-  if (resolved !== resolvedRoot && !resolved.startsWith(`${resolvedRoot}${path.sep}`)) {
+  if (
+    resolved !== resolvedRoot &&
+    !resolved.startsWith(`${resolvedRoot}${path.sep}`)
+  ) {
     return null;
   }
   return resolved;
@@ -240,7 +259,8 @@ function isNotModified(req, file) {
 
 async function serveFile(req, filePath, cacheControl, options = {}) {
   const accept = req.headers.get("accept-encoding") || "";
-  const canPrecompress = options.precompressed !== false && COMPRESSIBLE.test(filePath);
+  const canPrecompress =
+    options.precompressed !== false && COMPRESSIBLE.test(filePath);
   let file;
   let encoding;
 
@@ -292,9 +312,10 @@ async function serveDistFile(req, pathname) {
   const filePath = safeJoin(distPath, pathname);
   if (!filePath) return null;
   return serveFile(req, filePath, distCacheControl(pathname), {
-    headers: req.headers.get("service-worker") === "script"
-      ? { "Service-Worker-Allowed": "/f" }
-      : undefined,
+    headers:
+      req.headers.get("service-worker") === "script"
+        ? { "Service-Worker-Allowed": "/f" }
+        : undefined,
   });
 }
 
@@ -318,12 +339,19 @@ function healthResponse(status = 200) {
 }
 
 function probeEturnal() {
-  if (!Number.isInteger(TURN_HEALTH_PORT) || TURN_HEALTH_PORT < 1 || TURN_HEALTH_PORT > 65_535) {
+  if (
+    !Number.isInteger(TURN_HEALTH_PORT) ||
+    TURN_HEALTH_PORT < 1 ||
+    TURN_HEALTH_PORT > 65_535
+  ) {
     return Promise.resolve(false);
   }
 
   return new Promise((resolve) => {
-    const socket = net.createConnection({ host: TURN_HEALTH_HOST, port: TURN_HEALTH_PORT });
+    const socket = net.createConnection({
+      host: TURN_HEALTH_HOST,
+      port: TURN_HEALTH_PORT,
+    });
     let settled = false;
     const finish = (healthy) => {
       if (settled) return;
@@ -341,7 +369,8 @@ function probeEturnal() {
 
 function getClientIp(req, server) {
   const peer = server.requestIP(req)?.address || "";
-  const loopback = peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
+  const loopback =
+    peer === "127.0.0.1" || peer === "::1" || peer === "::ffff:127.0.0.1";
   if (loopback) {
     const real = req.headers.get("x-real-ip");
     if (real) return real.trim();
@@ -376,7 +405,9 @@ function rateLimitApi(req, server) {
   return jsonResponse(failure.body, failure.status, {
     "RateLimit-Limit": String(API_LIMIT_MAX),
     "RateLimit-Remaining": "0",
-    "RateLimit-Reset": String(Math.ceil((state.start + API_LIMIT_WINDOW_MS) / 1000)),
+    "RateLimit-Reset": String(
+      Math.ceil((state.start + API_LIMIT_WINDOW_MS) / 1000),
+    ),
   });
 }
 
@@ -405,9 +436,27 @@ async function routeStatic(req, pathname) {
     if (response) return response;
   }
   return (
-    (await serveMounted(req, pathname, "/bmux/", baremuxPath, REVALIDATE_CACHE_CONTROL)) ||
-    (await serveMounted(req, pathname, "/epoxy/", epoxyPath, REVALIDATE_CACHE_CONTROL)) ||
-    (await serveMounted(req, pathname, "/libcurl/", libcurlPath, REVALIDATE_CACHE_CONTROL)) ||
+    (await serveMounted(
+      req,
+      pathname,
+      "/bmux/",
+      baremuxPath,
+      REVALIDATE_CACHE_CONTROL,
+    )) ||
+    (await serveMounted(
+      req,
+      pathname,
+      "/epoxy/",
+      epoxyPath,
+      REVALIDATE_CACHE_CONTROL,
+    )) ||
+    (await serveMounted(
+      req,
+      pathname,
+      "/libcurl/",
+      libcurlPath,
+      REVALIDATE_CACHE_CONTROL,
+    )) ||
     (await serveDistFile(req, pathname)) ||
     (await serveMounted(
       req,
@@ -468,7 +517,8 @@ async function proxyToMochi(req) {
     const response = await fetch(upstreamUrl, {
       method: req.method,
       headers,
-      body: req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
+      body:
+        req.method === "GET" || req.method === "HEAD" ? undefined : req.body,
       redirect: "manual",
       signal: controller.signal,
     });
@@ -594,7 +644,9 @@ async function appFetch(req, server) {
   }
 
   if (pathname === "/api/search/suggestions" && method === "GET") {
-    const query = normalizeSearchSuggestionQuery(url.searchParams.get("q") || "");
+    const query = normalizeSearchSuggestionQuery(
+      url.searchParams.get("q") || "",
+    );
     if (!query) {
       return jsonResponse({
         query: "",
@@ -654,10 +706,15 @@ async function appFetch(req, server) {
   }
 
   return (
-    (await serveFile(req, path.join(distPath, "404.html"), NO_STORE_CACHE_CONTROL, {
-      status: 404,
-      type: "text/html; charset=utf-8",
-    })) ||
+    (await serveFile(
+      req,
+      path.join(distPath, "404.html"),
+      NO_STORE_CACHE_CONTROL,
+      {
+        status: 404,
+        type: "text/html; charset=utf-8",
+      },
+    )) ||
     new Response(negativeMessage("not found"), {
       status: 404,
       headers: baseHeaders(NO_STORE_CACHE_CONTROL, {

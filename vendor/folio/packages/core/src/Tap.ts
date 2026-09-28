@@ -11,7 +11,9 @@ type Callback<T extends Description> = (
 ) => void | Promise<void>;
 
 export type TapOrder = {
+	/** Run before these plugins. */
 	before?: readonly string[];
+	/** Run after these plugins. */
 	after?: readonly string[];
 };
 
@@ -167,6 +169,6 @@ export class Tap {
 
 	static getTappers<T extends Description>(hook: T): Plugin[] {
 		const internal = hook as unknown as InternalHookDescription;
-		return internal.tap.callbacks[internal.key].map((c) => c.plugin);
+		return (internal.tap.callbacks[internal.key] ?? []).map((c) => c.plugin);
 	}
 }

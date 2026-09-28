@@ -1,7 +1,11 @@
 import { EventHub } from "./eventHub";
 import { matchPattern } from "./manifest";
 import { NEGATIVE } from "./messages";
-import type { ChromeManifest, ContentScriptRegistration, DNRRule } from "./types";
+import type {
+  ChromeManifest,
+  ContentScriptRegistration,
+  DNRRule,
+} from "./types";
 
 export type WebRequestEventName =
   | "onBeforeRequest"
@@ -50,7 +54,12 @@ interface WebRequestListener {
   extId: string;
   event: WebRequestEventName;
   listener: (details: WebRequestDetails) => unknown;
-  filter: { urls?: string[]; types?: string[]; tabId?: number; windowId?: number };
+  filter: {
+    urls?: string[];
+    types?: string[];
+    tabId?: number;
+    windowId?: number;
+  };
 }
 
 export interface PortRecord {
@@ -229,16 +238,40 @@ export interface ExtensionState {
   popupEvents: RealmEvents | null;
 }
 
+export function setExtensionIcon(
+  ext: ExtensionState,
+  url: string | null,
+): void {
+  if (ext.iconUrl === url) return;
+  if (ext.iconUrl?.startsWith("blob:")) URL.revokeObjectURL(ext.iconUrl);
+  ext.iconUrl = url;
+}
+
 export class RivetRegistry {
   readonly extensions = new Map<string, ExtensionState>();
   readonly contentScripts: ContentScriptRegistration[] = [];
   readonly contentScriptAssets = new Map<string, string | null>();
-  private readonly webRequestListeners: WebRequestListener[] = [];
-  private readonly webRequestListenerWaiters = new Map<string, Set<() => void>>();
+  private readonly webRequestListeners = new Map<
+    WebRequestEventName,
+    WebRequestListener[]
+  >();
+  private readonly webRequestListenerWaiters = new Map<
+    string,
+    Set<() => void>
+  >();
   private readonly webRequestBehaviorVersions = new Map<string, number>();
-  private readonly webRequestBehaviorWaiters = new Map<string, Set<() => void>>();
+  private readonly webRequestBehaviorWaiters = new Map<
+    string,
+    Set<() => void>
+  >();
 
-  createExtensionState(id: string, manifest: ChromeManifest, enabled: boolean, installedAt: number, filename: string): ExtensionState {
+  createExtensionState(
+    id: string,
+    manifest: ChromeManifest,
+    enabled: boolean,
+    installedAt: number,
+    filename: string,
+  ): ExtensionState {
     const hasBackground = Boolean(
       manifest.background?.service_worker ||
       manifest.background?.page ||
@@ -277,7 +310,10 @@ export class RivetRegistry {
       bookmarks: new Map(),
       history: new Map(),
       downloads: new Map(),
-      grantedPermissions: new Set([...(manifest.permissions ?? []), ...(manifest.host_permissions ?? [])]),
+      grantedPermissions: new Set([
+        ...(manifest.permissions ?? []),
+        ...(manifest.host_permissions ?? []),
+      ]),
       nextBookmarkId: 1,
       nextDownloadId: 1,
       alarms: new Map(),
@@ -302,6 +338,7 @@ export class RivetRegistry {
     for (const alarm of ext.alarms.values()) clearTimeout(alarm.timer);
     if (ext.background?.kind === "worker") ext.background.worker?.terminate();
     if (ext.background?.kind === "frame") ext.background.frame?.remove();
+    setExtensionIcon(ext, null);
     this.removeWebRequestListeners(id);
     for (const key of this.contentScriptAssets.keys()) {
       if (key.startsWith(`${id}/`)) this.contentScriptAssets.delete(key);
@@ -315,8 +352,15 @@ export class RivetRegistry {
     listener: (details: WebRequestDetails) => unknown,
     filter: WebRequestListener["filter"] = {},
   ): void {
-    if (this.webRequestListeners.some((entry) => entry.extId === extId && entry.event === event && entry.listener === listener)) return;
-    this.webRequestListeners.push({ extId, event, listener, filter });
+    const listeners = this.webRequestListeners.get(event) ?? [];
+    if (
+      listeners.some(
+        (entry) => entry.extId === extId && entry.listener === listener,
+      )
+    )
+      return;
+    listeners.push({ extId, event, listener, filter });
+    this.webRequestListeners.set(event, listeners);
     const waiterKey = `${extId}:${event}`;
     const waiters = this.webRequestListenerWaiters.get(waiterKey);
     if (waiters) {
@@ -325,24 +369,53 @@ export class RivetRegistry {
     }
   }
 
-  removeWebRequestListener(extId: string, event: WebRequestEventName, listener: (details: WebRequestDetails) => unknown): void {
-    const index = this.webRequestListeners.findIndex(
-      (entry) => entry.extId === extId && entry.event === event && entry.listener === listener,
+  removeWebRequestListener(
+    extId: string,
+    event: WebRequestEventName,
+    listener: (details: WebRequestDetails) => unknown,
+  ): void {
+    const listeners = this.webRequestListeners.get(event);
+    if (!listeners) return;
+    const index = listeners.findIndex(
+      (entry) => entry.extId === extId && entry.listener === listener,
     );
-    if (index !== -1) this.webRequestListeners.splice(index, 1);
+    if (index !== -1) listeners.splice(index, 1);
+    if (!listeners.length) this.webRequestListeners.delete(event);
   }
 
-  hasWebRequestListener(extId: string, event: WebRequestEventName, listener?: (details: WebRequestDetails) => unknown): boolean {
-    return this.webRequestListeners.some(
-      (entry) => entry.extId === extId && entry.event === event && (!listener || entry.listener === listener),
+  hasWebRequestListener(
+    extId: string,
+    event: WebRequestEventName,
+    listener?: (details: WebRequestDetails) => unknown,
+  ): boolean {
+    return (
+      this.webRequestListeners
+        .get(event)
+        ?.some(
+          (entry) =>
+            entry.extId === extId && (!listener || entry.listener === listener),
+        ) ?? false
     );
   }
 
-  async waitForWebRequestListener(extId: string, event: WebRequestEventName, timeoutMs: number): Promise<boolean> {
+  hasWebRequestListeners(event: WebRequestEventName): boolean {
+    return (
+      this.webRequestListeners
+        .get(event)
+        ?.some((entry) => this.extensions.get(entry.extId)?.enabled) ?? false
+    );
+  }
+
+  async waitForWebRequestListener(
+    extId: string,
+    event: WebRequestEventName,
+    timeoutMs: number,
+  ): Promise<boolean> {
     if (this.hasWebRequestListener(extId, event)) return true;
     const waiterKey = `${extId}:${event}`;
     return new Promise((resolve) => {
-      const waiters = this.webRequestListenerWaiters.get(waiterKey) ?? new Set<() => void>();
+      const waiters =
+        this.webRequestListenerWaiters.get(waiterKey) ?? new Set<() => void>();
       this.webRequestListenerWaiters.set(waiterKey, waiters);
       let settled = false;
       const finish = (registered: boolean) => {
@@ -350,7 +423,8 @@ export class RivetRegistry {
         settled = true;
         clearTimeout(timer);
         waiters.delete(onRegistered);
-        if (waiters.size === 0) this.webRequestListenerWaiters.delete(waiterKey);
+        if (waiters.size === 0)
+          this.webRequestListenerWaiters.delete(waiterKey);
         resolve(registered);
       };
       const onRegistered = () => finish(true);
@@ -361,8 +435,10 @@ export class RivetRegistry {
   }
 
   removeWebRequestListeners(extId: string): void {
-    for (let i = this.webRequestListeners.length - 1; i >= 0; i--) {
-      if (this.webRequestListeners[i]?.extId === extId) this.webRequestListeners.splice(i, 1);
+    for (const [event, listeners] of this.webRequestListeners) {
+      const remaining = listeners.filter((entry) => entry.extId !== extId);
+      if (remaining.length) this.webRequestListeners.set(event, remaining);
+      else this.webRequestListeners.delete(event);
     }
   }
 
@@ -371,17 +447,25 @@ export class RivetRegistry {
   }
 
   notifyWebRequestBehaviorChanged(extId: string): void {
-    this.webRequestBehaviorVersions.set(extId, this.getWebRequestBehaviorVersion(extId) + 1);
+    this.webRequestBehaviorVersions.set(
+      extId,
+      this.getWebRequestBehaviorVersion(extId) + 1,
+    );
     const waiters = this.webRequestBehaviorWaiters.get(extId);
     if (!waiters) return;
     this.webRequestBehaviorWaiters.delete(extId);
     for (const resolve of waiters) resolve();
   }
 
-  async waitForWebRequestBehaviorChange(extId: string, sinceVersion: number, timeoutMs: number): Promise<boolean> {
+  async waitForWebRequestBehaviorChange(
+    extId: string,
+    sinceVersion: number,
+    timeoutMs: number,
+  ): Promise<boolean> {
     if (this.getWebRequestBehaviorVersion(extId) > sinceVersion) return true;
     return new Promise((resolve) => {
-      const waiters = this.webRequestBehaviorWaiters.get(extId) ?? new Set<() => void>();
+      const waiters =
+        this.webRequestBehaviorWaiters.get(extId) ?? new Set<() => void>();
       this.webRequestBehaviorWaiters.set(extId, waiters);
       let settled = false;
       const finish = (changed: boolean) => {
@@ -399,34 +483,62 @@ export class RivetRegistry {
     });
   }
 
-  async dispatchWebRequest(event: WebRequestEventName, details: WebRequestDetails): Promise<WebRequestResult | null> {
+  async dispatchWebRequest(
+    event: WebRequestEventName,
+    details: WebRequestDetails,
+  ): Promise<WebRequestResult | null> {
     let merged: WebRequestResult | null = null;
-    for (const entry of [...this.webRequestListeners]) {
-      if (entry.event !== event || !this.extensions.get(entry.extId)?.enabled) continue;
+    const listeners = this.webRequestListeners.get(event);
+    if (!listeners?.length) return null;
+    for (const entry of [...listeners]) {
+      if (!this.extensions.get(entry.extId)?.enabled) continue;
       const { filter } = entry;
-      if (filter.tabId !== undefined && filter.tabId !== details.tabId) continue;
-      if (filter.windowId !== undefined && filter.windowId !== details.windowId) continue;
-      if (filter.types?.length && !filter.types.includes(details.type)) continue;
-      if (filter.urls?.length && !filter.urls.some((pattern) => matchPattern(pattern, details.url))) continue;
+      if (filter.tabId !== undefined && filter.tabId !== details.tabId)
+        continue;
+      if (filter.windowId !== undefined && filter.windowId !== details.windowId)
+        continue;
+      if (filter.types?.length && !filter.types.includes(details.type))
+        continue;
+      if (
+        filter.urls?.length &&
+        !filter.urls.some((pattern) => matchPattern(pattern, details.url))
+      )
+        continue;
       try {
-        let timer: number | undefined;
-        const result = await Promise.race([
-          Promise.resolve().then(() => entry.listener(details)),
-          new Promise<undefined>((resolve) => {
-            timer = setTimeout(resolve, 250);
-          }),
-        ]).finally(() => {
-          if (timer !== undefined) clearTimeout(timer);
-        });
+        let result = entry.listener(details);
+        if (
+          result &&
+          typeof (result as PromiseLike<unknown>).then === "function"
+        ) {
+          let timer: number | undefined;
+          try {
+            result = await Promise.race([
+              result,
+              new Promise<undefined>((resolve) => {
+                timer = setTimeout(resolve, 250);
+              }),
+            ]);
+          } finally {
+            if (timer !== undefined) clearTimeout(timer);
+          }
+        }
         if (!result || typeof result !== "object") continue;
         const value = result as WebRequestResult;
         merged ??= {};
         if (value.cancel) merged.cancel = true;
-        if (typeof value.redirectUrl === "string") merged.redirectUrl = value.redirectUrl;
-        if (Array.isArray(value.requestHeaders)) merged.requestHeaders = value.requestHeaders;
-        if (Array.isArray(value.responseHeaders)) merged.responseHeaders = value.responseHeaders;
+        if (typeof value.redirectUrl === "string")
+          merged.redirectUrl = value.redirectUrl;
+        if (Array.isArray(value.requestHeaders))
+          merged.requestHeaders = value.requestHeaders;
+        if (Array.isArray(value.responseHeaders))
+          merged.responseHeaders = value.responseHeaders;
       } catch (error) {
-        console.error("[rivet] web request listener threw", event, error, NEGATIVE);
+        console.error(
+          "[rivet] web request listener threw",
+          event,
+          error,
+          NEGATIVE,
+        );
       }
     }
     return merged;
@@ -447,7 +559,11 @@ export class RivetRegistry {
     for (const cb of this.changeListeners) cb();
   }
 
-  broadcast(extId: string, pick: (events: RealmEvents) => EventHub, args: unknown[]): void {
+  broadcast(
+    extId: string,
+    pick: (events: RealmEvents) => EventHub,
+    args: unknown[],
+  ): void {
     const ext = this.extensions.get(extId);
     if (!ext) return;
     if (ext.background) pick(ext.background.events).fire(...args);
@@ -456,7 +572,10 @@ export class RivetRegistry {
     }
   }
 
-  broadcastTabLifecycle(pick: (events: RealmEvents) => EventHub, args: unknown[]): void {
+  broadcastTabLifecycle(
+    pick: (events: RealmEvents) => EventHub,
+    args: unknown[],
+  ): void {
     for (const ext of this.extensions.values()) {
       if (!ext.enabled || !ext.background) continue;
       pick(ext.background.events).fire(...args);

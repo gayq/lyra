@@ -36,7 +36,13 @@ export function traceCalls<T extends object>(obj: T, path = ""): T {
                 (resolved) =>
                   rivetTraceLog(`#${callId} resolved ${fullPath} =>`, resolved),
                 (error) =>
-                  rivetTraceLog(`#${callId} rejected`, fullPath, "=>", error, NEGATIVE),
+                  rivetTraceLog(
+                    `#${callId} rejected`,
+                    fullPath,
+                    "=>",
+                    error,
+                    NEGATIVE,
+                  ),
               );
             }
             return result;
@@ -323,7 +329,11 @@ export function dispatchMessage(
       try {
         dispatchMessageNow(hubs, message, sender, resolve);
       } catch (error) {
-        console.error("[rivet] runtime message dispatch failed", error, NEGATIVE);
+        console.error(
+          "[rivet] runtime message dispatch failed",
+          error,
+          NEGATIVE,
+        );
         resolve(undefined);
       }
     }, 0);

@@ -26,8 +26,7 @@ export function readAdvancedToggle(
     );
     if (stored === "true") return true;
     if (stored === "false") return false;
-  } catch {
-  }
+  } catch {}
   return DEFAULT_ADVANCED_SETTINGS[name];
 }
 
@@ -60,8 +59,7 @@ export function applyMotionPreference(
 
 export function prefersReducedMotion(
   preference: MotionPreference = readMotionPreference(),
-  systemPreference =
-    typeof window !== "undefined" &&
+  systemPreference = typeof window !== "undefined" &&
     (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false),
 ): boolean {
   if (preference === "reduced") return true;

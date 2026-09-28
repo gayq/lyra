@@ -1,4 +1,3 @@
-
 importScripts(
   "./sw/constants.js",
   "./sw/state.js",

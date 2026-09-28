@@ -1,20 +1,48 @@
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync, writeFileSync, existsSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, '..');
-const NEGATIVE = '... /ᐠ - ˕ -マ';
-const POSITIVE = '!! (˵◝ ⩊  ◜˵マ';
-const EPOXY_MJS = join(ROOT, 'node_modules', '@mercuryworkshop', 'epoxy-transport', 'dist', 'index.mjs');
-const EPOXY_JS = join(ROOT, 'node_modules', '@mercuryworkshop', 'epoxy-transport', 'dist', 'index.js');
-const LIBCURL_MJS = join(ROOT, 'node_modules', '@mercuryworkshop', 'libcurl-transport', 'dist', 'index.mjs');
-const LIBCURL_JS = join(ROOT, 'node_modules', '@mercuryworkshop', 'libcurl-transport', 'dist', 'index.js');
+const ROOT = join(__dirname, "..");
+const NEGATIVE = "... /ᐠ - ˕ -マ";
+const POSITIVE = "!! (˵◝ ⩊  ◜˵マ";
+const EPOXY_MJS = join(
+  ROOT,
+  "node_modules",
+  "@mercuryworkshop",
+  "epoxy-transport",
+  "dist",
+  "index.mjs",
+);
+const EPOXY_JS = join(
+  ROOT,
+  "node_modules",
+  "@mercuryworkshop",
+  "epoxy-transport",
+  "dist",
+  "index.js",
+);
+const LIBCURL_MJS = join(
+  ROOT,
+  "node_modules",
+  "@mercuryworkshop",
+  "libcurl-transport",
+  "dist",
+  "index.mjs",
+);
+const LIBCURL_JS = join(
+  ROOT,
+  "node_modules",
+  "@mercuryworkshop",
+  "libcurl-transport",
+  "dist",
+  "index.js",
+);
 const LABELS = {
-    [EPOXY_MJS]: 'epoxy-transport (mjs)',
-    [EPOXY_JS]: 'epoxy-transport (js)',
-    [LIBCURL_MJS]: 'libcurl-transport (mjs)',
-    [LIBCURL_JS]: 'libcurl-transport (js)',
+  [EPOXY_MJS]: "epoxy-transport (mjs)",
+  [EPOXY_JS]: "epoxy-transport (js)",
+  [LIBCURL_MJS]: "libcurl-transport (mjs)",
+  [LIBCURL_JS]: "libcurl-transport (js)",
 };
 
 const epoxyReqOld = `    try {
@@ -104,22 +132,72 @@ const libcurlInitNew = `  async init() {
   }`;
 
 const PATCHES = [
-    { file: EPOXY_MJS, oldStr: epoxyReqOld, newStr: epoxyReqNew, desc: 'epoxy request header guard' },
-    { file: EPOXY_MJS, oldStr: epoxyConnOld, newStr: epoxyConnNew, desc: 'epoxy connect header guard' },
-    { file: EPOXY_JS, oldStr: epoxyReqOld, newStr: epoxyReqNew, desc: 'epoxy request header guard' },
-    { file: EPOXY_JS, oldStr: epoxyConnOld, newStr: epoxyConnNew, desc: 'epoxy connect header guard' },
-    { file: LIBCURL_MJS, oldStr: libcurlReqOld, newStr: libcurlReqNew, desc: 'libcurl request header guard' },
-    { file: LIBCURL_MJS, oldStr: libcurlConnOld, newStr: libcurlConnNew, desc: 'libcurl connect header guard' },
-    { file: LIBCURL_JS, oldStr: libcurlReqOld, newStr: libcurlReqNew, desc: 'libcurl request header guard' },
-    { file: LIBCURL_JS, oldStr: libcurlConnOld, newStr: libcurlConnNew, desc: 'libcurl connect header guard' },
-    { file: LIBCURL_MJS, oldStr: libcurlInitOld, newStr: libcurlInitNew, desc: 'libcurl init method' },
-    { file: LIBCURL_JS, oldStr: libcurlInitOld, newStr: libcurlInitNew, desc: 'libcurl init method' },
+  {
+    file: EPOXY_MJS,
+    oldStr: epoxyReqOld,
+    newStr: epoxyReqNew,
+    desc: "epoxy request header guard",
+  },
+  {
+    file: EPOXY_MJS,
+    oldStr: epoxyConnOld,
+    newStr: epoxyConnNew,
+    desc: "epoxy connect header guard",
+  },
+  {
+    file: EPOXY_JS,
+    oldStr: epoxyReqOld,
+    newStr: epoxyReqNew,
+    desc: "epoxy request header guard",
+  },
+  {
+    file: EPOXY_JS,
+    oldStr: epoxyConnOld,
+    newStr: epoxyConnNew,
+    desc: "epoxy connect header guard",
+  },
+  {
+    file: LIBCURL_MJS,
+    oldStr: libcurlReqOld,
+    newStr: libcurlReqNew,
+    desc: "libcurl request header guard",
+  },
+  {
+    file: LIBCURL_MJS,
+    oldStr: libcurlConnOld,
+    newStr: libcurlConnNew,
+    desc: "libcurl connect header guard",
+  },
+  {
+    file: LIBCURL_JS,
+    oldStr: libcurlReqOld,
+    newStr: libcurlReqNew,
+    desc: "libcurl request header guard",
+  },
+  {
+    file: LIBCURL_JS,
+    oldStr: libcurlConnOld,
+    newStr: libcurlConnNew,
+    desc: "libcurl connect header guard",
+  },
+  {
+    file: LIBCURL_MJS,
+    oldStr: libcurlInitOld,
+    newStr: libcurlInitNew,
+    desc: "libcurl init method",
+  },
+  {
+    file: LIBCURL_JS,
+    oldStr: libcurlInitOld,
+    newStr: libcurlInitNew,
+    desc: "libcurl init method",
+  },
 ];
 
 const byFile = new Map();
 for (const p of PATCHES) {
-    if (!byFile.has(p.file)) byFile.set(p.file, []);
-    byFile.get(p.file).push(p);
+  if (!byFile.has(p.file)) byFile.set(p.file, []);
+  byFile.get(p.file).push(p);
 }
 
 let patchedFiles = 0;
@@ -127,43 +205,46 @@ let upToDateFiles = 0;
 let warningFiles = 0;
 
 for (const [filePath, patches] of byFile) {
-    const label = LABELS[filePath] || filePath;
+  const label = LABELS[filePath] || filePath;
 
-    if (!existsSync(filePath)) {
-        console.warn(`  ${label} — file not found${NEGATIVE}`);
-        warningFiles++;
-        continue;
-    }
+  if (!existsSync(filePath)) {
+    console.warn(`  ${label} — file not found${NEGATIVE}`);
+    warningFiles++;
+    continue;
+  }
 
-    let content = readFileSync(filePath, 'utf-8');
-    let modified = false;
-    let already = 0;
+  let content = readFileSync(filePath, "utf-8");
+  let modified = false;
+  let already = 0;
 
-    for (const p of patches) {
-        if (content.includes(p.oldStr)) {
-            content = content.replaceAll(p.oldStr, p.newStr);
-            modified = true;
-        } else if (content.includes(p.newStr)) {
-            already++;
-        } else {
-            console.warn(`  ${label} — could not apply '${p.desc}'${NEGATIVE}`);
-        }
-    }
-
-    if (modified) {
-        writeFileSync(filePath, content, 'utf-8');
-        patchedFiles++;
-    } else if (already === patches.length) {
-        upToDateFiles++;
+  for (const p of patches) {
+    if (content.includes(p.oldStr)) {
+      content = content.replaceAll(p.oldStr, p.newStr);
+      modified = true;
+    } else if (content.includes(p.newStr)) {
+      already++;
     } else {
-        warningFiles++;
+      console.warn(`  ${label} — could not apply '${p.desc}'${NEGATIVE}`);
     }
+  }
 
-    if (modified || already === patches.length) {
-        console.log(`  ✓  ${label}${POSITIVE}`);
-    }
+  if (modified) {
+    writeFileSync(filePath, content, "utf-8");
+    patchedFiles++;
+  } else if (already === patches.length) {
+    upToDateFiles++;
+  } else {
+    warningFiles++;
+  }
+
+  if (modified || already === patches.length) {
+    console.log(`  ✓  ${label}${POSITIVE}`);
+  }
 }
 
-const total = [patchedFiles, upToDateFiles, warningFiles].reduce((a, b) => a + b, 0);
-const summary = `${total} file(s) checked, ${patchedFiles} patched, ${upToDateFiles} up to date${warningFiles > 0 ? `, ${warningFiles} warning(s)` : ''}`;
+const total = [patchedFiles, upToDateFiles, warningFiles].reduce(
+  (a, b) => a + b,
+  0,
+);
+const summary = `${total} file(s) checked, ${patchedFiles} patched, ${upToDateFiles} up to date${warningFiles > 0 ? `, ${warningFiles} warning(s)` : ""}`;
 console.log(`${summary}${warningFiles > 0 ? NEGATIVE : POSITIVE}`);

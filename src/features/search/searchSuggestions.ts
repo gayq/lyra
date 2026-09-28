@@ -61,7 +61,9 @@ export async function fetchSearchSuggestions(
     requestInit,
   );
   if (!response.ok) {
-    throw new Error(negativeMessage(`search suggestions failed: ${response.status}`));
+    throw new Error(
+      negativeMessage(`search suggestions failed: ${response.status}`),
+    );
   }
 
   const suggestions = parseSuggestions(await response.json());

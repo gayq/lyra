@@ -1,5 +1,6 @@
 import { EventHub } from "../eventHub";
 import { readExtFileURL } from "../fileStore";
+import { setExtensionIcon } from "../registry";
 import { actionImageDataUrl, chooseActionIconValue } from "./common";
 import type { ChromeApiContext } from "./context";
 
@@ -79,8 +80,7 @@ export function createUiApis(context: ChromeApiContext) {
         typeof idOrOptions === "string" ? optionsOrCb : idOrOptions
       ) as { title?: string; message?: string; type?: string } | undefined;
       const cb = (typeof optionsOrCb === "function" ? optionsOrCb : maybeCb) as
-        | ((id: string) => void)
-        | undefined;
+        ((id: string) => void) | undefined;
       const notification = {
         id: notificationId,
         title: options?.title ?? ext.manifest.name,
@@ -140,15 +140,19 @@ export function createUiApis(context: ChromeApiContext) {
     ) => {
       if (details.imageData) {
         const iconUrl = actionImageDataUrl(details.imageData);
-        if (iconUrl) ext.iconUrl = iconUrl;
+        if (iconUrl) setExtensionIcon(ext, iconUrl);
         registry.notifyChange();
         cb?.();
       } else if (details.path) {
         const path = chooseActionIconValue(details.path);
         readExtFileURL(ext.id, typeof path === "string" ? path : "").then(
           (url) => {
-            if (url) ext.iconUrl = url;
-            registry.notifyChange();
+            if (registry.get(extId) === ext) {
+              if (url) setExtensionIcon(ext, url);
+              registry.notifyChange();
+            } else if (url) {
+              URL.revokeObjectURL(url);
+            }
             cb?.();
           },
         );

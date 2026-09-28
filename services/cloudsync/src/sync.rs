@@ -26,6 +26,9 @@ use std::{
 };
 use tower_cookies::Cookies;
 
+#[path = "transfer.rs"]
+pub mod transfer;
+
 const SCHEMA_VERSION: u64 = 3;
 const LEGACY_STRUCTURED_SCHEMA_VERSION: u64 = 2;
 const IV_LENGTH: usize = 12;
@@ -70,6 +73,7 @@ enum SyncError {
     Missing,
     Corrupt,
     Busy,
+    Conflict,
     Internal,
 }
 
@@ -85,6 +89,7 @@ impl SyncError {
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Missing => StatusCode::NOT_FOUND,
             Self::Busy => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Conflict => StatusCode::CONFLICT,
             Self::Corrupt | Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -101,6 +106,7 @@ impl SyncError {
             Self::Missing => "sync_data_not_found",
             Self::Corrupt => "sync_data_unavailable",
             Self::Busy => "sync_service_busy",
+            Self::Conflict => "sync_transfer_changed",
             Self::Internal => "sync_service_unavailable",
         }
     }
@@ -117,6 +123,7 @@ impl SyncError {
             Self::Missing => "no synced data found",
             Self::Corrupt => "synced data is unavailable",
             Self::Busy => "sync service is busy",
+            Self::Conflict => "sync changed; try again",
             Self::Internal => "sync service is unavailable",
         };
         format!("{message}{NEGATIVE}")
@@ -892,10 +899,9 @@ fn validate_folio_cookies(record: &Record, allow_sensitive: bool) -> bool {
     let Ok(cookies) = serde_json::from_str::<HashMap<String, Value>>(cookie_dump) else {
         return false;
     };
-    cookies.len() <= 20_000
-        && cookies
-            .iter()
-            .all(|(id, cookie)| id.len() <= 2048 && valid_folio_cookie(cookie, allow_sensitive))
+    cookies
+        .iter()
+        .all(|(id, cookie)| id.len() <= 2048 && valid_folio_cookie(cookie, allow_sensitive))
 }
 
 fn validate_raw_size(size: usize) -> SyncResult<()> {
@@ -955,7 +961,7 @@ fn validate_decoded_snapshot(snapshot: &Snapshot) -> SyncResult<()> {
             }
         }
         (LEGACY_STRUCTURED_SCHEMA_VERSION | SCHEMA_VERSION, CookiePayload::Current(cookies)) => {
-            if cookies.len() > 1024 || cookies.iter().any(|cookie| !valid_cookie(cookie)) {
+            if cookies.iter().any(|cookie| !valid_cookie(cookie)) {
                 return Err(SyncError::InvalidPayload);
             }
             let mut identities = HashSet::new();
@@ -1134,8 +1140,9 @@ async fn store_payload_for_user<T: Serialize + Send + 'static>(
     tokio::task::spawn_blocking(move || -> SyncResult<String> {
         let compressed = compress_payload(&payload)?;
         let blob = encrypt_blob(&cipher, user_id, &compressed)?;
-        let connection = pool.get().map_err(|_| SyncError::Internal)?;
-        connection
+        let mut connection = pool.get().map_err(|_| SyncError::Internal)?;
+        let transaction = connection.transaction().map_err(|_| SyncError::Internal)?;
+        transaction
             .execute(
                 "INSERT INTO sync_data (user_id, data_blob, updated_at)
                  VALUES (?, ?, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') || '-' || LOWER(HEX(RANDOMBLOB(8))))
@@ -1148,13 +1155,17 @@ async fn store_payload_for_user<T: Serialize + Send + 'static>(
                 tracing::error!("sync database write failed: {error}{NEGATIVE}");
                 SyncError::Internal
             })?;
-        connection
+        transaction.execute("DELETE FROM sync_uploads WHERE user_id = ?", [user_id])
+            .map_err(|_| SyncError::Internal)?;
+        let updated_at = transaction
             .query_row(
                 "SELECT updated_at FROM sync_data WHERE user_id = ?",
                 params![user_id],
                 |row| row.get(0),
             )
-            .map_err(|_| SyncError::Internal)
+            .map_err(|_| SyncError::Internal)?;
+        transaction.commit().map_err(|_| SyncError::Internal)?;
+        Ok(updated_at)
     })
     .await
     .map_err(|_| SyncError::Internal)?
@@ -1175,6 +1186,12 @@ async fn load_payload_for_user(state: &AppState, user_id: i64) -> SyncResult<(Sn
             Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SyncError::Missing),
             Err(_) => return Err(SyncError::Internal),
         };
+        if let Some(id) = transfer::manifest_id(&blob) {
+            return Ok((
+                transfer::load_snapshot(&connection, &cipher, user_id, id)?,
+                updated_at,
+            ));
+        }
         if blob.len() < IV_LENGTH || blob.len() > MAX_BLOB_SIZE {
             return Err(SyncError::Corrupt);
         }

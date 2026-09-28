@@ -1,4 +1,7 @@
-import { encodeMochiUrl, normalizeGameHistoryUrl } from "../../core/runtime/utils.ts";
+import {
+  encodeMochiUrl,
+  normalizeGameHistoryUrl,
+} from "../../core/runtime/utils.ts";
 import {
   getStoredGameSource,
   type GameSourceKey,
@@ -116,7 +119,10 @@ function isSafeCatalogCover(value: string): boolean {
   return isSafeCatalogUrl(value);
 }
 
-function isStoredGame(value: unknown, source: GameSourceKey): value is GameEntry {
+function isStoredGame(
+  value: unknown,
+  source: GameSourceKey,
+): value is GameEntry {
   if (!value || typeof value !== "object") return false;
   const game = value as Partial<GameEntry>;
   return (
@@ -133,7 +139,9 @@ function isStoredGame(value: unknown, source: GameSourceKey): value is GameEntry
   );
 }
 
-async function readStoredCache(source: GameSourceKey): Promise<CachedGames | null> {
+async function readStoredCache(
+  source: GameSourceKey,
+): Promise<CachedGames | null> {
   const inMemory = memoryCacheBySource.get(source);
   if (inMemory) {
     if (inMemory.staleUntil <= now()) {
@@ -203,9 +211,11 @@ function setAllGames(source: GameSourceKey, games: GameEntry[]): GameEntry[] {
   }
 
   try {
-    const lyra = (window as unknown as {
-      Lyra?: { allGames?: GameEntry[] };
-    }).Lyra;
+    const lyra = (
+      window as unknown as {
+        Lyra?: { allGames?: GameEntry[] };
+      }
+    ).Lyra;
     if (lyra) {
       if (Array.isArray(lyra.allGames)) {
         lyra.allGames.splice(0, lyra.allGames.length, ...games);
@@ -249,7 +259,10 @@ export function searchGames(
   return ranked.flat();
 }
 
-async function saveToCache(source: GameSourceKey, games: GameEntry[]): Promise<GameEntry[]> {
+async function saveToCache(
+  source: GameSourceKey,
+  games: GameEntry[],
+): Promise<GameEntry[]> {
   const timestamp = now();
   const cache: MemoryGameCache = {
     expiresAt: timestamp + GAME_CACHE_TTL_MS,
@@ -364,7 +377,9 @@ async function fetchCatalogPayload(
         lastError = error;
         if (!isRetryableStatus(response.status)) throw error;
         if (attempt < CATALOG_MAX_ATTEMPTS && now() < deadline) {
-          await wait(Math.min(retryDelay(attempt), Math.max(0, deadline - now())));
+          await wait(
+            Math.min(retryDelay(attempt), Math.max(0, deadline - now())),
+          );
           continue;
         }
         throw error;
@@ -423,10 +438,13 @@ async function fetchCatalogPayload(
           attempts: attempt,
           cause: error,
         });
-        if (attempt >= CATALOG_MAX_ATTEMPTS || now() >= deadline) throw lastError;
+        if (attempt >= CATALOG_MAX_ATTEMPTS || now() >= deadline)
+          throw lastError;
       }
       if (attempt < CATALOG_MAX_ATTEMPTS && now() < deadline) {
-        await wait(Math.min(retryDelay(attempt), Math.max(0, deadline - now())));
+        await wait(
+          Math.min(retryDelay(attempt), Math.max(0, deadline - now())),
+        );
       }
     } finally {
       clearTimeout(timeout);
@@ -449,7 +467,8 @@ function beginNetworkFetch(source: GameSourceKey): Promise<GameEntry[]> {
   if (existing) return existing.promise;
   const controller = new AbortController();
   const generation = currentGeneration(source);
-  const startedAt = typeof performance === "undefined" ? now() : performance.now();
+  const startedAt =
+    typeof performance === "undefined" ? now() : performance.now();
   const request = fetchCatalogPayload(source, controller.signal)
     .then(async ({ payload, attempts }) => {
       let games: GameEntry[];
@@ -510,12 +529,16 @@ function beginNetworkFetch(source: GameSourceKey): Promise<GameEntry[]> {
           : { attempts: normalized.attempts }),
         errorKind: normalized.kind,
       });
-      console.error("game catalog failure", {
-        source,
-        kind: normalized.kind,
-        status: normalized.status,
-        attempts: normalized.attempts,
-      }, NEGATIVE);
+      console.error(
+        "game catalog failure",
+        {
+          source,
+          kind: normalized.kind,
+          status: normalized.status,
+          attempts: normalized.attempts,
+        },
+        NEGATIVE,
+      );
       throw normalized;
     });
 
@@ -572,7 +595,8 @@ export function resetGameCache(): void {
 }
 
 export function getGameEntryForUrl(realUrl: string): GameEntry | null {
-  if (!realUrl || !allGames.length || allGamesSource !== getStoredGameSource()) return null;
+  if (!realUrl || !allGames.length || allGamesSource !== getStoredGameSource())
+    return null;
 
   const exact = gameByExactUrl.get(realUrl);
   if (exact) return exact;
@@ -613,9 +637,7 @@ export function getGameDisplayLabel(realUrl: string): string | null {
   try {
     const match = getGameEntryForUrl(realUrl);
     if (!match) return null;
-    const sourceKey = (
-      match.sourceKey || getStoredGameSource()
-    ).toLowerCase();
+    const sourceKey = (match.sourceKey || getStoredGameSource()).toLowerCase();
     return `game: ${String(match.name || match.id || realUrl).toLowerCase()} / source: ${sourceKey}`;
   } catch {
     return null;

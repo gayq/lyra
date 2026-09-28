@@ -43,7 +43,6 @@ const DEFAULT_ICON_BY_TYPE: Record<ToastType, string> = {
   warning: "IconExclamationTriangle",
 };
 
-
 export function normalizeToastType(type: string): ToastType {
   if (
     type === "success" ||

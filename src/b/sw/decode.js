@@ -16,10 +16,16 @@ const DISCORD_RELAY_SUFFIXES = [
 ];
 
 function isDiscordRelayOnlyHost(hostname) {
-  const normalizedHostname = (hostname || "").replace(/^www\./, "").toLowerCase();
+  const normalizedHostname = (hostname || "")
+    .replace(/^www\./, "")
+    .toLowerCase();
   if (!normalizedHostname) return false;
   for (const suffix of DISCORD_RELAY_SUFFIXES) {
-    if (normalizedHostname === suffix || normalizedHostname.endsWith("." + suffix)) return true;
+    if (
+      normalizedHostname === suffix ||
+      normalizedHostname.endsWith("." + suffix)
+    )
+      return true;
   }
   return false;
 }
@@ -35,7 +41,11 @@ function unwrapUrl(url) {
     }
   }
   if (isFolio && url.pathname === "/f") {
-    try { return folio.routeDestination(url.href); } catch { return null; }
+    try {
+      return folio.routeDestination(url.href);
+    } catch {
+      return null;
+    }
   }
 
   return null;

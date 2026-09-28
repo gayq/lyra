@@ -1,5 +1,8 @@
 import { buildTabObject } from "./chromeApi";
-import { checkDeclarativeNetRequest } from "./dnr";
+import {
+  checkDeclarativeNetRequest,
+  hasDeclarativeNetRequestRules,
+} from "./dnr";
 import {
   getInstalledExtensions,
   installExtension as installExtensionImpl,
@@ -141,13 +144,19 @@ export class Rivet {
     requestUrl: string,
     initiatorUrl?: string,
     resourceType?: string,
+    responseOnly = false,
   ): DNRDecision | null {
     return checkDeclarativeNetRequest(
       this.registry,
       requestUrl,
       initiatorUrl,
       resourceType,
+      responseOnly,
     );
+  }
+
+  hasDeclarativeNetRequestRules(responseOnly = false): boolean {
+    return hasDeclarativeNetRequestRules(this.registry, responseOnly);
   }
 
   onChange(cb: () => void): () => void {

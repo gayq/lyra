@@ -674,6 +674,7 @@ fn gateway_error(status: StatusCode, message: &'static str) -> Response {
         .into_response()
 }
 
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

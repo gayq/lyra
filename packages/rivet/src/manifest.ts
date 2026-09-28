@@ -1,4 +1,8 @@
-import type { ChromeManifest, ChromeManifestAction, ChromeManifestIcons } from "./types";
+import type {
+  ChromeManifest,
+  ChromeManifestAction,
+  ChromeManifestIcons,
+} from "./types";
 
 function getManifestVersion(manifest: ChromeManifest): number {
   return Number(manifest.manifest_version) || 2;
@@ -13,7 +17,13 @@ export type BackgroundInfo =
 export function getBackgroundInfo(manifest: ChromeManifest): BackgroundInfo {
   if (getManifestVersion(manifest) === 3) {
     const sw = manifest.background?.service_worker;
-    return sw ? { type: "worker", script: sw, isModule: manifest.background?.type === "module" } : null;
+    return sw
+      ? {
+          type: "worker",
+          script: sw,
+          isModule: manifest.background?.type === "module",
+        }
+      : null;
   }
   if (manifest.background?.page) {
     return { type: "page", page: manifest.background.page };
@@ -35,50 +45,87 @@ interface CompiledPattern {
 const patternCache = new Map<string, CompiledPattern | null>();
 
 function compilePattern(pattern: string): CompiledPattern | null {
-  const parts = /^(\*|http|https|file|ftp):\/\/(\[[\da-f:]+\]|[^/:]*)(?::(\*|\d+))?(\/.*)$/i.exec(pattern);
+  const parts =
+    /^(\*|http|https|file|ftp):\/\/(\[[\da-f:]+\]|[^/:]*)(?::(\*|\d+))?(\/.*)$/i.exec(
+      pattern,
+    );
   if (!parts) return null;
   const [, scheme = "", authority = "", port = "", path = ""] = parts;
   const subdomains = authority.startsWith("*.");
   const host = (subdomains ? authority.slice(2) : authority).toLowerCase();
-  if ((host !== "*" && /[*?#@]/.test(host)) || (subdomains && (!host || host === "*"))) return null;
+  if (
+    (host !== "*" && /[*?#@]/.test(host)) ||
+    (subdomains && (!host || host === "*"))
+  )
+    return null;
   if (!host && scheme.toLowerCase() !== "file") return null;
   if (port !== "*" && port && Number(port) > 65535) return null;
   return {
-    scheme: scheme.toLowerCase(), host, subdomains, port,
-    path: new RegExp("^" + path.split("*").map((part) =>
-      part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-    ).join(".*") + "$"),
+    scheme: scheme.toLowerCase(),
+    host,
+    subdomains,
+    port,
+    path: new RegExp(
+      "^" +
+        path
+          .split("*")
+          .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+          .join(".*") +
+        "$",
+    ),
   };
 }
 
 export function matchPattern(pattern: string, url: string): boolean {
   try {
     const parsed = new URL(url);
-    if (pattern === "<all_urls>") return /^(https?|file|ftp):$/.test(parsed.protocol);
+    if (pattern === "<all_urls>")
+      return /^(https?|file|ftp):$/.test(parsed.protocol);
     let compiled = patternCache.get(pattern);
     if (compiled === undefined) {
       compiled = compilePattern(pattern);
-      if (patternCache.size >= 2048) patternCache.delete(patternCache.keys().next().value!);
+      if (patternCache.size >= 2048)
+        patternCache.delete(patternCache.keys().next().value!);
       patternCache.set(pattern, compiled);
     }
     if (!compiled) return false;
     const { scheme, host, subdomains, port, path } = compiled;
-    if (scheme === "*" ? !/^https?:$/.test(parsed.protocol) : parsed.protocol !== scheme + ":") return false;
-    if (host !== "*" && parsed.hostname !== host && !(subdomains && parsed.hostname.endsWith("." + host))) return false;
-    const actualPort = parsed.port || ({ "http:": "80", "https:": "443", "ftp:": "21" }[parsed.protocol] ?? "");
-    if (port && port !== "*" && Number(port) !== Number(actualPort)) return false;
+    if (
+      scheme === "*"
+        ? !/^https?:$/.test(parsed.protocol)
+        : parsed.protocol !== scheme + ":"
+    )
+      return false;
+    if (
+      host !== "*" &&
+      parsed.hostname !== host &&
+      !(subdomains && parsed.hostname.endsWith("." + host))
+    )
+      return false;
+    const actualPort =
+      parsed.port ||
+      ({ "http:": "80", "https:": "443", "ftp:": "21" }[parsed.protocol] ?? "");
+    if (port && port !== "*" && Number(port) !== Number(actualPort))
+      return false;
     return path.test(parsed.pathname + parsed.search);
   } catch {
     return false;
   }
 }
 
-export function urlMatchesPatterns(url: string, matches: string[], excludeMatches: string[] = []): boolean {
+export function urlMatchesPatterns(
+  url: string,
+  matches: string[],
+  excludeMatches: string[] = [],
+): boolean {
   if (excludeMatches.some((p) => matchPattern(p, url))) return false;
   return matches.some((p) => matchPattern(p, url));
 }
 
-export function resolveManifestI18n(manifest: ChromeManifest, messages: Record<string, { message: string }>): ChromeManifest {
+export function resolveManifestI18n(
+  manifest: ChromeManifest,
+  messages: Record<string, { message: string }>,
+): ChromeManifest {
   const resolve = (s: string | undefined): string | undefined => {
     if (!s) return s;
     const key = s.match(/^__MSG_(.+)__$/)?.[1];
@@ -106,7 +153,8 @@ export function resolveManifestI18n(manifest: ChromeManifest, messages: Record<s
 export function getDefaultIcon(manifest: ChromeManifest): string | null {
   const icons: string | ChromeManifestIcons | undefined =
     (manifest.action as ChromeManifestAction | undefined)?.default_icon ??
-    (manifest.browser_action as ChromeManifestAction | undefined)?.default_icon ??
+    (manifest.browser_action as ChromeManifestAction | undefined)
+      ?.default_icon ??
     (manifest.page_action as ChromeManifestAction | undefined)?.default_icon ??
     manifest.icons;
   if (!icons) return null;

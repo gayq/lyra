@@ -193,19 +193,17 @@ pub async fn admit(
     if matches!(
         request.uri().path(),
         "/metrics" | "/stream/metrics" | "/!!folio/metrics"
-    ) {
-        if !admission.metrics_allowed(ip, request.headers())
-            || (admission.metrics_token.is_none()
-                && admission.trusted_proxies.contains(&peer.ip())
-                && ip == peer.ip())
-        {
-            return (
-                StatusCode::FORBIDDEN,
-                [("cache-control", "no-store")],
-                "metrics access denied... /ᐠ - ˕ -マ",
-            )
-                .into_response();
-        }
+    ) && (!admission.metrics_allowed(ip, request.headers())
+        || (admission.metrics_token.is_none()
+            && admission.trusted_proxies.contains(&peer.ip())
+            && ip == peer.ip()))
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            [("cache-control", "no-store")],
+            "metrics access denied... /ᐠ - ˕ -マ",
+        )
+            .into_response();
     }
     if request.uri().path() == "/health" {
         return next.run(request).await;
@@ -233,3 +231,4 @@ pub async fn admit(
         })),
     )
 }
+

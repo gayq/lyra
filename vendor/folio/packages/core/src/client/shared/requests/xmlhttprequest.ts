@@ -1,5 +1,5 @@
 import { FolioContext } from "@/shared";
-import { rewriteUrl, unrewriteUrl, URLMeta } from "@rewriters/url";
+import { unrewriteUrl } from "@rewriters/url";
 import { FolioClient } from "@client/index";
 
 export default function (client: FolioClient, self: Self) {

@@ -1,6 +1,10 @@
 import { installChromeApi } from "./chromeApi";
 import { readExtFileText } from "./fileStore";
-import { bootstrapExtensionFrame, rewriteExtHtml, writeDocument } from "./htmlInject";
+import {
+  bootstrapExtensionFrame,
+  rewriteExtHtml,
+  writeDocument,
+} from "./htmlInject";
 import type { RivetRegistry } from "./registry";
 import type { RivetHostBindings } from "./types";
 import {
@@ -13,7 +17,10 @@ import {
 const extensionPageMountVersions = new WeakMap<HTMLIFrameElement, number>();
 
 export function cancelExtensionPageMount(frame: HTMLIFrameElement): void {
-  extensionPageMountVersions.set(frame, (extensionPageMountVersions.get(frame) ?? 0) + 1);
+  extensionPageMountVersions.set(
+    frame,
+    (extensionPageMountVersions.get(frame) ?? 0) + 1,
+  );
   try {
     frame.removeAttribute("srcdoc");
     frame.src = "about:blank";
@@ -30,7 +37,13 @@ function extensionPageDocumentPath(
   isPopup: boolean,
   manifestName = "",
 ): string {
-  if (!isPopup || !isTampermonkey(manifestName) || tabId === null || pagePath.includes("#")) return pagePath;
+  if (
+    !isPopup ||
+    !isTampermonkey(manifestName) ||
+    tabId === null ||
+    pagePath.includes("#")
+  )
+    return pagePath;
   return `${pagePath}#${tabId}`;
 }
 
@@ -44,7 +57,11 @@ export function extensionPageReloadTarget(
   if (!resourcePath) return null;
   try {
     const url = new URL(currentUrl);
-    if (url.protocol === "chrome-extension:" && extId && url.hostname === extId) {
+    if (
+      url.protocol === "chrome-extension:" &&
+      extId &&
+      url.hostname === extId
+    ) {
       const target = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
       return target ? `${target}${url.search}${url.hash}` : null;
     }
@@ -55,7 +72,9 @@ export function extensionPageReloadTarget(
     if (!extId) return null;
     const extensionPrefix = `${RIVET_PREFIX}${extId}/`;
     if (!url.pathname.startsWith(extensionPrefix)) return null;
-    const target = decodeURIComponent(url.pathname.slice(extensionPrefix.length));
+    const target = decodeURIComponent(
+      url.pathname.slice(extensionPrefix.length),
+    );
     if (target === "__bootstrap__") return null;
     return target ? `${target}${url.search}${url.hash}` : null;
   } catch {
@@ -63,7 +82,11 @@ export function extensionPageReloadTarget(
   }
 }
 
-function extensionPageSenderUrl(extId: string, pagePath: string, manifestName = ""): string {
+function extensionPageSenderUrl(
+  extId: string,
+  pagePath: string,
+  manifestName = "",
+): string {
   if (isTampermonkey(manifestName)) {
     return chromeExtensionUrl(extId, pagePath);
   }
@@ -82,7 +105,8 @@ export async function mountExtensionPage(
   const mountVersion = (extensionPageMountVersions.get(frame) ?? 0) + 1;
   extensionPageMountVersions.set(frame, mountVersion);
   const isCurrent = () =>
-    extensionPageMountVersions.get(frame) === mountVersion && frame.isConnected !== false;
+    extensionPageMountVersions.get(frame) === mountVersion &&
+    frame.isConnected !== false;
   const win = await bootstrapExtensionFrame(frame, extId, isCurrent);
   if (!win || !isCurrent()) return false;
   const resourcePath = pagePath.replace(/[?#].*$/, "").replace(/^\//, "");
@@ -93,32 +117,47 @@ export async function mountExtensionPage(
   const ext = registry.get(extId);
   const html = await rewriteExtHtml(extId, raw, pagePath);
   if (!isCurrent()) return false;
-  const documentPath = extensionPageDocumentPath(pagePath, tabId, skipTabRegistration, ext?.manifest.name);
+  const documentPath = extensionPageDocumentPath(
+    pagePath,
+    tabId,
+    skipTabRegistration,
+    ext?.manifest.name,
+  );
   win.history.replaceState(null, "", buildExtensionUrl(extId, documentPath));
   let events: ReturnType<typeof installChromeApi> | null = null;
-  await writeDocument(win, html, (realm) => {
-    if (skipTabRegistration && host.closeExtensionPopup) {
-      const closePopup = () => host.closeExtensionPopup?.(extId);
-      try {
-        Object.defineProperty(realm, "close", {
-          configurable: true,
-          value: closePopup,
-        });
-      } catch {
-        realm.close = closePopup;
+  await writeDocument(
+    win,
+    html,
+    (realm) => {
+      if (skipTabRegistration && host.closeExtensionPopup) {
+        const closePopup = () => host.closeExtensionPopup?.(extId);
+        try {
+          Object.defineProperty(realm, "close", {
+            configurable: true,
+            value: closePopup,
+          });
+        } catch {
+          realm.close = closePopup;
+        }
       }
-    }
 
-    events = installChromeApi(realm, {
-      extId,
-      tabId,
-      isBackground: false,
-      registry,
-      host,
-      skipTabRegistration,
-      senderUrl: extensionPageSenderUrl(extId, documentPath, ext?.manifest.name),
-    });
-  }, extensionDocumentUrl(documentPath), isCurrent);
+      events = installChromeApi(realm, {
+        extId,
+        tabId,
+        isBackground: false,
+        registry,
+        host,
+        skipTabRegistration,
+        senderUrl: extensionPageSenderUrl(
+          extId,
+          documentPath,
+          ext?.manifest.name,
+        ),
+      });
+    },
+    extensionDocumentUrl(documentPath),
+    isCurrent,
+  );
 
   if (!isCurrent()) return false;
 

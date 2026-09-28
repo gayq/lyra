@@ -11,3 +11,6 @@ bun.lock
 /pnpm-lock.yaml
 Cargo.lock
 public/b/fl/
+public/b/rv/
+public/b/rivet/
+cache/

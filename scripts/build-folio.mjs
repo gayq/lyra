@@ -16,7 +16,8 @@ const toolPath = [
   .filter(Boolean)
   .join(path.delimiter);
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const corepackCommand = process.platform === "win32" ? "corepack.cmd" : "corepack";
+const corepackCommand =
+  process.platform === "win32" ? "corepack.cmd" : "corepack";
 const bunxCommand = process.platform === "win32" ? "bunx.cmd" : "bunx";
 const folioPnpmSpec = "pnpm@10.12.1";
 const tscPath = path.join(
@@ -50,15 +51,33 @@ const expectedFiles = [
     to: "folio.wasm",
   },
   {
-    from: path.join(vendorDir, "packages", "controller", "dist", "controller.api.js"),
+    from: path.join(
+      vendorDir,
+      "packages",
+      "controller",
+      "dist",
+      "controller.api.js",
+    ),
     to: "controller.api.js",
   },
   {
-    from: path.join(vendorDir, "packages", "controller", "dist", "controller.inject.js"),
+    from: path.join(
+      vendorDir,
+      "packages",
+      "controller",
+      "dist",
+      "controller.inject.js",
+    ),
     to: "controller.inject.js",
   },
   {
-    from: path.join(vendorDir, "packages", "controller", "dist", "controller.sw.js"),
+    from: path.join(
+      vendorDir,
+      "packages",
+      "controller",
+      "dist",
+      "controller.sw.js",
+    ),
     to: "controller.sw.js",
   },
   {
@@ -138,7 +157,10 @@ async function ensureInstall() {
 async function buildDeclarations() {
   const declarations = [
     { config: "packages/core/tsconfig.types.json", rewriteAliases: true },
-    { config: "packages/controller/tsconfig.types.json", rewriteAliases: false },
+    {
+      config: "packages/controller/tsconfig.types.json",
+      rewriteAliases: false,
+    },
     { config: "packages/utils/tsconfig.types.json", rewriteAliases: false },
   ];
 
@@ -182,9 +204,13 @@ async function copyExpectedFiles() {
 await ensureVendoredSource();
 await ensureInstall();
 const pnpm = await resolvePnpm();
-await run(pnpm.command, [...pnpm.prefix, "--filter", "@mercuryworkshop/folio", "rewriter:build"], {
-  cwd: vendorDir,
-});
+await run(
+  pnpm.command,
+  [...pnpm.prefix, "--filter", "@mercuryworkshop/folio", "rewriter:build"],
+  {
+    cwd: vendorDir,
+  },
+);
 await run(
   process.execPath,
   [

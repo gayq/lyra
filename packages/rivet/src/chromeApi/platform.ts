@@ -231,8 +231,7 @@ export function createPlatformApis(context: ChromeApiContext) {
         if (options?.pitch) value.pitch = options.pitch;
         if (options?.volume) value.volume = options.volume;
         realm.speechSynthesis.speak(value);
-      } catch {
-      }
+      } catch {}
       cb?.();
     },
     stop: () => realm.speechSynthesis?.cancel(),

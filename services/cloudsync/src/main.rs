@@ -185,6 +185,7 @@ async fn main() {
             let pool = checkpoint_pool.clone();
             if tokio::task::spawn_blocking(move || {
                 let conn = pool.get().ok()?;
+                sync::transfer::cleanup(&conn).ok()?;
                 conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok()
             })
             .await
@@ -217,7 +218,7 @@ async fn main() {
     );
     let sync_write_conf = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(2)
+            .per_millisecond(500)
             .burst_size(10)
             .error_handler(governor_response)
             .key_extractor(SmartIpKeyExtractor)
@@ -226,8 +227,17 @@ async fn main() {
     );
     let sync_read_conf = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(50)
+            .per_millisecond(20)
             .burst_size(200)
+            .error_handler(governor_response)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .unwrap(),
+    );
+    let sync_chunk_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(50)
+            .burst_size(40)
             .error_handler(governor_response)
             .key_extractor(SmartIpKeyExtractor)
             .finish()
@@ -253,6 +263,11 @@ async fn main() {
 
     let sync_write_routes = Router::new()
         .route("/upload", axum::routing::post(sync::upload))
+        .route("/transfer", axum::routing::post(sync::transfer::begin))
+        .route(
+            "/transfer/:id/commit",
+            axum::routing::post(sync::transfer::commit),
+        )
         .layer(ConcurrencyLimitLayer::new(tuning.sync_work_max))
         .layer(GovernorLayer {
             config: sync_write_conf.into(),
@@ -261,13 +276,30 @@ async fn main() {
     let sync_read_routes = Router::new()
         .route("/download", axum::routing::get(sync::download))
         .route("/meta", axum::routing::get(sync::meta))
+        .route("/transfer", axum::routing::get(sync::transfer::manifest))
         .layer(GovernorLayer {
             config: sync_read_conf.into(),
         });
 
+    let sync_chunk_routes = Router::new()
+        .route(
+            "/transfer/:id/:part",
+            axum::routing::put(sync::transfer::put).get(sync::transfer::get),
+        )
+        .layer(DefaultBodyLimit::max(sync::transfer::CHUNK_SIZE))
+        .layer(ConcurrencyLimitLayer::new(tuning.sync_work_max))
+        .layer(GovernorLayer {
+            config: sync_chunk_conf.into(),
+        });
+
     let api_routes = Router::new()
         .nest("/auth", auth_routes_strict.merge(auth_routes_loose))
-        .nest("/sync", sync_write_routes.merge(sync_read_routes))
+        .nest(
+            "/sync",
+            sync_write_routes
+                .merge(sync_read_routes)
+                .merge(sync_chunk_routes),
+        )
         .with_state(state)
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::CACHE_CONTROL,

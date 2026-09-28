@@ -39,6 +39,7 @@ import { URLMeta } from "@rewriters/url";
 import { Error } from "@/shared/snapshot";
 
 let wasm_u8: Uint8Array;
+let initialized = false;
 export function setWasm(u8: Uint8Array | ArrayBuffer) {
 	wasm_u8 = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8);
 }
@@ -46,6 +47,7 @@ export function setWasm(u8: Uint8Array | ArrayBuffer) {
 const MAGIC = "\0asm".split("").map((x) => x.charCodeAt(0));
 
 function initWasm() {
+	if (initialized) return;
 	if (!(wasm_u8 instanceof Uint8Array))
 		throw new Error("rewriter wasm is unavailable /ᐠ - ˕ -マ");
 
@@ -53,8 +55,9 @@ function initWasm() {
 		throw new Error("rewriter wasm is invalid /ᐠ - ˕ -マ");
 
 	initSync({
-		module: new WebAssembly.Module(wasm_u8 as unknown as BufferSource),
+		module: wasm_u8,
 	});
+	initialized = true;
 }
 
 type RewriterBox = { rewriter: Rewriter; inUse: boolean };

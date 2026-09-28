@@ -17,7 +17,10 @@ export function runtimeAssetPath(
 ): string {
   const relativeFileName = fileName.replace(/^\/+/, "");
   const logicalPath = `${mount}/${relativeFileName}`;
-  if (typeof __LYRA_RUNTIME_PATHS__ !== "undefined" && __LYRA_RUNTIME_PATHS__[logicalPath]) {
+  if (
+    typeof __LYRA_RUNTIME_PATHS__ !== "undefined" &&
+    __LYRA_RUNTIME_PATHS__[logicalPath]
+  ) {
     return __LYRA_RUNTIME_PATHS__[logicalPath];
   }
   return buildId

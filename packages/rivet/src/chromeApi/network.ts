@@ -31,8 +31,7 @@ export function createNetworkApis(context: ChromeApiContext) {
             path: "/",
           };
         }
-      } catch {
-      }
+      } catch {}
       cb?.(value);
       return Promise.resolve(value);
     },
@@ -63,8 +62,7 @@ export function createNetworkApis(context: ChromeApiContext) {
         if (details.path) serialized += `;path=${details.path}`;
         if (details.domain) serialized += `;domain=${details.domain}`;
         if (win) win.document.cookie = serialized;
-      } catch {
-      }
+      } catch {}
       cb?.(cookie);
       registry.broadcast(extId, (eventSet) => eventSet.cookiesOnChanged, [
         { removed: false, cause: "explicit", cookie },
@@ -97,8 +95,7 @@ export function createNetworkApis(context: ChromeApiContext) {
             };
           })
           .filter((cookie) => !details.name || cookie.name === details.name);
-      } catch {
-      }
+      } catch {}
       cb?.(result);
       return Promise.resolve(result);
     },
@@ -131,8 +128,7 @@ export function createNetworkApis(context: ChromeApiContext) {
             },
           },
         ]);
-      } catch {
-      }
+      } catch {}
       cb?.(result);
       return Promise.resolve(result);
     },
@@ -204,15 +200,15 @@ export function createNetworkApis(context: ChromeApiContext) {
       cb?: () => void,
     ) => {
       const removed = new Set(options.removeRuleIds);
-      ext[area] = ext[area].filter((rule) => !removed.has(rule.id))
-        .concat(structuredClone((options.addRules ?? []) as typeof ext.dynamicRules));
+      ext[area] = ext[area]
+        .filter((rule) => !removed.has(rule.id))
+        .concat(
+          structuredClone((options.addRules ?? []) as typeof ext.dynamicRules),
+        );
       cb?.();
       return Promise.resolve(undefined);
     },
-    get: (
-      filterOrCb?: unknown,
-      maybeCb?: (rules: unknown[]) => void,
-    ) => {
+    get: (filterOrCb?: unknown, maybeCb?: (rules: unknown[]) => void) => {
       const filter =
         typeof filterOrCb === "function"
           ? undefined
@@ -222,9 +218,12 @@ export function createNetworkApis(context: ChromeApiContext) {
           ? (filterOrCb as (rules: unknown[]) => void)
           : maybeCb;
       const ids = filter?.ruleIds ? new Set(filter.ruleIds) : null;
-      const rules = cloneForRealm(realm, structuredClone(
-        ids ? ext[area].filter((rule) => ids.has(rule.id)) : ext[area],
-      ));
+      const rules = cloneForRealm(
+        realm,
+        structuredClone(
+          ids ? ext[area].filter((rule) => ids.has(rule.id)) : ext[area],
+        ),
+      );
       cb?.(rules);
       return Promise.resolve(rules);
     },

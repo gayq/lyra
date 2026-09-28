@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  lazy,
-  Suspense,
-  useState,
-} from "preact/compat";
+import { useEffect, lazy, Suspense, useState } from "preact/compat";
 import Sidebar from "../components/browser/Sidebar.tsx";
 import NavBar from "../components/browser/NavBar.tsx";
 import SearchBar from "../components/browser/SearchBar.tsx";

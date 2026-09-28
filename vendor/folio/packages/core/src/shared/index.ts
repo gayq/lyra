@@ -1,4 +1,4 @@
-import { FolioConfig, FolioFlags, FolioVersionInfo } from "@/types";
+import { FolioConfig, FolioFlags } from "@/types";
 import DomHandler, { Element } from "domhandler";
 import { URLMeta } from "@rewriters/url";
 import { CookieJar } from "./cookie";

@@ -101,6 +101,10 @@ export async function doHandleFetch(
 		const location = openRoute(responseHeaders.get("location"));
 		const referer = newheaders.get("Referer");
 
+		// Compute the page (initiator) URL once. The initiator never changes
+		// through a redirect chain, so prefer the propagated `fl$io` value if
+		// the chain has already started; otherwise fall back to rawClientUrl
+		// or rawReferrer (which point at the page for the *first* hop).
 		let initiatorOriginUrl: URL | undefined;
 		if (parsed.fetchInitiatorOrigin) {
 			try {
@@ -120,12 +124,18 @@ export async function doHandleFetch(
 					: undefined;
 		}
 
+		// Cross-site redirect poisoning (SameSite): if this hop was cross-site, or a
+		// previous hop already was, propagate the flag so the final destination
+		// enforces cross-site SameSite restrictions.
 		const crossSiteRedirect =
 			parsed.crossSiteRedirect ||
 			(!!initiatorOriginUrl &&
 				registrableDomainForRedirect(initiatorOriginUrl.hostname) !==
 					registrableDomainForRedirect(parsed.url.hostname));
 
+		// Sec-Fetch-Site chain state: combine the worst classification seen so
+		// far with the relation between the initiator and *this* hop's URL.
+		// Once "cross-site" appears, it sticks for the rest of the chain.
 		let propagatedFetchSite: "same-site" | "cross-site" | undefined;
 		if (initiatorOriginUrl) {
 			const hopSite = computeFetchSite(initiatorOriginUrl, parsed.url);
@@ -151,6 +161,9 @@ export async function doHandleFetch(
 	if (response.body && !isRedirect(response)) {
 		responseBody = await rewriteBody(handler, request, parsed, response);
 
+		// After rewriting HTML, the body is a JS string which will be encoded as
+		// UTF-8 by the Response constructor. Normalize the Content-Type charset so
+		// the browser doesn't try to decode UTF-8 bytes with the original encoding.
 		normalizeContentType(parsed, responseHeaders);
 	}
 
@@ -337,6 +350,7 @@ async function handleBlobOrDataUrlFetch(
 	};
 }
 
+/** Simplified registrable-domain check used for cross-site redirect detection. */
 export function registrableDomainForRedirect(hostname: string): string {
 	return registrableDomain(hostname);
 }

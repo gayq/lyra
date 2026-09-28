@@ -74,31 +74,27 @@ export function initializeLoad(): void {
   }
 
   scheduleIdleTask(() => {
-    import("../../features/games/games.ts").then(
-      async ({ fetchGameData, getGameDisplayLabel }) => {
-        ((window as any).Lyra ??= {}).getGameDisplayLabel =
-          getGameDisplayLabel;
+    import("../../features/games/games.ts")
+      .then(async ({ fetchGameData, getGameDisplayLabel }) => {
+        ((window as any).Lyra ??= {}).getGameDisplayLabel = getGameDisplayLabel;
         try {
           await fetchGameData();
-        } catch {
-          
-          
-        }
+        } catch {}
         const tab = (window as any).Lyra?.getActiveTab?.();
         if (tab?.iframe) {
           const { updateHistoryUI } = await import("../browser/iframe.ts");
           const { decodeUrl } = await import("./utils.ts");
-          const decoded = decodeUrl(tab.iframe.dataset.manualUrl || tab.iframe.src);
+          const decoded = decodeUrl(
+            tab.iframe.dataset.manualUrl || tab.iframe.src,
+          );
           updateHistoryUI(tab as any, {
             currentUrl: decoded,
             canGoBack: tab.historyManager?.canGoBack?.() ?? false,
             canGoForward: tab.historyManager?.canGoForward?.() ?? false,
           });
         }
-      },
-    ).catch(() => {
-      
-    });
+      })
+      .catch(() => {});
   }, 2000);
 
   document
@@ -146,7 +142,9 @@ export function initializeLoad(): void {
         this.overlay.addEventListener("click", (e: MouseEvent) => {
           const activeOverlay = document.getElementById("overlay");
           if (!activeOverlay || e.target !== activeOverlay) return;
-          if (document.getElementById("updateSuccess")?.style.display === "block") {
+          if (
+            document.getElementById("updateSuccess")?.style.display === "block"
+          ) {
             window.lyraUpdater.hideSuccess(false);
           }
         });
@@ -161,8 +159,12 @@ export function initializeLoad(): void {
       }
       if (
         window.hideBookmarkModal &&
-        (document.getElementById("bookmark-modal")?.classList.contains("modal-visible") ||
-          document.getElementById("bookmark-modal")?.classList.contains("modal-closing"))
+        (document
+          .getElementById("bookmark-modal")
+          ?.classList.contains("modal-visible") ||
+          document
+            .getElementById("bookmark-modal")
+            ?.classList.contains("modal-closing"))
       ) {
         window.hideBookmarkModal(true);
       }
@@ -188,7 +190,9 @@ export function initializeLoad(): void {
         { once: true },
       );
     },
-    async performUpdate(target = localStorage.getItem("lyraVersionStamp") || "") {
+    async performUpdate(
+      target = localStorage.getItem("lyraVersionStamp") || "",
+    ) {
       if (this.updating) return;
       this.updating = true;
       if (target) {
@@ -252,7 +256,8 @@ export function initializeLoad(): void {
           serviceMetadata = await window.__lyraStuffData;
         }
         if (!serviceMetadata) return;
-        if (serviceMetadata.turn) window.__LYRA_WEBRTC_TURN__ = serviceMetadata.turn;
+        if (serviceMetadata.turn)
+          window.__LYRA_WEBRTC_TURN__ = serviceMetadata.turn;
         const metadata = parseStuffResponse(serviceMetadata);
         const currentStamp = buildStamp(metadata);
         const prevStamp = localStorage.getItem("lyraVersionStamp");
@@ -260,11 +265,7 @@ export function initializeLoad(): void {
         const pendingTarget = localStorage.getItem("lyraUpdateTarget");
         const attemptedTarget = localStorage.getItem("lyraUpdateAttempt");
         const legacyUpdate = localStorage.getItem("justUpdated") === "true";
-        const applied = isUpdateApplied(
-          metadata,
-          clientBuildId,
-          pendingTarget,
-        );
+        const applied = isUpdateApplied(metadata, clientBuildId, pendingTarget);
 
         localStorage.setItem("lyraVersion", metadata.version);
         localStorage.setItem("lyraVersionStamp", currentStamp);
@@ -294,7 +295,9 @@ export function initializeLoad(): void {
           if (hasUpdateMarker(location.href, currentStamp)) {
             clearUpdateMarker();
             console.warn(
-              negativeMessage("automatic update could not load the current build"),
+              negativeMessage(
+                "automatic update could not load the current build",
+              ),
             );
           }
           return;
@@ -310,16 +313,18 @@ export function initializeLoad(): void {
   window.lyraUpdater.checkVersion();
   if (!window.__lyraUpdatePollerStarted) {
     window.__lyraUpdatePollerStarted = true;
-    window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void window.lyraUpdater.checkVersion();
-      }
-    }, 5 * 60 * 1000);
+    window.setInterval(
+      () => {
+        if (document.visibilityState === "visible") {
+          void window.lyraUpdater.checkVersion();
+        }
+      },
+      5 * 60 * 1000,
+    );
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
         void window.lyraUpdater.checkVersion();
       }
     });
   }
-
 }

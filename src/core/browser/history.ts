@@ -26,11 +26,10 @@ const MAX_PERSISTED_ENTRIES = 500;
 
 function readPersistedHistory(): PersistedHistory {
   try {
-    const parsed = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY) || "null");
-    if (
-      parsed?.version !== HISTORY_VERSION ||
-      !Array.isArray(parsed.entries)
-    ) {
+    const parsed = JSON.parse(
+      localStorage.getItem(HISTORY_STORAGE_KEY) || "null",
+    );
+    if (parsed?.version !== HISTORY_VERSION || !Array.isArray(parsed.entries)) {
       return { version: HISTORY_VERSION, entries: [] };
     }
     const entries = parsed.entries.filter(
@@ -57,9 +56,7 @@ function persistVisit(url: string): void {
     history.entries.push(entry);
     history.entries = history.entries.slice(-MAX_PERSISTED_ENTRIES);
     localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
-  } catch {
-    
-  }
+  } catch {}
 }
 
 export class HistoryManager {
@@ -99,14 +96,20 @@ export class HistoryManager {
         : this.#stack.findIndex((entry) => entry.key === key)
       : -1;
     if (index !== -1) {
-      const changed = this.#currentIndex !== index || this.getCurrentUrl() !== url;
+      const changed =
+        this.#currentIndex !== index || this.getCurrentUrl() !== url;
       if (this.#stack[index]!.url !== url) persistVisit(url);
       this.#currentIndex = index;
       this.#stack[index]!.url = url;
       if (changed) this.#notify();
       return;
     }
-    if (pending === "replace" || type === "replace" || type === "reload" || type === "history-replace") {
+    if (
+      pending === "replace" ||
+      type === "replace" ||
+      type === "reload" ||
+      type === "history-replace"
+    ) {
       this.replace(url, key);
     } else if (!key && (type === "popstate" || type === "traverse")) {
       const target = this.#stack.findLastIndex((entry) => entry.url === url);
@@ -114,7 +117,12 @@ export class HistoryManager {
         this.#currentIndex = target;
         this.#notify();
       } else this.replace(url);
-    } else if (key || type === "push" || type === "history-push" || this.getCurrentUrl() !== url) {
+    } else if (
+      key ||
+      type === "push" ||
+      type === "history-push" ||
+      this.getCurrentUrl() !== url
+    ) {
       this.push(url, key);
     }
   }

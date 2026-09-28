@@ -1,10 +1,7 @@
 import { BANGS, SEARCH_ENGINES } from "../../core/config/config.ts";
 import { DEFAULT_SETTINGS } from "../../core/config/settingsOptions.ts";
 import { useEffect } from "preact/hooks";
-import {
-  showBrowserView,
-  store,
-} from "../../state/store.ts";
+import { showBrowserView, store } from "../../state/store.ts";
 import {
   clearExtensionPageForNavigation,
   navigateIframeTo,

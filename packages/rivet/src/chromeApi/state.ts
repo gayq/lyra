@@ -357,8 +357,7 @@ export function createStateApis(context: ChromeApiContext) {
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
-      } catch {
-      }
+      } catch {}
       item.state = "complete";
       registry.broadcast(extId, (eventSet) => eventSet.downloadsOnChanged, [
         {

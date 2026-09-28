@@ -1,7 +1,7 @@
 const SHARED_SCRIPT = `
 <script>
 (function(){
-  var P='${MOCHI_PREFIX}',S=${isFolio||false},K='q7Zx!9pL';
+  var P='${MOCHI_PREFIX}',S=${isFolio || false},K='q7Zx!9pL';
   var X=function(s){var o='';for(var i=0;i<s.length;i++)o+=String.fromCharCode(s.charCodeAt(i)^K.charCodeAt(i%K.length));return o;};
   var D=function(h){
     if(!h)return h;
@@ -231,7 +231,11 @@ const META_SCRIPT = `
 const INJECT_PATCHES_STANDARD =
   SHARED_SCRIPT + TURN_SCRIPT + SPA_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
 const INJECT_PATCHES_RELAY =
-  SHARED_SCRIPT + TURN_SCRIPT_RELAY + SPA_PATCH + HOVER_PREFETCH_SCRIPT + META_SCRIPT;
+  SHARED_SCRIPT +
+  TURN_SCRIPT_RELAY +
+  SPA_PATCH +
+  HOVER_PREFETCH_SCRIPT +
+  META_SCRIPT;
 
 function buildHtmlInjectPatches(upstreamUrlStr) {
   const host = upstreamHostname(upstreamUrlStr || "");

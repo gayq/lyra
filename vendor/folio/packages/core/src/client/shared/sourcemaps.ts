@@ -3,7 +3,6 @@ import {
 	Number_isSafeInteger,
 	Error,
 } from "@/shared/snapshot";
-import { FOLIOCLIENT, FOLIOCLIENTNAME } from "@/symbols";
 import { ProxyCtx, FolioClient } from "@client/index";
 
 enum RewriteType {

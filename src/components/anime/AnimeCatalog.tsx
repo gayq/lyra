@@ -16,6 +16,7 @@ import {
   type AnimeEntry,
 } from "../../features/anime/anime.ts";
 import { negativeMessage } from "../../core/runtime/messages.ts";
+import { readAnimeLanguage } from "../../core/media/animeSettings.ts";
 import {
   mergeAnimeIds,
   normalizeAnimeIds,
@@ -38,8 +39,14 @@ const SVG_SEARCH = svgIcon("IconMagnifyingGlass2");
 const SEARCH_DEBOUNCE_MS = 120;
 
 function animeCard(anime: AnimeEntry) {
-  return { title: anime.title, cover: anime.posterUrl, smallCover: anime.posterSmallUrl,
-    year: anime.year, rating: anime.rating, adult: anime.adult };
+  return {
+    title: anime.title,
+    cover: anime.posterUrl,
+    smallCover: anime.posterSmallUrl,
+    year: anime.year,
+    rating: anime.rating,
+    adult: anime.adult,
+  };
 }
 
 export default function AnimeCatalog({
@@ -136,7 +143,7 @@ export default function AnimeCatalog({
     }) => {
       show();
       setEpisodePickerEpisode(request.episode);
-      setEpisodePickerLanguage(request.language === "dub" ? "dub" : "sub");
+      setEpisodePickerLanguage(request.language ?? readAnimeLanguage());
       const ids = normalizeAnimeIds({
         ...request.ids,
         anilistId: request.anilistId,
@@ -229,78 +236,78 @@ export default function AnimeCatalog({
     };
   }, [loadAnime]);
 
-  const handlePlay = useCallback((anime: AnimeEntry) => {
-    const pickerRequestId = episodePickerRequestIdRef.current + 1;
-    episodePickerRequestIdRef.current = pickerRequestId;
-    const initialIds = normalizeAnimeIds({
-      ...anime.ids,
-      anilistId: anime.anilistId,
-      malId: anime.malId,
-    });
-    const initialAnime = { ...anime, ids: initialIds };
-    if (isAnimeMovieFormat(anime.format)) {
-      setEpisodePickerVisible(false);
-      hide();
-      app().handleSearch?.(
-        buildAnimePlaybackUrl({
-          title: anime.title,
-          posterUrl: anime.posterUrl,
-          ids: initialIds,
-          episode: 1,
-          episodeCount: 1,
-          year: anime.year,
-          format: anime.format,
-        }),
-        anime.title,
-        anime.posterUrl,
-      );
-      return;
-    }
-    setEpisodePickerEpisode(0);
-    setEpisodePickerLanguage("sub");
-    setEpisodePickerAnime(initialAnime);
-    setEpisodePickerVisible(true);
-
-    const isCurrentPicker = () =>
-      episodePickerRequestIdRef.current === pickerRequestId;
-    void resolveAnimeIdentity({
-      ids: initialIds,
-      title: anime.title,
-      year: anime.year,
-      format: anime.format,
-    }).then((identity) => {
-      if (!identity || !isCurrentPicker()) return;
-      setEpisodePickerAnime((current) => {
-        if (
-          !isCurrentPicker() ||
-          !current ||
-          current.id !== initialAnime.id
-        ) {
-          return current;
-        }
-        const ids = mergeAnimeIds(current.ids, identity.ids);
-        return {
-          ...current,
-          ids,
-          anilistId: ids.anilist ? Number(ids.anilist) : current.anilistId,
-          malId: ids.mal ? Number(ids.mal) : current.malId,
-          episodeCount:
-            current.episodeCount && current.episodeCount > 1
-              ? current.episodeCount
-              : identity.episodes || current.episodeCount,
-          year: current.year || identity.year,
-          format: current.format || identity.format,
-        };
+  const handlePlay = useCallback(
+    (anime: AnimeEntry) => {
+      const pickerRequestId = episodePickerRequestIdRef.current + 1;
+      episodePickerRequestIdRef.current = pickerRequestId;
+      const initialIds = normalizeAnimeIds({
+        ...anime.ids,
+        anilistId: anime.anilistId,
+        malId: anime.malId,
       });
-    });
-  }, [hide]);
+      const initialAnime = { ...anime, ids: initialIds };
+      if (isAnimeMovieFormat(anime.format)) {
+        setEpisodePickerVisible(false);
+        hide();
+        app().handleSearch?.(
+          buildAnimePlaybackUrl({
+            title: anime.title,
+            posterUrl: anime.posterUrl,
+            ids: initialIds,
+            episode: 1,
+            episodeCount: 1,
+            language: readAnimeLanguage(),
+            year: anime.year,
+            format: anime.format,
+          }),
+          anime.title,
+          anime.posterUrl,
+        );
+        return;
+      }
+      setEpisodePickerEpisode(0);
+      setEpisodePickerLanguage(readAnimeLanguage());
+      setEpisodePickerAnime(initialAnime);
+      setEpisodePickerVisible(true);
+
+      const isCurrentPicker = () =>
+        episodePickerRequestIdRef.current === pickerRequestId;
+      void resolveAnimeIdentity({
+        ids: initialIds,
+        title: anime.title,
+        year: anime.year,
+        format: anime.format,
+      }).then((identity) => {
+        if (!identity || !isCurrentPicker()) return;
+        setEpisodePickerAnime((current) => {
+          if (
+            !isCurrentPicker() ||
+            !current ||
+            current.id !== initialAnime.id
+          ) {
+            return current;
+          }
+          const ids = mergeAnimeIds(current.ids, identity.ids);
+          return {
+            ...current,
+            ids,
+            anilistId: ids.anilist ? Number(ids.anilist) : current.anilistId,
+            malId: ids.mal ? Number(ids.mal) : current.malId,
+            episodeCount:
+              current.episodeCount && current.episodeCount > 1
+                ? current.episodeCount
+                : identity.episodes || current.episodeCount,
+            year: current.year || identity.year,
+            format: current.format || identity.format,
+          };
+        });
+      });
+    },
+    [hide],
+  );
 
   const handleEpisodePick = useCallback(
-    (
-      playerUrl: string,
-      displayTitle: string,
-      poster: string,
-    ) => {
+    (playerUrl: string, displayTitle: string, poster: string) => {
       setEpisodePickerVisible(false);
       hide();
       app().handleSearch?.(playerUrl, displayTitle, poster);

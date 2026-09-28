@@ -17,12 +17,6 @@ export type AnimeProvider =
   | "anikoto"
   | "anikotoEpisode";
 
-
-
-
-
-
-
 export type AnimeIds = Partial<Record<AnimeProvider, string>>;
 
 export interface AnimeIdentity {
@@ -96,7 +90,9 @@ export function normalizeAnimeIds(
   return normalized;
 }
 
-export function mergeAnimeIds(...values: Array<AnimeIds | undefined>): AnimeIds {
+export function mergeAnimeIds(
+  ...values: Array<AnimeIds | undefined>
+): AnimeIds {
   const merged: AnimeIds = {};
   for (const value of values) {
     Object.assign(merged, normalizeAnimeIds(value));
@@ -110,10 +106,11 @@ export function hasAnimeIdentity(ids: AnimeIds | undefined): boolean {
 
 export function hasMegaPlayIdentifier(ids: AnimeIds | undefined): boolean {
   const normalized = normalizeAnimeIds(ids);
-  return Boolean(normalized.anilist || normalized.mal || normalized.anikotoEpisode);
+  return Boolean(
+    normalized.anilist || normalized.mal || normalized.anikotoEpisode,
+  );
 }
 
- 
 export function appendMegaPlayParams(
   params: URLSearchParams,
   ids: AnimeIds | undefined,

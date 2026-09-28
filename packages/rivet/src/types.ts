@@ -59,11 +59,19 @@ export interface ChromeManifest {
   options_page?: string;
   options_ui?: { page?: string };
   side_panel?: { default_path?: string };
-  chrome_url_overrides?: { newtab?: string; bookmarks?: string; history?: string };
+  chrome_url_overrides?: {
+    newtab?: string;
+    bookmarks?: string;
+    history?: string;
+  };
   commands?: Record<string, ChromeManifestCommand>;
   permissions?: string[];
   host_permissions?: string[];
-  externally_connectable?: { ids?: string[]; matches?: string[]; accepts_tls_channel_id?: boolean };
+  externally_connectable?: {
+    ids?: string[];
+    matches?: string[];
+    accepts_tls_channel_id?: boolean;
+  };
   [key: string]: unknown;
 }
 
@@ -162,7 +170,10 @@ export interface RivetContextMenuRequest {
 }
 
 export interface RivetHostBindings {
-  resolveDns?: (hostname: string, flags: string[]) => Promise<{
+  resolveDns?: (
+    hostname: string,
+    flags: string[],
+  ) => Promise<{
     addresses: string[];
     canonicalName?: string;
     isTRR: boolean;
@@ -175,7 +186,11 @@ export interface RivetHostBindings {
   navigateTab?: (tabId: number | null, url: string) => void;
   activateTab?: (tabId: number) => void;
   closeTab?: (tabId: number) => void;
-  openExtensionTab?: (extId: string, page: string, tabId: number | null) => void;
+  openExtensionTab?: (
+    extId: string,
+    page: string,
+    tabId: number | null,
+  ) => void;
   closeExtensionPopup?: (extId: string) => void;
   showNotification?: (title: string, message: string) => void;
   showContextMenu?: (request: RivetContextMenuRequest) => void;

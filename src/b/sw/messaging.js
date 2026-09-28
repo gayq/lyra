@@ -10,7 +10,8 @@ async function broadcastMeta() {
       });
       for (let i = 0; i < clients.length; i++) {
         const client = clients[i];
-        if (pendingMeta.sourceId && client.id === pendingMeta.sourceId) continue;
+        if (pendingMeta.sourceId && client.id === pendingMeta.sourceId)
+          continue;
         try {
           client.postMessage(pendingMeta.payload);
         } catch (e) {}
@@ -41,8 +42,11 @@ self.addEventListener("message", (event) => {
       type: "open-new-tab",
       url: sanitizedUrl,
       decodedUrl:
-        typeof message.decodedUrl === "string" ? message.decodedUrl : sanitizedUrl,
-      openerUrl: typeof message.openerUrl === "string" ? message.openerUrl : null,
+        typeof message.decodedUrl === "string"
+          ? message.decodedUrl
+          : sanitizedUrl,
+      openerUrl:
+        typeof message.openerUrl === "string" ? message.openerUrl : null,
       tabId: message.tabId || null,
       isTopFrame: !!message.isTopFrame,
       cause: message.cause || null,

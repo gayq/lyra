@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "preact/hooks";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+} from "preact/hooks";
 import { store, useStore } from "../../state/store.ts";
 import { useManagedModal } from "../../core/ui/modal.ts";
 import "../../assets/styles/browser/new-tab-modal.css";
@@ -13,16 +19,13 @@ import {
   type AnimeEntry,
 } from "../../features/anime/anime.ts";
 import { normalizeAnimeIds } from "../../features/anime/animeIdentity.ts";
+import { readAnimeLanguage } from "../../core/media/animeSettings.ts";
 import { fetchSearchSuggestions } from "../../features/search/searchSuggestions.ts";
 import { parseNewTabQuery } from "../../features/search/newTabSearch.ts";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue.ts";
 import { getStoredGameSource } from "../../core/config/settingsOptions.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
-import {
-  IconMagnifyingGlass2,
-  IconGamecontroller,
-  IconSushi,
-} from "../icons";
+import { IconMagnifyingGlass2, IconGamecontroller, IconSushi } from "../icons";
 import { TabIcon } from "./TabIcon.tsx";
 
 function loadNewTabGameData() {
@@ -153,11 +156,10 @@ export default function NewTabModal({
 
   useEffect(() => {
     const handleCatalogUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ source?: string; games?: GameEntry[] }>).detail;
-      if (
-        !detail?.games ||
-        detail.source !== getStoredGameSource()
-      ) {
+      const detail = (
+        event as CustomEvent<{ source?: string; games?: GameEntry[] }>
+      ).detail;
+      if (!detail?.games || detail.source !== getStoredGameSource()) {
         return;
       }
       loadGeneration.current += 1;
@@ -196,7 +198,10 @@ export default function NewTabModal({
     window.addEventListener("lyra:game-catalog-updated", handleCatalogUpdated);
     document.addEventListener("gameSourceUpdated", handleSourceUpdated);
     return () => {
-      window.removeEventListener("lyra:game-catalog-updated", handleCatalogUpdated);
+      window.removeEventListener(
+        "lyra:game-catalog-updated",
+        handleCatalogUpdated,
+      );
       document.removeEventListener("gameSourceUpdated", handleSourceUpdated);
       loadGeneration.current += 1;
     };
@@ -382,10 +387,11 @@ export default function NewTabModal({
         ids,
         episode: 1,
         episodeCount: anime.episodeCount,
+        language: readAnimeLanguage(),
         year: anime.year,
         format: anime.format,
       });
-      store.addTab(playbackUrl, anime.title);
+      store.addTab(playbackUrl, anime.title, false, anime.posterUrl);
       requestClose();
     },
     [requestClose],
@@ -419,7 +425,13 @@ export default function NewTabModal({
       return [];
     }
     return animeResults.slice(0, 4);
-  }, [animeResults, animeResultQuery, mode, normalizedCatalogQuery, parsedSearch.mode]);
+  }, [
+    animeResults,
+    animeResultQuery,
+    mode,
+    normalizedCatalogQuery,
+    parsedSearch.mode,
+  ]);
 
   const filteredWebSuggestions = useMemo(() => {
     if (
@@ -447,9 +459,9 @@ export default function NewTabModal({
     if (mode !== "splitSelect") return [];
     return tabs.filter(
       (t) =>
-        t.id !== activeTabId && 
-        t.id !== splitPair.left && 
-        t.id !== splitPair.right && 
+        t.id !== activeTabId &&
+        t.id !== splitPair.left &&
+        t.id !== splitPair.right &&
         (t.title || "").toLowerCase().includes(lowerQuery),
     );
   }, [mode, lowerQuery, tabs, activeTabId, splitPair]);

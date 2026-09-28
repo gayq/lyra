@@ -6,14 +6,14 @@ import { resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-const buildId = createSourceBuildId(__dirname, process.env.LYRA_WISP_PATH || "");
+const buildId = createSourceBuildId(
+  __dirname,
+  process.env.LYRA_WISP_PATH || "",
+);
 const assetPath = `assets/${buildId}/[hash:12]`;
 
 export default defineConfig({
-  plugins: [
-    preact(),
-    lyraPlugin(buildId),
-  ],
+  plugins: [preact(), lyraPlugin(buildId)],
   root: "src",
   publicDir: false,
   server: {
@@ -40,8 +40,8 @@ export default defineConfig({
       checks: { pluginTimings: false },
       input: {
         main: resolve(__dirname, "src/index.html"),
-        "404": resolve(__dirname, "src/404.html"),
-        "player": resolve(__dirname, "src/player.html"),
+        404: resolve(__dirname, "src/404.html"),
+        player: resolve(__dirname, "src/player.html"),
       },
       output: {
         entryFileNames: `${assetPath}.js`,

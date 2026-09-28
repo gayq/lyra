@@ -142,7 +142,9 @@ where
             return Ok(Response::builder()
                 .status(StatusCode::FORBIDDEN)
                 .header(hyper::header::CACHE_CONTROL, "no-store")
-                .body(Body::new(negative_message!("connection not allowed").into()))?);
+                .body(Body::new(
+                    negative_message!("connection not allowed").into(),
+                ))?);
         }
     }
 

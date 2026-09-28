@@ -100,7 +100,7 @@ function rememberRewrite(key: string | null, body: RewriteCacheBody): void {
 	const existing = rewriteCache.get(key);
 	if (existing) rewriteCacheBytes -= existing.size;
 
-	const entry = { body: cloneRewriteBody(body), size };
+	const entry = { body, size };
 	rewriteCache.set(key, entry);
 	rewriteCacheBytes += size;
 
@@ -126,7 +126,7 @@ async function cachedOrPendingRewrite(
 		.then(producer)
 		.then((body) => {
 			rememberRewrite(key, body);
-			return cloneRewriteBody(body);
+			return body;
 		})
 		.finally(() => {
 			pendingRewriteCache.delete(key);
@@ -208,6 +208,7 @@ async function rewriteHtmlStream(
 	}
 
 	if (done) {
+		reader.releaseLock();
 		return rewriteBufferedHtmlBytes(
 			concatChunks(initialChunks),
 			handler,
@@ -217,6 +218,7 @@ async function rewriteHtmlStream(
 	}
 
 	const sniffBytes = concatChunks(initialChunks);
+	initialChunks.length = 0;
 	const encoding = sniffEncoding(sniffBytes, response.headers.get("content-type"));
 	const decoder = new _TextDecoder(encoding);
 	const encoder = new TextEncoder();
@@ -226,37 +228,39 @@ async function rewriteHtmlStream(
 		htmlRewriteContext(parsed, response)
 	);
 
+	let initial: Uint8Array | null = sniffBytes;
+	let cancelled = false;
 	return new ReadableStream<Uint8Array>({
-		async start(controller) {
-			const enqueue = (html: string) => {
-				if (html) controller.enqueue(encoder.encode(html));
-			};
-
+		async pull(controller) {
 			try {
-				for (const chunk of initialChunks) {
-					enqueue(rewriter.write(decoder.decode(chunk, { stream: true })));
-				}
-
 				for (;;) {
-					const result = await reader.read();
-					if (result.done) break;
-					enqueue(
-						rewriter.write(decoder.decode(result.value, { stream: true }))
-					);
+					const result = initial ? { value: initial, done: false } : await reader.read();
+					initial = null;
+					if (cancelled) return;
+					const html = result.done
+						? rewriter.end(decoder.decode())
+						: rewriter.write(decoder.decode(result.value, { stream: true }));
+					if (html) controller.enqueue(encoder.encode(html));
+					if (result.done) {
+						reader.releaseLock();
+						controller.close();
+						return;
+					}
+					if (html) return;
 				}
-
-				enqueue(rewriter.end(decoder.decode()));
-				controller.close();
 			} catch (err) {
-				controller.error(err);
-			} finally {
-				reader.releaseLock();
+				if (!cancelled) {
+					controller.error(err);
+					try { await reader.cancel(); } finally { reader.releaseLock(); }
+				}
 			}
 		},
-		cancel() {
-			return reader.cancel();
+		async cancel(reason) {
+			cancelled = true;
+			initial = null;
+			try { await reader.cancel(reason); } finally { reader.releaseLock(); }
 		},
-	});
+	}, { highWaterMark: 0 });
 }
 
 export async function rewriteBody(

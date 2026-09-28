@@ -20,7 +20,9 @@ export async function ensureUblockOrigin(
 ): Promise<string> {
   const existing = rivet
     .getInstalledExtensions()
-    .find((extension) => extension.name.trim().toLowerCase() === "ublock origin");
+    .find(
+      (extension) => extension.name.trim().toLowerCase() === "ublock origin",
+    );
   if (existing) {
     if (!existing.enabled) await rivet.setExtensionEnabled(existing.id, true);
     return existing.id;
@@ -29,11 +31,10 @@ export async function ensureUblockOrigin(
   const response = await fetchImpl(UBLOCK_ORIGIN_EXTENSION_URL);
   if (!response.ok) {
     throw new Error(
-      negativeMessage(`ublock origin asset is unavailable (${response.status})`),
+      negativeMessage(
+        `ublock origin asset is unavailable (${response.status})`,
+      ),
     );
   }
-  return rivet.installExtension(
-    await response.arrayBuffer(),
-    "ublock.crx",
-  );
+  return rivet.installExtension(await response.arrayBuffer(), "ublock.crx");
 }

@@ -3,6 +3,18 @@ export const ANIME_SETTING_KEYS = {
   autoSkipIntroOutro: "animeAutoSkipIntroOutro",
 } as const;
 
+export const ANIME_LANGUAGE_KEY = "animePreferredLanguage";
+export const ANIME_LANGUAGE_OPTIONS = ["sub", "dub"] as const;
+export type AnimeLanguage = (typeof ANIME_LANGUAGE_OPTIONS)[number];
+
+export function readAnimeLanguage(): AnimeLanguage {
+  try {
+    return localStorage.getItem(ANIME_LANGUAGE_KEY) === "dub" ? "dub" : "sub";
+  } catch {
+    return "sub";
+  }
+}
+
 export const ANIME_QUALITY_KEY = "animePreferredQuality";
 export const ANIME_QUALITY_OPTIONS = ["auto", "1080p", "720p", "360p"] as const;
 export type AnimeQuality = (typeof ANIME_QUALITY_OPTIONS)[number];
