@@ -32,7 +32,7 @@
   border-bottom: 1px solid var(--border-faint) !important;
 }
 
-.new-tab-modal input {
+.new-tab-modal .editable-field {
   width: 100% !important;
   max-width: 100% !important;
   padding: 13px 13px 13px 40px !important;
@@ -46,7 +46,7 @@
   box-sizing: border-box;
 }
 
-.new-tab-modal input::placeholder {
+.new-tab-modal .editable-field:empty::before {
   color: var(--input-placeholder-search) !important;
   font-weight: 300 !important;
 }

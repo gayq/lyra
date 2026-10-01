@@ -1,4 +1,5 @@
 import { uploadSnapshot, downloadSnapshot } from "./syncTransfer.ts";
+import { prepareSnapshot } from "./prepareSnapshot.ts";
 import { svgIcon } from "../../core/ui/svgIcon";
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import type { ToastController } from "../../core/ui/toast.ts";
@@ -12,7 +13,6 @@ import {
   canSyncIndexedDBStore,
   canSyncStorageValue,
   forgetIndexedDBName,
-  payloadFingerprint,
   rememberIndexedDBName,
   snapshotFingerprint,
   type SyncSnapshot,
@@ -517,8 +517,7 @@ export class CloudSync {
 
       const snapshotVersion = this._mutationVersion;
       const snapshot = await window.lyraExportAllData();
-      const body = JSON.stringify(snapshot);
-      const fingerprint = await payloadFingerprint(body);
+      const { body, fingerprint } = await prepareSnapshot(snapshot);
 
       const unchanged =
         !manual &&

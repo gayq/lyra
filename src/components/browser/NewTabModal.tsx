@@ -27,6 +27,7 @@ import { getStoredGameSource } from "../../core/config/settingsOptions.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
 import { IconMagnifyingGlass2, IconGamecontroller, IconSushi } from "../icons";
 import { TabIcon } from "./TabIcon.tsx";
+import EditableField from "../EditableField.tsx";
 
 function loadNewTabGameData() {
   return fetchGameData().catch((err) => {
@@ -56,7 +57,7 @@ export default function NewTabModal({
   const [isClosing, setIsClosing] = useState(false);
   const [mode, setMode] = useState("newTab");
   const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLDivElement>(null);
   const loadGeneration = useRef(0);
   const loadedGameSourceRef = useRef<string | null>(null);
   const [catalogVersion, setCatalogVersion] = useState(0);
@@ -118,7 +119,7 @@ export default function NewTabModal({
 
   useEffect(() => {
     setQuery("");
-    if (inputRef.current) inputRef.current.value = "";
+    if (inputRef.current) inputRef.current.textContent = "";
 
     if (isPickingSplitTab) {
       loadGeneration.current += 1;
@@ -300,7 +301,7 @@ export default function NewTabModal({
     const el = inputRef.current;
     if (el) {
       el.focus();
-      el.value = "";
+      el.textContent = "";
     }
     setQuery("");
   }, [visible, isClosing]);
@@ -488,7 +489,7 @@ export default function NewTabModal({
     if (e.key !== "Enter") return;
 
     e.preventDefault();
-    const currentQuery = inputRef.current?.value?.trim() || query.trim();
+    const currentQuery = inputRef.current?.textContent?.trim() || query.trim();
     if (mode === "newTab") {
       const currentSearch = parseNewTabQuery(currentQuery);
       if (currentSearch.mode === "web" && currentSearch.query) {
@@ -524,18 +525,22 @@ export default function NewTabModal({
       <div class={`new-tab-unified-wrapper${hasResults ? " has-results" : ""}`}>
         <div class="new-tab-search-container">
           <IconMagnifyingGlass2 />
-          <input
-            ref={inputRef}
-            type="text"
+          <EditableField
+            fieldRef={inputRef}
             id="newTabInput"
+            label={
+              mode === "splitSelect"
+                ? "select a tab to split with"
+                : "search or enter url"
+            }
             placeholder={
               mode === "splitSelect"
                 ? "select a tab to split with..."
                 : "search or enter url (˶>⩊<˶)"
             }
-            autocomplete="off"
+            value={query}
             onKeyDown={handleKeyDown}
-            onInput={() => setQuery(inputRef.current?.value || "")}
+            onChange={setQuery}
           />
         </div>
         <div

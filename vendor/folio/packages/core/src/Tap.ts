@@ -11,9 +11,7 @@ type Callback<T extends Description> = (
 ) => void | Promise<void>;
 
 export type TapOrder = {
-	/** Run before these plugins. */
 	before?: readonly string[];
-	/** Run after these plugins. */
 	after?: readonly string[];
 };
 

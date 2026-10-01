@@ -50,6 +50,7 @@ interface EpisodePickerModalProps {
   initialSeasonId?: string | number | undefined;
   currentEpisode?: number | undefined;
   initialLanguage?: "sub" | "dub" | undefined;
+  resume?: { label: string; onResume: () => void } | undefined;
   onClose: () => void;
   onPlay: (playerUrl: string, displayTitle: string, poster: string) => void;
 }
@@ -141,6 +142,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
   initialSeasonId,
   currentEpisode,
   initialLanguage = "sub",
+  resume,
   onClose,
   onPlay,
 }: EpisodePickerModalProps) {
@@ -492,6 +494,15 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
       )}
       {!embedded && <h2 class="episode-picker-modal-title">{title}</h2>}
       <div class="episode-picker-modal-body">
+        {resume && (
+          <button
+            type="button"
+            class="episode-selector-button episode-picker-resume"
+            onClick={resume.onResume}
+          >
+            {resume.label}
+          </button>
+        )}
         {metadataUnavailable && (
           <span class="episode-picker-modal-label" role="status">
             {negativeMessage(

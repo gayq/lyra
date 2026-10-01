@@ -21,7 +21,6 @@ function asciiLower(s: string): string {
 export interface ParsedMimeType {
 	type: string;
 	subtype: string;
-	/** `type`/`subtype` in ASCII lowercase; excludes parameters. */
 	essence: string;
 }
 
@@ -92,13 +91,11 @@ const JAVASCRIPT_ESSENCES = new _Set([
 	"text/x-javascript",
 ]);
 
-/** A MIME type whose type is "image". */
 export function isImageMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	return p !== null && asciiLower(p.type) === "image";
 }
 
-/** Audio, video, or essence `application/ogg`. */
 export function isAudioOrVideoMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	if (!p) return false;
@@ -107,7 +104,6 @@ export function isAudioOrVideoMimeType(mime: string | ParsedMimeType): boolean {
 	return p.essence === "application/ogg";
 }
 
-/** Type `font` or a registered font essence. */
 export function isFontMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	if (!p) return false;
@@ -115,7 +111,6 @@ export function isFontMimeType(mime: string | ParsedMimeType): boolean {
 	return FONT_ESSENCES.has(p.essence);
 }
 
-/** Subtype ends with `+zip` or essence `application/zip`. */
 export function isZipBasedMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	if (!p) return false;
@@ -123,13 +118,11 @@ export function isZipBasedMimeType(mime: string | ParsedMimeType): boolean {
 	return asciiLower(p.subtype).endsWith("+zip");
 }
 
-/** One of the archive essences. */
 export function isArchiveMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	return p !== null && ARCHIVE_ESSENCES.has(p.essence);
 }
 
-/** Subtype ends with `+xml` or essence `text/xml` / `application/xml`. */
 export function isXmlMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	if (!p) return false;
@@ -137,13 +130,11 @@ export function isXmlMimeType(mime: string | ParsedMimeType): boolean {
 	return p.essence === "text/xml" || p.essence === "application/xml";
 }
 
-/** Essence `text/html`. */
 export function isHtmlMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	return p !== null && p.essence === "text/html";
 }
 
-/** XML, HTML, or `application/pdf`. */
 export function isScriptableMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	if (!p) return false;
@@ -152,7 +143,6 @@ export function isScriptableMimeType(mime: string | ParsedMimeType): boolean {
 	return p.essence === "application/pdf";
 }
 
-/** Essence is one of the JavaScript MIME type essences. */
 export function isJavascriptMimeType(mime: string | ParsedMimeType): boolean {
 	const p = asParsed(mime);
 	return p !== null && JAVASCRIPT_ESSENCES.has(p.essence);
@@ -207,7 +197,6 @@ export function isScriptType(type: string | null | undefined): boolean {
 	return isJavascriptMimeTypeEssenceMatch(t);
 }
 
-/** Whether `type` denotes a JavaScript module script. */
 export function isModuleScriptType(type: string | null | undefined): boolean {
 	if (type == null) return false;
 	const t = trimHttpWhitespace(type);

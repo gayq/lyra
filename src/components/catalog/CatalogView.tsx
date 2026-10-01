@@ -1,6 +1,7 @@
-import type { RefObject } from "preact";
+import type { ComponentChildren, RefObject } from "preact";
 import { useRef } from "preact/hooks";
 import { IconMagnifyingGlass2 } from "../icons";
+import EditableField from "../EditableField.tsx";
 import CatalogCanvas, { type CanvasCard } from "./CatalogCanvas.tsx";
 
 interface CatalogViewProps<T> {
@@ -26,6 +27,7 @@ interface CatalogViewProps<T> {
   anime?: boolean;
   emptyMessage?: string | null;
   statusMessage?: string | null;
+  beforeGrid?: ComponentChildren;
 }
 
 export default function CatalogView<T>({
@@ -51,6 +53,7 @@ export default function CatalogView<T>({
   anime = false,
   emptyMessage,
   statusMessage,
+  beforeGrid,
 }: CatalogViewProps<T>) {
   const opened = useRef(false);
   if (visible) opened.current = true;
@@ -71,18 +74,18 @@ export default function CatalogView<T>({
           <div class="light-border"></div>
           <div class="light-inset-bg"></div>
           <IconMagnifyingGlass2 class={searchIconClassName} />
-          <input
-            type="text"
+          <EditableField
             id={inputId}
+            label={placeholder}
             placeholder={placeholder}
-            autocomplete="off"
             value={query}
-            onInput={(event) => onQueryChange(event.currentTarget.value)}
+            onChange={onQueryChange}
           />
         </div>
       </div>
 
       <div class={gridContainerClassName}>
+        {beforeGrid}
         <div
           class={gridClassName}
           style={gridVisible || showSkeleton ? "display:block" : "display:none"}

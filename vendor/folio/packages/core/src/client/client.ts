@@ -514,7 +514,6 @@ export class FolioClient {
 		global[FOLIOCLIENT] = this;
 	}
 
-	/** Apply document injection init when a client was already installed (e.g. early contentWindow). */
 	syncDocumentInit(init: {
 		initHeaders: RawHeaders;
 		history: TrackedHistoryState[];

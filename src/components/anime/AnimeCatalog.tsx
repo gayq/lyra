@@ -18,6 +18,15 @@ import {
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import { readAnimeLanguage } from "../../core/media/animeSettings.ts";
 import {
+  ANIME_PROGRESS_EVENT,
+  ANIME_PROGRESS_KEY,
+  animeProgressLabel,
+  animeResumeUrl,
+  findAnimeProgress,
+  readAnimeProgress,
+  type AnimeProgress,
+} from "../../features/anime/animeProgress.ts";
+import {
   mergeAnimeIds,
   normalizeAnimeIds,
   resolveAnimeIdentity,
@@ -30,6 +39,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue.ts";
 import { useMenuView } from "../../hooks/useMenuView.ts";
 import CatalogView from "../catalog/CatalogView.tsx";
 import EpisodePickerModal from "./EpisodePickerModal.tsx";
+import AnimeResumeCard from "./AnimeResumeCard.tsx";
 import "../../assets/styles/catalog/catalog.css";
 import "../../assets/styles/anime/anime.css";
 
@@ -61,6 +71,7 @@ export default function AnimeCatalog({
   const [searchResults, setSearchResults] = useState<AnimeEntry[]>([]);
   const [searchResultQuery, setSearchResultQuery] = useState("");
   const [searching, setSearching] = useState(false);
+  const [progress, setProgress] = useState<AnimeProgress[]>(readAnimeProgress);
 
   const [episodePickerVisible, setEpisodePickerVisible] = useState(false);
   const [episodePickerAnime, setEpisodePickerAnime] =
@@ -124,6 +135,45 @@ export default function AnimeCatalog({
     if (document.body.classList.contains("anime-view")) hide();
     else show();
   }, [hide, show]);
+
+  useEffect(() => {
+    const refresh = () => setProgress(readAnimeProgress());
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ANIME_PROGRESS_KEY || event.key === null) refresh();
+    };
+    refresh();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", refresh);
+    window.addEventListener(ANIME_PROGRESS_EVENT, refresh);
+    document.addEventListener("cloudsync-restored", refresh);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener(ANIME_PROGRESS_EVENT, refresh);
+      document.removeEventListener("cloudsync-restored", refresh);
+    };
+  }, [visible]);
+
+  const handleResume = useCallback(
+    (saved: AnimeProgress) => {
+      episodePickerRequestIdRef.current += 1;
+      setEpisodePickerVisible(false);
+      hide();
+      app().handleSearch?.(animeResumeUrl(saved), saved.title, saved.posterUrl);
+    },
+    [hide],
+  );
+
+  const getAnimeCard = useCallback(
+    (anime: AnimeEntry) => {
+      const saved = findAnimeProgress(progress, anime);
+      return {
+        ...animeCard(anime),
+        resumeLabel: saved ? animeProgressLabel(saved, "watching") : undefined,
+      };
+    },
+    [progress],
+  );
 
   useEffect(() => {
     window.showAnimeMenu = show;
@@ -238,6 +288,7 @@ export default function AnimeCatalog({
 
   const handlePlay = useCallback(
     (anime: AnimeEntry) => {
+      const saved = findAnimeProgress(progress, anime);
       const pickerRequestId = episodePickerRequestIdRef.current + 1;
       episodePickerRequestIdRef.current = pickerRequestId;
       const initialIds = normalizeAnimeIds({
@@ -247,6 +298,10 @@ export default function AnimeCatalog({
       });
       const initialAnime = { ...anime, ids: initialIds };
       if (isAnimeMovieFormat(anime.format)) {
+        if (saved) {
+          handleResume(saved);
+          return;
+        }
         setEpisodePickerVisible(false);
         hide();
         app().handleSearch?.(
@@ -266,7 +321,7 @@ export default function AnimeCatalog({
         return;
       }
       setEpisodePickerEpisode(0);
-      setEpisodePickerLanguage(readAnimeLanguage());
+      setEpisodePickerLanguage(saved?.language ?? readAnimeLanguage());
       setEpisodePickerAnime(initialAnime);
       setEpisodePickerVisible(true);
 
@@ -303,7 +358,7 @@ export default function AnimeCatalog({
         });
       });
     },
-    [hide],
+    [hide, progress, handleResume],
   );
 
   const handleEpisodePick = useCallback(
@@ -345,6 +400,10 @@ export default function AnimeCatalog({
     (!isSearchActive && !loaded && allAnime.length === 0) ||
     (searchPending && filteredAnime.length === 0);
   const feedPending = !isSearchActive && !loaded && allAnime.length > 0;
+  const latestProgress = progress.find((saved) => !saved.completed);
+  const episodePickerProgress = episodePickerAnime
+    ? findAnimeProgress(progress, episodePickerAnime)
+    : undefined;
 
   return (
     <>
@@ -366,9 +425,17 @@ export default function AnimeCatalog({
         gridVisible={filteredAnime.length > 0}
         showSkeleton={showSkeleton}
         items={filteredAnime}
-        getCard={animeCard}
+        getCard={getAnimeCard}
         onSelect={handlePlay}
         anime
+        beforeGrid={
+          !isSearchActive && latestProgress ? (
+            <AnimeResumeCard
+              progress={latestProgress}
+              onResume={() => handleResume(latestProgress)}
+            />
+          ) : null
+        }
         emptyMessage={
           loaded && !searchPending && filteredAnime.length === 0
             ? error || negativeMessage("no anime matches were found")
@@ -398,6 +465,14 @@ export default function AnimeCatalog({
           format={episodePickerAnime.format}
           initialEpisode={episodePickerEpisode}
           initialLanguage={episodePickerLanguage}
+          resume={
+            episodePickerProgress
+              ? {
+                  label: `${animeProgressLabel(episodePickerProgress)} · ${episodePickerProgress.language}`,
+                  onResume: () => handleResume(episodePickerProgress),
+                }
+              : undefined
+          }
           onClose={() => {
             setEpisodePickerVisible(false);
           }}

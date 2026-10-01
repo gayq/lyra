@@ -350,7 +350,6 @@ async function handleBlobOrDataUrlFetch(
 	};
 }
 
-/** Simplified registrable-domain check used for cross-site redirect detection. */
 export function registrableDomainForRedirect(hostname: string): string {
 	return registrableDomain(hostname);
 }

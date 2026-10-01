@@ -1,3 +1,9 @@
+/* App-wide motion. Keep durations in ms so canvas and timers can read them.
+ * control: hover/focus feedback; enter/exit: surfaces and visibility changes.
+ * reveal: full-page theme change; repeating indicators have separate cadences.
+ * Use explicit properties, never transition: all. Reading/dismissal delays and
+ * network/playback timers are not animation durations.
+ */
 :root {
   --motion-control: 120ms;
   --motion-enter: 180ms;
@@ -12,6 +18,9 @@
   --motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
 }
 
+/* A nonzero duration preserves animationend-driven modal/load cleanup.
+ * Reset delays too: reduced motion must not leave invisible UI waiting.
+ */
 @media (prefers-reduced-motion: reduce) {
   html:not([data-motion="full"]) {
     --motion-hover-scale: 1;

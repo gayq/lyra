@@ -11,11 +11,12 @@ import { recordGameMetric } from "../../core/media/gameDiagnostics.ts";
 import { NEGATIVE, negativeMessage } from "../../core/runtime/messages.ts";
 import { cacheKey } from "../../core/runtime/cacheNamespace.ts";
 import { catalogMatchRank, normalizeCatalogText } from "./catalogSearch.ts";
+import { prepareCatalogGames } from "./catalogProcessing.ts";
+import { prepareCatalog } from "./prepareCatalog.ts";
 import {
   GAME_SOURCE_ADAPTERS,
   GameCatalogError,
   gameCatalogErrorMessage,
-  parseGameCatalog,
 } from "./gameSources.ts";
 import type { GameEntry } from "./gameSources.ts";
 
@@ -70,6 +71,7 @@ const generationBySource = new Map<GameSourceKey, number>();
 let gameByExactUrl = new Map<string, GameEntry>();
 let gameByNormalizedUrl = new Map<string, GameEntry>();
 let gnMathById = new Map<string, GameEntry>();
+let indexedGames: GameEntry[] | null = null;
 
 function now(): number {
   return Date.now();
@@ -85,19 +87,6 @@ function getCacheKey(sourceKey: GameSourceKey): Promise<string> {
 
 function currentGeneration(source: GameSourceKey): number {
   return generationBySource.get(source) ?? 0;
-}
-
-function prepareCatalogGames(games: readonly GameEntry[]): GameEntry[] {
-  const seenUrls = new Set<string>();
-  const uniqueGames: GameEntry[] = [];
-  for (const game of games) {
-    if (seenUrls.has(game.gameUrl)) continue;
-    seenUrls.add(game.gameUrl);
-    game._normalizedName = normalizeCatalogText(game.name || "");
-    game._normalizedAuthor = normalizeCatalogText(game.author || "");
-    uniqueGames.push(game);
-  }
-  return uniqueGames;
 }
 
 function isSafeCatalogUrl(value: string): boolean {
@@ -191,24 +180,6 @@ async function readStoredCache(
 function setAllGames(source: GameSourceKey, games: GameEntry[]): GameEntry[] {
   allGames = games;
   allGamesSource = source;
-  gameByExactUrl = new Map();
-  gameByNormalizedUrl = new Map();
-  gnMathById = new Map();
-
-  for (const game of games) {
-    if (game.gameUrl) {
-      gameByExactUrl.set(game.gameUrl, game);
-      const normalized = normalizeGameHistoryUrl(game.gameUrl);
-      if (normalized) gameByNormalizedUrl.set(normalized, game);
-    }
-    if (game.sourceKey === "gn-math") {
-      const id = String(game.id);
-      gnMathById.set(id, game);
-      try {
-        gnMathById.set(decodeURIComponent(id), game);
-      } catch {}
-    }
-  }
 
   try {
     const lyra = (
@@ -226,6 +197,29 @@ function setAllGames(source: GameSourceKey, games: GameEntry[]): GameEntry[] {
   } catch {}
 
   return games;
+}
+
+function indexGameUrls(): void {
+  if (indexedGames === allGames) return;
+  indexedGames = allGames;
+  gameByExactUrl = new Map();
+  gameByNormalizedUrl = new Map();
+  gnMathById = new Map();
+
+  for (const game of allGames) {
+    if (game.gameUrl) {
+      gameByExactUrl.set(game.gameUrl, game);
+      const normalized = normalizeGameHistoryUrl(game.gameUrl);
+      if (normalized) gameByNormalizedUrl.set(normalized, game);
+    }
+    if (game.sourceKey === "gn-math") {
+      const id = String(game.id);
+      gnMathById.set(id, game);
+      try {
+        gnMathById.set(decodeURIComponent(id), game);
+      } catch {}
+    }
+  }
 }
 
 function notifyCatalogUpdated(source: GameSourceKey, games: GameEntry[]): void {
@@ -410,7 +404,7 @@ async function fetchCatalogPayload(
       try {
         const payload = adapter.parseResponse
           ? await adapter.parseResponse(body, controller.signal)
-          : JSON.parse(body);
+          : body;
         return { payload, attempts: attempt };
       } catch (error) {
         throw new GameCatalogError("catalog response could not be parsed", {
@@ -473,7 +467,11 @@ function beginNetworkFetch(source: GameSourceKey): Promise<GameEntry[]> {
     .then(async ({ payload, attempts }) => {
       let games: GameEntry[];
       try {
-        games = prepareCatalogGames(parseGameCatalog(source, payload));
+        games = await prepareCatalog({
+          source,
+          payload,
+          json: !GAME_SOURCE_ADAPTERS[source].parseResponse,
+        });
       } catch (error) {
         if (error instanceof GameCatalogError) {
           throw new GameCatalogError(error.message, {
@@ -598,6 +596,7 @@ export function getGameEntryForUrl(realUrl: string): GameEntry | null {
   if (!realUrl || !allGames.length || allGamesSource !== getStoredGameSource())
     return null;
 
+  indexGameUrls();
   const exact = gameByExactUrl.get(realUrl);
   if (exact) return exact;
 

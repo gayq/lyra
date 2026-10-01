@@ -1,4 +1,6 @@
 import { negativeMessage } from "../../core/runtime/messages.ts";
+import { prepareSnapshot } from "./prepareSnapshot.ts";
+export { payloadFingerprint } from "./snapshotPayload.ts";
 
 const SYNC_SCHEMA_VERSION = 3 as const;
 const LEGACY_SYNC_SCHEMA_VERSION = 2 as const;
@@ -2191,19 +2193,10 @@ export async function importSyncSnapshot(
   await restoreIndexedDB(snapshot.indexedDB, includeSensitive);
 }
 
-export async function payloadFingerprint(payload: string): Promise<string> {
-  if (globalThis.crypto?.subtle) {
-    const digest = await globalThis.crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(payload),
-    );
-    return bytesToBase64(new Uint8Array(digest));
-  }
-  return payload;
-}
-
-export function snapshotFingerprint(snapshot: SyncSnapshot): Promise<string> {
-  return payloadFingerprint(JSON.stringify(snapshot));
+export async function snapshotFingerprint(
+  snapshot: SyncSnapshot,
+): Promise<string> {
+  return (await prepareSnapshot(snapshot)).fingerprint;
 }
 
 export function changedDuringUpload(

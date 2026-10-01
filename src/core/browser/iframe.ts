@@ -859,7 +859,7 @@ function setupIframeContentListeners(
   }
 }
 
-let _searchInputNav: HTMLInputElement | null = null;
+let _searchInputNav: HTMLElement | null = null;
 let _backIcon: HTMLElement | null = null;
 let _forwardIcon: HTMLElement | null = null;
 
@@ -867,7 +867,7 @@ function getNavEls() {
   if (!_searchInputNav?.isConnected)
     _searchInputNav = document.getElementById(
       "searchInputt",
-    ) as HTMLInputElement | null;
+    );
   if (!_backIcon?.isConnected) _backIcon = document.getElementById("backIcon");
   if (!_forwardIcon?.isConnected)
     _forwardIcon = document.getElementById("forwardIcon");
@@ -883,7 +883,7 @@ export function updateHistoryUI(
     activeTab && window.Lyra?.tabs?.some((tab) => tab.id === activeTab.id);
 
   if (!activeTab || !activeTab.iframe || !stillExists) {
-    if (_searchInputNav) _searchInputNav.value = "";
+    if (_searchInputNav) _searchInputNav.textContent = "";
     if (_backIcon) _backIcon.classList.add("disabled");
     if (_forwardIcon) _forwardIcon.classList.add("disabled");
     currentUrlSignal.value = "";
@@ -955,7 +955,7 @@ export function updateHistoryUI(
     }
 
     if (document.activeElement !== _searchInputNav) {
-      _searchInputNav.value =
+      _searchInputNav.textContent =
         displayText === "about:blank" || !displayText ? "" : displayText;
     }
 

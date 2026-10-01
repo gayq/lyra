@@ -28,7 +28,6 @@ export interface FolioFetchRequest {
 
 	rawClientUrl?: URL;
 
-	/** The service worker FetchEvent.clientId that originated this request. */
 	clientId?: string;
 }
 

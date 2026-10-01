@@ -1,3 +1,9 @@
+/* Shared geometry for the app and standalone player, independent of theme.
+ * item: compact actions, menu rows, media cards and nested content.
+ * control: form controls and navigation; panel: cards, menus and notifications.
+ * dialog: outer modal surfaces; bar: search shells and the player toolbar.
+ * Circles, slider tracks and directional pointers keep their shape-specific radii.
+ */
 :root {
   --radius-detail: 4px;
   --radius-frame: 6px;

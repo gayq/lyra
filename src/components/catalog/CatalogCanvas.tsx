@@ -11,6 +11,7 @@ export interface CanvasCard {
   year?: number | undefined;
   rating?: number | undefined;
   adult?: boolean | undefined;
+  resumeLabel?: string | undefined;
 }
 
 interface Props<T> {
@@ -36,6 +37,7 @@ export default function CatalogCanvas<T>({
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imagesRef = useRef(new Map<string, HTMLImageElement>());
+  const decodedRef = useRef(new WeakSet<HTMLImageElement>());
   const selectionRef = useRef(onSelect);
   selectionRef.current = onSelect;
 
@@ -49,6 +51,8 @@ export default function CatalogCanvas<T>({
     const scroll = getDefaultScrollTarget();
     const count = loading ? 18 : items.length;
     const images = imagesRef.current;
+    const decoded = decodedRef.current;
+    const decoding = new WeakSet<HTMLImageElement>();
     const loadedAt = new WeakMap<HTMLImageElement, number>();
     const cards = new Map<
       number,
@@ -136,11 +140,19 @@ export default function CatalogCanvas<T>({
         image = new Image();
         image.decoding = "async";
       }
+      const decode = () => {
+        if (decoded.has(image!) || decoding.has(image!)) return;
+        decoding.add(image!);
+        void image!.decode()
+          .then(() => {
+            decoded.add(image!);
+            loadedAt.set(image!, performance.now());
+            schedule();
+          })
+          .catch(schedule);
+      };
       if (!image.onload && (!image.complete || !image.src)) {
-        image.onload = () => {
-          loadedAt.set(image!, performance.now());
-          schedule();
-        };
+        image.onload = decode;
         image.onerror = () => {
           if (card.cover && url !== card.cover && image!.src !== card.cover) {
             image!.onerror = schedule;
@@ -152,6 +164,7 @@ export default function CatalogCanvas<T>({
         };
       }
       if (!image.src) image.src = url;
+      if (image.complete && image.naturalWidth) decode();
       images.delete(url);
       images.set(url, image);
       return image;
@@ -259,7 +272,7 @@ export default function CatalogCanvas<T>({
           (lowBandwidth && card.smallCover ? card.smallCover : card.cover);
         if (url) used.add(url);
         const image = card && url ? cover(card, url) : undefined;
-        const ready = !!(image?.complete && image.naturalWidth);
+        const ready = !!(image && decoded.has(image));
         const opacity =
           ready && !reducedMotion && enterDuration > 0
             ? cssEase(
@@ -364,15 +377,19 @@ export default function CatalogCanvas<T>({
             ctx.fillText(
               text,
               x + 8,
-              y + h - 8 - (hasMeta ? 16 : 0) - (lines.length - row) * 14 + 2,
+              y + h - 8 -
+                (hasMeta ? 16 : 0) -
+                (card.resumeLabel ? 16 : 0) -
+                (lines.length - row) * 14 + 2,
             ),
           );
           if (hasMeta) {
+            const metaY = y + h - 18 - (card.resumeLabel ? 16 : 0);
             let left = x + 8;
             ctx.font = `400 10px ${fontFamily}`;
             if (card.year) {
               const year = String(card.year);
-              ctx.fillText(year, left, y + h - 18);
+              ctx.fillText(year, left, metaY);
               left += (entry.yearWidth ??= ctx.measureText(year).width) + 6;
             }
             if (card.rating) {
@@ -385,17 +402,22 @@ export default function CatalogCanvas<T>({
                     : "--color-red",
                 "#fff",
               );
-              ctx.fillText(rating, left, y + h - 18);
+              ctx.fillText(rating, left, metaY);
               left += (entry.ratingWidth ??= ctx.measureText(rating).width) + 6;
             }
             if (card.adult) {
               ctx.fillStyle = "rgba(239,68,68,0.85)";
               ctx.beginPath();
-              ctx.roundRect(left, y + h - 20, 25, 14, detailRadius);
+              ctx.roundRect(left, metaY - 2, 25, 14, detailRadius);
               ctx.fill();
               ctx.fillStyle = "#fff";
-              ctx.fillText("18+", left + 3, y + h - 18);
+              ctx.fillText("18+", left + 3, metaY);
             }
+          }
+          if (card.resumeLabel) {
+            ctx.font = `400 10px ${fontFamily}`;
+            ctx.fillStyle = color("--game-info-text", "#f3f3f3");
+            ctx.fillText(card.resumeLabel, x + 8, y + h - 18, w - 16);
           }
         }
         ctx.restore();

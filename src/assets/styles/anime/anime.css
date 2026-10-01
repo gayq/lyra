@@ -15,12 +15,15 @@ body.anime-view .anime-topbar {
 
 .anime-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(var(--catalog-card-min-width), 100%), 1fr)
+  );
+  gap: var(--catalog-card-gap);
 }
 
 .anime-card {
-  aspect-ratio: 2 / 3;
+  aspect-ratio: var(--catalog-poster-ratio);
   contain-intrinsic-size: 150px 225px;
 }
 
@@ -34,7 +37,7 @@ body.anime-view .anime-topbar {
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 8px;
+  padding: var(--catalog-card-inset);
   box-sizing: border-box;
   z-index: 2;
 }
@@ -43,7 +46,7 @@ body.anime-view .anime-topbar {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--catalog-meta-size);
   color: var(--game-info-text);
   margin-top: 2px;
 }
@@ -64,4 +67,74 @@ body.anime-view .anime-topbar {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
+}
+
+.anime-grid-container:has(.anime-resume-card) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--catalog-section-gap);
+}
+
+.anime-resume-card {
+  display: flex;
+  align-items: center;
+  gap: var(--catalog-card-gap);
+  aspect-ratio: auto;
+  contain-intrinsic-size: auto;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--game-info-text);
+  transition:
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
+}
+
+.anime-resume-card::before,
+.anime-resume-card::after {
+  content: none;
+}
+
+.anime-resume-card:hover {
+  background-color: var(--hover-bg);
+  transform: none;
+}
+
+.anime-resume-card:focus-visible {
+  outline-color: var(--border-focus);
+}
+
+.anime-resume-card .poster-cover {
+  position: relative;
+  inset: auto;
+  width: calc(var(--catalog-card-min-width) / 2);
+  height: auto;
+  aspect-ratio: var(--catalog-poster-ratio);
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.anime-resume-card .anime-info {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--catalog-card-inset);
+}
+
+.anime-resume-title {
+  text-transform: lowercase;
+  overflow-wrap: anywhere;
+}
+
+.anime-resume-caption {
+  font-size: var(--catalog-meta-size);
+  color: var(--text-secondary);
+}
+
+.anime-resume-play {
+  flex-shrink: 0;
+  margin-right: var(--catalog-section-gap);
+  color: var(--color-icon);
 }

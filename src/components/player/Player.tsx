@@ -26,6 +26,7 @@ import {
   isAnimeMovieFormat,
   type AnimeSeason,
 } from "../../features/anime/anime.ts";
+import { saveAnimeProgress } from "../../features/anime/animeProgress.ts";
 import {
   ANIME_QUALITY_KEY,
   ANIME_SETTING_KEYS,
@@ -418,6 +419,52 @@ export default function Player() {
       ? `/stream/anikoto?${fallbackQuery}`
       : "";
   const resumeKey = `lyra-resume-anikoto-${animeIdentityCacheKey({ ids: playbackIds })}-${episodeNumber}-${language}`;
+  const persistProgress = useCallback(
+    (currentTime: number, duration: number, completed = false) => {
+      saveAnimeProgress(
+        {
+          title,
+          posterUrl: poster,
+          ids: normalizeAnimeIds({
+            ...identityIds,
+            anikotoEpisode: activeAnikotoEpisodeId || undefined,
+          }),
+          episode: episodeNumber,
+          sourceEpisode: sourceEpisodeNumber,
+          season: Number(params.get("season")) || 1,
+          episodeCount,
+          year: Number(params.get("year")) || undefined,
+          format,
+          language,
+          parts: episodeParts.map((part) => ({
+            id: part.start,
+            title,
+            ids: part.ids,
+            episodeCount: part.end - part.start + 1,
+          })),
+          currentTime,
+          duration: cleanDuration(duration),
+          completed,
+          updatedAt: Date.now(),
+        },
+        resumeKey,
+      );
+    },
+    [
+      title,
+      poster,
+      identityIds,
+      activeAnikotoEpisodeId,
+      episodeNumber,
+      sourceEpisodeNumber,
+      params,
+      episodeCount,
+      format,
+      language,
+      episodeParts,
+      resumeKey,
+    ],
+  );
   const sourceContextKey = [
     episodeNumber,
     sourceEpisodeNumber,
@@ -951,12 +998,11 @@ export default function Player() {
         ? video.currentTime
         : (currentTimeRef.current ?? 0);
       if (resumeTime > 0) {
-        try {
-          localStorage.setItem(
-            resumeKey,
-            JSON.stringify({ currentTime: resumeTime, timestamp: Date.now() }),
-          );
-        } catch {}
+        persistProgress(
+          resumeTime,
+          mediaStateRef.current.duration || 0,
+          video?.ended,
+        );
       }
 
       playIntentRef.current = shouldKeepPlaying;
@@ -1007,7 +1053,7 @@ export default function Player() {
       episodeCount,
       episodeNumber,
       currentSeason.number,
-      resumeKey,
+      persistProgress,
       episodeParts,
       identityIds,
       clearAutoNext,
@@ -1795,15 +1841,11 @@ export default function Player() {
         );
         playAfterSeekRef.current = playIntentRef.current;
         if (video && video.currentTime > 0) {
-          try {
-            localStorage.setItem(
-              resumeKey,
-              JSON.stringify({
-                currentTime: video.currentTime,
-                timestamp: Date.now(),
-              }),
-            );
-          } catch {}
+          persistProgress(
+            video.currentTime,
+            mediaStateRef.current.duration || 0,
+            video.ended,
+          );
         }
         const currentUrl = new URL(window.location.href);
         currentUrl.searchParams.set("language", nextLanguage);
@@ -1839,7 +1881,7 @@ export default function Player() {
         }
       }
     },
-    [language, changingLanguage, resumeKey, sourceEpisodeNumber, playbackIds],
+    [language, changingLanguage, persistProgress, sourceEpisodeNumber, playbackIds],
   );
 
   useEffect(() => {
@@ -1848,6 +1890,9 @@ export default function Player() {
     const mediaSession = ++mediaSessionRef.current;
     const context = sourceContextKey;
     let lastKnownTime = 0;
+    let lastKnownDuration = 0;
+    let completed = false;
+    let lastSavedAt = 0;
     const isCurrentMedia = () =>
       mediaSession === mediaSessionRef.current &&
       videoRef.current === video &&
@@ -1959,6 +2004,7 @@ export default function Player() {
       syncMediaState({ buffering: false, bufferingReason: null });
       finishRebuffer();
       if (!playIntentRef.current) hlsRef.current?.pauseBuffering();
+      saveResume();
     };
     const handleEnded = () => {
       if (!isCurrentMedia()) return;
@@ -1971,6 +2017,7 @@ export default function Player() {
         bufferingReason: null,
       });
       finishRebuffer();
+      saveResume();
       if (autoNextTimerRef.current === null) startAutoNextRef.current();
     };
     const handleTimeUpdate = () => {
@@ -1983,6 +2030,7 @@ export default function Player() {
           ? { buffering: false, bufferingReason: null }
           : {},
       );
+      if (Date.now() - lastSavedAt >= 5_000) saveResume();
     };
     const handleMetadata = () => {
       if (!isCurrentMedia()) return;
@@ -2080,10 +2128,16 @@ export default function Player() {
       if (resumeAppliedRef.current) return;
       resumeAppliedRef.current = true;
       const savedResume = readPlayerStorage(resumeKey);
-      if (savedResume) {
+      const requestedTime =
+        episodeNumber === initialEpisode && language === initialLanguage
+          ? Number(params.get("resume"))
+          : 0;
+      if (savedResume || requestedTime > 0) {
         try {
-          const resumeState = JSON.parse(savedResume);
-          const savedTime = Number(resumeState?.currentTime);
+          const savedTime =
+            requestedTime > 0
+              ? requestedTime
+              : Number(JSON.parse(savedResume || "null")?.currentTime);
           const durationLimit =
             mediaStateRef.current.duration ||
             manifestDurationRef.current ||
@@ -2092,10 +2146,16 @@ export default function Player() {
           if (
             Number.isFinite(savedTime) &&
             savedTime > 0 &&
-            savedTime < durationLimit * 0.9
+            savedTime < durationLimit * (requestedTime > 0 ? 1 : 0.9)
           ) {
             try {
               video.currentTime = savedTime;
+              if (requestedTime > 0) {
+                params.delete("resume");
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.delete("resume");
+                window.history.replaceState(null, "", currentUrl);
+              }
             } catch {}
           }
         } catch {}
@@ -2142,6 +2202,7 @@ export default function Player() {
             buffering: needsBuffering,
             bufferingReason: needsBuffering ? "seeking" : null,
           });
+          saveResume();
         },
       ],
       ["ratechange", syncPlaybackState],
@@ -2152,15 +2213,11 @@ export default function Player() {
     }
     const saveResume = () => {
       if (!isCurrentMedia() || video.currentTime <= 0) return;
-      try {
-        localStorage.setItem(
-          resumeKey,
-          JSON.stringify({
-            currentTime: video.currentTime,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {}
+      lastKnownTime = video.currentTime;
+      lastKnownDuration = mediaStateRef.current.duration || cleanDuration(video.duration);
+      completed = video.ended;
+      lastSavedAt = Date.now();
+      persistProgress(lastKnownTime, lastKnownDuration, completed);
     };
     const syncOnVisibility = () => {
       syncPlaybackState();
@@ -2182,12 +2239,7 @@ export default function Player() {
       });
       const currentTime = lastKnownTime;
       if (currentTime > 0) {
-        try {
-          localStorage.setItem(
-            resumeKey,
-            JSON.stringify({ currentTime, timestamp: Date.now() }),
-          );
-        } catch {}
+        persistProgress(currentTime, lastKnownDuration, completed);
       }
       for (const [eventName, listener] of events) {
         video.removeEventListener(eventName, listener);
@@ -2200,7 +2252,7 @@ export default function Player() {
         nativeRetryTimerRef.current = null;
       }
     };
-  }, [episodeNumber, resumeKey, videoSrc, renderPlaybackTime, syncMediaState]);
+  }, [episodeNumber, resumeKey, videoSrc, renderPlaybackTime, syncMediaState, persistProgress]);
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {

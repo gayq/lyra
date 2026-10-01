@@ -38,8 +38,8 @@ async function request(
   }
 }
 
-export async function uploadSnapshot(body: string): Promise<Response> {
-  const snapshot = new Blob([body]);
+export async function uploadSnapshot(body: string | Blob): Promise<Response> {
+  const snapshot = typeof body === "string" ? new Blob([body]) : body;
   const parts = Math.ceil(snapshot.size / CHUNK_SIZE);
   const started = await request("/api/sync/transfer", {
     method: "POST",

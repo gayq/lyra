@@ -156,7 +156,7 @@ export function useSearchInputBindings({
   syncHistory = false,
 }: SearchInputBindingsOptions): void {
   useEffect(() => {
-    const input = document.getElementById(inputId) as HTMLInputElement | null;
+    const input = document.getElementById(inputId);
     if (!input) return;
 
     const onInput = () => {
@@ -164,7 +164,7 @@ export function useSearchInputBindings({
       const activeTab = store.getActiveTab();
       if (!activeTab?.historyManager) return;
       updateHistoryUI(activeTab as any, {
-        currentUrl: input.value,
+        currentUrl: input.textContent ?? "",
         canGoBack: activeTab.historyManager.canGoBack(),
         canGoForward: activeTab.historyManager.canGoForward(),
       });
@@ -185,8 +185,14 @@ export function useSearchInputBindings({
       warmProxyRuntime();
     };
 
-    const onKeyup = async (e: KeyboardEvent) => {
-      if (e.key !== "Enter" || document.activeElement !== input) return;
+    const onKeydown = async (e: KeyboardEvent) => {
+      if (
+        e.isComposing ||
+        e.repeat ||
+        e.key !== "Enter" ||
+        document.activeElement !== input
+      ) return;
+      e.preventDefault();
       const suggestions = suggestionsId
         ? document.getElementById(suggestionsId)
         : null;
@@ -196,7 +202,7 @@ export function useSearchInputBindings({
       ) {
         return;
       }
-      await (window as any).Lyra?.handleSearch?.(input.value.trim());
+      await (window as any).Lyra?.handleSearch?.((input.textContent ?? "").trim());
       if (suggestions) suggestions.style.display = "none";
       input.blur();
     };
@@ -204,13 +210,13 @@ export function useSearchInputBindings({
     input.addEventListener("input", onInput);
     input.addEventListener("focus", onFocus);
     input.addEventListener("mouseenter", onMouseEnter);
-    input.addEventListener("keyup", onKeyup);
+    input.addEventListener("keydown", onKeydown);
 
     return () => {
       input.removeEventListener("input", onInput);
       input.removeEventListener("focus", onFocus);
       input.removeEventListener("mouseenter", onMouseEnter);
-      input.removeEventListener("keyup", onKeyup);
+      input.removeEventListener("keydown", onKeydown);
     };
   }, [inputId, suggestionsId, syncHistory]);
 }

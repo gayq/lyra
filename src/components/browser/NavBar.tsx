@@ -11,6 +11,7 @@ import { compactAnimePlaybackPath } from "../../core/media/animeMetadata.ts";
 import { toast } from "../../core/ui/toast.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
 import ExtensionMenu from "./ExtensionMenu.tsx";
+import EditableField from "../EditableField.tsx";
 import {
   IconSidebar,
   IconArrowLeft,
@@ -288,15 +289,14 @@ export default function NavBar() {
       <div class="omnibox">
         <div class="omnibox-input-wrap">
           <CopyLinkIcon />
-          <input
-            type="text"
+          <EditableField
             id="searchInputt"
+            label="search or enter url"
             placeholder={
               activeTab?.isLoading
                 ? "fetching url... (˶˃ ᵕ ˂˶)"
                 : "search or enter url (˶>⩊<˶)"
             }
-            autocomplete="off"
           />
         </div>
         <div id="suggestions-container-nav" class="suggestions-box"></div>

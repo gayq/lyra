@@ -9,7 +9,6 @@ export type { AddAlwaysLastEventListener } from "./alwaysLastBubble";
 export { setupAlwaysLastBubble } from "./alwaysLastBubble";
 
 export type EventHandlerPluginOptions = {
-	/** Bubble-phase event types to track. Defaults to click, auxclick, and contextmenu. */
 	events?: string[];
 };
 

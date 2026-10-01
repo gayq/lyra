@@ -6,6 +6,25 @@ select {
   font-family: Lexend, sans-serif;
 }
 
+.editable-field {
+  display: block;
+  font-family: inherit;
+  line-height: normal;
+  min-height: 1em;
+  overflow: hidden;
+  white-space: pre;
+  text-transform: none;
+  cursor: text;
+  user-select: text;
+}
+
+.editable-field:empty::before {
+  content: attr(data-placeholder);
+  font-weight: 300;
+  color: var(--input-placeholder-search);
+  pointer-events: none;
+}
+
 html {
   height: 100%;
   overflow: hidden;
@@ -670,7 +689,7 @@ body.anime-view #anime-icon svg path {
   position: relative;
 }
 
-.omnibox input[type="text"] {
+.omnibox .editable-field {
   background-color: var(--active-bg-subtle);
   border: none;
   border-radius: var(--radius-pill);
@@ -684,19 +703,9 @@ body.anime-view #anime-icon svg path {
   width: 100%;
 }
 
-.omnibox input[type="text"]:focus,
-.omnibox input[type="text"]:hover {
+.omnibox .editable-field:focus,
+.omnibox .editable-field:hover {
   background-color: var(--hover-bg-light);
-}
-
-.omnibox input[type="text"]::-moz-placeholder {
-  font-weight: 300;
-  color: var(--input-placeholder-search);
-}
-
-.omnibox input[type="text"]::placeholder {
-  font-weight: 300;
-  color: var(--input-placeholder-search);
 }
 
 .omnibox-icon {
@@ -853,29 +862,21 @@ body.anime-view #anime-icon svg path {
   margin-bottom: 70px;
 }
 
-.search-bar input[type="text"] {
+.search-bar .editable-field {
   background-color: transparent;
   border: transparent;
   border-radius: var(--radius-bar);
   color: var(--text-primary);
   font-size: 14px;
+  margin-inline: auto;
   outline: none;
   padding: 18px;
   position: relative;
+  text-align: left;
   transition: background-color var(--motion-control) var(--motion-ease);
   width: calc(100% - 90px);
   min-width: 0;
   z-index: 3;
-}
-
-.search-bar input[type="text"]::-moz-placeholder {
-  font-weight: 300;
-  color: var(--input-placeholder-search);
-}
-
-.search-bar input[type="text"]::placeholder {
-  font-weight: 300;
-  color: var(--input-placeholder-search);
 }
 
 .search-icon {
@@ -1477,7 +1478,7 @@ html.theme-transitioning::view-transition-new(theme-iframe-right) {
     width: calc(100% - 24px);
   }
 
-  .search-bar input[type="text"] {
+  .search-bar .editable-field {
     width: calc(100% - 44px);
   }
 

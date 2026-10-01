@@ -2,6 +2,7 @@ import { useEffect, useRef } from "preact/hooks";
 import { attachSearchLight } from "../../core/ui/searchLight.ts";
 import { useSearchInputBindings } from "../../features/search/search.ts";
 import { IconMagnifyingGlass2 } from "../icons";
+import EditableField from "../EditableField.tsx";
 
 const placeholders = [
   "have anything in mind?",
@@ -55,11 +56,10 @@ export default function SearchBar() {
       <div class="light-inset-bg"></div>
       <div class="light"></div>
       <IconMagnifyingGlass2 class="search-icon" />
-      <input
-        type="text"
+      <EditableField
         id="searchInput"
+        label="search or enter url"
         placeholder={placeholderRef.current}
-        autocomplete="off"
       />
       <div id="suggestions-container" class="suggestions-box"></div>
     </div>
