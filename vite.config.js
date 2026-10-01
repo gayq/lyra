@@ -24,13 +24,12 @@ export default defineConfig({
     },
   },
   worker: {
-      rolldownOptions: {
-        output: {
-          entryFileNames: `${assetPath}.js`,
-          chunkFileNames: `${assetPath}.js`,
-          assetFileNames: `${assetPath}[extname]`,
-        },
+    rolldownOptions: {
+      output: {
+        entryFileNames: `${assetPath}.js`,
+        chunkFileNames: `${assetPath}.js`,
       },
+    },
   },
   build: {
     outDir: "../dist",

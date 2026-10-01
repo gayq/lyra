@@ -458,6 +458,21 @@ export default function lyraPlugin(
           );
           continue;
         }
+        if (chunk.type === "asset" && fileName.endsWith(".js")) {
+          const filePath = path.join(outputDirectory, fileName);
+          const sourceCode = stripSourceMapComments(
+            await readFile(filePath, "utf8"),
+          );
+          await writeFile(
+            filePath,
+            obfuscateSource(
+              rewriteBuildTokens(sourceCode, cssTokenMap, pathAliases),
+              OBFUSCATION_OPTIONS,
+              obfuscationPrefix(buildId, fileName),
+            ),
+          );
+          continue;
+        }
         if (chunk.type !== "chunk") continue;
         const filePath = path.join(outputDirectory, fileName);
         let sourceCode;
