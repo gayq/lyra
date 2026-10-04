@@ -1,19 +1,15 @@
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import { prepareSnapshot } from "./prepareSnapshot.ts";
 export { payloadFingerprint } from "./snapshotPayload.ts";
-
 const SYNC_SCHEMA_VERSION = 3 as const;
 const LEGACY_SYNC_SCHEMA_VERSION = 2 as const;
-
 const FOLIO_DB = "__folio_controller";
 const FOLIO_STORE = "state";
 const FOLIO_COOKIE_KEY = "cookies";
 const FOLIO_CHANNEL = "__folio_controller_channel";
 const IDB_REGISTRY_KEY = "lyra-sync-idb-names";
-
 const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
 const LOCAL_ONLY_DATABASES = new Set(["uBlock0CacheStorage"]);
-
 const LOCAL_STORAGE_PREFIXES = [
   "lyra-game-cache-",
   "lyra-anime-feed-entries-",

@@ -452,10 +452,16 @@ interface AnimeFeedRequest {
   subscribers: Set<AnimeFeedSubscriber>;
 }
 
+interface AnimeSearchRequest extends AnimeFeedRequest {
+  controller: AbortController;
+  consumers: number;
+}
+
 const animeFeedRequests = new Map<string, AnimeFeedRequest>();
 let animeFeedGeneration = 0;
 const sortedAnimePromises = new Map<string, Promise<AnimeEntry[]>>();
-const searchAnimePromises = new Map<string, Promise<AnimeEntry[]>>();
+const sortedAnimeCache = new Map<string, StoredAnimeFeed>();
+const searchAnimeRequests = new Map<string, AnimeSearchRequest>();
 const anikotoRecentCache = new Map<
   string,
   { expiresAt: number; entries: AnimeEntry[] }
@@ -910,8 +916,14 @@ export function mergeAnimeEntries(
 
 function fetchAniListSorted(sort: "TRENDING_DESC" | "POPULARITY_DESC") {
   const cacheKey = `${sort}:${getAudienceCacheKey()}`;
-  const cached = sortedAnimePromises.get(cacheKey);
-  if (cached) return cached;
+  const cached = sortedAnimeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.anime);
+  }
+  if (cached) sortedAnimeCache.delete(cacheKey);
+  const inFlight = sortedAnimePromises.get(cacheKey);
+  if (inFlight) return inFlight;
+  const generation = animeFeedGeneration;
 
   const query = `
     query ($page: Int) {
@@ -923,10 +935,21 @@ function fetchAniListSorted(sort: "TRENDING_DESC" | "POPULARITY_DESC") {
     }
   `;
 
-  const promise = fetchAniListEntries(query, { page: 1 }).catch((err) => {
-    sortedAnimePromises.delete(cacheKey);
-    throw err;
-  });
+  const promise = fetchAniListEntries(query, { page: 1 })
+    .then((anime) => {
+      if (generation === animeFeedGeneration) {
+        sortedAnimeCache.set(cacheKey, {
+          anime,
+          expiresAt: Date.now() + ANIME_FEED_CACHE_TTL_MS,
+        });
+      }
+      return anime;
+    })
+    .finally(() => {
+      if (sortedAnimePromises.get(cacheKey) === promise) {
+        sortedAnimePromises.delete(cacheKey);
+      }
+    });
   sortedAnimePromises.set(cacheKey, promise);
   return promise;
 }
@@ -943,7 +966,7 @@ function getCacheKey(category: AnimeCategory): Promise<string> {
   return cacheKey(
     ANIME_FEED_CACHE_KEY_PREFIX,
     import.meta.url,
-    `${category}-${getAudienceCacheKey()}`,
+    `${category === "trending" ? "trending-anilist" : category}-${getAudienceCacheKey()}`,
   );
 }
 
@@ -1061,7 +1084,7 @@ export async function fetchAnimeData(
 
     switch (category) {
       case "trending":
-        providers = [fetchTrendingAnimeEntries, fetchAnikotoRecentEntries];
+        providers = [() => fetchAniListSorted("TRENDING_DESC")];
         break;
       case "anime":
         providers = [
@@ -1085,10 +1108,8 @@ export async function fetchAnimeData(
             if (generation !== animeFeedGeneration) return;
             providerResults[index] = anime;
             if (anime.length === 0) return;
-            request.latest = applySearchFields(
-              mergeAnimeEntries(
-                ...providerResults.map((results) => results || []),
-              ),
+            request.latest = mergeAnimeEntries(
+              ...providerResults.map((results) => results || []),
             );
             for (const subscriber of request.subscribers) {
               try {
@@ -1115,6 +1136,55 @@ export async function fetchAnimeData(
   });
 }
 
+function subscribeAnimeSearch(
+  cacheKey: string,
+  request: AnimeSearchRequest,
+  signal?: AbortSignal,
+  onUpdate?: AnimeFeedSubscriber,
+): Promise<AnimeEntry[]> {
+  request.consumers += 1;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const publish = (anime: AnimeEntry[]) => {
+      try {
+        onUpdate?.(anime);
+      } catch {}
+    };
+    const release = () => {
+      if (finished) return false;
+      finished = true;
+      request.consumers -= 1;
+      request.subscribers.delete(publish);
+      signal?.removeEventListener("abort", abort);
+      return true;
+    };
+    const abort = () => {
+      if (!release()) return;
+      reject(
+        new DOMException("anime request aborted... /ᐠ - ˕ -マ", "AbortError"),
+      );
+      if (request.consumers === 0) {
+        request.controller.abort();
+        if (searchAnimeRequests.get(cacheKey) === request) {
+          searchAnimeRequests.delete(cacheKey);
+        }
+      }
+    };
+    request.subscribers.add(publish);
+    signal?.addEventListener("abort", abort, { once: true });
+    request.promise.then(
+      (anime) => {
+        if (release()) resolve(anime);
+      },
+      (error) => {
+        if (release()) reject(error);
+      },
+    );
+    if (signal?.aborted) abort();
+    else if (request.latest.length > 0) publish(request.latest);
+  });
+}
+
 export async function searchAnime(
   query: string,
   signal?: AbortSignal,
@@ -1123,6 +1193,8 @@ export async function searchAnime(
 ): Promise<AnimeEntry[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
+  signal?.throwIfAborted();
+  const generation = animeFeedGeneration;
   const forceRefresh = options.forceRefresh === true;
 
   const searchCacheKey = await cacheKey(
@@ -1130,6 +1202,8 @@ export async function searchAnime(
     import.meta.url,
     `${getAudienceCacheKey()}-${trimmed.toLowerCase()}`,
   );
+  signal?.throwIfAborted();
+  if (generation !== animeFeedGeneration) return [];
   try {
     if (!forceRefresh && typeof sessionStorage !== "undefined") {
       const cached = sessionStorage.getItem(searchCacheKey);
@@ -1150,8 +1224,19 @@ export async function searchAnime(
     }
   } catch {}
 
-  const inFlight = searchAnimePromises.get(searchCacheKey);
-  if (inFlight && !forceRefresh && !signal && !onUpdate) return inFlight;
+  const inFlight = searchAnimeRequests.get(searchCacheKey);
+  if (inFlight && !forceRefresh) {
+    return subscribeAnimeSearch(searchCacheKey, inFlight, signal, onUpdate);
+  }
+
+  const request: AnimeSearchRequest = {
+    promise: Promise.resolve([]),
+    latest: [],
+    subscribers: new Set(),
+    controller: new AbortController(),
+    consumers: 0,
+  };
+  const requestSignal = request.controller.signal;
 
   const anilistQuery = `
     query ($search: String) {
@@ -1164,42 +1249,41 @@ export async function searchAnime(
   `;
 
   let results: AnimeEntry[] = [];
-  let providersCompleted = 0;
   const publish = (providerResults: AnimeEntry[]) => {
-    if (signal?.aborted) return;
+    if (requestSignal.aborted || generation !== animeFeedGeneration) return;
     const filtered = filterAnimeSearchResults(providerResults, trimmed);
-    results = applySearchFields(mergeAnimeEntries(results, filtered));
-    onUpdate?.(results);
+    if (filtered.length === 0) return;
+    results = mergeAnimeEntries(results, filtered);
+    request.latest = results;
+    for (const subscriber of request.subscribers) subscriber(results);
   };
 
   const promise = Promise.all([
-    fetchAniListEntries(anilistQuery, { search: trimmed }, signal)
+    fetchAniListEntries(anilistQuery, { search: trimmed }, requestSignal)
       .then((providerResults) => publish(providerResults))
       .catch((error) => {
-        if (signal?.aborted) throw error;
-      })
-      .then(() => {
-        providersCompleted += 1;
+        if (requestSignal.aborted) throw error;
       }),
-    fetchKitsuEntries(trimmed, signal)
+    fetchKitsuEntries(trimmed, requestSignal)
       .then((providerResults) => publish(providerResults))
       .catch((error) => {
-        if (signal?.aborted) throw error;
-      })
-      .then(() => {
-        providersCompleted += 1;
+        if (requestSignal.aborted) throw error;
       }),
   ])
     .then(() => {
-      if (signal?.aborted) {
+      if (requestSignal.aborted) {
         throw new DOMException(
           "anime request aborted... /ᐠ - ˕ -マ",
           "AbortError",
         );
       }
-      if (providersCompleted === 0) return [];
+      if (generation !== animeFeedGeneration) return [];
       try {
-        if (results.length > 0 && typeof sessionStorage !== "undefined") {
+        if (
+          results.length > 0 &&
+          searchAnimeRequests.get(searchCacheKey) === request &&
+          typeof sessionStorage !== "undefined"
+        ) {
           sessionStorage.setItem(
             searchCacheKey,
             JSON.stringify({
@@ -1212,13 +1296,14 @@ export async function searchAnime(
       return results;
     })
     .finally(() => {
-      if (searchAnimePromises.get(searchCacheKey) === promise) {
-        searchAnimePromises.delete(searchCacheKey);
+      if (searchAnimeRequests.get(searchCacheKey) === request) {
+        searchAnimeRequests.delete(searchCacheKey);
       }
     });
 
-  searchAnimePromises.set(searchCacheKey, promise);
-  return promise;
+  request.promise = promise;
+  searchAnimeRequests.set(searchCacheKey, request);
+  return subscribeAnimeSearch(searchCacheKey, request, signal, onUpdate);
 }
 
 export function resetAnimeCache(): void {
@@ -1228,7 +1313,11 @@ export function resetAnimeCache(): void {
   }
   animeFeedRequests.clear();
   sortedAnimePromises.clear();
-  searchAnimePromises.clear();
+  sortedAnimeCache.clear();
+  for (const request of searchAnimeRequests.values()) {
+    request.controller.abort();
+  }
+  searchAnimeRequests.clear();
   anikotoRecentCache.clear();
   anikotoRecentPromises.clear();
   anikotoSeriesCache.clear();
@@ -1310,7 +1399,8 @@ export async function fetchAnimeEpisodeCount(
   const ids = normalizeAnimeIds(
     typeof input === "number" ? { mal: input } : input,
   );
-  const episodeIdentityKey = `identity:${JSON.stringify(Object.entries(ids).sort())}`;
+  const countIds = ids.mal ? { mal: ids.mal } : ids;
+  const episodeIdentityKey = `identity:${JSON.stringify(Object.entries(countIds).sort())}`;
   const cached = _jikanEpsCache.get(episodeIdentityKey);
   if (cached && cached.expiresAt > Date.now()) return cached.count;
 

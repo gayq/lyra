@@ -510,6 +510,10 @@ export default function Player() {
   const volumeDraggingRef = useRef(false);
   const lastVolumeRef = useRef(1);
   const languageRequestRef = useRef<AbortController | null>(null);
+  const languageStreamInfoRef = useRef<{
+    params: string;
+    info: StreamInfoResponse;
+  } | null>(null);
   const controlsFrameRef = useRef<number | null>(null);
   const [mediaState, setMediaState] = useState<MediaState>(() => {
     const storedVolumeValue = readPlayerStorage("lyra-anime-volume");
@@ -552,9 +556,6 @@ export default function Player() {
   });
   const manifestDurationRef = useRef<number | null>(null);
   const sourceGenerationRef = useRef(0);
-  const [confirmedLanguage, setConfirmedLanguage] = useState<
-    "sub" | "dub" | null
-  >(null);
   const [introMarker, setIntroMarker] = useState<{
     start: number;
     end: number;
@@ -1574,7 +1575,6 @@ export default function Player() {
     setLoadingStreamInfo(true);
     const startedAt = performance.now();
     manifestDurationRef.current = null;
-    setConfirmedLanguage(null);
     setIntroMarker(null);
     setOutroMarker(null);
     setSubtitleTracks([]);
@@ -1586,7 +1586,13 @@ export default function Player() {
     });
     appendMegaPlayParams(params, playbackIds);
 
-    fetchStreamInfo(params, controller.signal)
+    const confirmed = languageStreamInfoRef.current;
+    languageStreamInfoRef.current = null;
+    const streamInfo =
+      confirmed?.params === params.toString()
+        ? Promise.resolve(confirmed.info)
+        : fetchStreamInfo(params, controller.signal);
+    streamInfo
       .then((info) => {
         if (
           controller.signal.aborted ||
@@ -1604,14 +1610,6 @@ export default function Player() {
           manifestDurationRef.current = nextDuration;
           syncMediaState({ durationHint: nextDuration });
         }
-        const sourceLanguage = info?.source?.language;
-        setConfirmedLanguage(
-          sourceLanguage === "sub" || sourceLanguage === "dub"
-            ? sourceLanguage === language
-              ? sourceLanguage
-              : null
-            : null,
-        );
         setIntroMarker(info?.intro || null);
         setOutroMarker(info?.outro || null);
         const tracks = Array.isArray(info?.tracks) ? info.tracks : [];
@@ -1625,7 +1623,6 @@ export default function Player() {
         ) {
           return;
         }
-        setConfirmedLanguage(null);
         recordStreamDiagnostic("stream_info_error", {
           elapsedMs: Math.round(performance.now() - startedAt),
           code: err instanceof RequestError ? err.code : "STREAM_INFO_UNKNOWN",
@@ -1733,7 +1730,7 @@ export default function Player() {
       subtitleRetryRef.current = true;
       setInfoRevision((revision) => revision + 1);
     } else {
-      showToast("error", "subtitles are unavailable", undefined, 4000);
+      showToast("error", "subtitles unavailable", undefined, 4000);
     }
     setActiveSubtitle(-1);
   }, []);
@@ -1851,6 +1848,7 @@ export default function Player() {
         currentUrl.searchParams.set("language", nextLanguage);
         currentUrl.searchParams.delete("mochi_url");
         window.history.replaceState(null, "", currentUrl);
+        languageStreamInfoRef.current = { params: params.toString(), info };
         setLanguage(nextLanguage);
       } catch (error) {
         if (
@@ -1870,7 +1868,7 @@ export default function Player() {
         });
         showToast(
           "error",
-          "language is unavailable for this episode",
+          "audio unavailable",
           undefined,
           4000,
         );
@@ -2847,7 +2845,7 @@ export default function Player() {
                 }}
               >
                 <span>
-                  {changingLanguage ? "..." : confirmedLanguage || "unknown"}
+                  {changingLanguage ? "..." : language}
                 </span>
                 <IconChevronBottom size={12} class="selector-chevron" />
               </button>

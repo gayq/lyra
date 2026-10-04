@@ -2,6 +2,7 @@ import { negativeMessage } from "../../core/runtime/messages.ts";
 
 const CHUNK_SIZE = 1024 * 1024;
 const REQUEST_TIMEOUT = 60_000;
+const TRANSFER_CONCURRENCY = 3;
 
 async function request(
   url: string,
@@ -38,6 +39,38 @@ async function request(
   }
 }
 
+async function transferParts(
+  parts: number,
+  transfer: (part: number) => Promise<Response>,
+): Promise<Response | null> {
+  let next = 0;
+  let stopped = false;
+  let failure: Response | null = null;
+  const workers = Array.from(
+    { length: Math.min(TRANSFER_CONCURRENCY, parts) },
+    async () => {
+      while (!stopped && next < parts) {
+        const part = next++;
+        try {
+          const response = await transfer(part);
+          if (!response.ok) {
+            failure ??= response;
+            stopped = true;
+          }
+        } catch (error) {
+          stopped = true;
+          throw error;
+        }
+      }
+    },
+  );
+  const results = await Promise.allSettled(workers);
+  for (const result of results) {
+    if (result.status === "rejected") throw result.reason;
+  }
+  return failure;
+}
+
 export async function uploadSnapshot(body: string | Blob): Promise<Response> {
   const snapshot = typeof body === "string" ? new Blob([body]) : body;
   const parts = Math.ceil(snapshot.size / CHUNK_SIZE);
@@ -55,7 +88,7 @@ export async function uploadSnapshot(body: string | Blob): Promise<Response> {
   ) {
     throw new Error(negativeMessage("sync transfer is unavailable"));
   }
-  for (let part = 0; part < parts; part++) {
+  const failure = await transferParts(parts, async (part) => {
     let chunk = snapshot.slice(part * CHUNK_SIZE, (part + 1) * CHUNK_SIZE);
     const headers: Record<string, string> = {
       "Content-Type": "application/octet-stream",
@@ -69,13 +102,13 @@ export async function uploadSnapshot(body: string | Blob): Promise<Response> {
         headers["Content-Encoding"] = "gzip";
       }
     }
-    const result = await request(`/api/sync/transfer/${id}/${part}`, {
+    return request(`/api/sync/transfer/${id}/${part}`, {
       method: "PUT",
       headers,
       body: chunk,
     });
-    if (!result.ok) return result;
-  }
+  });
+  if (failure) return failure;
   return request(`/api/sync/transfer/${id}/commit`, { method: "POST" });
 }
 
@@ -94,15 +127,17 @@ export async function downloadSnapshot(): Promise<Response> {
     throw new Error(negativeMessage("synced data is unavailable"));
   }
   const chunks: Blob[] = [];
-  for (let part = 0; part < manifest.parts; part++) {
+  const failure = await transferParts(manifest.parts, async (part) => {
     const chunk = await request(`/api/sync/transfer/${manifest.id}/${part}`);
     if (!chunk.ok) return chunk;
     const bytes = await chunk.blob();
     if (!bytes.size || bytes.size > CHUNK_SIZE) {
       throw new Error(negativeMessage("synced data is unavailable"));
     }
-    chunks.push(bytes);
-  }
+    chunks[part] = bytes;
+    return chunk;
+  });
+  if (failure) return failure;
   return new Response(
     new Blob([
       '{"success":true,"data":',

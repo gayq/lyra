@@ -2,6 +2,7 @@ import { attachSearchLight } from "../ui/searchLight.ts";
 import { scheduleIdleTask } from "./scheduler.ts";
 import { svgIcon } from "../ui/svgIcon.ts";
 import { negativeMessage, positiveMessage } from "./messages.ts";
+import { fetchServiceMetadata } from "./serviceMetadata.ts";
 import {
   addUpdateMarker,
   buildStamp,
@@ -29,8 +30,6 @@ declare global {
     toggleSettingsModal?: () => void;
     hideBookmarkModal?: (calledByOther: boolean) => void;
     __lyraUpdatePollerStarted?: boolean;
-    __lyraStuffData?: Promise<Record<string, unknown> | null>;
-    __LYRA_WEBRTC_TURN__?: unknown;
   }
 }
 
@@ -44,12 +43,7 @@ try {
 
 let _loadInitialized = false;
 let _initialStuffDataUsed = false;
-
-function fetchStuffData(): Promise<Record<string, unknown> | null> {
-  return fetch("/api/stuff", { cache: "no-store" })
-    .then((response) => (response.ok ? response.json() : null))
-    .catch(() => null);
-}
+let versionCheckRunning = false;
 
 function clearUpdateMarker(): void {
   const cleanHref = removeUpdateMarker(window.location.href);
@@ -244,20 +238,20 @@ export function initializeLoad(): void {
       location.replace(addUpdateMarker(location.href, navigationTarget));
     },
     async checkVersion() {
+      if (versionCheckRunning) return;
+      versionCheckRunning = true;
       try {
         const initialStuffData = !_initialStuffDataUsed
           ? window.__lyraStuffData
           : null;
         _initialStuffDataUsed = true;
-        window.__lyraStuffData = initialStuffData || fetchStuffData();
-        let serviceMetadata = await window.__lyraStuffData;
+        let serviceMetadata = await (
+          initialStuffData || fetchServiceMetadata(true)
+        );
         if (!serviceMetadata && initialStuffData) {
-          window.__lyraStuffData = fetchStuffData();
-          serviceMetadata = await window.__lyraStuffData;
+          serviceMetadata = await fetchServiceMetadata(true);
         }
         if (!serviceMetadata) return;
-        if (serviceMetadata.turn)
-          window.__LYRA_WEBRTC_TURN__ = serviceMetadata.turn;
         const metadata = parseStuffResponse(serviceMetadata);
         const currentStamp = buildStamp(metadata);
         const prevStamp = localStorage.getItem("lyraVersionStamp");
@@ -306,6 +300,8 @@ export function initializeLoad(): void {
         await this.performUpdate(currentStamp);
       } catch (error) {
         console.warn(negativeMessage("version check failed"), error);
+      } finally {
+        versionCheckRunning = false;
       }
     },
   };

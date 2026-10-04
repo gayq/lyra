@@ -37,16 +37,24 @@ async function handleLargeFile(request, realUrl) {
       const cache = await caches.open(LARGE_CACHE);
       const cached = await cache.match(request);
       if (cached) {
-        fetchLargeFileStreaming(request, realUrl, LARGE_TIMEOUT_MS)
-          .then((fresh) => {
-            if (fresh && fresh.ok) {
-              if (responseFitsCache(fresh)) {
-                cache.put(request, fresh.clone());
-                capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
-              }
-            }
-          })
-          .catch(() => {});
+        const refreshKey = `large-refresh\n${request.method}\n${request.url}\n${JSON.stringify([...request.headers])}`;
+        coalescedFetch(refreshKey, async () => {
+          const fresh = await fetchLargeFileStreaming(
+            request,
+            realUrl,
+            LARGE_TIMEOUT_MS,
+          );
+          if (fresh && fresh.ok && responseFitsCache(fresh)) {
+            try {
+              await cache.put(request, fresh);
+              await capCache(LARGE_CACHE, MAX_LARGE_CACHE_ENTRIES);
+            } catch {}
+          } else {
+            try {
+              await fresh?.body?.cancel();
+            } catch {}
+          }
+        }).catch(() => {});
         return cached;
       }
     }
@@ -247,6 +255,17 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
       path.startsWith("/libcurl/");
     const isHashed = HASHED_ASSET_REGEX.test(path);
     const cached = await caches.match(request);
+    if (
+      cached &&
+      VERSIONED_ASSET_REGEX.test(path) &&
+      request.cache !== "reload" &&
+      request.cache !== "no-cache" &&
+      request.cache !== "no-store" &&
+      !request.headers.get("cache-control") &&
+      !request.headers.get("pragma")
+    ) {
+      return cached;
+    }
     if (cached && !isFirstPartyAsset) {
       if (!isHashed) {
         fetch(request)

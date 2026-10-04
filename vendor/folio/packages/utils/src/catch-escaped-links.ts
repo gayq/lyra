@@ -2,11 +2,6 @@ import { FolioHeaders } from "@mercuryworkshop/folio";
 import { ManagedPlugin } from "@mercuryworkshop/folio-controller";
 import type { Frame } from "@mercuryworkshop/folio-controller";
 
-/**
- * Intercepts top-level navigation requests (triggered by clicking "open in new tab" on a link, or window.open)
- * Without this plugin, they would open without the proxy shell, which is usually undesired.
- * give a callback telling it how to redirect back to the proxy shell.
- */
 export class CatchEscapedLinksPlugin extends ManagedPlugin {
 	constructor(private toLocation: (url: URL) => string | URL) {
 		super("catch-escaped-links", []);

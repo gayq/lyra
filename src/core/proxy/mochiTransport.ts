@@ -152,14 +152,17 @@ export class MochiTransport implements ProxyTransport {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      if (!this.fallback.ready) {
-        try {
-          await this.fallback.init();
-        } catch {}
-      }
+      const fallbackInit = (async () => {
+        if (!this.fallback.ready) {
+          try {
+            await this.fallback.init();
+          } catch {}
+        }
+      })();
       const globals = globalThis as MochiGlobals;
       if (globals.__FOLIO_MOCHI_TRANSPORT__ === false) {
         this.serverAvailable = false;
+        await fallbackInit;
         this.ready = true;
         return;
       }
@@ -179,6 +182,7 @@ export class MochiTransport implements ProxyTransport {
       } finally {
         clearTimeout(timeout);
       }
+      await fallbackInit;
       this.ready = true;
     })().finally(() => {
       this.initPromise = null;

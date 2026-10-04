@@ -13,6 +13,7 @@ import {
 } from "../core/config/advancedSettings.ts";
 import { loadCloudSync } from "./loaders.ts";
 import { warmProxyRuntime } from "../core/proxy/proxyRuntime.ts";
+import { fetchServiceMetadata } from "../core/runtime/serviceMetadata.ts";
 import "../assets/styles/base/themes.css";
 import "../assets/styles/base/motion.css";
 import "../assets/styles/base/index.css";
@@ -34,17 +35,7 @@ if (savedTheme === "default") {
 
 applyMotionPreference(readMotionPreference());
 
-window.__lyraStuffData = fetch("/api/stuff", { cache: "no-store" })
-  .then((response) => (response.ok ? response.json() : null))
-  .then((serviceMetadata) => {
-    if (serviceMetadata?.turn) {
-      (
-        window as typeof window & { __LYRA_WEBRTC_TURN__?: unknown }
-      ).__LYRA_WEBRTC_TURN__ = serviceMetadata.turn;
-    }
-    return serviceMetadata;
-  })
-  .catch(() => null);
+void fetchServiceMetadata();
 
 let cloudSyncLoadPromise: Promise<void> | null = null;
 let cloudSyncReady = false;

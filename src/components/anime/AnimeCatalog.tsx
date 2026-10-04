@@ -93,7 +93,7 @@ export default function AnimeCatalog({
     loadRequestIdRef.current = requestId;
     loadPendingRef.current = true;
     setError(null);
-    fetchAnimeData("anime", (anime) => {
+    fetchAnimeData("trending", (anime) => {
       if (loadRequestIdRef.current !== requestId) return;
       setAllAnime(anime);
     })

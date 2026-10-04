@@ -32,6 +32,7 @@ import {
 import { warmProxyRuntime } from "../../core/proxy/proxyRuntime.ts";
 import { getRivet } from "../../core/proxy/rivetBridge.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
+import { fetchServiceMetadata } from "../../core/runtime/serviceMetadata.ts";
 import type { InstalledExtensionSummary } from "../../../packages/rivet/src/index";
 import { HISTORY_STORAGE_KEY } from "../../core/browser/history.ts";
 import "../../assets/styles/settings/settings-modal.css";
@@ -247,13 +248,7 @@ export default function SettingsModal({
   const closeSelector = useCallback(() => setOpenSelector(null), []);
 
   useEffect(() => {
-    const appWindow = window as Record<string, any>;
-    if (!appWindow.__lyraStuffData) {
-      appWindow.__lyraStuffData = fetch("/api/stuff", { cache: "no-store" })
-        .then((response) => (response.ok ? response.json() : null))
-        .catch(() => null);
-    }
-    appWindow.__lyraStuffData.then((serviceMetadata: any) => {
+    fetchServiceMetadata().then((serviceMetadata) => {
       if (serviceMetadata && typeof serviceMetadata.version === "string") {
         const build =
           typeof serviceMetadata.build === "string"

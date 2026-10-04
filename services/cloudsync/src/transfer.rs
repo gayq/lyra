@@ -3,7 +3,7 @@ use axum::extract::{
     rejection::{JsonRejection, PathRejection},
     Path,
 };
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use std::io::Cursor;
 
 pub const CHUNK_SIZE: usize = 1024 * 1024;
@@ -109,11 +109,30 @@ fn write_chunk(
     if bytes.is_empty() || bytes.len() > CHUNK_SIZE {
         return Err(SyncError::TooLarge);
     }
-    let transaction = connection.transaction()?;
-    let (parts, committed) = upload_info(&transaction, user_id, id)?;
+    let (parts, _) = upload_info(connection, user_id, id)?;
     if part < 0 || part >= parts {
         return Err(SyncError::InvalidPayload);
     }
+    let mut compressor = brotli::CompressorWriter::new(Vec::new(), 64 * 1024, 3, 22);
+    compressor
+        .write_all(bytes)
+        .map_err(|_| SyncError::Internal)?;
+    let compressed = compressor.into_inner();
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let encrypted = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: &compressed,
+                aad: chunk_aad(user_id, id, part).as_bytes(),
+            },
+        )
+        .map_err(|_| SyncError::Internal)?;
+    let mut blob = nonce.to_vec();
+    blob.extend_from_slice(&encrypted);
+
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let (_, committed) = upload_info(&transaction, user_id, id)?;
     let exists: bool = transaction.query_row(
         "SELECT EXISTS(SELECT 1 FROM sync_chunks WHERE upload_id = ? AND part = ?)",
         params![id, part],
@@ -127,23 +146,6 @@ fn write_chunk(
         if committed {
             return Err(SyncError::Conflict);
         }
-        let mut compressor = brotli::CompressorWriter::new(Vec::new(), 64 * 1024, 3, 22);
-        compressor
-            .write_all(bytes)
-            .map_err(|_| SyncError::Internal)?;
-        let compressed = compressor.into_inner();
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let encrypted = cipher
-            .encrypt(
-                &nonce,
-                Payload {
-                    msg: &compressed,
-                    aad: chunk_aad(user_id, id, part).as_bytes(),
-                },
-            )
-            .map_err(|_| SyncError::Internal)?;
-        let mut blob = nonce.to_vec();
-        blob.extend_from_slice(&encrypted);
         transaction.execute(
             "INSERT INTO sync_chunks VALUES (?, ?, ?)",
             params![id, part, blob],
@@ -230,7 +232,7 @@ fn commit_upload(
     if !committed {
         drop(load_snapshot(connection, cipher, user_id, id)?);
     }
-    let transaction = connection.transaction()?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let (_, committed) = upload_info(&transaction, user_id, id)?;
     if !committed {
         let mut manifest = MANIFEST_MAGIC.to_vec();

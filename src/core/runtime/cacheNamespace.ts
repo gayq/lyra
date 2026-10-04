@@ -1,10 +1,4 @@
-type LyraBuildPayload = {
-  build?: unknown;
-};
-
-type LyraRuntimeWindow = Window & {
-  __lyraStuffData?: Promise<LyraBuildPayload | null>;
-};
+import { fetchServiceMetadata } from "./serviceMetadata.ts";
 
 const sourceNamespaces = new Map<string, Promise<string>>();
 let serverNamespacePromise: Promise<string | null> | null = null;
@@ -15,27 +9,13 @@ function normalizeNamespace(value: unknown): string | null {
   return normalized || null;
 }
 
-function fetchBuildPayload(): Promise<LyraBuildPayload | null> {
-  if (typeof fetch !== "function" || typeof location === "undefined") {
-    return Promise.resolve(null);
-  }
-  return fetch("/api/stuff", { cache: "no-store" })
-    .then((response) =>
-      response.ok ? (response.json() as Promise<LyraBuildPayload>) : null,
-    )
-    .catch(() => null);
-}
-
 function getServerNamespace(): Promise<string | null> {
   if (serverNamespacePromise) return serverNamespacePromise;
 
-  const runtimeWindow =
-    typeof window === "undefined" ? null : (window as LyraRuntimeWindow);
   const buildPromise =
-    runtimeWindow?.__lyraStuffData ??
-    (runtimeWindow
-      ? (runtimeWindow.__lyraStuffData = fetchBuildPayload())
-      : null);
+    typeof window === "undefined"
+      ? null
+      : window.__lyraStuffData ?? fetchServiceMetadata();
   serverNamespacePromise = (
     buildPromise
       ? buildPromise

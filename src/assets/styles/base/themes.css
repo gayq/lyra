@@ -45,7 +45,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #ffffff0d;
-  --border-faint: #ffffff1c;
+  --border-faint: #ffffff33;
   --border-light: #28282880;
   --border-medium: #2b2b2b;
   --border-notification: #1f1f1f80;
@@ -197,7 +197,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #31324433;
-  --border-faint: #45475a44;
+  --border-faint: #45475a66;
   --border-light: #45475a80;
   --border-medium: #45475a;
   --border-notification: #45475a80;
@@ -347,7 +347,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #44475a33;
-  --border-faint: #4e516644;
+  --border-faint: #4e516666;
   --border-light: #44475a80;
   --border-medium: #44475a;
   --border-notification: #44475a80;
@@ -497,7 +497,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #2d234033;
-  --border-faint: #3f315944;
+  --border-faint: #3f315966;
   --border-light: #3f315980;
   --border-medium: #3f3159;
   --border-notification: #3f315980;
@@ -647,7 +647,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #292e4233;
-  --border-faint: #3b426144;
+  --border-faint: #3b426166;
   --border-light: #3b426180;
   --border-medium: #3b4261;
   --border-notification: #3b426180;
@@ -797,7 +797,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #37414533;
-  --border-faint: #4a555b44;
+  --border-faint: #4a555b66;
   --border-light: #4a555b80;
   --border-medium: #4a555b;
   --border-notification: #4a555b80;
@@ -947,7 +947,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #2a2a3733;
-  --border-faint: #45455a44;
+  --border-faint: #45455a66;
   --border-light: #45455a80;
   --border-medium: #45455a;
   --border-notification: #45455a80;
@@ -1097,7 +1097,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #07364233;
-  --border-faint: #1a556644;
+  --border-faint: #1a556666;
   --border-light: #1a556680;
   --border-medium: #1a5566;
   --border-notification: #1a556680;
@@ -1247,7 +1247,7 @@
 
   --border-transparent: #ffffff00;
   --border-subtle: #ffffff0d;
-  --border-faint: #ff69b422;
+  --border-faint: #ff69b444;
   --border-light: #3a283880;
   --border-medium: #3a2838;
   --border-notification: #2e203080;

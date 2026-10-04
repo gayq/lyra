@@ -1,28 +1,4 @@
-//! Coverage analysis with helper recursion.
-//!
-//! For each `#[coverage_checked]` method (and each helper indexed from
-//! visitor.rs), we compute the set of R-reaching fields covered on every
-//! control-flow path that exits the method. Coverage is contributed by:
-//!
-//!   - The marker macros `walk_all!(it)`, `walk_field!(it.foo)`,
-//!     `skip_field!(it.foo, "…")`.
-//!   - Bare `walk::walk_*(self, it)` / `walk::walk_*(self, &it.foo)` calls.
-//!   - Calls to helper methods that the index has proven to fully cover
-//!     their AST arguments — the call credits the corresponding field at
-//!     the call site (via origin tracking on local bindings).
-//!
-//! Control flow:
-//!   - sequential stmts → union
-//!   - if/else → intersect at merge (no-else branch contributes nothing)
-//!   - match → intersect across arms
-//!   - return / unreachable / panic / ? → terminate; check coverage there
-//!   - loops → body might run 0 times; conservative = body's covers don't
-//!     count toward post-loop coverage. (But field credits FROM the loop
-//!     itself — i.e. covering `it.foo` because the loop iterates `it.foo`
-//!     and processes every element — DO count.)
-
 use std::collections::{BTreeSet, HashMap};
-
 use proc_macro2::TokenStream;
 use syn::{Block, Expr, ExprForLoop, ExprIf, ExprMatch, Pat, Stmt};
 
@@ -281,10 +257,6 @@ fn inspect_expr(
 			(cov, false)
 		}
 		Expr::While(ew) => {
-			// While-body may run zero times. Don't merge body cov into outer.
-			// But field credits emitted directly by the loop iterator (e.g.
-			// `for v in &it.foo`) DO count via walk_for_loop. While doesn't
-			// have that pattern, so just walk the body for its own assertions.
 			let _ = walk_block(&ew.body, cov.clone(), origins.clone(), completed, ctx);
 			(cov, false)
 		}
@@ -315,7 +287,6 @@ fn walk_if(
 	completed: &mut Vec<Witness>,
 	ctx: &Ctx,
 ) -> Covered {
-	// Detect `if let Pat = scrutinee { ... }` and update origins inside then.
 	let mut then_origins = origins.clone();
 	let mut scrut_field: Option<String> = None;
 	let mut scrut_type: Option<String> = None;
@@ -333,21 +304,14 @@ fn walk_if(
 		scrut_expr_for_if_let = Some(&el.expr);
 	}
 	let then_cov = walk_block(&eif.then_branch, cov.clone(), then_origins, completed, ctx);
-	// Enum-aware if-let-else: when cond is `if let EnumType::Variant(v) = scrut`
-	// and else handles the remaining variants, treat the whole if-else as
-	// covering the enum.
 	if let (Some(variant), Some(ty), Some(scrut_e)) =
 		(&scrut_variant, &scrut_type, scrut_expr_for_if_let)
 		&& let Some(def) = ctx.graph.nodes.get(ty.as_str())
 		&& !def.variants.is_empty()
 	{
-		// Variant covered iff then-branch covers it (we check by
-		// seeing if the then-branch's coverage of v's binding type
-		// is complete — equivalent to running an arm-coverage check).
 		let variant_covered =
 			if_let_variant_covered(&then_cov, &eif.then_branch, variant, scrut_e, ctx);
 
-		// Other variants covered iff else-branch fully covers them.
 		let other_variants_covered = else_covers_other_variants(
 			eif.else_branch.as_ref().map(|(_, e)| e.as_ref()),
 			ty.as_str(),
@@ -361,8 +325,6 @@ fn walk_if(
 
 		if variant_covered && other_variants_covered {
 			let mut c = cov;
-			// Also retain whatever the then-branch added beyond
-			// variant-level (e.g. unrelated walks).
 			if then_cov.all {
 				c.all = true;
 			} else {

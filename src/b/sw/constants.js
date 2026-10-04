@@ -32,6 +32,8 @@ const STATIC_REGEX =
 const CACHEABLE_EXT =
   /\.(css|js|mjs|woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|svg|wasm)$/i;
 const HASHED_ASSET_REGEX = /[-_.][a-f0-9]{6,16}\.\w+$/i;
+const VERSIONED_ASSET_REGEX =
+  /^\/(?:assets\/[a-f0-9]{12}\/[a-z0-9_-]{12}\.[a-z0-9]+|b\/[a-f0-9]{10,12}\.[a-z0-9]+)$/i;
 
 const CACHEABLE_ASSET_EXTS = new Set([
   ".css",
