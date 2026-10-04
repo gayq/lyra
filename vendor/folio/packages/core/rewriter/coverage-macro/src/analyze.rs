@@ -1,7 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 use proc_macro2::TokenStream;
 use syn::{Block, Expr, ExprForLoop, ExprIf, ExprMatch, Pat, Stmt};
-
 use crate::helper_index::{
 	Binding, HelperInfo, Origin, OriginMap, iter_element_type, origin_from_iter, resolve_origin,
 	resolve_type,

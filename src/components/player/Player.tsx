@@ -1730,7 +1730,7 @@ export default function Player() {
       subtitleRetryRef.current = true;
       setInfoRevision((revision) => revision + 1);
     } else {
-      showToast("error", "subtitles unavailable", undefined, 4000);
+      showToast("error", "subtitles are unavailable", undefined, 4000);
     }
     setActiveSubtitle(-1);
   }, []);
@@ -1868,7 +1868,7 @@ export default function Player() {
         });
         showToast(
           "error",
-          "audio unavailable",
+          "audio is unavailable",
           undefined,
           4000,
         );
