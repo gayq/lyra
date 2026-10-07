@@ -47,7 +47,7 @@ export default function Footer() {
     <div class="footer">
       <span class="client-count">
         {clients === null
-          ? "— active clients"
+          ? "~ active clients"
           : `${clients} ${clients === 1 ? "active client" : "active clients"}`}
       </span>
       <div id="cute">
