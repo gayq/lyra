@@ -8,6 +8,22 @@ export type StuffResponse = {
 };
 
 const UPDATE_PARAM = "lyra-update";
+export const UPDATE_RETRY_MS = 5 * 60 * 1000;
+
+export function isUpdateRetryDue(
+  target: string,
+  attemptedTarget: string | null,
+  attemptedAt: string | null,
+  now = Date.now(),
+): boolean {
+  if (attemptedTarget !== target || !attemptedAt) return true;
+  const timestamp = Number(attemptedAt);
+  return (
+    !Number.isFinite(timestamp) ||
+    timestamp > now ||
+    now - timestamp >= UPDATE_RETRY_MS
+  );
+}
 
 export function parseStuffResponse(input: unknown): StuffResponse {
   if (!input || typeof input !== "object") {

@@ -817,6 +817,11 @@ body.anime-view #anime-icon svg path {
   width: 100%;
 }
 
+.client-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 #cute {
   align-self: flex-end;
   display: flex;

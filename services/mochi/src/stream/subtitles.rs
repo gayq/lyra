@@ -71,7 +71,27 @@ pub(super) async fn response(
 }
 
 pub(super) fn webvtt(body: &[u8]) -> Result<String, ResolveError> {
-    let text = std::str::from_utf8(body).map_err(|_| ResolveError::Upstream)?;
+    let decoded;
+    let text = if body.starts_with(&[0xff, 0xfe]) || body.starts_with(&[0xfe, 0xff]) {
+        if body.len() % 2 != 0 {
+            return Err(ResolveError::Upstream);
+        }
+        let little_endian = body[0] == 0xff;
+        let units = body[2..]
+            .chunks_exact(2)
+            .map(|pair| {
+                if little_endian {
+                    u16::from_le_bytes([pair[0], pair[1]])
+                } else {
+                    u16::from_be_bytes([pair[0], pair[1]])
+                }
+            })
+            .collect::<Vec<_>>();
+        decoded = String::from_utf16(&units).map_err(|_| ResolveError::Upstream)?;
+        decoded.as_str()
+    } else {
+        std::str::from_utf8(body).map_err(|_| ResolveError::Upstream)?
+    };
     let text = text
         .trim_start_matches('\u{feff}')
         .replace("\r\n", "\n")
@@ -142,9 +162,11 @@ fn cue(start: &str, end: &str, text: &str) -> Option<String> {
 }
 
 fn srt(text: &str) -> Vec<String> {
-    text.split("\n\n")
+    let lines = text.lines().collect::<Vec<_>>();
+    lines
+        .split(|line| line.trim().is_empty())
         .filter_map(|block| {
-            let mut lines = block.trim().lines();
+            let mut lines = block.iter().copied();
             let first = lines.next()?.trim();
             let timing = if first.contains("-->") {
                 first

@@ -42,6 +42,10 @@ import {
   ANIME_QUALITY_KEY,
   ANIME_QUALITY_OPTIONS,
   ANIME_SETTING_KEYS,
+  ANIME_SUBTITLE_KEY,
+  ANIME_SUBTITLE_OPTIONS,
+  readAnimeSubtitles,
+  type AnimeSubtitles,
   readAnimeLanguage,
   readAnimeQuality,
   readAnimeSetting,
@@ -242,6 +246,9 @@ export default function SettingsModal({
   const [animeQuality, setAnimeQuality] = useState<AnimeQuality>(() =>
     readAnimeQuality(),
   );
+  const [animeSubtitles, setAnimeSubtitles] = useState<AnimeSubtitles>(
+    readAnimeSubtitles,
+  );
   const [versionInfo, setVersionInfo] = useState("");
   const [extensions, setExtensions] = useState<InstalledExtensionSummary[]>([]);
   const [extensionBusy, setExtensionBusy] = useState(false);
@@ -391,7 +398,9 @@ export default function SettingsModal({
           detail: { linkCloaking: value, siteCloaking: siteCloakName },
         }),
       );
-    } else if (key === ANIME_QUALITY_KEY) {
+    } else if (key === ANIME_QUALITY_KEY || key === ANIME_SUBTITLE_KEY) {
+      if (key === ANIME_SUBTITLE_KEY)
+        localStorage.removeItem("lyra-anime-subtitle");
       document.dispatchEvent(
         new CustomEvent("animeSettingUpdated", {
           detail: { key, value },
@@ -540,6 +549,23 @@ export default function SettingsModal({
                   onChange={(value) =>
                     handleSetting(ANIME_QUALITY_KEY, value, (next) =>
                       setAnimeQuality(next as AnimeQuality),
+                    )
+                  }
+                />
+              </div>
+              <div class="settings-item">
+                <label>preferred subtitles</label>
+                <p>choose default subtitles; auto follows the audio version.</p>
+                <Selector
+                  label="anime-subtitles"
+                  value={animeSubtitles}
+                  options={ANIME_SUBTITLE_OPTIONS}
+                  isOpen={openSelector}
+                  onOpen={setOpenSelector}
+                  onClose={closeSelector}
+                  onChange={(value) =>
+                    handleSetting(ANIME_SUBTITLE_KEY, value, (next) =>
+                      setAnimeSubtitles(next as AnimeSubtitles),
                     )
                   }
                 />

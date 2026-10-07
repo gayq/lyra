@@ -7,6 +7,7 @@ import path from "path";
 import { availableParallelism, totalmem } from "os";
 import { httpError } from "./errors.mjs";
 import { createDnsService } from "./dns.mjs";
+import { createPresence } from "./presence.mjs";
 import {
   NEGATIVE,
   negativeMessage,
@@ -26,6 +27,7 @@ import {
 } from "./cache.mjs";
 
 let shuttingDown = false;
+const connectPresence = createPresence();
 
 const ROOT = process.cwd();
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
@@ -619,6 +621,9 @@ async function appFetch(req, server) {
 
   if (isMochiPath(pathname)) return proxyToMochi(req);
   if (pathname === "/api/dns") return dnsService.handle(req);
+  if (pathname === "/api/presence" && method === "GET") {
+    return connectPresence(req.signal);
+  }
 
   if (method === "OPTIONS") {
     return new Response(null, {

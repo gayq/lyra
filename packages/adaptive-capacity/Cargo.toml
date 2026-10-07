@@ -3,7 +3,7 @@ name = "adaptive-capacity"
 edition = "2021"
 
 [dependencies]
-sysinfo = "0.32"
+sysinfo = "0.38.3"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]

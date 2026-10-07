@@ -150,6 +150,7 @@ struct SubtitleTrack {
     language: String,
     kind: String,
     default: bool,
+    forced: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -502,6 +503,7 @@ fn source_generation(
     internal_id: &str,
     language: Option<&str>,
     playlist_url: &str,
+    tracks: &[SubtitleTrack],
 ) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
@@ -512,7 +514,18 @@ fn source_generation(
         internal_id,
         language.unwrap_or_default(),
         playlist_url,
-    ] {
+    ]
+    .into_iter()
+    .chain(tracks.iter().flat_map(|track| {
+        [
+            track.url.as_str(),
+            track.label.as_str(),
+            track.language.as_str(),
+            track.kind.as_str(),
+            if track.default { "default" } else { "" },
+            if track.forced { "forced" } else { "" },
+        ]
+    })) {
         for byte in part.bytes().chain(std::iter::once(0)) {
             hash ^= u64::from(byte);
             hash = hash.wrapping_mul(FNV_PRIME);
@@ -536,23 +549,31 @@ fn data_realid(html: &str) -> Option<&str> {
 }
 
 fn embed_language(html: &str) -> Option<String> {
-    let settings_start = html.find("const settings")?;
-    let settings = html.get(settings_start..)?.split("};").next()?;
-    for marker in ["type:", "\"type\":", "'type':"] {
-        let Some(value) = settings.split_once(marker).map(|(_, value)| value) else {
-            continue;
-        };
-        let value = value.trim_start();
-        let quote = value.chars().next()?;
-        if quote != '\'' && quote != '"' {
-            continue;
-        }
-        let value = value.get(quote.len_utf8()..)?.split(quote).next()?.trim();
-        if value == "sub" || value == "dub" {
-            return Some(value.to_string());
-        }
-    }
-    None
+    [
+        "window.settings",
+        "const settings",
+        "let settings",
+        "var settings",
+    ]
+    .into_iter()
+    .find_map(|declaration| {
+        let (_, value) = html.split_once(declaration)?;
+        let settings = value.trim_start().strip_prefix('=')?.trim_start();
+        let (settings, _) = settings.strip_prefix('{')?.split_once('}')?;
+        settings.split(',').find_map(|property| {
+            let (key, value) = property.split_once(':')?;
+            if key.trim().trim_matches(['\'', '"']) != "type" {
+                return None;
+            }
+            let value = value.trim();
+            let quote = value.chars().next()?;
+            if quote != '\'' && quote != '"' {
+                return None;
+            }
+            let language = value.strip_prefix(quote)?.strip_suffix(quote)?.trim();
+            matches!(language, "sub" | "dub").then(|| language.to_string())
+        })
+    })
 }
 
 fn source_urls(internal_id: &str) -> Vec<String> {
@@ -695,14 +716,44 @@ fn track_language(track: &serde_json::Value) -> String {
         .iter()
         .filter_map(|key| track.get(*key).and_then(serde_json::Value::as_str))
         .map(str::trim)
-        .find(|value| !value.is_empty())
+        .find(|value| {
+            !value.is_empty()
+                && !matches!(value.to_ascii_lowercase().as_str(), "und" | "mul" | "zxx")
+        })
         .unwrap_or_default()
-        .to_ascii_lowercase();
-    if language_code == "en" || language_code.starts_with("en-") {
-        return "en".to_string();
-    }
+        .to_ascii_lowercase()
+        .replace('_', "-");
     if is_bcp47_language_tag(&language_code) {
-        return language_code;
+        let (primary, region) = language_code
+            .split_once('-')
+            .unwrap_or((&language_code, ""));
+        let primary = match primary {
+            "eng" => "en",
+            "jpn" => "ja",
+            "spa" => "es",
+            "fra" | "fre" => "fr",
+            "deu" | "ger" => "de",
+            "por" => "pt",
+            "zho" | "chi" => "zh",
+            "kor" => "ko",
+            "ara" => "ar",
+            "rus" => "ru",
+            "ita" => "it",
+            "ind" => "id",
+            "tha" => "th",
+            "vie" => "vi",
+            "tur" => "tr",
+            "msa" | "may" => "ms",
+            "nld" | "dut" => "nl",
+            "hin" => "hi",
+            "pol" => "pl",
+            value => value,
+        };
+        return if region.is_empty() {
+            primary.to_string()
+        } else {
+            format!("{primary}-{region}")
+        };
     }
     let label = track
         .get("label")
@@ -710,28 +761,91 @@ fn track_language(track: &serde_json::Value) -> String {
         .unwrap_or("und")
         .to_ascii_lowercase();
     let descriptor = format!("{language_code} {label}");
+    let words = descriptor
+        .split(|ch: char| !ch.is_alphanumeric())
+        .collect::<Vec<_>>();
+    let has = |name| words.contains(&name);
     match descriptor.as_str() {
-        value if value == "en" || value.starts_with("en-") || value.contains("english") => "en",
-        value if value.contains("indonesian") => "id",
-        value if value.contains("thai") => "th",
-        value if value.contains("spanish") => "es",
-        value if value.contains("french") => "fr",
-        value if value.contains("german") => "de",
-        value if value.contains("portuguese") => "pt",
-        value if value.contains("japanese") => "ja",
-        value if value.contains("arabic") => "ar",
+        _ if has("english") || has("eng") || has("en") => "en",
+        _ if has("indonesian") => "id",
+        _ if has("thai") => "th",
+        _ if has("spanish") || has("español") => "es",
+        _ if has("french") || has("français") => "fr",
+        _ if has("german") || has("deutsch") => "de",
+        _ if has("portuguese") || has("português") => "pt",
+        _ if has("japanese") || has("jpn") || has("日本語") => "ja",
+        _ if has("arabic") || has("العربية") => "ar",
         value if value.contains("traditional") && value.contains("chinese") => "zh-hant",
         value if value.contains("simplified") && value.contains("chinese") => "zh-hans",
         value if value.contains("chinese") => "zh",
-        value if value.contains("korean") => "ko",
-        value if value.contains("russian") => "ru",
-        value if value.contains("italian") => "it",
-        value if value.contains("turkish") => "tr",
-        value if value.contains("vietnamese") => "vi",
-        value if value.contains("malay") => "ms",
+        _ if has("korean") || has("한국어") => "ko",
+        _ if has("russian") || has("русский") => "ru",
+        _ if has("italian") => "it",
+        _ if has("turkish") => "tr",
+        _ if has("vietnamese") => "vi",
+        _ if has("malay") => "ms",
         _ => "und",
     }
     .to_string()
+}
+
+fn subtitle_tracks(payload: &serde_json::Value) -> Vec<SubtitleTrack> {
+    let mut tracks = Vec::<SubtitleTrack>::new();
+    for track in source_field(payload, "tracks")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let Some(file) = track
+            .get("file")
+            .or_else(|| track.get("src"))
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let Ok(url) = Url::parse(file.trim()) else {
+            continue;
+        };
+        if url.scheme() != "https"
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            continue;
+        }
+        let kind = track
+            .get("kind")
+            .or_else(|| track.get("type"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let kind = match kind.as_str() {
+            "" | "subtitle" | "subtitles" | "vtt" | "srt" | "ass" | "ssa" => "subtitles",
+            "captions" => "captions",
+            _ => continue,
+        };
+        if tracks.iter().any(|track| track.url == url.as_str()) {
+            continue;
+        }
+        let flag = |name| {
+            track.get(name).is_some_and(|value| {
+                value.as_bool() == Some(true)
+                    || value.as_str().is_some_and(|value| {
+                        matches!(value.to_ascii_lowercase().as_str(), "true" | "yes" | "1")
+                    })
+            })
+        };
+        tracks.push(SubtitleTrack {
+            url: url.to_string(),
+            label: source_label(track.get("label")).unwrap_or_default(),
+            language: track_language(track),
+            kind: kind.to_string(),
+            default: flag("default"),
+            forced: flag("forced"),
+        });
+    }
+    tracks
 }
 
 fn is_bcp47_language_tag(value: &str) -> bool {
@@ -873,37 +987,7 @@ async fn resolve_megaplay(
                 continue;
             }
             let metadata = source_metadata(&payload);
-            let tracks = payload
-                .get("tracks")
-                .and_then(serde_json::Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|track| {
-                    let url = track.get("file")?.as_str()?;
-                    if !url.starts_with("https://") {
-                        return None;
-                    }
-                    Some(SubtitleTrack {
-                        url: url.to_string(),
-                        label: track
-                            .get("label")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("subtitles")
-                            .to_string(),
-                        language: track_language(track),
-                        kind: track
-                            .get("kind")
-                            .or_else(|| track.get("type"))
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("subtitles")
-                            .to_string(),
-                        default: track
-                            .get("default")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false),
-                    })
-                })
-                .collect::<Vec<_>>();
+            let tracks = subtitle_tracks(&payload);
             return Ok(ResolvedSource {
                 provider: StreamProvider::Megaplay,
                 playlist_url,
@@ -1075,6 +1159,7 @@ fn with_master(mut source: ResolvedSource, master: Arc<String>) -> ResolvedSourc
         &source.internal_id,
         source.language.as_deref(),
         &format!("{}\n{}", source.playlist_url, master),
+        &source.tracks,
     );
     source.master = master;
     source
@@ -1214,8 +1299,11 @@ async fn get_source(
             if let Ok(source) = result.as_ref() {
                 tracing::info!(
                     provider = source.provider.id(),
+                    anilist_id = key.anilist_id,
+                    mal_id = key.mal_id,
                     episode = key.episode,
                     language = key.language.as_str(),
+                    confirmed_language = source.language.as_deref(),
                     elapsed_ms = started_at.elapsed().as_millis() as u64,
                     "anime stream selected!! (˵◝ ⩊  ◜˵マ"
                 );
@@ -1473,7 +1561,7 @@ fn parse_hls_audio_tracks(playlist: &str) -> Vec<(String, String, bool)> {
             .to_ascii_lowercase();
         let label = hls_attribute(&attributes, "NAME")
             .or_else(|| hls_attribute(&attributes, "LANGUAGE"))
-            .unwrap_or("Audio")
+            .unwrap_or("audio")
             .to_string();
         let default = matches!(
             hls_attribute(&attributes, "DEFAULT"),
@@ -2725,7 +2813,7 @@ async fn track_handler(
         .tracks
         .get(track_index)
         .ok_or(ResolveError::Invalid)?;
-    let fetched = get_cached_upstream_resource(
+    let downstream = get_cached_upstream_resource(
         state,
         &track.url,
         source.provider,
@@ -2734,30 +2822,7 @@ async fn track_handler(
         &Method::GET,
         &HeaderMap::new(),
     )
-    .await;
-    let downstream = match fetched {
-        Ok(response) => response,
-        Err(ResolveError::NotFound | ResolveError::Upstream) => {
-            invalidate_source(key, &source, &[]).await;
-            let source = get_source(&state.asset_client, key).await?;
-            ensure_source_generation(&source, requested_generation)?;
-            let track = source
-                .tracks
-                .get(track_index)
-                .ok_or(ResolveError::Invalid)?;
-            get_cached_upstream_resource(
-                state,
-                &track.url,
-                source.provider,
-                false,
-                "text/vtt,text/plain,application/octet-stream",
-                &Method::GET,
-                &HeaderMap::new(),
-            )
-            .await?
-        }
-        Err(error) => return Err(error),
-    };
+    .await?;
     subtitles::response(downstream, method, request_headers).await
 }
 
@@ -2768,6 +2833,7 @@ struct StreamTrack {
     src: String,
     kind: String,
     default: bool,
+    forced: bool,
 }
 
 pub async fn stream_info_handler(
@@ -2802,6 +2868,7 @@ pub async fn stream_info_handler(
                 ),
                 kind: track.kind.clone(),
                 default: track.default,
+                forced: track.forced,
             })
             .collect::<Vec<_>>();
         let qualities = parse_hls_qualities(&master)
@@ -3011,7 +3078,6 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
 
 pub async fn reclaim_caches() {
     SOURCE_CACHE.invalidate_all();
-    SESSION_SOURCES.invalidate_all();
     PLAYLIST_CACHE.invalidate_all();
     FAILED_SOURCES.invalidate_all();
     RESOURCE_PROBES.invalidate_all();

@@ -46,9 +46,14 @@ export function canvasWindow(
   );
   return {
     offset,
-    height: Math.min(
-      layout.height - offset,
-      viewportHeight + 2 * layout.stride,
+    height: Math.max(
+      0,
+      Math.min(
+        layout.height - offset,
+        viewportHeight +
+          2 * layout.stride +
+          Math.min(0, Math.floor(top / layout.stride) * layout.stride),
+      ),
     ),
   };
 }

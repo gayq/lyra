@@ -7,6 +7,29 @@ export const ANIME_LANGUAGE_KEY = "animePreferredLanguage";
 export const ANIME_LANGUAGE_OPTIONS = ["sub", "dub"] as const;
 export type AnimeLanguage = (typeof ANIME_LANGUAGE_OPTIONS)[number];
 
+export const ANIME_SUBTITLE_KEY = "animePreferredSubtitles";
+export const ANIME_SUBTITLE_OPTIONS = [
+  "auto", "off", "english", "english (forced)",
+] as const;
+export type AnimeSubtitles = (typeof ANIME_SUBTITLE_OPTIONS)[number];
+export const ANIME_SUBTITLE_PREFERENCES = {
+  auto: "",
+  off: "off",
+  english: JSON.stringify({ language: "en", label: "", role: "main" }),
+  "english (forced)": JSON.stringify({ language: "en", label: "", role: "forced" }),
+} as const;
+
+export function readAnimeSubtitles(): AnimeSubtitles {
+  try {
+    const stored = localStorage.getItem(ANIME_SUBTITLE_KEY);
+    return ANIME_SUBTITLE_OPTIONS.includes(stored as AnimeSubtitles)
+      ? (stored as AnimeSubtitles)
+      : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
 export function readAnimeLanguage(): AnimeLanguage {
   try {
     return localStorage.getItem(ANIME_LANGUAGE_KEY) === "dub" ? "dub" : "sub";

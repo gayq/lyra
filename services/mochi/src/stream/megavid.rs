@@ -1,6 +1,6 @@
 use super::{
-    read_body_limited, send_with_retry, source_metadata, track_language, EpisodeKey, ResolveError,
-    ResolvedSource, StreamProvider, SubtitleTrack, FAILED_SOURCES, MAX_METADATA_BYTES,
+    read_body_limited, send_with_retry, source_metadata, subtitle_tracks, EpisodeKey, ResolveError,
+    ResolvedSource, StreamProvider, FAILED_SOURCES, MAX_METADATA_BYTES,
 };
 use reqwest::header::{ACCEPT, REFERER};
 use serde_json::Value;
@@ -65,33 +65,7 @@ fn parse_source(
     {
         return Err(ResolveError::Upstream);
     }
-    let tracks = payload
-        .get("tracks")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|track| {
-            Some(SubtitleTrack {
-                url: https_url(track.get("file")?)?,
-                label: track
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .unwrap_or("subtitles")
-                    .to_string(),
-                language: track_language(track),
-                kind: track
-                    .get("kind")
-                    .or_else(|| track.get("type"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("subtitles")
-                    .to_string(),
-                default: track
-                    .get("default")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            })
-        })
-        .collect();
+    let tracks = subtitle_tracks(payload);
     Ok(ResolvedSource {
         provider: StreamProvider::Megavid,
         playlist_url,

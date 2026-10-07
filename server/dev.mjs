@@ -5,6 +5,8 @@ import fs from "fs";
 import path from "path";
 import { Agent, createServer, request } from "http";
 import express from "express";
+import { Readable } from "node:stream";
+import { createPresence } from "./presence.mjs";
 import { createDevRuntime } from "./dev-secrets.mjs";
 import { httpError } from "./errors.mjs";
 import { createDnsService } from "./dns.mjs";
@@ -335,8 +337,17 @@ function transpileTsFallback(req, res, next) {
 }
 
 const app = express();
+const connectPresence = createPresence();
 app.set("trust proxy", 1);
 app.use(setIsolationHeaders);
+app.get("/api/presence", (req, res) => {
+  const abort = new AbortController();
+  res.on("close", () => abort.abort());
+  const response = connectPresence(abort.signal);
+  response.headers.forEach((value, name) => res.setHeader(name, value));
+  res.flushHeaders();
+  Readable.fromWeb(response.body).on("error", () => res.destroy()).pipe(res);
+});
 app.get("/b/all.js", serveBundleAll);
 app.get("/b", (req, res) => {
   const bundle = bundleById[req.query.id];

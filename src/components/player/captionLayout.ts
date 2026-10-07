@@ -13,7 +13,7 @@ export function attachCaptionLayout(
     if (!original) return;
     cue.line = original.line;
     cue.snapToLines = original.snap;
-    cue.lineAlign = original.align;
+    if ("lineAlign" in cue) cue.lineAlign = original.align;
     adjusted.delete(cue);
   };
   const position = () => {
@@ -57,10 +57,6 @@ export function attachCaptionLayout(
             snap: cue.snapToLines,
             align: cue.lineAlign,
           });
-        const line = Math.max(0, Math.min(100, (bottom / rect.height) * 100));
-        if (cue.snapToLines) cue.snapToLines = false;
-        if (cue.lineAlign !== "end") cue.lineAlign = "end";
-        if (cue.line !== line) cue.line = line;
         const columns = Math.max(
           1,
           (rect.width * cue.size) / 100 / (fontSize * 0.6),
@@ -73,6 +69,13 @@ export function attachCaptionLayout(
               count + Math.max(1, Math.ceil(text.length / columns)),
             0,
           );
+        const line = Math.min(
+          -1,
+          Math.floor((bottom - rect.height) / lineHeight) - rows,
+        );
+        if ("lineAlign" in cue && cue.lineAlign !== "start")
+          cue.lineAlign = "start";
+        if (cue.line !== line) cue.line = line;
         bottom -= rows * lineHeight + 4;
       }
     }

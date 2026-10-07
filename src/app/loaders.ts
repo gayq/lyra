@@ -14,7 +14,7 @@ export function preloadGamesCatalog() {
 export function preloadAnimeCatalog() {
   void loadAnimeCatalog().catch(() => {});
   void import("../features/anime/anime.ts")
-    .then(({ fetchAnimeData }) => fetchAnimeData("anime"))
+    .then(({ fetchAnimeData }) => fetchAnimeData("trending"))
     .catch(() => {});
 }
 
