@@ -32,11 +32,11 @@ bun dev
 ```
 
 ## credits
-- [truffled](https://truffled.lol/) - game source
+- [selenite](https://selenite.cc/) - game source
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
 - [wasm.rip](https://wasm.rip/) - game source
 - [edurocks](https://www.edurocks.org/) - game source
-- [selenite](https://selenite.cc/) - game source
+- [truffled](https://truffled.lol/) - game source
 - [velara](https://velara.cc/) - game source
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 - [sapphire](https://github.com/x8rr/sapphire) - rivet's base

@@ -287,7 +287,13 @@ pub async fn request_handler(
         let mut stream = upstream.bytes_stream();
         let mut buffered = (can_buffer && cache_key.is_some()).then(BytesMut::new);
 
-        while let Some(next) = stream.next().await {
+        loop {
+            let next = tokio::select! {
+                biased;
+                _ = sender.closed() => return,
+                next = stream.next() => next,
+            };
+            let Some(next) = next else { break };
             match next {
                 Ok(chunk) => {
                     if let Some(buffer) = buffered.as_mut() {

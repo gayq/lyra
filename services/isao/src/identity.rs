@@ -923,10 +923,10 @@ pub async fn resolve(client: &reqwest::Client, request: &IdentityRequest) -> Opt
     };
     let mal_lookup = async {
         match mal_id {
-            Some(id) => {
-                let url = format!("https://api.jikan.moe/v4/anime/{id}/full");
-                Some(get_json::<Value>(client, &url).await)
-            }
+            Some(id) => Some(match id.parse::<i64>() {
+                Ok(id) => crate::jikan::fetch_anime(client, id).await,
+                Err(_) => None,
+            }),
             None => None,
         }
     };

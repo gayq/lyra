@@ -243,7 +243,7 @@ pub async fn register(
         );
     }
 
-    let _work_permit = match state.auth_work.try_acquire() {
+    let permit = match state.auth_work.try_acquire() {
         Some(permit) => permit,
         None => {
             return (
@@ -261,6 +261,7 @@ pub async fn register(
     let stored_username = username.clone();
 
     let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let exists = {
             let conn = pool.get().map_err(|_| AuthFailure::Internal)?;
             conn.query_row(
@@ -390,7 +391,7 @@ pub async fn login(
         );
     }
 
-    let _work_permit = match state.auth_work.try_acquire() {
+    let permit = match state.auth_work.try_acquire() {
         Some(permit) => permit,
         None => {
             return (
@@ -408,6 +409,7 @@ pub async fn login(
     let stored_username = username.clone();
 
     let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
         let row: Result<(i64, String, i64), rusqlite::Error> = {
             let conn = pool.get().map_err(|_| AuthFailure::Internal)?;
             conn.query_row(
@@ -711,3 +713,4 @@ pub async fn get_current_user(state: &AppState, cookies: &Cookies) -> Result<(i6
 
     Ok((token_data.claims.id, token_data.claims.username))
 }
+

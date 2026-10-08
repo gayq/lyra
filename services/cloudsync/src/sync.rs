@@ -1130,19 +1130,18 @@ fn decrypt_blob(cipher: &Aes256Gcm, user_id: i64, blob: &[u8]) -> SyncResult<(Ve
         .map_err(|_| SyncError::Corrupt)
 }
 
-async fn store_payload_for_user<T: Serialize + Send + 'static>(
+fn store_payload_for_user<T: Serialize>(
     state: &AppState,
     user_id: i64,
     payload: T,
 ) -> SyncResult<String> {
-    let cipher = state.aes_cipher.clone();
-    let pool = state.pool.clone();
-    tokio::task::spawn_blocking(move || -> SyncResult<String> {
-        let compressed = compress_payload(&payload)?;
-        let blob = encrypt_blob(&cipher, user_id, &compressed)?;
-        let mut connection = pool.get().map_err(|_| SyncError::Internal)?;
-        let transaction = connection.transaction().map_err(|_| SyncError::Internal)?;
-        transaction
+    let cipher = state.aes_cipher.as_ref();
+    let pool = &state.pool;
+    let compressed = compress_payload(&payload)?;
+    let blob = encrypt_blob(cipher, user_id, &compressed)?;
+    let mut connection = pool.get().map_err(|_| SyncError::Internal)?;
+    let transaction = connection.transaction().map_err(|_| SyncError::Internal)?;
+    transaction
             .execute(
                 "INSERT INTO sync_data (user_id, data_blob, updated_at)
                  VALUES (?, ?, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') || '-' || LOWER(HEX(RANDOMBLOB(8))))
@@ -1155,64 +1154,58 @@ async fn store_payload_for_user<T: Serialize + Send + 'static>(
                 tracing::error!("sync database write failed: {error}{NEGATIVE}");
                 SyncError::Internal
             })?;
-        transaction.execute("DELETE FROM sync_uploads WHERE user_id = ?", [user_id])
-            .map_err(|_| SyncError::Internal)?;
-        let updated_at = transaction
-            .query_row(
-                "SELECT updated_at FROM sync_data WHERE user_id = ?",
-                params![user_id],
-                |row| row.get(0),
-            )
-            .map_err(|_| SyncError::Internal)?;
-        transaction.commit().map_err(|_| SyncError::Internal)?;
-        Ok(updated_at)
-    })
-    .await
-    .map_err(|_| SyncError::Internal)?
+    transaction
+        .execute("DELETE FROM sync_uploads WHERE user_id = ?", [user_id])
+        .map_err(|_| SyncError::Internal)?;
+    let updated_at = transaction
+        .query_row(
+            "SELECT updated_at FROM sync_data WHERE user_id = ?",
+            params![user_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| SyncError::Internal)?;
+    transaction.commit().map_err(|_| SyncError::Internal)?;
+    Ok(updated_at)
 }
 
-async fn load_payload_for_user(state: &AppState, user_id: i64) -> SyncResult<(Snapshot, String)> {
-    let pool = state.pool.clone();
-    let cipher = state.aes_cipher.clone();
-    tokio::task::spawn_blocking(move || {
-        let connection = pool.get().map_err(|_| SyncError::Internal)?;
-        let result: Result<(Vec<u8>, String), rusqlite::Error> = connection.query_row(
-            "SELECT data_blob, updated_at FROM sync_data WHERE user_id = ?",
-            params![user_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        );
-        let (blob, updated_at) = match result {
-            Ok(row) => row,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SyncError::Missing),
-            Err(_) => return Err(SyncError::Internal),
-        };
-        if let Some(id) = transfer::manifest_id(&blob) {
-            return Ok((
-                transfer::load_snapshot(&connection, &cipher, user_id, id)?,
-                updated_at,
-            ));
-        }
-        if blob.len() < IV_LENGTH || blob.len() > MAX_BLOB_SIZE {
-            return Err(SyncError::Corrupt);
-        }
-        let (compressed, legacy) = decrypt_blob(&cipher, user_id, &blob)?;
-        if legacy {
-            let migrated = encrypt_blob(&cipher, user_id, &compressed)?;
-            connection
-                .execute(
-                    "UPDATE sync_data SET data_blob = ? WHERE user_id = ? AND data_blob = ?",
-                    params![migrated, user_id, blob],
-                )
-                .map_err(|error| {
-                    tracing::error!("sync encryption migration failed: {error}{NEGATIVE}");
-                    SyncError::Internal
-                })?;
-        }
-        drop(connection);
-        Ok((decompress_payload(&compressed)?, updated_at))
-    })
-    .await
-    .map_err(|_| SyncError::Internal)?
+fn load_payload_for_user(state: &AppState, user_id: i64) -> SyncResult<(Snapshot, String)> {
+    let pool = &state.pool;
+    let cipher = state.aes_cipher.as_ref();
+    let connection = pool.get().map_err(|_| SyncError::Internal)?;
+    let result: Result<(Vec<u8>, String), rusqlite::Error> = connection.query_row(
+        "SELECT data_blob, updated_at FROM sync_data WHERE user_id = ?",
+        params![user_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+    let (blob, updated_at) = match result {
+        Ok(row) => row,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Err(SyncError::Missing),
+        Err(_) => return Err(SyncError::Internal),
+    };
+    if let Some(id) = transfer::manifest_id(&blob) {
+        return Ok((
+            transfer::load_snapshot(&connection, cipher, user_id, id)?,
+            updated_at,
+        ));
+    }
+    if blob.len() < IV_LENGTH || blob.len() > MAX_BLOB_SIZE {
+        return Err(SyncError::Corrupt);
+    }
+    let (compressed, legacy) = decrypt_blob(cipher, user_id, &blob)?;
+    if legacy {
+        let migrated = encrypt_blob(cipher, user_id, &compressed)?;
+        connection
+            .execute(
+                "UPDATE sync_data SET data_blob = ? WHERE user_id = ? AND data_blob = ?",
+                params![migrated, user_id, blob],
+            )
+            .map_err(|error| {
+                tracing::error!("sync encryption migration failed: {error}{NEGATIVE}");
+                SyncError::Internal
+            })?;
+    }
+    drop(connection);
+    Ok((decompress_payload(&compressed)?, updated_at))
 }
 
 pub async fn meta(State(state): State<Arc<AppState>>, cookies: Cookies) -> impl IntoResponse {
@@ -1283,22 +1276,17 @@ pub async fn upload(
         Some(permit) => permit,
         None => return response(false, None, None, Some(SyncError::Busy)),
     };
-    let payload = match tokio::task::spawn_blocking(move || {
-        decode_upload_payload(&headers, &payload)
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let payload = decode_upload_payload(&headers, &payload)?;
+        let updated_at = store_payload_for_user(&state, user_id, payload)?;
+        cached_meta_set(user_id, updated_at.clone());
+        Ok::<_, SyncError>(updated_at)
     })
     .await
-    {
-        Ok(Ok(payload)) => payload,
-        Ok(Err(error)) => return response(false, None, None, Some(error)),
-        Err(_) => return response(false, None, None, Some(SyncError::Internal)),
-    };
-    let result = store_payload_for_user(&state, user_id, payload).await;
-    drop(permit);
+    .unwrap_or(Err(SyncError::Internal));
     match result {
-        Ok(updated_at) => {
-            cached_meta_set(user_id, updated_at.clone());
-            response(true, None, Some(updated_at), None)
-        }
+        Ok(updated_at) => response(true, None, Some(updated_at), None),
         Err(error) => response(false, None, None, Some(error)),
     }
 }
@@ -1312,17 +1300,24 @@ pub async fn download(State(state): State<Arc<AppState>>, cookies: Cookies) -> i
         Some(permit) => permit,
         None => return response(false, None, None, Some(SyncError::Busy)),
     };
-    let result = load_payload_for_user(&state, user_id).await;
-    drop(permit);
+    let result = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let (data, updated_at) = load_payload_for_user(&state, user_id)?;
+        Ok::<_, SyncError>(
+            Json(DownloadResponse {
+                success: true,
+                data,
+                updated_at,
+                code: None,
+                error: None,
+            })
+            .into_response(),
+        )
+    })
+    .await
+    .unwrap_or(Err(SyncError::Internal));
     match result {
-        Ok((data, updated_at)) => Json(DownloadResponse {
-            success: true,
-            data,
-            updated_at,
-            code: None,
-            error: None,
-        })
-        .into_response(),
+        Ok(response) => response,
         Err(error) => response(false, None, None, Some(error)),
     }
 }

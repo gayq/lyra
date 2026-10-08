@@ -1242,7 +1242,16 @@ pub async fn proxy_handler(
             let mut total_size = 0usize;
             let mut aborted = false;
 
-            while let Some(item) = stream.next().await {
+            loop {
+                let item = tokio::select! {
+                    biased;
+                    _ = sender_tx.closed() => {
+                        aborted = true;
+                        break;
+                    }
+                    item = stream.next() => item,
+                };
+                let Some(item) = item else { break };
                 match item {
                     Ok(chunk) => {
                         total_size += chunk.len();
@@ -1550,7 +1559,16 @@ async fn fetch_and_cache(
             let mut aborted = false;
             let mut is_too_large_for_ram = false;
 
-            while let Some(item) = stream.next().await {
+            loop {
+                let item = tokio::select! {
+                    biased;
+                    _ = sender_tx.closed() => {
+                        aborted = true;
+                        break;
+                    }
+                    item = stream.next() => item,
+                };
+                let Some(item) = item else { break };
                 match item {
                     Ok(chunk) => {
                         let chunk_len = chunk.len();

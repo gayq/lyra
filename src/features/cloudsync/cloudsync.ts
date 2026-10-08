@@ -1181,7 +1181,7 @@ export class CloudSync {
     if (window.showToast) {
       window.showToast(
         "info",
-        "confirm deletion... /ᐠ - ˕ -マ",
+        "confirm deletion?",
         "IconExclamationTriangle",
         [
           {

@@ -822,6 +822,10 @@ body.anime-view #anime-icon svg path {
   white-space: nowrap;
 }
 
+.client-count-value {
+  color: var(--color-label);
+}
+
 #cute {
   align-self: flex-end;
   display: flex;

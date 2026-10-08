@@ -387,6 +387,7 @@ pub async fn handle_wisp(stream: WispResult, is_v2: bool, id: String) -> anyhow:
     });
 
     while let Some((connect, stream)) = mux.wait_for_stream().await {
+        while set.try_join_next().is_some() {}
         let Some(stream_permit) = crate::stream_gate()
             .acquire_timeout(Duration::from_secs(2))
             .await

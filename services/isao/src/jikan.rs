@@ -1,6 +1,8 @@
 use crate::models::{AnimeEpisode, AnimeRelation};
+use moka::future::Cache;
 use serde::Deserialize;
-use std::sync::LazyLock;
+use serde_json::Value;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
@@ -8,6 +10,14 @@ const JIKAN_BASE: &str = "https://api.jikan.moe/v4";
 
 static LAST_REQUEST: LazyLock<Mutex<Instant>> =
     LazyLock::new(|| Mutex::new(Instant::now() - Duration::from_secs(1)));
+
+static ANIME: LazyLock<Cache<i64, Arc<Value>>> = LazyLock::new(|| {
+    Cache::builder()
+        .max_capacity(16 * 1024 * 1024)
+        .time_to_live(Duration::from_secs(10 * 60))
+        .weigher(|_: &i64, value: &Arc<Value>| crate::json_weight(value))
+        .build()
+});
 
 async fn wait_for_slot() {
     let mut last = LAST_REQUEST.lock().await;
@@ -33,11 +43,6 @@ struct JikanEpisode {
 #[derive(Debug, Deserialize)]
 struct JikanPagination {
     has_next_page: Option<bool>,
-}
-
-#[derive(Debug, Deserialize)]
-struct JikanFullResponse {
-    data: Option<JikanFullData>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,27 +85,41 @@ struct JikanRelationEntry {
     entry_type: String,
 }
 
-pub async fn fetch_episode_count(client: &reqwest::Client, mal_id: i64) -> i32 {
-    wait_for_slot().await;
-    let url = format!("{}/anime/{}/full", JIKAN_BASE, mal_id);
-    let response = match client
-        .get(&url)
-        .header("User-Agent", "Mozilla/5.0")
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(_) => return 0,
-    };
-    if !response.status().is_success() {
-        return 0;
-    }
+pub async fn fetch_anime(client: &reqwest::Client, mal_id: i64) -> Option<Arc<Value>> {
+    let request = client
+        .get(format!("{JIKAN_BASE}/anime/{mal_id}/full"))
+        .header("User-Agent", "Mozilla/5.0");
+    fetch_anime_with(&ANIME, mal_id, request).await
+}
 
-    let payload: JikanFullResponse = match response.json().await {
-        Ok(payload) => payload,
-        Err(_) => return 0,
-    };
-    payload.data.and_then(|anime| anime.episodes).unwrap_or(0)
+async fn fetch_anime_with(
+    cache: &Cache<i64, Arc<Value>>,
+    mal_id: i64,
+    request: reqwest::RequestBuilder,
+) -> Option<Arc<Value>> {
+    cache
+        .try_get_with(mal_id, async {
+            wait_for_slot().await;
+            let response = request.send().await.map_err(|_| ())?;
+            if !response.status().is_success() {
+                return Err(());
+            }
+            let payload: Value = response.json().await.map_err(|_| ())?;
+            if payload["data"]["mal_id"].as_i64() != Some(mal_id) {
+                return Err(());
+            }
+            Ok(Arc::new(payload))
+        })
+        .await
+        .ok()
+}
+
+pub async fn fetch_episode_count(client: &reqwest::Client, mal_id: i64) -> i32 {
+    fetch_anime(client, mal_id)
+        .await
+        .and_then(|payload| payload["data"]["episodes"].as_i64())
+        .and_then(|count| i32::try_from(count).ok())
+        .unwrap_or(0)
 }
 
 pub async fn fetch_episodes(client: &reqwest::Client, mal_id: i64) -> Option<Vec<AnimeEpisode>> {
@@ -157,27 +176,8 @@ pub async fn fetch_episodes(client: &reqwest::Client, mal_id: i64) -> Option<Vec
 }
 
 pub async fn fetch_relations(client: &reqwest::Client, mal_id: i64) -> Option<Vec<AnimeRelation>> {
-    wait_for_slot().await;
-    let url = format!("{}/anime/{}/full", JIKAN_BASE, mal_id);
-    let response = match client
-        .get(&url)
-        .header("User-Agent", "Mozilla/5.0")
-        .send()
-        .await
-    {
-        Ok(response) => response,
-        Err(_) => return None,
-    };
-    if !response.status().is_success() {
-        return None;
-    }
-
-    let payload: JikanFullResponse = match response.json().await {
-        Ok(payload) => payload,
-        Err(_) => return None,
-    };
-
-    relations_from_full(payload.data?, mal_id)
+    let payload = fetch_anime(client, mal_id).await?;
+    relations_from_full(JikanFullData::deserialize(&payload["data"]).ok()?, mal_id)
 }
 
 fn relations_from_full(anime: JikanFullData, mal_id: i64) -> Option<Vec<AnimeRelation>> {
@@ -229,3 +229,4 @@ fn relations_from_full(anime: JikanFullData, mal_id: i64) -> Option<Vec<AnimeRel
 
     Some(relations)
 }
+

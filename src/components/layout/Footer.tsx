@@ -46,9 +46,8 @@ export default function Footer() {
   return (
     <div class="footer">
       <span class="client-count">
-        {clients === null
-          ? "~ active clients"
-          : `${clients} ${clients === 1 ? "active client" : "active clients"}`}
+        <span class="client-count-value">{clients ?? "—"}</span>{" "}
+        {clients === 1 ? "active client" : "active clients"}
       </span>
       <div id="cute">
         <a class="link" href="https://discord.gg/4GeWaGPh6c" target="_blank">

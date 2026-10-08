@@ -261,6 +261,7 @@ function proxyDevService(req, res, next) {
   });
 
   proxyReq.on("error", (err) => {
+    if (res.destroyed) return;
     if (res.headersSent) {
       res.destroy();
       return;
@@ -276,6 +277,9 @@ function proxyDevService(req, res, next) {
   });
 
   req.on("error", () => proxyReq.destroy());
+  res.on("close", () => {
+    if (!res.writableFinished) proxyReq.destroy();
+  });
   req.pipe(proxyReq);
 }
 

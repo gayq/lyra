@@ -92,15 +92,17 @@ export default function NewTabModal({
     setIsClosing(true);
   }, [isClosing, visible]);
 
+  const dismiss = useCallback(() => {
+    setVisible(false);
+    setIsClosing(false);
+    setQuery("");
+  }, []);
+
   const { modalStateClass, onAnimationEnd } = useManagedModal({
     visible,
     isClosing,
     onRequestClose: requestClose,
-    onCloseComplete: () => {
-      setVisible(false);
-      setIsClosing(false);
-      setQuery("");
-    },
+    onCloseComplete: dismiss,
     useOverlay: false,
   });
 
@@ -118,6 +120,7 @@ export default function NewTabModal({
   }, [visible, isClosing]);
 
   useEffect(() => {
+    if (isClosing) return;
     setQuery("");
     if (inputRef.current) inputRef.current.textContent = "";
 
@@ -298,6 +301,7 @@ export default function NewTabModal({
   }, [debouncedWebQuery, mode, parsedSearch.mode]);
 
   useEffect(() => {
+    if (!visible || isClosing) return;
     const el = inputRef.current;
     if (el) {
       el.focus();
@@ -370,9 +374,9 @@ export default function NewTabModal({
       } else if (url) {
         store.addTab(url, title, isGame, icon);
       }
-      requestClose();
+      dismiss();
     },
-    [requestClose],
+    [dismiss],
   );
 
   const handleAnimeAction = useCallback(
@@ -393,9 +397,9 @@ export default function NewTabModal({
         format: anime.format,
       });
       store.addTab(playbackUrl, anime.title, false, anime.posterUrl);
-      requestClose();
+      dismiss();
     },
-    [requestClose],
+    [dismiss],
   );
 
   const lowerQuery = useMemo(() => query.toLocaleLowerCase(), [query]);
