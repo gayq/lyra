@@ -7,7 +7,7 @@ import { resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
-export default defineConfig(async ({ mode }) => {
+export default defineConfig(async ({ command, mode }) => {
 const staticMode = mode === "static";
 const staticBase = staticMode ? process.env.LYRA_STATIC_BASE || "/" : "";
 if (staticMode && !/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(staticBase)) {
@@ -22,7 +22,7 @@ const assetPath = `assets/${buildId}/[hash:12]`;
 
 return {
   plugins: [preact(), lyraPlugin(buildId, undefined, { staticBase, staticBackends })],
-  base: staticBase || "/",
+  base: command === "build" ? "./" : staticBase || "/",
   define: { __LYRA_STATIC_BASE__: JSON.stringify(staticBase), __LYRA_STATIC_BACKEND__: JSON.stringify(staticBackends[0] || "") },
   root: "src",
   publicDir: false,
