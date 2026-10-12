@@ -289,7 +289,7 @@ export default function lyraPlugin(
         return staticBase ? html
           .replace('/app/entry.tsx', '/static/entry.ts')
           .replace('/app/playerEntry.tsx', '/static/player.ts')
-          .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1data-static-icon="$2"')
+          .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1href="/assets/images/icons/favicon.svg" data-static-icon="$2"')
           .replace(/<head>/i, '<head><script src="/b/static.js"></script>') : html;
       },
     },
@@ -308,7 +308,7 @@ export default function lyraPlugin(
             command === "build"
               ? Object.fromEntries(
                   Object.entries(createRuntimePathMap(buildId)).map(
-                    ([key, value]) => [key.slice(1), staticBase ? staticBase + value.slice(1) : value],
+                    ([key, value]) => [key.slice(1), `.${value}`],
                   ),
                 )
               : {},
@@ -489,6 +489,12 @@ export default function lyraPlugin(
       const serviceWorkerFileName = `${staticBase ? "" : "b/"}${serviceWorkerHash}.js`;
       pathAliases.set("/b/sw.js", `${staticBase || "/"}${serviceWorkerFileName}`);
 
+      // Page assets resolve from the document; worker assets retain their own base.
+      const pageAliases = new Map([...pathAliases].map(([logicalPath, emittedPath]) =>
+        [logicalPath, `./${emittedPath.slice((staticBase || "/").length)}`],
+      ));
+      pageAliases.set("/assets/images/", "./assets/images/");
+
       await writeFile(
         path.join(outputDirectory, "build-meta.json"),
         JSON.stringify({ build: buildId, ...(staticBase ? {
@@ -507,7 +513,7 @@ export default function lyraPlugin(
           const sourceCode = await readFile(filePath, "utf8");
           await writeFile(
             filePath,
-            rewriteBuildTokens(sourceCode, cssTokenMap, pathAliases),
+            rewriteBuildTokens(sourceCode, cssTokenMap, fileName.endsWith(".html") ? pageAliases : pathAliases),
           );
           continue;
         }
@@ -535,7 +541,7 @@ export default function lyraPlugin(
           continue;
         }
 
-        sourceCode = rewriteBuildTokens(sourceCode, cssTokenMap, pathAliases);
+        sourceCode = rewriteBuildTokens(sourceCode, cssTokenMap, pageAliases);
         sourceCode = obfuscateSource(
           sourceCode,
           containsAppCode(chunk, projectRoot)

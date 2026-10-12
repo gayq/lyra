@@ -21,7 +21,7 @@ export function runtimeAssetPath(
     typeof __LYRA_RUNTIME_PATHS__ !== "undefined" &&
     __LYRA_RUNTIME_PATHS__[logicalPath]
   ) {
-    return __LYRA_RUNTIME_PATHS__[logicalPath];
+    return new URL(__LYRA_RUNTIME_PATHS__[logicalPath], document.baseURI).href;
   }
   return buildId
     ? `/${mount}/${buildId}/${relativeFileName}`

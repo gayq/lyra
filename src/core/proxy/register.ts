@@ -314,7 +314,7 @@ class LyraConnectionManager {
 
       await this.ensureWispServerConnection(this.currentWispUrl, 10000);
 
-      const registration = isStatic ? await navigator.serviceWorker.ready : await navigator.serviceWorker.register("./b/sw.js", {
+      const registration = isStatic ? await navigator.serviceWorker.ready : await navigator.serviceWorker.register("/b/sw.js", {
         scope: FOLIO_SCOPE,
         updateViaCache: "none",
       });

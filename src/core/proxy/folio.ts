@@ -132,9 +132,9 @@ async function createTransport(
 function folioRuntimeConfig() {
   return {
     prefix: FOLIO_PREFIX,
-    folioPath: "/b/fl/folio.js",
-    injectPath: "/b/fl/controller.inject.js",
-    wasmPath: "/b/fl/folio.wasm",
+    folioPath: new URL("/b/fl/folio.js", document.baseURI).href,
+    injectPath: new URL("/b/fl/controller.inject.js", document.baseURI).href,
+    wasmPath: new URL("/b/fl/folio.wasm", document.baseURI).href,
     virtualWasmPath: "folio.wasm.js",
     codec: {
       encode: (input: string) => (input ? encodeURIComponent(input) : input),

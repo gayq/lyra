@@ -25,11 +25,11 @@ async function inspect(directory) {
 await inspect(root);
 for (const page of ["index.html", "player.html"]) {
   const html = await readFile(path.join(root, page), "utf8");
-  for (const match of html.matchAll(/(?:src|href)="(\/[^"?#]+)"/g)) {
+  for (const match of html.matchAll(/(?:src|href)="((?:\.\/|\/)[^"?#]+)"/g)) {
     const resource = match[1];
     if (resource.startsWith("/!!/")) continue;
-    if (!resource.startsWith(metadata.base)) fail();
-    if (!(await stat(path.join(root, resource.slice(metadata.base.length)))).isFile()) fail();
+    if (!resource.startsWith("./") && !resource.startsWith(metadata.base)) fail();
+    if (!(await stat(path.join(root, resource.slice(resource.startsWith("./") ? 2 : metadata.base.length)))).isFile()) fail();
   }
 }
 if (!files.some((file) => /^[a-f0-9]{10}\.js$/.test(path.relative(root, file)))) fail();
