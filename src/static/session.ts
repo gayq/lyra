@@ -118,7 +118,7 @@ function panel(message: string) {
 }
 
 export function staticFailure() {
-  panel(negativeMessage("connection unavailable; retrying automatically"));
+  panel(negativeMessage("connection unavailable; retrying"));
   const attempts = Math.min(Math.max(0, Number(sessionStorage.getItem("static-startup-retries")) || 0) + 1, 5);
   sessionStorage.setItem("static-startup-retries", String(attempts));
   setTimeout(() => location.reload(), Math.min(1_000 * 2 ** attempts, 30_000));
@@ -135,7 +135,7 @@ async function connect() {
         await recoverBackend(true);
         clearTimeout(delayed);
         view ??= panel("");
-        view.status.textContent = negativeMessage("connection unavailable; retrying automatically");
+        view.status.textContent = negativeMessage("connection unavailable; retrying");
         await new Promise<void>((resolve) => {
           const done = () => { clearTimeout(timer); window.removeEventListener("online", done); resolve(); };
           const timer = setTimeout(done, delay + Math.random() * 500);
