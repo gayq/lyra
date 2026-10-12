@@ -1,8 +1,6 @@
 import { createStaticGateway } from "./static-gateway.mjs";
-import { staticClients } from "./static-auth.mjs";
 
 export function productionStaticGateway(metadata, env = process.env) {
-  const clients = staticClients(env.LYRA_STATIC_CLIENTS || "");
   const backend = env.LYRA_STATIC_BACKEND || "";
   if (backend) {
     let backendUrl;
@@ -21,13 +19,13 @@ export function productionStaticGateway(metadata, env = process.env) {
   const app = `http://127.0.0.1:${env.PORT || "4444"}`;
   const nuru = env.NURU_ORIGIN || "ws://127.0.0.1:4001";
   return createStaticGateway({
-    clients, backend,
+    backend,
     forward(target, init) {
       const upstream = target.startsWith("/api/anime/") ? isao :
         target.startsWith("/api/") ? app : mochi;
       return fetch(new URL(target, upstream), init);
     },
-    metadata: () => ({ ...metadata(backend), wispPath }),
+    metadata: (origin) => ({ ...metadata(origin), wispPath }),
     wispUpstream: ({ path } = {}) => path ? new URL(path, mochi.replace(/^http/, "ws")).href : new URL(wispPath, nuru).href,
   });
 }

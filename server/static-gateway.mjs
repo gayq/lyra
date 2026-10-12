@@ -1,4 +1,4 @@
-import { StaticAuth, STATIC_PREFIX, STATIC_PROTOCOL } from "./static-auth.mjs";
+import { StaticAuth, isStaticOrigin, STATIC_PREFIX, STATIC_PROTOCOL } from "./static-auth.mjs";
 
 const NEGATIVE = "... /ᐠ - ˕ -マ";
 const BODY_LIMIT = 10 * 1024 * 1024;
@@ -55,11 +55,16 @@ async function jsonBody(request) {
   finally { clearTimeout(timeout); }
 }
 
-export function createStaticGateway({ clients = new Map(), backend = "",
+export function createStaticGateway({ backend = "",
   forward, metadata = () => ({}), wispUpstream, now = Date.now }) {
-  const auth = new StaticAuth({ clients, backend, now });
-  const backendOrigin = auth.backend;
-  const wisp = `${backendOrigin.replace(/^http/, "ws")}${STATIC_PREFIX}socket/`;
+  const auth = new StaticAuth({ backend, now });
+  function requestBackend(request) {
+    if (auth.backend) return auth.backend;
+    const url = new URL(request.url);
+    // Public static backends use HTTPS; Caddy preserves Host across its local HTTP hop.
+    if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.protocol = "https:";
+    return url.origin;
+  }
   let active = 0;
   const activeIps = new Map();
   let activeSockets = 0;
@@ -72,7 +77,7 @@ export function createStaticGateway({ clients = new Map(), backend = "",
   function headers(origin) {
     const result = new Headers({ "cache-control": "no-store", "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff", "vary": "Origin, Authorization" });
-    if (clients.has(origin)) {
+    if (isStaticOrigin(origin)) {
       result.set("access-control-allow-origin", origin);
       result.set("access-control-expose-headers", [...responseHeaders, "x-lyra-static-auth"].join(", "));
     }
@@ -147,7 +152,7 @@ export function createStaticGateway({ clients = new Map(), backend = "",
         redirect: "manual", signal: controller.signal });
       clearTimeout(timeout);
       if (target.startsWith("/!!/") && /\btext\/html\b/i.test(response.headers.get("content-type") || "")) {
-        const base = new URL(clients.get(session.origin)).pathname;
+        const base = session.base;
         const script = `<script src="${base}__static/socket.js"></script>`;
         response = new HTMLRewriter()
           .on("head", { element(element) { element.prepend(script, { html: true }); } })
@@ -209,12 +214,13 @@ export function createStaticGateway({ clients = new Map(), backend = "",
     const origin = request.headers.get("origin") || "";
     const method = request.method;
     if (route === "status" && method === "GET") {
-      if (origin && !clients.has(origin)) return error(403);
-      return json({ protocol: STATIC_PROTOCOL, enabled: clients.size > 0 }, 200, origin);
+      if (origin && !isStaticOrigin(origin)) return error(403);
+      return json({ protocol: STATIC_PROTOCOL, enabled: true }, 200, origin);
     }
-    if (!clients.size) return error(503);
     if (!auth.limit(`gateway:${ip}`, 2400)) return error(429, origin);
-    if (!clients.has(origin)) return error(403);
+    if (!isStaticOrigin(origin)) return error(403);
+    const backendOrigin = requestBackend(request);
+    const wisp = `${backendOrigin.replace(/^http/, "ws")}${STATIC_PREFIX}socket/`;
     const target = route.startsWith("http/") ? `/${route.slice(5)}` : null;
     const requestedMethod = method === "OPTIONS" && request.headers.has("access-control-request-method")
       ? request.headers.get("access-control-request-method") : method;
@@ -233,18 +239,18 @@ export function createStaticGateway({ clients = new Map(), backend = "",
     if (route === "start") {
       const body = await jsonBody(request);
       if (!body) return error(400, origin);
-      const result = await auth.start(origin, body, ip);
+      const result = await auth.start(origin, body, ip, backendOrigin);
       return result ? json(result, 200, origin) : error(401, origin);
     }
     if (route === "socket/") return upgrade(request, { ip, server, origin });
-    const session = await auth.authorize(request, route === "refresh");
+    const session = await auth.authorize(request, route === "refresh", backendOrigin);
     if (!session) return error(401, origin);
     if (route === "refresh") return json(auth.issue(session), 200, origin);
     if (route === "revoke") {
       auth.revoke(session);
       return json({ success: true, user: null, error: null }, 200, origin);
     }
-    if (route === "metadata") return json({ ...await metadata(), protocol: STATIC_PROTOCOL, wisp }, 200, origin);
+    if (route === "metadata") return json({ ...await metadata(backendOrigin), protocol: STATIC_PROTOCOL, wisp }, 200, origin);
     if (route === "ticket") {
       const body = await jsonBody(request);
       if (!body || Object.keys(body).some((name) => name !== "path")) return error(400, origin);
@@ -285,7 +291,8 @@ export function createStaticGateway({ clients = new Map(), backend = "",
         actual.some((value) => !/^[!#$%&'*+.^_`|~\w-]{1,128}$/.test(value))) return error(400, origin);
     const claim = await auth.consumeTicket(tickets[0].slice(12), origin, ip);
     const session = claim?.session;
-    if (!session || session.sockets.size >= 4) return error(401, origin);
+    const backendOrigin = requestBackend(request);
+    if (!session || session.backend !== backendOrigin || session.sockets.size >= 4) return error(401, origin);
     if (!claim.path && (actual.length > 1 || actual.some((value) => value !== "wisp"))) return error(400, origin);
     if (activeSockets >= 128 || (socketIps.get(ip) || 0) >= 16 || (socketSubjects.get(session.subject) || 0) >= 8) return error(429, origin);
     activeSockets++;

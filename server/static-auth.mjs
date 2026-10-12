@@ -11,19 +11,12 @@ export const digest = (value) => createHash("sha256").update(value).digest("base
 const equal = (a, b) => typeof a === "string" && typeof b === "string" &&
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-export function staticClients(value = "") {
-  const clients = new Map();
-  for (const entry of value.split(",").filter(Boolean)) {
-    const url = new URL(entry.trim());
-    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash ||
-        !url.pathname.endsWith("/") || /%(?:2f|5c|2e)/i.test(url.pathname) ||
-        ["storage.googleapis.com", "storage.cloud.google.com"].includes(url.hostname)) {
-      throw new Error(`invalid static client configuration${negative}`);
-    }
-    if (clients.has(url.origin)) throw new Error(`duplicate static client origin${negative}`);
-    clients.set(url.origin, url.href);
-  }
-  return clients;
+export function isStaticOrigin(value) {
+  try {
+    const url = new URL(value);
+    return url.origin === value && (url.protocol === "https:" ||
+      (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)));
+  } catch { return false; }
 }
 
 function publicKey(jwk) {
@@ -38,9 +31,7 @@ function thumbprint(jwk) {
 }
 
 export class StaticAuth {
-  constructor({ clients = new Map(), backend = "", now = Date.now }) {
-    if (clients.size && !backend) throw new Error(`static backend configuration is required${negative}`);
-    this.clients = clients;
+  constructor({ backend = "", now = Date.now }) {
     this.backend = backend ? new URL(backend).origin : "";
     this.now = now;
     this.access = new Map();
@@ -68,15 +59,17 @@ export class StaticAuth {
     return ++limit.count <= maximum;
   }
 
-  async start(origin, body, ip) {
+  async start(origin, body, ip, backend = this.backend) {
     this.sweep();
-    if (!this.clients.has(origin) || !this.limit(`start:${ip}`, 60, 5 * 60_000) ||
-        this.sessions.size >= 2_000 || !body || Object.keys(body).some((name) => name !== "jwk")) return null;
+    if (!isStaticOrigin(origin) || !isStaticOrigin(backend) || !this.limit(`start:${ip}`, 60, 5 * 60_000) ||
+        this.sessions.size >= 2_000 || !body || Object.keys(body).some((name) => !["jwk", "base"].includes(name))) return null;
+    const base = body.base === undefined ? "/" : body.base;
+    if (typeof base !== "string" || base.length > 1024 || !/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(base)) return null;
     try {
       const jwk = publicKey(body.jwk);
       const key = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
       if (this.sessions.size >= 2_000 || [...this.sessions].filter((entry) => entry.subject === ip).length >= 256) return null;
-      const session = { id: token(), origin, key, thumb: thumbprint(jwk), subject: ip,
+      const session = { id: token(), origin, base, backend, key, thumb: thumbprint(jwk), subject: ip,
         expires: this.now() + SESSION_MS, nonce: token(), proofs: new Map(),
         sockets: new Set(), streams: new Set(), requests: 0 };
       this.sessions.add(session);
@@ -111,7 +104,7 @@ export class StaticAuth {
       const now = this.now();
       if (header.typ !== "dpop+jwt" || header.alg !== "ES256" || header.crit ||
           thumbprint(jwk) !== session.thumb || payload.htm !== request.method ||
-          payload.htu !== `${this.backend}${url.pathname}` ||
+          payload.htu !== `${session.backend}${url.pathname}` ||
           !Number.isInteger(payload.iat) || Math.abs(now - payload.iat * 1000) > PROOF_MS ||
           !/^[\w-]{20,128}$/.test(payload.jti) || !equal(payload.ath, digest(credential)) ||
           !equal(payload.nonce, session.nonce)) return false;
@@ -126,15 +119,15 @@ export class StaticAuth {
   }
 
   active(session) {
-    return this.sessions.has(session) && this.clients.has(session.origin) && session.expires > this.now();
+    return this.sessions.has(session) && session.expires > this.now();
   }
 
-  async authorize(request, refresh = false) {
+  async authorize(request, refresh = false, backend = this.backend) {
     const authorization = request.headers.get("authorization") || "";
     if (!/^DPoP [\w-]{43}$/.test(authorization)) return null;
     const credential = authorization.slice(5);
     const session = (refresh ? this.refresh : this.access).get(digest(credential));
-    if (!session || !this.clients.has(session.origin) || request.headers.get("origin") !== session.origin ||
+    if (!session || session.backend !== backend || request.headers.get("origin") !== session.origin ||
         session.expires <= this.now() || (!refresh && session.accessExpires <= this.now()) ||
         !this.limit(`session:${session.id}`, 2_000) ||
         !await this.proof(request, session, credential) || !this.active(session)) return null;

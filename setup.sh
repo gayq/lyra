@@ -561,12 +561,10 @@ fi
 "$BUN_BIN" -e '
 import { productionStaticGateway } from "./server/static-backend.mjs";
 try {
-  const gateway = productionStaticGateway(() => ({}));
-  console.log(gateway.auth.clients.size
-    ? "[setup] static client configuration validated!! (˵◝ ⩊  ◜˵マ"
-    : "[setup] static access is disabled; configure LYRA_STATIC_CLIENTS in the root environment file");
+  productionStaticGateway(() => ({}));
+  console.log("[setup] static gateway configuration validated!! (˵◝ ⩊  ◜˵マ");
 } catch {
-  console.error("[setup] invalid static client configuration... /ᐠ - ˕ -マ");
+  console.error("[setup] invalid static gateway configuration... /ᐠ - ˕ -マ");
   process.exit(1);
 }
 '

@@ -94,7 +94,7 @@ async function refresh(force = false): Promise<Session> {
     const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
     const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
     const response = await request("start", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jwk }) });
+      body: JSON.stringify({ jwk, base: staticBase }) });
     session = { key: pair.privateKey, jwk, credentials: await credentials(response) };
     return session;
   })().finally(() => { renewing = null; });
@@ -148,8 +148,8 @@ async function connect() {
 }
 
 export async function initializeStatic(player = false) {
-  if (!isSecureContext || !navigator.serviceWorker || ["storage.googleapis.com", "storage.cloud.google.com"].includes(location.hostname)) {
-    panel(negativeMessage("a dedicated secure site with service worker support is required"));
+  if (!isSecureContext || !navigator.serviceWorker) {
+    panel(negativeMessage("a secure site with service worker support is required"));
     return new Promise<never>(() => {});
   }
   const selectedWorker = new URL("/b/sw.js", location.href);
