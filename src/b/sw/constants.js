@@ -25,7 +25,7 @@ const MAX_MEM = 10;
 const MAX_PRECONNECTED = 10;
 const PRECACHE = [
   "/",
-  "/assets/images/icons/favicon.svg",
+  "/assets/images/peaks/natsu.png",
   ..."__PRECACHE_ASSETS__",
 ];
 

@@ -289,7 +289,7 @@ export default function lyraPlugin(
         return staticBase ? html
           .replace('/app/entry.tsx', '/static/entry.ts')
           .replace('/app/playerEntry.tsx', '/static/player.ts')
-          .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1href="/assets/images/icons/favicon.svg" data-static-icon="$2"')
+          .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1href="/assets/images/peaks/natsu.png" data-static-icon="$2"')
           .replace(/<head>/i, '<head><script src="/b/static.js"></script>') : html;
       },
     },
