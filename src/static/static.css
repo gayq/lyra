@@ -1,0 +1,16 @@
+.static-connect {
+  position: fixed;
+  inset: 0;
+  z-index: 1000000;
+  display: grid;
+  place-items: center;
+  background: var(--bg-body);
+  color: var(--text-primary);
+  font-family: Lexend, sans-serif;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+.static-connect > div { width: 100%; max-width: 410px; padding: 25px 30px; box-sizing: border-box; border-radius: var(--radius-dialog); text-align: center; }
+.static-connect h1 { margin: 0 0 15px; font-size: 24px; font-weight: 400; }
+.static-connect p { margin: 0 0 20px; color: var(--text-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }

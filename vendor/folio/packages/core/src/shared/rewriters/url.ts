@@ -170,7 +170,7 @@ function rewriteUrlInternal(
 		const routePrefix = context.routePrefix ?? context.prefix;
 		if (
 			realUrl.origin === routePrefix.origin &&
-			(realUrl.pathname === "/f" || realUrl.pathname.startsWith(routePrefix.pathname))
+			(realUrl.pathname === routePrefix.pathname.replace(/\/f\/.*$/, "/f") || realUrl.pathname.startsWith(routePrefix.pathname))
 		) {
 			// Requests may pass through more than one patched API (or another proxy
 			// integration) before reaching the browser. URLs that already belong to

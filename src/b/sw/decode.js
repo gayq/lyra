@@ -40,7 +40,7 @@ function unwrapUrl(url) {
       return null;
     }
   }
-  if (isFolio && url.pathname === "/f") {
+  if (isFolio && url.pathname === FOLIO_PATH) {
     try {
       return folio.routeDestination(url.href);
     } catch {

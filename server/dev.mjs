@@ -350,7 +350,9 @@ app.get("/api/presence", (req, res) => {
   const response = connectPresence(abort.signal);
   response.headers.forEach((value, name) => res.setHeader(name, value));
   res.flushHeaders();
-  Readable.fromWeb(response.body).on("error", () => res.destroy()).pipe(res);
+  Readable.fromWeb(response.body)
+    .on("error", () => res.destroy())
+    .pipe(res);
 });
 app.get("/b/all.js", serveBundleAll);
 app.get("/b", (req, res) => {

@@ -7,6 +7,7 @@ import {
   POSITIVE,
 } from "../runtime/messages";
 import { runtimeAssetPath, wispPath } from "../runtime/build.ts";
+import { isStatic, staticBackend, appPath } from "../runtime/hosting.ts";
 
 type ConnectionState =
   "IDLE" | "CONNECTING" | "CONNECTED" | "FAILED" | "RECONNECTING";
@@ -45,7 +46,7 @@ const TRANSPORT_MAP: Record<string, string> = {
   libcurl: runtimeAssetPath("libcurl", "index.mjs"),
 };
 
-const FOLIO_SCOPE = "/f";
+const FOLIO_SCOPE = appPath("/f");
 
 function createResolvablePromise<T = void>(): ResolvablePromise<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -193,6 +194,7 @@ class LyraConnectionManager {
     url: string,
     timeout: number = 1500,
   ): Promise<void> {
+    if (isStatic) return;
     return new Promise<void>((resolve, reject) => {
       let ws: WebSocket | undefined;
       let settled = false;
@@ -308,10 +310,11 @@ class LyraConnectionManager {
           ? `${window.location.hostname}:4001`
           : window.location.host;
       this.currentWispUrl = `${protocol}://${wispHost}${wispPath}`;
+      if (isStatic) this.currentWispUrl = `${staticBackend.replace(/^http/, "ws")}/api/static/v1/socket/`;
 
       await this.ensureWispServerConnection(this.currentWispUrl, 10000);
 
-      const registration = await navigator.serviceWorker.register("./b/sw.js", {
+      const registration = isStatic ? await navigator.serviceWorker.ready : await navigator.serviceWorker.register("./b/sw.js", {
         scope: FOLIO_SCOPE,
         updateViaCache: "none",
       });
@@ -533,7 +536,7 @@ class LyraConnectionManager {
       try {
         const url = new URL(message.url);
         if (url.origin !== window.location.origin) return;
-        if (url.pathname !== "/f" || !url.searchParams.has("s")) return;
+        if (url.pathname !== FOLIO_SCOPE || !url.searchParams.has("s")) return;
       } catch {
         return;
       }
@@ -618,6 +621,11 @@ class LyraConnectionManager {
             type?: string;
             failures?: number;
           } | null;
+          if (isStatic && message?.type === "static-transport-closed" && event.source === navigator.serviceWorker.controller) {
+            this._resetTransportReady();
+            void this.recoverOnWake({ forceReapply: true });
+            return;
+          }
           if (message?.type !== "transport-error") return;
           if (this.state !== STATES.CONNECTED) return;
 

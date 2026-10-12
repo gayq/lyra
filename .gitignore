@@ -5,6 +5,7 @@
 *.db-wal
 node_modules/
 dist/
+dist-static/
 target/
 **/target/
 bun.lock

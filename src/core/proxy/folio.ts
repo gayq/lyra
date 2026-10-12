@@ -3,6 +3,7 @@ import type { ProxyTransport } from "@mercuryworkshop/proxy-transports";
 import { MochiTransport, resolveMochiOrigin } from "./mochiTransport";
 import { negativeMessage } from "../runtime/messages.ts";
 import { runtimeAssetPath } from "../runtime/build.ts";
+import { appPath } from "../runtime/hosting.ts";
 
 type FolioControllerInstance = {
   wait(): Promise<void>;
@@ -73,8 +74,8 @@ interface FolioGlobals {
   };
 }
 
-const FOLIO_PREFIX = "/f/";
-const MOCHI_RAW_PREFIX = "/!!raw/";
+const FOLIO_PREFIX = appPath("/f/");
+const MOCHI_RAW_PREFIX = appPath("/!!raw/");
 const MOCHI_ACCELERATOR_TIMEOUT_MS = 8000;
 const FOLIO_HOT_CACHE_MAX_ENTRY_BYTES = 2 * 1024 * 1024;
 const FOLIO_HOT_CACHE_MAX_TOTAL_BYTES = 24 * 1024 * 1024;

@@ -2,6 +2,7 @@ import { uploadSnapshot, downloadSnapshot } from "./syncTransfer.ts";
 import { prepareSnapshot } from "./prepareSnapshot.ts";
 import { svgIcon } from "../../core/ui/svgIcon";
 import { negativeMessage } from "../../core/runtime/messages.ts";
+import { appServiceWorkers, logicalDatabaseName, isStatic } from "../../core/runtime/hosting.ts";
 import type { ToastController } from "../../core/ui/toast.ts";
 import {
   closeManagedModal,
@@ -116,8 +117,22 @@ export class CloudSync {
   }
 
   async init(): Promise<void> {
+    if (isStatic) {
+      this.user = {};
+      localStorage.removeItem("auth_user");
+      return;
+    }
     this.hookStorage();
     this.hookLifecycle();
+    let ready = false;
+    let togglePending = false;
+    document.addEventListener("toggleCloudSyncModal", () => {
+      if (!ready) {
+        togglePending = !togglePending;
+        return;
+      }
+      void this.toggleCloudSyncModal();
+    });
     let needsLoadingScreen = false;
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -171,10 +186,8 @@ export class CloudSync {
       if (needsLoadingScreen) this.hideLoadingScreen();
     }
 
-    document.addEventListener("toggleCloudSyncModal", () =>
-      this.toggleCloudSyncModal(),
-    );
-
+    ready = true;
+    if (togglePending) void this.toggleCloudSyncModal();
     if (this.isAuthenticated) {
       this.startPolling();
       void this.poll();
@@ -344,7 +357,7 @@ export class CloudSync {
         proto[method] = function (this: IDBObjectStore, ...args: unknown[]) {
           const request = original.apply(this, args);
           if (
-            canSyncIndexedDBStore(this.transaction.db.name, this.name) &&
+            canSyncIndexedDBStore(logicalDatabaseName(this.transaction.db.name), this.name) &&
             !observedTransactions.has(this.transaction)
           ) {
             observedTransactions.add(this.transaction);
@@ -383,7 +396,7 @@ export class CloudSync {
         const request = originalOpenDatabase.apply(this, args);
         request.addEventListener(
           "success",
-          () => rememberIndexedDBName(String(args[0])),
+          () => rememberIndexedDBName(logicalDatabaseName(String(args[0]))),
           { once: true },
         );
         return request;
@@ -393,7 +406,7 @@ export class CloudSync {
         const request = originalDeleteDatabase.apply(this, args);
         request.addEventListener(
           "success",
-          () => forgetIndexedDBName(String(args[0])),
+          () => forgetIndexedDBName(logicalDatabaseName(String(args[0]))),
           { once: true },
         );
         self.markDirty();
@@ -737,7 +750,7 @@ export class CloudSync {
   }
 
   async createCloudSyncModal(): Promise<void> {
-    if (document.getElementById("cloudsync-modal")) return;
+    if (isStatic || document.getElementById("cloudsync-modal")) return;
 
     const modal = document.createElement("div");
     modal.id = "cloudsync-modal";
@@ -942,6 +955,7 @@ export class CloudSync {
   }
 
   async toggleCloudSyncModal(): Promise<void> {
+    if (isStatic) return;
     if (!document.getElementById("cloudsync-modal")) {
       await this.createCloudSyncModal();
     }
@@ -1315,7 +1329,7 @@ export class CloudSync {
 
     if ("serviceWorker" in navigator) {
       try {
-        const registrations = await navigator.serviceWorker.getRegistrations();
+        const registrations = await appServiceWorkers();
         await Promise.all(registrations.map((r) => r.unregister()));
       } catch {
         console.warn("[cloudsync] service worker cleanup failed... /ᐠ - ˕ -マ");

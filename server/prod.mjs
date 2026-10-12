@@ -19,6 +19,7 @@ import {
   SEARCH_SUGGESTION_PROVIDER,
 } from "./searchSuggestions.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
+import { productionStaticGateway } from "./static-backend.mjs";
 import {
   distCacheControl,
   IMMUTABLE_CACHE_CONTROL,
@@ -173,6 +174,12 @@ const buildFingerprint = (() => {
     return fallback;
   }
 })();
+
+const staticGateway = productionStaticGateway((backend) => ({
+  version: packageData?.version,
+  build: buildFingerprint,
+  turn: turnConfigForRequest(new Request(backend)),
+}));
 
 function baseHeaders(cacheControl, extra = {}) {
   return {
@@ -606,6 +613,10 @@ async function appFetch(req, server) {
   const method = req.method;
   const canServeBody = method === "GET" || method === "HEAD";
 
+  if (pathname.startsWith("/api/static/v1/")) {
+    return staticGateway.handle(req, { ip: getClientIp(req, server), server });
+  }
+
   if (pathname === "/health" && canServeBody) {
     return healthResponse();
   }
@@ -734,6 +745,7 @@ const server = Bun.serve({
   http2: true,
   idleTimeout: 60,
   fetch: appFetch,
+  websocket: staticGateway.websocket,
 });
 
 async function gracefulShutdown() {

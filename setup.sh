@@ -558,6 +558,19 @@ if [ "$("$BUN_BIN" --version)" != "$BUN_VERSION" ]; then
   exit 1
 fi
 
+"$BUN_BIN" -e '
+import { productionStaticGateway } from "./server/static-backend.mjs";
+try {
+  const gateway = productionStaticGateway(() => ({}));
+  console.log(gateway.auth.clients.size
+    ? "[setup] static client configuration validated!! (˵◝ ⩊  ◜˵マ"
+    : "[setup] static access is disabled; configure LYRA_STATIC_CLIENTS in the root environment file");
+} catch {
+  console.error("[setup] invalid static client configuration... /ᐠ - ˕ -マ");
+  process.exit(1);
+}
+'
+
 if ! "$BUN_BIN" pm -g ls | grep -q "pm2@"; then
   if ! retry 3 "$BUN_BIN" add -g pm2; then
     fail "pm2 installation failed"
@@ -1098,6 +1111,7 @@ KillMode=mixed
 TimeoutStopSec=15
 Environment=RUST_LOG=warn
 Environment=MOCHI_HOST=127.0.0.1
+Environment=MOCHI_TRUSTED_PROXIES=127.0.0.1,::1
 Environment=MIMALLOC_ALLOW_THP=0
 Environment=MOCHI_INSTANCES=$MOCHI_INSTANCES
 Environment=MOCHI_STREAM_CACHE_GB=$ANIME_CACHE_GB
@@ -1159,8 +1173,8 @@ sudo tee /etc/caddy/Caddyfile <<EOF
         health_uri /health
         health_interval 10s
         header_up Host {upstream_hostport}
-        header_up X-Real-IP {remote_host}
-        flush_interval -1
+        header_up X-Real-IP {args[0]}
+        flush_interval 10ms
         transport http {
             keepalive 120s
             keepalive_idle_conns 4096
@@ -1173,14 +1187,14 @@ sudo tee /etc/caddy/Caddyfile <<EOF
 
 http://127.0.0.1:4000 {
     bind 127.0.0.1
-    import mochi_stream
+    import mochi_stream {http.request.header.X-Real-IP}
     reverse_proxy $MOCHI_UPSTREAMS {
         lb_policy least_conn
         unhealthy_request_count $MOCHI_REQUESTS
         health_uri /health
         health_interval 10s
         fail_duration 10s
-        flush_interval -1
+        flush_interval 10ms
     }
 }
 
@@ -1202,7 +1216,7 @@ http://127.0.0.1:4001 {
     }
 
     @compressible {
-        not path /stream/*
+        not path /stream/* /api/static/v1/*
     }
     encode @compressible zstd gzip
 
@@ -1291,7 +1305,19 @@ http://127.0.0.1:4001 {
         }
     }
 
-    import mochi_stream
+    import mochi_stream {remote_host}
+
+    handle /api/static/v1/* {
+        reverse_proxy 127.0.0.1:4444 {
+            header_up X-Real-IP {remote_host}
+            flush_interval 10ms
+            transport http {
+                keepalive 120s
+                dial_timeout 5s
+                response_header_timeout 75s
+            }
+        }
+    }
 
     @mochi_routes {
         path /!!raw/* /!!/* /!!folio/* /!cover!/*
@@ -1449,6 +1475,7 @@ module.exports = {
     },
     {
       name: "lyra",
+      cwd: "$ROOT",
       script: "$BUN_BIN",
       args: "server/prod.mjs",
       interpreter: "none",
@@ -1463,6 +1490,7 @@ module.exports = {
         NODE_ENV: "production",
         PORT: "4444",
         MOCHI_ORIGIN: "http://127.0.0.1:4000",
+        LYRA_WISP_PATH: "$LYRA_WISP_PATH",
         WEBRTC_TURN_ENABLED: "1",
         WEBRTC_FORCE_RELAY: "1",
         TURN_HOST: "$TURN_HOST",
@@ -1504,7 +1532,8 @@ tee -a ecosystem.config.cjs >/dev/null <<EOF
       kill_timeout: 5000,
       env: {
         RUST_LOG: "warn",
-        ISAO_PORT: "6001"
+        ISAO_PORT: "6001",
+        ISAO_HOST: "127.0.0.1"
       }
     },
 EOF
@@ -1646,6 +1675,7 @@ sudo systemctl restart caddy
 SERVICE_HEALTH_CHECKS=(
   "tls-approval|http://127.0.0.1:3001/health"
   "lyra|http://127.0.0.1:4444/health"
+  "static gateway|http://127.0.0.1:4444/api/static/v1/status"
   "cloudsync|http://127.0.0.1:4005/health"
   "isao|http://127.0.0.1:6001/health"
   "mochi|http://127.0.0.1:4000/health"

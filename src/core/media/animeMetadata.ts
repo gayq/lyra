@@ -1,4 +1,6 @@
-const ANIME_PLAYBACK_PATH = "/stream/anime";
+import { appPath } from "../runtime/hosting.ts";
+
+const ANIME_PLAYBACK_PATH = appPath("/stream/anime");
 
 function playbackUrl(realUrl: string): URL | null {
   try {

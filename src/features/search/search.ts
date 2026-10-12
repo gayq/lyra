@@ -9,6 +9,7 @@ import {
 } from "../../core/browser/iframe.ts";
 import { getProxyUrl } from "../../core/runtime/utils.ts";
 import { warmProxyRuntime } from "../../core/proxy/proxyRuntime.ts";
+import { appPath } from "../../core/runtime/hosting.ts";
 
 interface TabLike {
   id?: number;
@@ -94,14 +95,15 @@ function generateSearchUrl(query: string): string {
   return finalUrl;
 }
 
-function getInternalRouteUrl(query: string): string | null {
+export function getInternalRouteUrl(query: string): string | null {
   const trimmed = query.trim();
   if (!trimmed) return null;
   try {
     const url = new URL(trimmed, window.location.origin);
+    const playerPath = appPath("/stream/anime");
     if (
       url.origin === window.location.origin &&
-      /^\/stream\/anime(?:$|[/?#])/.test(url.pathname + url.search + url.hash)
+      (url.pathname === playerPath || url.pathname.startsWith(playerPath + "/"))
     ) {
       return url.href;
     }

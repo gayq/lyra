@@ -7,7 +7,7 @@ import {
   cleanupIframe,
   clearExtensionPageForNavigation,
 } from "../core/browser/iframe.ts";
-import { handleSearch as performSearch } from "../features/search/search.ts";
+import { handleSearch as performSearch, getInternalRouteUrl } from "../features/search/search.ts";
 import {
   getProxyUrl,
   encodeMochiUrl,
@@ -1021,7 +1021,7 @@ export const store = {
     ) => {
       const activeTab = this.getActiveTab();
       if (activeTab) {
-        const isStreamingUrl = /^(\/stream\/anime)/.test(query);
+        const isStreamingUrl = Boolean(getInternalRouteUrl(query));
         if (gameName && !isStreamingUrl) {
           activeTab.isGame = true;
           activeTab.fixedTitle = true;

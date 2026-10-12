@@ -159,7 +159,7 @@ async fn main() {
         )
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], settings.port));
+    let addr = SocketAddr::from((settings.host, settings.port));
     tracing::info!("isao listening on {}{}", addr, POSITIVE);
     let listener = tokio::net::TcpListener::bind(addr)
         .await

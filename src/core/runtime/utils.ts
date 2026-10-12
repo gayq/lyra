@@ -1,4 +1,5 @@
 import { encodeMochiTarget } from "../../../packages/rivet/src/mochiEncoding";
+import { appPath } from "./hosting.ts";
 
 const _MK = "q7Zx!9pL";
 
@@ -73,8 +74,8 @@ export function decodeUrl(encodedUrl: string): string {
 function _decodeUrlUncached(encodedUrl: string): string {
   try {
     const urlObject = new URL(encodedUrl, window.location.origin);
-    if (urlObject.pathname.startsWith("/!!/")) {
-      let encodedPart = urlObject.pathname.slice("/!!/".length);
+    if (urlObject.pathname.startsWith(appPath("/!!/"))) {
+      let encodedPart = urlObject.pathname.slice(appPath("/!!/").length);
       if (encodedPart.endsWith("/")) encodedPart = encodedPart.slice(0, -1);
 
       try {
@@ -113,7 +114,7 @@ function _decodeUrlUncached(encodedUrl: string): string {
       }
     ).$folio;
     const url = new URL(encodedUrl, window.location.origin);
-    if (url.origin === window.location.origin && url.pathname === "/f") {
+    if (url.origin === window.location.origin && url.pathname === appPath("/f")) {
       return runtime?.routeDestination(url.href) ?? encodedUrl;
     }
   } catch {
@@ -154,7 +155,7 @@ export function getProxyUrl(url: string): string {
   if (cached !== undefined) return cached;
 
   const encoded = encodeMochiUrl(url);
-  return _memoSet(_proxyUrlCache, url, "/!!/" + encoded + "/");
+  return _memoSet(_proxyUrlCache, url, appPath("/!!/") + encoded + "/");
 }
 
 export function normalizeGameHistoryUrl(

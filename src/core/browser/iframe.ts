@@ -18,6 +18,7 @@ import { ensureProxyRuntime } from "../proxy/proxyRuntime.ts";
 import { getRivet } from "../proxy/rivetBridge.ts";
 import { hostFromUrl, recordGameMetric } from "../media/gameDiagnostics.ts";
 import { NEGATIVE } from "../runtime/messages.ts";
+import { appPath } from "../runtime/hosting.ts";
 import type { HistoryManager } from "./history.ts";
 
 interface LyraTab {
@@ -224,7 +225,7 @@ function navigationUrl(url: string): string {
     const parsed = new URL(url, window.location.origin);
     if (
       parsed.origin === window.location.origin &&
-      (parsed.pathname === "/f" || parsed.pathname.startsWith("/!!/"))
+      (parsed.pathname === appPath("/f") || parsed.pathname.startsWith(appPath("/!!/")))
     )
       return decodeUrl(url);
   } catch {}
@@ -518,7 +519,7 @@ export function navigateIframeTo(
     const parsed = new URL(url, window.location.origin);
     isProxyUrl =
       parsed.origin === window.location.origin &&
-      parsed.pathname === "/f" &&
+        parsed.pathname === appPath("/f") &&
       parsed.searchParams.has("s");
   } catch {}
   if (shouldUseFolio) {

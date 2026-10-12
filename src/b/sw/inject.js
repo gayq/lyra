@@ -20,7 +20,7 @@ const SHARED_SCRIPT = `
         if(q.indexOf('http://')===0||q.indexOf('https://')===0)return q+u.search+u.hash;
         return q+u.search+u.hash
       }
-      if(S&&u.pathname==='/f'&&window.$folio){
+      if(S&&u.pathname===${JSON.stringify(FOLIO_PATH)}&&window.$folio){
         return window.$folio.routeDestination(u.href)||u.href
       }
       return u.href
@@ -123,7 +123,7 @@ const HOVER_PREFETCH_SCRIPT = `
   function pU(abs){
     try{
       var u=new URL(abs,location.href);
-      if(u.origin===location.origin&&u.pathname==='/f'&&u.searchParams.has('s'))return kH(u.href);
+      if(u.origin===location.origin&&u.pathname===${JSON.stringify(FOLIO_PATH)}&&u.searchParams.has('s'))return kH(u.href);
       return null
     }catch(e){return null}
   }

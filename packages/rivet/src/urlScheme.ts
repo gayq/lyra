@@ -1,4 +1,5 @@
-export const RIVET_PREFIX = "/f/__rivet__/ext/";
+export const RIVET_APP_BASE = (globalThis as { __LYRA_APP_BASE__?: string }).__LYRA_APP_BASE__ || "/";
+export const RIVET_PREFIX = `${RIVET_APP_BASE}f/__rivet__/ext/`;
 
 export function rivetBootstrapUrl(extId: string): string {
   return `${rivetExtensionBase(extId)}__bootstrap__`;
@@ -13,7 +14,7 @@ export function buildExtensionUrl(extId: string, path: string): string {
 }
 
 export function extensionDocumentUrl(path: string): string {
-  return `${globalThis.location.origin}/${path.replace(/^\/+/, "")}`;
+  return `${globalThis.location.origin}${RIVET_APP_BASE}${path.replace(/^\/+/, "")}`;
 }
 
 export function chromeExtensionUrl(extId: string, path: string): string {

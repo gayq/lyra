@@ -1,6 +1,6 @@
 import { dbGet, dbGetAllKeys, EXT_FILES_STORE } from "../db";
 import { guessMime } from "../crx";
-import { decodeRivetPath, RIVET_PREFIX } from "../urlScheme";
+import { decodeRivetPath, RIVET_APP_BASE, RIVET_PREFIX } from "../urlScheme";
 import { negativeMessage } from "../messages";
 
 const clientToExtId = new Map<string, string>();
@@ -50,6 +50,7 @@ function isBootstrapUrl(pathname: string): string | null {
 export function shouldRoute(event: FetchEvent): boolean {
   try {
     const url = new URL(event.request.url);
+    if (url.origin === self.location.origin && url.pathname.startsWith(`${RIVET_APP_BASE}!!/`)) return false;
     if (
       url.origin === self.location.origin &&
       url.pathname.startsWith(RIVET_PREFIX)

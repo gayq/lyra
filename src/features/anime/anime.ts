@@ -1,4 +1,5 @@
 import { encodeMochiUrl } from "../../core/runtime/utils.ts";
+import { appPath } from "../../core/runtime/hosting.ts";
 import { cacheKey } from "../../core/runtime/cacheNamespace.ts";
 import {
   catalogMatchRank,
@@ -228,7 +229,7 @@ export function buildAnimePlaybackUrl({
     params.set("episode_count", String(episodeCount));
   }
   if (format) params.set("format", format);
-  return `/stream/anime?${params.toString()}`;
+  return `${appPath("/stream/anime")}?${params.toString()}`;
 }
 
 function deriveAniListEpisodeCount(

@@ -3,6 +3,7 @@ import { scheduleIdleTask } from "./scheduler.ts";
 import { svgIcon } from "../ui/svgIcon.ts";
 import { negativeMessage, positiveMessage } from "./messages.ts";
 import { fetchServiceMetadata } from "./serviceMetadata.ts";
+import { appPath, appServiceWorkers, isStatic } from "./hosting.ts";
 import {
   addUpdateMarker,
   buildStamp,
@@ -60,9 +61,9 @@ export function initializeLoad(): void {
 
   {
     const search = window.location.search;
-    if (search.startsWith("?=") && window.location.pathname === "/s") {
+    if (search.startsWith("?=") && [appPath("/s"), ...(isStatic ? [appPath("/index.html")] : [])].includes(window.location.pathname)) {
       const url = decodeURIComponent(search.slice(2));
-      history.replaceState(null, "", "/");
+      history.replaceState(null, "", isStatic ? appPath("/index.html") : "/");
       setTimeout(() => {
         (window as any).Lyra?.handleSearch(url);
       }, 100);
@@ -200,7 +201,7 @@ export function initializeLoad(): void {
       try {
         if ("serviceWorker" in navigator) {
           const results = await Promise.all(
-            (await navigator.serviceWorker.getRegistrations()).map((e) =>
+            (await appServiceWorkers()).map((e) =>
               e.unregister(),
             ),
           );

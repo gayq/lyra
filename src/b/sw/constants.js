@@ -9,8 +9,10 @@ if (
 }
 
 const scope = self.registration.scope;
-const isFolio = new URL(scope).pathname === "/f";
-const MOCHI_PREFIX = "/!!/";
+const APP_BASE = self.__LYRA_APP_BASE__ || "/";
+const FOLIO_PATH = APP_BASE + "f";
+const isFolio = Boolean(self.__LYRA_APP_BASE__) || new URL(scope).pathname === "/f";
+const MOCHI_PREFIX = APP_BASE + "!!/";
 const BUILD_FINGERPRINT = "__BUILD_ID__";
 const SHELL_CACHE = "lyra-shell-" + BUILD_FINGERPRINT;
 const RUNTIME_CACHE = "lyra-runtime-" + BUILD_FINGERPRINT;

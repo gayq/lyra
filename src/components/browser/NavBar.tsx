@@ -10,6 +10,7 @@ import { currentUrlSignal } from "../../core/ui/uiSignals";
 import { compactAnimePlaybackPath } from "../../core/media/animeMetadata.ts";
 import { toast } from "../../core/ui/toast.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
+import { appPath, isStatic } from "../../core/runtime/hosting.ts";
 import ExtensionMenu from "./ExtensionMenu.tsx";
 import EditableField from "../EditableField.tsx";
 import {
@@ -31,7 +32,9 @@ function CopyLinkIcon() {
     const url = currentUrlSignal.value;
     if (!url || url === "about:blank") return;
     const animePath = compactAnimePlaybackPath(url);
-    const shareUrl = animePath
+    const shareUrl = isStatic
+      ? `${window.location.origin}${appPath("/index.html")}?=${encodeURIComponent(animePath || url)}`
+      : animePath
       ? `${window.location.origin}${animePath}`
       : `${window.location.origin}/s?=${encodeURIComponent(url)}`;
     try {

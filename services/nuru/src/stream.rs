@@ -177,7 +177,7 @@ fn ipv6_is_global(addr: Ipv6Addr) -> bool {
         || matches!(addr.segments(), [0x2002, _, _, _, _, _, _, _])
         || ((addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8))
         || (addr.segments()[0] & 0xfe00) == 0xfc00
-        || (addr.segments()[0] & 0xfe00) == 0xfc00)
+        || (addr.segments()[0] & 0xffc0) == 0xfe80)
 }
 fn is_global(addr: IpAddr) -> bool {
     match addr {
@@ -185,6 +185,7 @@ fn is_global(addr: IpAddr) -> bool {
         IpAddr::V6(x) => ipv6_is_global(x),
     }
 }
+
 
 pub enum ResolvedPacket {
     Valid(ConnectPacket),

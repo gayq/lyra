@@ -1,4 +1,5 @@
 import { encodeMochiTarget } from "./mochiEncoding";
+import { RIVET_APP_BASE } from "./urlScheme";
 
 const nativeFetch = globalThis.fetch.bind(globalThis);
 const installedFetch = new WeakMap<Window, Window["fetch"]>();
@@ -10,7 +11,7 @@ function extensionRequestUrl(
 ): string {
   const url = new URL(input, base);
   if (!/^https?:$/.test(url.protocol) || url.origin === origin) return url.href;
-  return `${origin}/!!/${encodeMochiTarget(url.href)}/`;
+  return `${origin}${RIVET_APP_BASE}!!/${encodeMochiTarget(url.href)}/`;
 }
 
 function extensionSocketUrl(
@@ -24,10 +25,10 @@ function extensionSocketUrl(
   if (!/^wss?:$/.test(url.protocol)) return url.href;
   const gateway = new URL(origin);
   gateway.protocol = gateway.protocol === "https:" ? "wss:" : "ws:";
-  if (url.origin === gateway.origin && url.pathname.startsWith("/!!/"))
+  if (url.origin === gateway.origin && url.pathname.startsWith(`${RIVET_APP_BASE}!!/`))
     return url.href;
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  return `${gateway.origin}/!!/${encodeMochiTarget(url.href)}/`;
+  return `${gateway.origin}${RIVET_APP_BASE}!!/${encodeMochiTarget(url.href)}/`;
 }
 
 export function installExtensionNetwork(
@@ -43,6 +44,7 @@ export function installExtensionNetwork(
     /^https?:/.test(documentUrl) &&
     new URL(documentUrl).origin !== origin;
   if (isContentScript) return;
+  (globalThis as { __LYRA_PREPARE_FRAME__?: (realm: Window) => void }).__LYRA_PREPARE_FRAME__?.(win);
   const base = () => win.document.baseURI;
   const requestUrl = (input: string) =>
     extensionRequestUrl(input, base(), origin);

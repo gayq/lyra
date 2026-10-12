@@ -51,23 +51,23 @@ export function decodeRouteToken(token: string): string {
 // authenticated payload lets the existing frame and cookie isolation work.
 export function sealRoute(input: string | URL): string {
 	const url = new NativeURL(String(input));
-	if (url.pathname === "/f") return url.href;
-	if (!/^\/f\/[a-z0-9]+\/[a-z0-9]+\//.test(url.pathname)) return url.href;
+	const route = url.pathname.match(/^(.*\/f)\/[a-z0-9]+\/[a-z0-9]+\//);
+	if (!route) return url.href;
 	const hash = url.hash;
 	url.hash = "";
 	const token = encodeRouteToken(url.pathname + url.search);
-	return url.origin + "/f?s=" + token + (hash ? "#" + encodeRouteToken(hash.slice(1)) : "");
+	return url.origin + route[1] + "?s=" + token + (hash ? "#" + encodeRouteToken(hash.slice(1)) : "");
 }
 
 export function openRoute(input: string | URL): URL {
 	const url = new NativeURL(String(input));
-	if (url.pathname !== "/f") return url;
+	if (!url.pathname.endsWith("/f")) return url;
 	const token = url.searchParams.get("s");
 	if (!token || [...url.searchParams.keys()].some((key) => key !== "s") || url.searchParams.getAll("s").length !== 1) {
 		throw new Error("invalid navigation link... /ᐠ - ˕ -マ");
 	}
 	const path = decodeRouteToken(token);
-	if (!/^\/f\/[a-z0-9]+\/[a-z0-9]+\//.test(path)) {
+	if (!path.startsWith(url.pathname + "/") || !/^[a-z0-9]+\/[a-z0-9]+\//.test(path.slice(url.pathname.length + 1))) {
 		throw new Error("invalid navigation link... /ᐠ - ˕ -マ");
 	}
 	const internal = new NativeURL(path, url.origin);
@@ -77,9 +77,9 @@ export function openRoute(input: string | URL): URL {
 
 export function routeDestination(input: string | URL): string | null {
 	const url = new NativeURL(String(input));
-	if (url.pathname !== "/f") return null;
+	if (!url.pathname.endsWith("/f")) return null;
 	const internal = openRoute(url);
-	const path = internal.pathname.replace(/^\/f\/[a-z0-9]+\/[a-z0-9]+\//, "");
+	const path = internal.pathname.slice(url.pathname.length + 1).replace(/^[a-z0-9]+\/[a-z0-9]+\//, "");
 	if (path.startsWith("blob:") || path.startsWith("data:")) return path + internal.search + internal.hash;
 	const destination = decodeURIComponent(path);
 	if (!/^https?:\/\//.test(destination)) return null;

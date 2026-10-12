@@ -358,7 +358,7 @@ async function prefetchProxiedNavFromClient(urlStr) {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  if (url.pathname !== "/f" || !url.searchParams.has("s")) return;
+    if (url.pathname !== FOLIO_PATH || !url.searchParams.has("s")) return;
   if (!trackPrefetchUrl(urlStr)) return;
   const request = new Request(urlStr, { method: "GET" });
   const event = {

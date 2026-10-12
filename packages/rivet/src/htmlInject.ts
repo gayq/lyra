@@ -142,16 +142,6 @@ function deferDocumentScripts(html: string): {
   return { html: deferredHtml, scripts };
 }
 
-function waitForDocumentLoad(win: Window): Promise<Window> {
-  const frame = win.frameElement as HTMLIFrameElement | null;
-  if (!frame) return Promise.resolve(win);
-  return new Promise((resolve) =>
-    frame.addEventListener("load", () => resolve(frame.contentWindow ?? win), {
-      once: true,
-    }),
-  );
-}
-
 async function activateDocumentScript(
   win: Window,
   definition: DeferredDocumentScript,
@@ -206,11 +196,18 @@ export async function writeDocument(
   isCurrent: () => boolean = () => true,
 ): Promise<Window> {
   const deferred = deferDocumentScripts(html);
-  const loaded = waitForDocumentLoad(win);
-  win.document.open();
-  win.document.write(deferred.html);
-  win.document.close();
-  const realm = await loaded;
+  const realm = await new Promise<Window>((resolve) => {
+    const frame = win.frameElement as HTMLIFrameElement | null;
+    const loaded = () => {
+      frame?.removeEventListener("load", loaded);
+      resolve(frame?.contentWindow ?? win);
+    };
+    frame?.addEventListener("load", loaded);
+    win.document.open();
+    win.document.write(deferred.html);
+    win.document.close();
+    if (!frame || win.document.readyState === "complete") loaded();
+  });
   if (!isCurrent()) return realm;
   realm.history.replaceState(null, "", documentUrl);
   installChromiumUserAgent(realm);

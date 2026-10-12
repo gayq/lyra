@@ -25,7 +25,9 @@ self.addEventListener("activate", (event) => {
         );
       }),
       self.registration.navigationPreload
-        ? self.registration.navigationPreload.enable()
+        ? (self.__LYRA_APP_BASE__
+          ? self.registration.navigationPreload.disable()
+          : self.registration.navigationPreload.enable())
         : Promise.resolve(),
     ]).then(() => self.clients.claim()),
   );
@@ -190,7 +192,7 @@ function upstreamOriginFromUrl(locationUrl) {
         } catch {}
       }
     }
-    if (url.pathname === "/f") {
+    if (url.pathname === FOLIO_PATH) {
       const destination = unwrapUrl(url);
       if (destination) return new URL(destination).origin;
     }
@@ -538,7 +540,7 @@ self.addEventListener("fetch", (event) => {
 
         if (isFolio) {
           await ensureFolioConfig();
-          const isFolioRoute = url.pathname === "/f";
+          const isFolioRoute = url.pathname === FOLIO_PATH;
           let shouldRoute =
             typeof folio.shouldRoute === "function"
               ? folio.shouldRoute(event)
@@ -551,17 +553,14 @@ self.addEventListener("fetch", (event) => {
                 : !!folio.route(event);
           }
           if (shouldRoute) {
-            if (typeof folio.fetch === "function") {
-              return await runProxyEngine(
-                folio,
-                event,
-                request,
-                url,
-                realUrl,
-                isNavigate,
-              );
-            }
-            return await folio.route(event);
+            return await runProxyEngine(
+              folio,
+              event,
+              request,
+              url,
+              realUrl,
+              isNavigate,
+            );
           }
           if (isFolioRoute) {
             return await folioRouteMissFallback(

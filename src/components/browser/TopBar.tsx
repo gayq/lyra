@@ -1,8 +1,12 @@
 import { useCallback, useEffect } from "preact/hooks";
-import { gamesViewSignal, animeViewSignal } from "../../core/ui/uiSignals.ts";
+import {
+  gamesViewSignal,
+  animeViewSignal,
+} from "../../core/ui/uiSignals.ts";
 import { IconCloud, IconSettingsGear4 } from "../icons";
 import { svgIcon } from "../../core/ui/svgIcon";
 import { invokeWindowAction } from "../../core/browser/windowActions.ts";
+import { isStatic } from "../../core/runtime/hosting.ts";
 import {
   preloadAnimeCatalog,
   loadCloudSync,
@@ -12,10 +16,12 @@ import {
 
 export default function TopBar() {
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
-    if (user.username) {
-      const statusEl = document.getElementById("auth-status");
-      if (statusEl) statusEl.textContent = user.username;
+    if (!isStatic) {
+      const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
+      if (user.username) {
+        const statusEl = document.getElementById("auth-status");
+        if (statusEl) statusEl.textContent = user.username;
+      }
     }
     const choiIcon = document.getElementById("games-icon");
     if (choiIcon && !choiIcon.innerHTML) {
@@ -83,7 +89,7 @@ export default function TopBar() {
         </a>
       </div>
       <div id="top-right-stuff">
-        <div
+        {!isStatic && <div
           id="auth-container"
           class="text-icon-btn"
           onPointerEnter={() => void loadCloudSync()}
@@ -94,7 +100,7 @@ export default function TopBar() {
         >
           <IconCloud solid />
           <span id="auth-status">cloud sync</span>
-        </div>
+        </div>}
         <a
           href="#"
           id="settings"

@@ -273,6 +273,7 @@ function containsAppCode(chunk, projectRoot) {
 export default function lyraPlugin(
   buildId = createSourceBuildId(process.cwd()),
   wispPath = process.env.LYRA_WISP_PATH ?? "/w/",
+  { staticBase = "", staticBackends = [] } = {},
 ) {
   let outputDirectory;
   let serviceWorkerSourceDirectory;
@@ -281,6 +282,17 @@ export default function lyraPlugin(
   return {
     name: "lyra-build",
     enforce: "post",
+
+    transformIndexHtml: {
+      order: "pre",
+      handler(html) {
+        return staticBase ? html
+          .replace('/app/entry.tsx', '/static/entry.ts')
+          .replace('/app/playerEntry.tsx', '/static/player.ts')
+          .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1data-static-icon="$2"')
+          .replace(/<head>/i, '<head><script src="/b/static.js"></script>') : html;
+      },
+    },
 
     config(_config, { command }) {
       if (command === "build" && !/^\/(?:w|[a-f0-9]{64})\/$/.test(wispPath)) {
@@ -296,7 +308,7 @@ export default function lyraPlugin(
             command === "build"
               ? Object.fromEntries(
                   Object.entries(createRuntimePathMap(buildId)).map(
-                    ([key, value]) => [key.slice(1), value],
+                    ([key, value]) => [key.slice(1), staticBase ? staticBase + value.slice(1) : value],
                   ),
                 )
               : {},
@@ -319,7 +331,7 @@ export default function lyraPlugin(
           (chunk.type === "chunk" && fileName.endsWith(".js")) ||
           (chunk.type === "asset" && fileName.endsWith(".css"))
         ) {
-          precacheAssets.push("/" + fileName);
+          precacheAssets.push((staticBase || "/") + fileName);
         }
       }
 
@@ -344,16 +356,37 @@ export default function lyraPlugin(
       ]);
 
       const pathAliases = new Map(
-        Object.entries(createRuntimePathMap(buildId)),
+        Object.entries(createRuntimePathMap(buildId)).map(([key, value]) =>
+          [key, staticBase ? staticBase + value.slice(1) : value]),
       );
       const runtimeBundleFileName = opaqueFileName("/b/all.js", buildId);
-      pathAliases.set("/b/all.js", `/${runtimeBundleFileName}`);
+      pathAliases.set("/b/all.js", `${staticBase || "/"}${runtimeBundleFileName}`);
+      if (staticBase && staticBase !== "/") pathAliases.set("/assets/images/", `${staticBase}assets/images/`);
+
+      const socketSource = staticBase
+        ? (await readFile(path.join(projectRoot, "src/static/socket.js"), "utf8"))
+          .replaceAll("__STATIC_BASE__", staticBase) : "";
+      let staticPrelude = "";
+      if (staticBase) {
+        const config = staticBackends.map((origin) => ({ origin,
+          namespace: `ls-${createHash("sha256").update(`${staticBase}\0${origin}`).digest("hex").slice(0, 24)}:` }));
+        const controlKey = `ls-route-${createHash("sha256").update(`${staticBase}\0${staticBackends.join(",")}`).digest("hex").slice(0, 24)}`;
+        const backendSource = await readFile(path.join(projectRoot, "src/static/backend.js"), "utf8");
+        const storageSource = await readFile(path.join(projectRoot, "src/static/storage.js"), "utf8");
+        const workerSource = (await readFile(path.join(projectRoot, "src/static/workers.js"), "utf8")).replaceAll("__STATIC_BASE__", staticBase);
+        staticPrelude = `globalThis.__LYRA_APP_BASE__=${JSON.stringify(staticBase)};\n${backendSource}\n${storageSource}\n${workerSource}\ninstallStaticBackend(${JSON.stringify(config)}, ${JSON.stringify(controlKey)});\ninstallStaticStorage(${JSON.stringify(config)}[globalThis.__LYRA_BACKEND_INDEX__].namespace);\ninstallStaticWorkers();\nglobalThis.__LYRA_PREPARE_FRAME__ = (realm) => { realm.__LYRA_APP_BASE__=${JSON.stringify(staticBase)}; realm.__LYRA_BACKEND__=globalThis.__LYRA_BACKEND__; installStaticBackend(${JSON.stringify(config)}, ${JSON.stringify(controlKey)}, realm); installStaticStorage(${JSON.stringify(config)}[globalThis.__LYRA_BACKEND_INDEX__].namespace, realm); installStaticWorkers(realm); };`;
+        const bootstrapFile = opaqueFileName("/b/static.js", buildId);
+        pathAliases.set("/b/static.js", staticBase + bootstrapFile);
+        await writeFile(path.join(outputDirectory, bootstrapFile), obfuscateSource(
+          `${staticPrelude}\n${socketSource}\nglobalThis.WebSocket = staticSocketClass(globalThis.WebSocket);`,
+          RUNTIME_OBFUSCATION_OPTIONS, obfuscationPrefix(buildId, "/b/static.js")));
+      }
 
       for (const { logicalPath, source } of RUNTIME_ASSETS) {
         const sourcePath = path.join(projectRoot, ...source);
         const emittedPath = path.join(
           outputDirectory,
-          pathAliases.get(logicalPath).slice(1),
+          createRuntimePathMap(buildId)[logicalPath].slice(1),
         );
         let contents;
         try {
@@ -363,11 +396,17 @@ export default function lyraPlugin(
         }
 
         if (/\.(m?js)$/.test(logicalPath)) {
-          const sourceCode = rewriteBuildTokens(
+          let sourceCode = rewriteBuildTokens(
             stripSourceMapComments(contents.toString("utf8")),
             cssTokenMap,
             pathAliases,
           );
+          if (staticBase && /^\/(?:epoxy|libcurl)\//.test(logicalPath)) {
+            sourceCode = `${staticPrelude}\n${socketSource}\nconst WebSocket = staticSocketClass(globalThis.WebSocket);\n${sourceCode}`;
+          }
+          if (staticBase && logicalPath === "/b/fl/controller.inject.js") {
+            sourceCode = `${staticPrelude}\n${sourceCode}`;
+          }
           contents = obfuscateSource(
             sourceCode,
             RUNTIME_OBFUSCATION_OPTIONS,
@@ -415,6 +454,17 @@ export default function lyraPlugin(
         ),
       );
       let serviceWorkerCode = moduleSources.join("\n");
+      if (staticBase) {
+        const staticWorker = (await readFile(path.join(projectRoot, "src/static/worker.js"), "utf8"))
+          .replace('"__STATIC_BASE__"', JSON.stringify(staticBase));
+        serviceWorkerCode = serviceWorkerCode
+          .replace('const PRECACHE = [\n  "/",', `const PRECACHE = [\n  ${JSON.stringify(staticBase + "index.html")},`);
+        serviceWorkerCode = `${staticPrelude}\nconst STATIC_SOCKET_SOURCE = ${JSON.stringify(staticPrelude + "\n" + socketSource + "\nglobalThis.WebSocket = staticSocketClass(globalThis.WebSocket);")};\n${staticWorker}\n${serviceWorkerCode}\nself.addEventListener("fetch", event => {
+          const url = new URL(event.request.url);
+          if (url.origin === self.location.origin && staticBackendPath(staticPath(url)))
+            event.respondWith(staticForward(event.request, event));
+        });`;
+      }
       serviceWorkerCode = serviceWorkerCode
         .replace(/__BUILD_ID__/g, buildId)
         .replace(
@@ -436,12 +486,15 @@ export default function lyraPlugin(
         .update(obfuscatedServiceWorker)
         .digest("hex")
         .slice(0, 10);
-      const serviceWorkerFileName = `b/${serviceWorkerHash}.js`;
-      pathAliases.set("/b/sw.js", `/${serviceWorkerFileName}`);
+      const serviceWorkerFileName = `${staticBase ? "" : "b/"}${serviceWorkerHash}.js`;
+      pathAliases.set("/b/sw.js", `${staticBase || "/"}${serviceWorkerFileName}`);
 
       await writeFile(
         path.join(outputDirectory, "build-meta.json"),
-        JSON.stringify({ build: buildId }),
+        JSON.stringify({ build: buildId, ...(staticBase ? {
+          version: JSON.parse(await readFile(path.join(projectRoot, "package.json"), "utf8")).version,
+            protocol: 1, base: staticBase, backend: staticBackends[0], backends: staticBackends,
+        } : {}) }),
       );
       await writeFile(
         path.join(outputDirectory, serviceWorkerFileName),
@@ -521,11 +574,15 @@ export default function lyraPlugin(
         await cp(
           path.join(projectRoot, "src", "assets", "images"),
           path.join(outputDirectory, "assets", "images"),
-          { recursive: true },
+          { recursive: true, ...(staticBase ? { filter: (source) => !path.basename(source).startsWith(".") } : {}) },
         );
       } catch {}
 
-      await compressDirectory(outputDirectory);
+      if (!staticBase) await compressDirectory(outputDirectory);
+      if (staticBase) {
+        await writeFile(path.join(outputDirectory, "_headers"),
+          `${staticBase}${serviceWorkerFileName}\n  Cache-Control: no-cache\n${staticBase}*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: require-corp\n  Cross-Origin-Resource-Policy: same-origin\n  Referrer-Policy: no-referrer\n`);
+      }
 
       console.log(`\nbuild id: ${buildId}`);
       console.log(`sw: /${serviceWorkerFileName}`);

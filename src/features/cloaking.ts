@@ -2,6 +2,7 @@ import {
   DEFAULT_SETTINGS,
   SITE_CLOAKING_OPTIONS,
 } from "../core/config/settingsOptions.ts";
+import { appPath, isStatic } from "../core/runtime/hosting.ts";
 
 interface CloakingAppearance {
   title: string;
@@ -111,7 +112,7 @@ function openCloakedTab(
     false,
     original,
   );
-  const appUrl = window.location.origin;
+  const appUrl = window.location.origin + (isStatic ? appPath("/index.html") : "");
   let popup: Window | null = null;
 
   if (linkCloaking === "about:blank") {

@@ -62,7 +62,7 @@ pub const PART_1: &str = r##"<script>
         });
     } catch(e) {}
 
-    window.__MOCHI_PREFIX__="/!!/";
+window.__MOCHI_PREFIX__=(window.__LYRA_APP_BASE__ || "/") + "!!/";
     window.__MOCHI_TARGET__=""##;
 
 pub const PART_2: &str = r##"";

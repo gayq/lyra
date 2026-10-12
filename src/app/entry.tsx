@@ -14,6 +14,7 @@ import {
 import { loadCloudSync } from "./loaders.ts";
 import { warmProxyRuntime } from "../core/proxy/proxyRuntime.ts";
 import { fetchServiceMetadata } from "../core/runtime/serviceMetadata.ts";
+import { isStatic } from "../core/runtime/hosting.ts";
 import "../assets/styles/base/themes.css";
 import "../assets/styles/base/motion.css";
 import "../assets/styles/base/index.css";
@@ -86,7 +87,7 @@ function initializeLyraApp() {
   initCloaking();
   store.setupWindowLyra();
 
-  document.addEventListener(
+  if (!isStatic) document.addEventListener(
     "toggleCloudSyncModal",
     (event: Event) => {
       if (cloudSyncReady) return;
@@ -120,7 +121,7 @@ function initializeLyraApp() {
     });
   }, 1000);
 
-  scheduleIdleTask(() => {
+  if (!isStatic) scheduleIdleTask(() => {
     if (!shouldPreloadCloudSync()) return;
     void ensureCloudSyncLoaded();
   }, 1500);

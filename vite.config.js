@@ -2,18 +2,28 @@ import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
 import lyraPlugin from "./build.js";
 import { createSourceBuildId } from "./build-id.mjs";
+import { promptStaticBackends } from "./scripts/static-config.mjs";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
+export default defineConfig(async ({ mode }) => {
+const staticMode = mode === "static";
+const staticBase = staticMode ? process.env.LYRA_STATIC_BASE || "/" : "";
+if (staticMode && !/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(staticBase)) {
+  throw new Error("invalid static deployment path... /ᐠ - ˕ -マ");
+}
+const staticBackends = staticMode ? await promptStaticBackends(process.env.LYRA_STATIC_BACKEND) : [];
 const buildId = createSourceBuildId(
   __dirname,
-  process.env.LYRA_WISP_PATH || "",
+  staticMode ? `static-v1:${staticBase}:${staticBackends.join(",")}` : process.env.LYRA_WISP_PATH || "",
 );
 const assetPath = `assets/${buildId}/[hash:12]`;
 
-export default defineConfig({
-  plugins: [preact(), lyraPlugin(buildId)],
+return {
+  plugins: [preact(), lyraPlugin(buildId, undefined, { staticBase, staticBackends })],
+  base: staticBase || "/",
+  define: { __LYRA_STATIC_BASE__: JSON.stringify(staticBase), __LYRA_STATIC_BACKEND__: JSON.stringify(staticBackends[0] || "") },
   root: "src",
   publicDir: false,
   server: {
@@ -32,7 +42,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../dist",
+    outDir: staticMode ? "../dist-static" : "../dist",
     emptyOutDir: true,
     sourcemap: false,
     chunkSizeWarningLimit: 550,
@@ -83,4 +93,5 @@ export default defineConfig({
       "react/jsx-runtime": "preact/jsx-runtime",
     },
   },
+};
 });
