@@ -1,5 +1,4 @@
-.games-page,
-.anime-page {
+.catalog-page {
   --catalog-section-gap: 18px;
   --catalog-card-gap: 12px;
   --catalog-card-inset: 8px;
@@ -17,8 +16,7 @@
   position: relative;
 }
 
-.games-page.is-visible,
-.anime-page.is-visible {
+.catalog-page.is-visible {
   display: flex;
 }
 
@@ -37,15 +35,12 @@ body.anime-view .meow {
 
 body.games-view .main-container,
 body.games-view #bookmarks-container,
-body.games-view #arrow-pointer,
 body.anime-view .main-container,
-body.anime-view #bookmarks-container,
-body.anime-view #arrow-pointer {
+body.anime-view #bookmarks-container {
   display: none !important;
 }
 
-.games-topbar,
-.anime-topbar {
+.catalog-topbar {
   position: sticky;
   top: 57px;
   width: 100%;
@@ -58,8 +53,8 @@ body.anime-view #arrow-pointer {
   pointer-events: none;
 }
 
-body.games-view .games-topbar,
-body.anime-view .anime-topbar {
+body.games-view .catalog-topbar,
+body.anime-view .catalog-topbar {
   display: flex;
 }
 
@@ -103,8 +98,7 @@ body.anime-view .anime-topbar {
   opacity: 1;
 }
 
-.games-search-icon,
-.anime-search-icon {
+.catalog-search-icon {
   position: absolute;
   left: 16px;
   top: 50%;
@@ -114,16 +108,8 @@ body.anime-view .anime-topbar {
   z-index: 4;
 }
 
-.games-search-bar:focus-within .games-search-icon,
-.anime-search-bar:focus-within .anime-search-icon {
+.catalog-search-bar:focus-within .catalog-search-icon {
   color: var(--game-search-icon-focus);
-}
-
-body.games-view #left-icons,
-body.games-view #right-top-icons,
-body.anime-view #left-icons,
-body.anime-view #right-top-icons {
-  top: 25px;
 }
 
 body.games-view .games-page,
@@ -131,104 +117,10 @@ body.anime-view .anime-page {
   padding-top: 130px;
 }
 
-.game-grid-container,
-.anime-grid-container {
+.catalog-grid-container {
+  margin-top: -80px;
   padding: var(--catalog-section-gap);
   contain: layout style;
-}
-
-.game-card,
-.anime-card {
-  border-radius: var(--radius-item);
-  background-color: var(--game-card-bg);
-  width: 100%;
-  padding: 0;
-  box-sizing: border-box;
-  display: block;
-  transition: transform var(--motion-control) var(--motion-ease);
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-  contain: layout style paint;
-  content-visibility: auto;
-  backface-visibility: hidden;
-}
-
-.catalog-virtual-spacer {
-  grid-column: 1 / -1;
-  min-width: 0;
-  pointer-events: none;
-  visibility: hidden;
-}
-
-.game-card::before,
-.anime-card::before {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 40%;
-  background: linear-gradient(
-    to top,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.4) 55%,
-    transparent 100%
-  );
-  pointer-events: none;
-  z-index: 1;
-}
-
-.game-card::after,
-.anime-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--game-card-overlay);
-  opacity: 0;
-  transition: opacity var(--motion-enter) var(--motion-ease);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.game-card:hover::after,
-.anime-card:hover::after {
-  opacity: 1;
-}
-
-.game-cover,
-.poster-cover {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  overflow: hidden;
-}
-
-.game-cover img,
-.poster-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  opacity: 0;
-  filter: brightness(var(--game-cover-brightness));
-  transition:
-    opacity var(--motion-control) var(--motion-ease),
-    filter var(--motion-control) var(--motion-ease),
-    transform var(--motion-control) var(--motion-ease);
-}
-
-.game-cover.loaded img,
-.poster-cover.loaded img {
-  opacity: 1;
-}
-
-.game-card:hover .game-cover img,
-.anime-card:hover .poster-cover img {
-  filter: brightness(1);
-  transform: scale(1.05);
 }
 
 .catalog-canvas-area {
@@ -244,80 +136,6 @@ body.anime-view .anime-page {
   outline: none;
 }
 
-.game-cover.skeleton,
-.poster-cover.skeleton {
-  overflow: hidden;
-  background: var(--skeleton-alt-from);
-}
-
-.game-cover.skeleton::after,
-.poster-cover.skeleton::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    var(--skeleton-alt-from) 0%,
-    var(--skeleton-alt-via) 50%,
-    var(--skeleton-alt-to) 100%
-  );
-  transform: translate3d(100%, 0, 0);
-  animation: skeleton-transform var(--motion-shimmer) infinite linear;
-  will-change: transform;
-  pointer-events: none;
-}
-
-.game-card.skeleton-card,
-.anime-card.skeleton-card {
-  cursor: default;
-}
-
-.game-card.skeleton-card .game-cover,
-.anime-card.skeleton-card .poster-cover {
-  background-color: var(--bg-surface-3);
-}
-
-.game-card.skeleton-card:hover,
-.anime-card.skeleton-card:hover {
-  transform: none;
-}
-
-.game-card.skeleton-card:hover .game-cover img,
-.anime-card.skeleton-card:hover .poster-cover img {
-  transform: none;
-}
-
-.game-cover.no-cover,
-.poster-cover.no-cover {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.game-cover.no-cover img,
-.poster-cover.no-cover img {
-  display: none;
-}
-
-.game-cover.no-cover::before,
-.poster-cover.no-cover::before {
-  content: none;
-}
-
-.no-cover-icon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: var(--game-no-cover-line);
-  pointer-events: none;
-  line-height: 0;
-}
-
-.no-cover-icon svg {
-  display: block;
-}
-
 .no-results {
   color: var(--color-result);
   text-align: center;
@@ -325,8 +143,7 @@ body.anime-view .anime-page {
 }
 
 @media (max-width: 700px) {
-  .games-page,
-  .anime-page {
+  .catalog-page {
     padding-bottom: 44px;
   }
 
@@ -335,8 +152,7 @@ body.anime-view .anime-page {
     padding-top: 118px;
   }
 
-  .game-grid-container,
-  .anime-grid-container {
+  .catalog-grid-container {
     padding: 10px 0;
   }
 }
@@ -349,4 +165,32 @@ body.anime-view .anime-page {
   .catalog-search-bar .editable-field {
     text-overflow: ellipsis;
   }
+}
+
+body.games-view .catalog-topbar::before,
+body.anime-view .catalog-topbar::before {
+  content: "";
+  position: absolute;
+  top: -57px;
+  left: 0;
+  width: 100%;
+  height: 410px;
+  background: linear-gradient(
+    to bottom,
+    var(--bg-body) 0%,
+    var(--bg-body) 20%,
+    color-mix(in srgb, var(--bg-body) 70%, transparent) 35%,
+    color-mix(in srgb, var(--bg-body) 20%, transparent) 65%,
+    transparent 100%
+  );
+  opacity: 0;
+  transition: opacity var(--motion-control) var(--motion-ease);
+  z-index: -1;
+  pointer-events: none;
+  contain: paint;
+}
+
+body.games-view .catalog-topbar.has-scroll-shadow::before,
+body.anime-view .catalog-topbar.has-scroll-shadow::before {
+  opacity: 1;
 }

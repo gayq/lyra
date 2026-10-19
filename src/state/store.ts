@@ -99,14 +99,12 @@ export const useStore = create<{
   activeTabId: number | null;
   splitPair: { left: number | null; right: number | null };
   isPickingSplitTab: boolean;
-  allGames: unknown[];
   isLoading: boolean;
 }>(() => ({
   tabs: [],
   activeTabId: null,
   splitPair: { left: null, right: null },
   isPickingSplitTab: false,
-  allGames: [],
   isLoading: false,
 }));
 
@@ -130,7 +128,6 @@ function syncToZustand(s: {
   activeTabId: number | null;
   splitPair: { left: number | null; right: number | null };
   isPickingSplitTab: boolean;
-  allGames: unknown[];
   isLoading: boolean;
 }) {
   const current = useStore.getState();
@@ -154,7 +151,6 @@ function syncToZustand(s: {
   if (current.isPickingSplitTab !== s.isPickingSplitTab) {
     next.isPickingSplitTab = s.isPickingSplitTab;
   }
-  if (current.allGames !== s.allGames) next.allGames = s.allGames;
   if (current.isLoading !== s.isLoading) next.isLoading = s.isLoading;
   if (Object.keys(next).length > 0) useStore.setState(next);
 }
@@ -199,7 +195,6 @@ export const store = {
   activeTabId: null as number | null,
   splitPair: { left: null as number | null, right: null as number | null },
   isPickingSplitTab: false,
-  allGames: [] as unknown[],
   isLoading: false,
 
   subscribe(fn: (state: unknown, prevState: unknown) => void) {
@@ -916,7 +911,7 @@ export const store = {
       }
       const containerRect = cachedContainerRect;
       if (!containerRect) return;
-      let newLeftWidth = e.clientX - containerRect.left;
+      const newLeftWidth = e.clientX - containerRect.left;
       const totalWidthWithoutGap = containerRect.width - cachedGap;
       let percent = (newLeftWidth / totalWidthWithoutGap) * 100;
       percent = Math.max(20, Math.min(80, percent));
@@ -995,7 +990,7 @@ export const store = {
     window.Lyra.tabs = this.tabs as any;
     window.Lyra.splitPair = this.splitPair;
     window.Lyra.isLoading = false;
-    window.Lyra.allGames = this.allGames;
+    window.Lyra.allGames ??= [];
     window.Lyra.getActiveTab = () => this.getActiveTab();
     window.Lyra.getActivePageState = () => this.getActivePageState();
     window.Lyra.getTabPageState = (tabId: number) =>

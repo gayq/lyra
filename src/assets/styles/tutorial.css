@@ -1,0 +1,47 @@
+.tutorial {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  overflow: hidden;
+}
+
+.tutorial-card {
+  outline: none;
+  position: absolute;
+  box-sizing: border-box;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  padding: 30px;
+  border-radius: var(--radius-dialog);
+  background: var(--bg-body);
+  color: var(--text-primary);
+  font-family: inherit;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.tutorial::backdrop { background: transparent; }
+.tutorial-spotlight {
+  position: absolute;
+  border-radius: var(--radius-control);
+  box-shadow: 0 0 0 200vmax #0008;
+  pointer-events: none;
+}
+.tutorial-heading, .tutorial-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tutorial-heading { font-size: 12px; color: var(--color-sublabel); }
+.tutorial h2 { font-size: 20px; font-weight: 400; margin: 20px 0 12px; }
+.tutorial p { font-size: 12px; font-weight: 400; color: var(--color-sublabel); line-height: 1.7; margin: 0 0 20px; }
+.tutorial button:disabled { opacity: .35; cursor: default; }
+.tutorial button:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+@media (max-width: 700px) {
+  .tutorial-card { padding: 20px 18px; }
+}

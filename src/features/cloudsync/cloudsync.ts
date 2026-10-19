@@ -290,7 +290,7 @@ export class CloudSync {
   }
 
   hookStorage(): void {
-    const self = this;
+    const markDirty = () => this.markDirty();
     if (typeof Storage !== "undefined") {
       const storage = Storage.prototype;
       const tracked = (value: Storage): boolean =>
@@ -306,7 +306,7 @@ export class CloudSync {
           (canSyncStorageValue(key, String(value)) ||
             (previous !== null && canSyncStorageValue(key, previous)))
         )
-          self.markDirty();
+          markDirty();
       };
 
       const originalRemoveItem = storage.removeItem;
@@ -319,29 +319,29 @@ export class CloudSync {
           previous !== null &&
           canSyncStorageValue(key, previous)
         )
-          self.markDirty();
+          markDirty();
       };
 
       const originalClear = storage.clear;
       storage.clear = function (): void {
         const hadValues = this.length > 0;
         originalClear.call(this);
-        if (tracked(this) && hadValues) self.markDirty();
+        if (tracked(this) && hadValues) markDirty();
       };
     }
 
     window.addEventListener("storage", (e: StorageEvent) => {
-      if (self.isRestoring) return;
+      if (this.isRestoring) return;
       if (e.storageArea !== localStorage && e.storageArea !== sessionStorage)
         return;
-      if (e.key === null) return self.markDirty();
+      if (e.key === null) return markDirty();
       if (
         ![e.oldValue, e.newValue].some(
           (value) => value !== null && canSyncStorageValue(e.key!, value),
         )
       )
         return;
-      self.markDirty();
+      markDirty();
     });
 
     if (typeof IDBObjectStore !== "undefined") {
@@ -363,7 +363,7 @@ export class CloudSync {
             observedTransactions.add(this.transaction);
             this.transaction.addEventListener(
               "complete",
-              () => self.markDirty(),
+              () => markDirty(),
               { once: true },
             );
           }
@@ -380,12 +380,12 @@ export class CloudSync {
       const databasePrototype = IDBDatabase.prototype;
       const originalCreateStore = databasePrototype.createObjectStore;
       databasePrototype.createObjectStore = function (...args) {
-        self.markDirty();
+        markDirty();
         return originalCreateStore.apply(this, args);
       };
       const originalDeleteStore = databasePrototype.deleteObjectStore;
       databasePrototype.deleteObjectStore = function (...args) {
-        self.markDirty();
+        markDirty();
         return originalDeleteStore.apply(this, args);
       };
     }
@@ -409,7 +409,7 @@ export class CloudSync {
           () => forgetIndexedDBName(logicalDatabaseName(String(args[0]))),
           { once: true },
         );
-        self.markDirty();
+        markDirty();
         return request;
       };
     }
@@ -421,7 +421,7 @@ export class CloudSync {
         };
       }
     ).cookieStore;
-    browserCookieStore?.addEventListener?.("change", () => self.markDirty());
+    browserCookieStore?.addEventListener?.("change", () => markDirty());
 
     if (typeof Document !== "undefined") {
       const cookieDescriptor = Object.getOwnPropertyDescriptor(
@@ -435,7 +435,7 @@ export class CloudSync {
           get: cookieDescriptor.get,
           set(value: string) {
             cookieDescriptor.set!.call(this, value);
-            self.markDirty();
+            markDirty();
           },
         });
       }

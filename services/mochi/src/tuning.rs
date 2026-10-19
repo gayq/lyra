@@ -60,10 +60,9 @@ pub fn detect() -> MochiTuning {
     );
 
     let mut tuning = compute(ram_mb, cores, disk_mb);
-    if let Ok(gb) = std::env::var("MOCHI_STREAM_CACHE_GB")
+    if let Some(gb) = std::env::var("MOCHI_STREAM_CACHE_GB")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .ok_or(())
     {
         let requested = gb.clamp(1, 1024) * 1024 * 1024 * 1024;
         let safe_limit = (disk_mb * 1024 * 1024).saturating_mul(3) / 4;

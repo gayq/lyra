@@ -11,6 +11,7 @@ import {
   IconPaintBrush,
   IconGhost,
   IconHeart,
+  IconBook,
   IconPuzzle,
   IconSushi,
   IconCrossMedium,
@@ -91,6 +92,7 @@ interface SelectorProps {
   label: string;
   value: string;
   options: readonly string[];
+  formatOption?: (value: string) => string;
   onChange: (v: string) => void;
   isOpen: string | null;
   onOpen: (label: string) => void;
@@ -101,6 +103,7 @@ function Selector({
   label,
   value,
   options,
+  formatOption,
   onChange,
   isOpen,
   onOpen,
@@ -123,11 +126,9 @@ function Selector({
   }, [open, onClose]);
 
   return (
-    <div class={`settings-selector ${label}-selector`} ref={ref}>
+    <div class="settings-selector" ref={ref}>
       <div
-        class={`settings-selector-selected ${label}-selected${
-          open ? ` settings-selector-open ${label}-arrow-active` : ""
-        }`}
+        class={`settings-selector-selected${open ? " settings-selector-open" : ""}`}
         onClick={(e: MouseEvent) => {
           e.stopPropagation();
           if (open) {
@@ -137,13 +138,11 @@ function Selector({
           }
         }}
       >
-        <span>{value}</span>
+        <span>{formatOption ? formatOption(value) : value}</span>
         <IconChevronBottom size={16} class="selector-chevron" />
       </div>
       <div
-        class={`settings-selector-options ${label}-options${
-          open ? ` settings-selector-show ${label}-show` : ""
-        }`}
+        class={`settings-selector-options${open ? " settings-selector-show" : ""}`}
         aria-hidden={!open}
       >
         {availableOptions.map((opt) => (
@@ -155,7 +154,7 @@ function Selector({
               onClose();
             }}
           >
-            {opt}
+            {formatOption ? formatOption(opt) : opt}
           </div>
         ))}
       </div>
@@ -170,18 +169,14 @@ interface ToggleProps {
 }
 
 function Toggle({ id, checked, onChange }: ToggleProps) {
-  const onToggle = (e: Event) => {
-    const el = e.currentTarget as HTMLInputElement;
-    const isChecked = el.checked;
-    el.classList.remove("animate-on", "animate-off");
-    requestAnimationFrame(() => {
-      el.classList.add(isChecked ? "animate-on" : "animate-off");
-    });
-    onChange(isChecked);
-  };
-
   return (
-    <input type="checkbox" id={id} checked={checked} onChange={onToggle} />
+    <input
+      class="settings-toggle"
+      type="checkbox"
+      id={id}
+      checked={checked}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+    />
   );
 }
 
@@ -398,7 +393,13 @@ export default function SettingsModal({
           detail: { linkCloaking: value, siteCloaking: siteCloakName },
         }),
       );
-    } else if (key === ANIME_QUALITY_KEY || key === ANIME_SUBTITLE_KEY) {
+    } else if (
+      key === ANIME_LANGUAGE_KEY ||
+      key === ANIME_QUALITY_KEY ||
+      key === ANIME_SUBTITLE_KEY
+    ) {
+      if (key === ANIME_LANGUAGE_KEY)
+        localStorage.removeItem("lyra-anime-audio");
       if (key === ANIME_SUBTITLE_KEY)
         localStorage.removeItem("lyra-anime-subtitle");
       document.dispatchEvent(
@@ -468,6 +469,15 @@ export default function SettingsModal({
               {t.label}
             </button>
           ))}
+          <button
+            class="tab-button"
+            onClick={() => {
+              toggleSettingsModal();
+              document.dispatchEvent(new Event("show-tutorial"));
+            }}
+          >
+            <IconBook />{" "}tutorial
+          </button>
           <div class="settings-bottom">{versionInfo || "≽^•⩊•^≼"}</div>
         </div>
         <div class="settings-content-wrapper">
@@ -521,7 +531,7 @@ export default function SettingsModal({
             <div class="tab-content active">
               <div class="settings-item">
                 <label>preferred audio</label>
-                <p>choose the default audio for anime, if avaliable.</p>
+                <p>choose the default audio for when playback starts, if avaliable.</p>
                 <Selector
                   label="anime-language"
                   value={animeLanguage}
@@ -538,11 +548,12 @@ export default function SettingsModal({
               </div>
               <div class="settings-item">
                 <label>preferred quality</label>
-                <p>choose the default quality for anime, if avaliable.</p>
+                <p>choose the default quality for when playback starts; auto adjusts based on your network connection.</p>
                 <Selector
                   label="anime-quality"
                   value={animeQuality}
                   options={ANIME_QUALITY_OPTIONS}
+                  formatOption={(quality) => quality === "2160p" ? "4k" : quality}
                   isOpen={openSelector}
                   onOpen={setOpenSelector}
                   onClose={closeSelector}
@@ -555,7 +566,7 @@ export default function SettingsModal({
               </div>
               <div class="settings-item">
                 <label>preferred subtitles</label>
-                <p>choose default subtitles; auto follows the audio version.</p>
+                <p>choose the default subtitles when playback starts; auto follows the audio version.</p>
                 <Selector
                   label="anime-subtitles"
                   value={animeSubtitles}

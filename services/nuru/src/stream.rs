@@ -26,18 +26,9 @@ use wisp_mux::{
     stream::MuxStream,
 };
 
-#[derive(Clone)]
-enum CachedResolvedPacket {
-    Valid(ConnectPacket),
-    ValidWispnet(u32, ConnectPacket),
-    NoResolvedAddrs,
-    Blocked,
-    Invalid,
-}
+static RESOLVE_CACHE: OnceLock<MokaCache<String, ResolvedPacket>> = OnceLock::new();
 
-static RESOLVE_CACHE: OnceLock<MokaCache<String, CachedResolvedPacket>> = OnceLock::new();
-
-fn get_resolve_cache() -> &'static MokaCache<String, CachedResolvedPacket> {
+fn get_resolve_cache() -> &'static MokaCache<String, ResolvedPacket> {
     RESOLVE_CACHE.get_or_init(|| {
         let ttl = crate::CONFIG.wisp.resolve_cache_ttl_secs.max(1);
         let max_entries = crate::CONFIG.wisp.resolve_cache_max_entries.max(1) as u64;
@@ -69,48 +60,18 @@ pub fn clear_resolve_cache() {
     }
 }
 
-fn stream_type_cache_key(stream_type: StreamType) -> &'static str {
-    match stream_type {
-        StreamType::Tcp => "tcp",
-        StreamType::Udp => "udp",
-        StreamType::Other(_) => "other",
-    }
-}
-
 fn resolve_cache_key(packet: &ConnectPacket) -> String {
     use std::fmt::Write;
-    let stream = stream_type_cache_key(packet.stream_type);
-    let mut key = String::with_capacity(stream.len() + packet.host.len() + 8);
-    key.push_str(stream);
-    key.push('|');
-    let _ = write!(key, "{}", packet.port);
-    key.push('|');
-    key.push_str(&packet.host);
+    let mut key = String::with_capacity(packet.host.len() + 16);
+    match packet.stream_type {
+        StreamType::Tcp => key.push_str("tcp"),
+        StreamType::Udp => key.push_str("udp"),
+        StreamType::Other(kind) => {
+            let _ = write!(key, "other:{kind}");
+        }
+    }
+    let _ = write!(key, "|{}|{}", packet.port, packet.host);
     key
-}
-
-fn to_cached(packet: &ResolvedPacket) -> CachedResolvedPacket {
-    match packet {
-        ResolvedPacket::Valid(x) => CachedResolvedPacket::Valid(x.clone()),
-        ResolvedPacket::ValidWispnet(server, x) => {
-            CachedResolvedPacket::ValidWispnet(*server, x.clone())
-        }
-        ResolvedPacket::NoResolvedAddrs => CachedResolvedPacket::NoResolvedAddrs,
-        ResolvedPacket::Blocked => CachedResolvedPacket::Blocked,
-        ResolvedPacket::Invalid => CachedResolvedPacket::Invalid,
-    }
-}
-
-fn from_cached(packet: &CachedResolvedPacket) -> ResolvedPacket {
-    match packet {
-        CachedResolvedPacket::Valid(x) => ResolvedPacket::Valid(x.clone()),
-        CachedResolvedPacket::ValidWispnet(server, x) => {
-            ResolvedPacket::ValidWispnet(*server, x.clone())
-        }
-        CachedResolvedPacket::NoResolvedAddrs => ResolvedPacket::NoResolvedAddrs,
-        CachedResolvedPacket::Blocked => ResolvedPacket::Blocked,
-        CachedResolvedPacket::Invalid => ResolvedPacket::Invalid,
-    }
 }
 
 fn match_addr(str: &str, allowed: &RegexSet, blocked: &RegexSet) -> bool {
@@ -186,7 +147,7 @@ fn is_global(addr: IpAddr) -> bool {
     }
 }
 
-
+#[derive(Clone)]
 pub enum ResolvedPacket {
     Valid(ConnectPacket),
     ValidWispnet(u32, ConnectPacket),
@@ -201,7 +162,7 @@ impl ClientStream {
         let cache = get_resolve_cache();
         if let Some(cached_packet) = cache.get(&cache_key) {
             RESOLVE_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
-            return Ok(from_cached(&cached_packet));
+            return Ok(cached_packet);
         }
         RESOLVE_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
 
@@ -219,7 +180,7 @@ impl ClientStream {
                     "failed to parse wispnet server from string"
                 ))?;
                 let resolved = ResolvedPacket::ValidWispnet(server_id, packet);
-                cache.insert(cache_key.clone(), to_cached(&resolved));
+                cache.insert(cache_key, resolved.clone());
                 return Ok(resolved);
             }
         }
@@ -229,17 +190,17 @@ impl ClientStream {
                 if let StreamType::Other(ty) = packet.stream_type {
                     if ty == crate::handle::wisp::twisp::STREAM_TYPE && CONFIG.stream.allow_twisp && CONFIG.wisp.wisp_v2 {
                             let resolved = ResolvedPacket::Valid(packet);
-                            cache.insert(cache_key.clone(), to_cached(&resolved));
+                            cache.insert(cache_key, resolved.clone());
                             return Ok(resolved);
                         }
                         let resolved = ResolvedPacket::Invalid;
-                        cache.insert(cache_key.clone(), to_cached(&resolved));
+                        cache.insert(cache_key, resolved.clone());
                         return Ok(resolved);
                 }
             } else {
                 if matches!(packet.stream_type, StreamType::Other(_)) {
                         let resolved = ResolvedPacket::Invalid;
-                        cache.insert(cache_key.clone(), to_cached(&resolved));
+                        cache.insert(cache_key, resolved.clone());
                         return Ok(resolved);
                     }
             }
@@ -247,7 +208,7 @@ impl ClientStream {
 
         if !CONFIG.stream.allow_udp && packet.stream_type == StreamType::Udp {
             let resolved = ResolvedPacket::Blocked;
-            cache.insert(cache_key.clone(), to_cached(&resolved));
+            cache.insert(cache_key, resolved.clone());
             return Ok(resolved);
         }
 
@@ -263,13 +224,13 @@ impl ClientStream {
                 .any(|x| x.contains(&packet.port))
         {
             let resolved = ResolvedPacket::Blocked;
-            cache.insert(cache_key.clone(), to_cached(&resolved));
+            cache.insert(cache_key, resolved.clone());
             return Ok(resolved);
         }
 
         if IpAddr::from_str(&packet.host).is_ok() && !CONFIG.stream.allow_direct_ip {
             let resolved = ResolvedPacket::Blocked;
-            cache.insert(cache_key.clone(), to_cached(&resolved));
+            cache.insert(cache_key, resolved.clone());
             return Ok(resolved);
         }
 
@@ -279,7 +240,7 @@ impl ClientStream {
             blocked_set(packet.stream_type),
         ) {
             let resolved = ResolvedPacket::Blocked;
-            cache.insert(cache_key.clone(), to_cached(&resolved));
+            cache.insert(cache_key, resolved.clone());
             return Ok(resolved);
         }
 
@@ -290,7 +251,7 @@ impl ClientStream {
         ) && !allowed_set(packet.stream_type).is_match(&packet.host)
         {
             let resolved = ResolvedPacket::Blocked;
-            cache.insert(cache_key.clone(), to_cached(&resolved));
+            cache.insert(cache_key, resolved.clone());
             return Ok(resolved);
         }
 
@@ -326,7 +287,7 @@ impl ClientStream {
             .next();
 
         let resolved = packet.unwrap_or(ResolvedPacket::NoResolvedAddrs);
-        cache.insert(cache_key.clone(), to_cached(&resolved));
+        cache.insert(cache_key, resolved.clone());
         Ok(resolved)
     }
 
@@ -405,11 +366,12 @@ impl ClientStream {
                     .into_iter()
                     .map(Into::into)
                     .collect();
+                let (program, args) = cmdline
+                    .split_first()
+                    .context(negative_message!("command is empty"))?;
                 let (pty, pts) = pty_process::open()?;
 
-                let cmd = pty_process::Command::new(&cmdline[0])
-                    .args(&cmdline[1..])
-                    .spawn(pts)?;
+                let cmd = pty_process::Command::new(program).args(args).spawn(pts)?;
 
                 Ok(ClientStream::Pty(Box::new((cmd, pty))))
             }
@@ -455,3 +417,4 @@ impl WebSocketStreamWrapper {
         self.0.close().await
     }
 }
+

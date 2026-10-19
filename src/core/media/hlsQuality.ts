@@ -2,10 +2,12 @@ import type { AnimeQuality } from "./animeSettings.ts";
 
 export const PLAYER_SIZE_ABR_CONFIG = {
   capLevelToPlayerSize: true,
+  capLevelOnFPSDrop: true,
 } as const;
 
 interface HlsQualityController {
-  currentLevel: number;
+  manualLevel: number;
+  nextLevel: number;
 }
 
 interface QualityLevel {
@@ -20,12 +22,12 @@ export function applyQualitySelection(
   availableLevels: readonly number[],
 ): boolean {
   if (
-    requestedLevel < -1 ||
+    !Number.isInteger(requestedLevel) || requestedLevel < -1 ||
     (requestedLevel >= 0 && !availableLevels.includes(requestedLevel))
   ) {
     return false;
   }
-  hls.currentLevel = requestedLevel;
+  if (hls.manualLevel !== requestedLevel) hls.nextLevel = requestedLevel;
   return true;
 }
 

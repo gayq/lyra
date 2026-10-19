@@ -39,7 +39,7 @@ export function readAnimeLanguage(): AnimeLanguage {
 }
 
 export const ANIME_QUALITY_KEY = "animePreferredQuality";
-export const ANIME_QUALITY_OPTIONS = ["auto", "1080p", "720p", "360p"] as const;
+export const ANIME_QUALITY_OPTIONS = ["auto", "2160p", "1080p", "720p", "360p"] as const;
 export type AnimeQuality = (typeof ANIME_QUALITY_OPTIONS)[number];
 const DEFAULT_ANIME_QUALITY: AnimeQuality = "auto";
 

@@ -118,7 +118,7 @@ function panel(message: string) {
 }
 
 export function staticFailure() {
-  panel(negativeMessage("connection unavailable; retrying"));
+  panel(negativeMessage("connection unavailable; retrying automatically"));
   const attempts = Math.min(Math.max(0, Number(sessionStorage.getItem("static-startup-retries")) || 0) + 1, 5);
   sessionStorage.setItem("static-startup-retries", String(attempts));
   setTimeout(() => location.reload(), Math.min(1_000 * 2 ** attempts, 30_000));
@@ -126,7 +126,7 @@ export function staticFailure() {
 
 async function connect() {
   let view: ReturnType<typeof panel> | undefined;
-  const delayed = setTimeout(() => { view = panel("connecting to server"); }, 300);
+  const delayed = setTimeout(() => { view = panel("connecting to server..."); }, 300);
   let delay = 1_000;
   try {
     for (;;) {
@@ -135,7 +135,7 @@ async function connect() {
         await recoverBackend(true);
         clearTimeout(delayed);
         view ??= panel("");
-        view.status.textContent = negativeMessage("connection unavailable; retrying");
+        view.status.textContent = negativeMessage("connection unavailable; retrying automatically");
         await new Promise<void>((resolve) => {
           const done = () => { clearTimeout(timer); window.removeEventListener("online", done); resolve(); };
           const timer = setTimeout(done, delay + Math.random() * 500);
@@ -152,14 +152,14 @@ export async function initializeStatic(player = false) {
     panel(negativeMessage("a secure site with service worker support is required"));
     return new Promise<never>(() => {});
   }
-  const selectedWorker = new URL("/b/sw.js", location.href);
+  const selectedWorker = new URL("/b/sw.js", document.baseURI);
   if ((routing.__LYRA_BACKENDS__?.length || 0) > 1) selectedWorker.searchParams.set("__lyra_backend", String(routing.__LYRA_BACKEND_INDEX__));
   const workerUrl = selectedWorker.href;
   const registration = await navigator.serviceWorker.register(workerUrl, { scope: staticBase, updateViaCache: "none" });
   const controlled = () => navigator.serviceWorker.controller?.scriptURL === workerUrl && registration.active?.scriptURL === workerUrl;
   if (!controlled()) {
     let view: ReturnType<typeof panel> | undefined;
-    const delayed = setTimeout(() => { view = panel("preparing lyra"); }, 300);
+    const delayed = setTimeout(() => { view = panel("preparing lyra... (stuck? reload!)"); }, 300);
     try { await new Promise<void>((resolve, reject) => {
       let installing: ServiceWorker | null = null;
       const retire = () => {

@@ -2,6 +2,19 @@ use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
+pub fn redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() >= 10 {
+            return attempt.error("too many redirects... /ᐠ - ˕ -マ");
+        }
+        if validate_public_target(attempt.url()).is_err() {
+            attempt.error("redirect target is not allowed... /ᐠ - ˕ -マ")
+        } else {
+            attempt.follow()
+        }
+    })
+}
+
 #[derive(Clone, Default)]
 pub struct PublicDnsResolver;
 

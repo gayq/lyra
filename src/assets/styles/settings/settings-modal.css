@@ -52,34 +52,6 @@
   transition: color var(--motion-control) var(--motion-ease);
 }
 
-#settings-modal select {
-  width: 100%;
-  padding: 7px;
-  margin-bottom: 15px;
-  background-color: var(--bg-surface-9);
-  color: var(--text-primary);
-  border: 2px solid #4141411a;
-  border-radius: var(--radius-control);
-  font-size: 14px;
-  outline: none;
-  transition:
-    background-color var(--motion-control) var(--motion-ease),
-    border-color var(--motion-control) var(--motion-ease);
-}
-
-#settings-modal select:focus {
-  transform: scale(1.02);
-}
-
-#close-game-menu i {
-  font-size: 11.5px;
-  line-height: 0;
-}
-
-#settings-modal select:hover {
-  background-color: var(--bg-surface-active);
-}
-
 .settings-modal.open {
   opacity: 1;
 }
@@ -88,14 +60,7 @@
   opacity: 0;
 }
 
-.settings-selector,
-.transport-selector,
-.search-engine-selector,
-.site-cloaking-selector,
-.link-cloaking-selector,
-.game-source-selector,
-.anime-quality-selector,
-.theme-selector {
+.settings-selector {
   position: relative;
   width: 100%;
   max-width: 300px;
@@ -104,14 +69,7 @@
   transition: background-color var(--motion-control) var(--motion-ease);
 }
 
-.settings-selector-selected,
-.transport-selected,
-.search-engine-selected,
-.site-cloaking-selected,
-.link-cloaking-selected,
-.game-source-selected,
-.anime-quality-selected,
-.theme-selected {
+.settings-selector-selected {
   background-color: var(--bg-surface-7);
   border: 2px solid var(--border-transparent);
   color: var(--text-primary);
@@ -125,24 +83,7 @@
 }
 
 .settings-selector-selected:hover,
-.transport-selected:hover,
-.search-engine-selected:hover,
-.site-cloaking-selected:hover,
-.link-cloaking-selected:hover,
-.game-source-selected:hover,
-.anime-quality-selected:hover,
-.theme-selected:hover {
-  background-color: var(--bg-surface-active);
-}
-
-.settings-selector-open,
-.transport-arrow-active,
-.search-engine-arrow-active,
-.site-cloaking-arrow-active,
-.link-cloaking-arrow-active,
-.game-source-arrow-active,
-.anime-quality-arrow-active,
-.theme-arrow-active {
+.settings-selector-open {
   background-color: var(--bg-surface-active);
 }
 
@@ -155,25 +96,11 @@
   transform-origin: center center;
 }
 
-.settings-selector-open .selector-chevron,
-.transport-arrow-active .selector-chevron,
-.search-engine-arrow-active .selector-chevron,
-.site-cloaking-arrow-active .selector-chevron,
-.link-cloaking-arrow-active .selector-chevron,
-.game-source-arrow-active .selector-chevron,
-.anime-quality-arrow-active .selector-chevron,
-.theme-arrow-active .selector-chevron {
+.settings-selector-open .selector-chevron {
   transform: rotate(180deg);
 }
 
-.settings-selector-options,
-.transport-options,
-.search-engine-options,
-.site-cloaking-options,
-.link-cloaking-options,
-.game-source-options,
-.anime-quality-options,
-.theme-options {
+.settings-selector-options {
   position: absolute;
   top: 100%;
   margin-top: 5px;
@@ -186,7 +113,6 @@
   max-height: 400px;
   text-align: left;
   overflow: hidden;
-  margin-top: 5px;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-6px) scale(0.98);
@@ -200,28 +126,14 @@
   contain: layout style paint;
 }
 
-.settings-selector-options.settings-selector-show,
-.transport-options.transport-show,
-.search-engine-options.search-engine-show,
-.site-cloaking-options.site-cloaking-show,
-.link-cloaking-options.link-cloaking-show,
-.game-source-options.game-source-show,
-.anime-quality-options.anime-quality-show,
-.theme-options.theme-show {
+.settings-selector-options.settings-selector-show {
   opacity: 1;
   overflow-y: auto;
   pointer-events: auto;
   transform: translateY(0) scale(1);
 }
 
-.settings-selector-options div,
-.transport-options div,
-.search-engine-options div,
-.site-cloaking-options div,
-.link-cloaking-options div,
-.game-source-options div,
-.anime-quality-options div,
-.theme-options div {
+.settings-selector-options div {
   padding: 6.5px;
   border-radius: var(--radius-item);
   cursor: pointer;
@@ -232,23 +144,16 @@
     color var(--motion-control) var(--motion-ease);
 }
 
-.settings-selector-options div:hover,
-.transport-options div:hover,
-.search-engine-options div:hover,
-.site-cloaking-options div:hover,
-.link-cloaking-options div:hover,
-.game-source-options div:hover,
-.anime-quality-options div:hover,
-.theme-options div:hover {
+.settings-selector-options div:hover {
   background-color: var(--bg-surface-active);
   color: var(--text-primary);
 }
 
-input[type="checkbox"] {
+.settings-toggle {
   appearance: none;
   width: 64px;
   height: 30px;
-  margin-left: -343px;
+  margin-left: 0;
   background-color: var(--checkbox-bg);
   margin-bottom: 5px;
   border-radius: 30px;
@@ -258,11 +163,11 @@ input[type="checkbox"] {
   transition: background-color var(--motion-control) var(--motion-ease);
 }
 
-input[type="checkbox"]:checked {
+.settings-toggle:checked {
   background-color: var(--checkbox-bg-checked);
 }
 
-input[type="checkbox"]::before {
+.settings-toggle::before {
   content: "";
   width: 20px;
   height: 20px;
@@ -277,16 +182,16 @@ input[type="checkbox"]::before {
   will-change: transform;
 }
 
-input[type="checkbox"]:hover::before {
+.settings-toggle:hover::before {
   transform: scale(1.12);
   background-color: var(--checkbox-knob-hover);
 }
 
-input[type="checkbox"]:checked::before {
+.settings-toggle:checked::before {
   transform: translateX(33px);
 }
 
-input[type="checkbox"]:checked:hover::before {
+.settings-toggle:checked:hover::before {
   transform: translateX(33px) scale(1.12);
 }
 
@@ -501,36 +406,13 @@ input[type="checkbox"]:checked:hover::before {
   margin-bottom: 15px;
 }
 
-.settings-item .settings-selector,
-.settings-item .transport-selector,
-.settings-item .search-engine-selector,
-.settings-item .site-cloaking-selector,
-.settings-item .link-cloaking-selector,
-.settings-item .game-source-selector,
-.settings-item .anime-quality-selector,
-.settings-item .theme-selector {
+.settings-item .settings-selector {
   margin-bottom: 0;
 }
 
-.settings-item input[type="checkbox"] {
+.settings-item .settings-toggle {
   margin-left: 0;
   margin-bottom: 0;
-}
-
-.settings-item #wisp-server {
-  margin-left: 0;
-  margin-bottom: 0;
-  max-width: calc(100% - 80px);
-  display: inline-block;
-  box-sizing: border-box;
-}
-
-.settings-item #save-wisp-url {
-  margin-left: 5px;
-  display: inline-block;
-  vertical-align: top;
-  width: 65px;
-  box-sizing: border-box;
 }
 
 @media (max-width: 700px) {
@@ -585,14 +467,7 @@ input[type="checkbox"]:checked:hover::before {
     min-height: 0;
   }
 
-  .settings-selector,
-  .transport-selector,
-  .search-engine-selector,
-  .site-cloaking-selector,
-  .link-cloaking-selector,
-  .game-source-selector,
-  .anime-quality-selector,
-  .theme-selector {
+  .settings-selector {
     max-width: 100%;
   }
 }

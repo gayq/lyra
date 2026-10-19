@@ -110,44 +110,14 @@ function blockedSuffix(domain) {
 }
 
 function validDomain(domain) {
-  const len = domain.length;
-  if (len === 0 || len > 253) return false;
+  if (domain.length === 0 || domain.length > 253) return false;
 
-  const first = domain.charCodeAt(0);
-  const last = domain.charCodeAt(len - 1);
-  if (first === 46 || first === 45 || last === 46 || last === 45) return false;
-
-  let hasDot = false;
-  let pd = false;
-  let dcount = 0;
-  let slen = 0;
-  let ip = true;
-
-  for (let i = 0; i < len; i++) {
-    const c = domain.charCodeAt(i);
-    if (c === 46) {
-      if (pd || slen > 63) return false;
-      hasDot = true;
-      pd = true;
-      slen = 0;
-      dcount++;
-    } else {
-      pd = false;
-      slen++;
-      if (c === 45) {
-        if (i === len - 1 || i > 0 && domain.charCodeAt(i - 1) === 46) return false;
-        ip = false;
-      } else if (c >= 48 && c <= 57) {
-        if (dcount > 3) ip = false;
-      } else if (c >= 97 && c <= 122) {
-        ip = false;
-      } else return false;
-    }
+  const labels = domain.split('.');
+  if (labels.length < 2) return false;
+  if (!labels.every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) {
+    return false;
   }
-
-  if (!hasDot || pd) return false;
-  if (dcount === 3 && ip && slen <= 3) return false;
-  return true;
+  return !(labels.length === 4 && labels.every(label => /^[0-9]+$/.test(label)));
 }
 
 function extractDomain(url) {

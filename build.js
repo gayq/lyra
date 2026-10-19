@@ -287,10 +287,11 @@ export default function lyraPlugin(
       order: "pre",
       handler(html) {
         return staticBase ? html
+          .replace('<base href="/" />', `<base href="${staticBase}" />`)
           .replace('/app/entry.tsx', '/static/entry.ts')
           .replace('/app/playerEntry.tsx', '/static/player.ts')
           .replace(/(<link\s+rel="icon"\s+)href="([^"]+)"/i, '$1href="/assets/images/peaks/natsu.png" data-static-icon="$2"')
-          .replace(/<head>/i, '<head><script src="/b/static.js"></script>') : html;
+          .replace(/<head>(?:\s*<base\b[^>]*>)?/i, '$&<script src="/b/static.js"></script>') : html;
       },
     },
 
@@ -489,7 +490,6 @@ export default function lyraPlugin(
       const serviceWorkerFileName = `${staticBase ? "" : "b/"}${serviceWorkerHash}.js`;
       pathAliases.set("/b/sw.js", `${staticBase || "/"}${serviceWorkerFileName}`);
 
-      // Page assets resolve from the document; worker assets retain their own base.
       const pageAliases = new Map([...pathAliases].map(([logicalPath, emittedPath]) =>
         [logicalPath, `./${emittedPath.slice((staticBase || "/").length)}`],
       ));

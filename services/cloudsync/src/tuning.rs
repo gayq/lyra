@@ -1,4 +1,4 @@
-use sysinfo::System;
+use adaptive_capacity::HostResources;
 
 pub struct CloudSyncTuning {
     pub db_pool_max: u32,
@@ -15,11 +15,7 @@ pub struct CloudSyncTuning {
 }
 
 pub fn detect() -> CloudSyncTuning {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    let (memory_bytes, _) =
-        adaptive_capacity::memory_budget(sys.total_memory(), sys.available_memory());
-    let host_ram_mb = memory_bytes / (1024 * 1024);
+    let host_ram_mb = HostResources::detect().memory_bytes / (1024 * 1024);
     let configured_ram_mb = std::env::var("CLOUDSYNC_MEMORY_MB")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { attachSearchLight } from "../../core/ui/searchLight.ts";
 import { useSearchInputBindings } from "../../features/search/search.ts";
 import { IconMagnifyingGlass2 } from "../icons";
@@ -36,7 +36,7 @@ function pickPlaceholder(): string {
 
 export default function SearchBar() {
   const barRef = useRef(null);
-  const placeholderRef = useRef(pickPlaceholder());
+  const [placeholder] = useState(pickPlaceholder);
 
   useSearchInputBindings({
     inputId: "searchInput",
@@ -59,7 +59,7 @@ export default function SearchBar() {
       <EditableField
         id="searchInput"
         label="search or enter url"
-        placeholder={placeholderRef.current}
+        placeholder={placeholder}
       />
       <div id="suggestions-container" class="suggestions-box"></div>
     </div>

@@ -579,22 +579,25 @@ async fn resolve_stream_handler(Json(request): Json<ResolveStreamRequest>) -> Re
 
     let mut query = Vec::with_capacity(5);
     if let Some(id) = anilist_id.filter(|id| *id > 0) {
-        query.push(format!("anilist_id={id}"));
+        query.push(("anilist_id", id.to_string()));
     }
     if let Some(id) = mal_id.filter(|id| *id > 0) {
-        query.push(format!("mal_id={id}"));
+        query.push(("mal_id", id.to_string()));
     }
     if let Some(id) = ids.anikoto_episode {
-        query.push(format!("anikoto_episode_id={id}"));
+        query.push(("anikoto_episode_id", id));
     }
     if request.episode > 0 {
-        query.push(format!("episode={}", request.episode));
+        query.push(("episode", request.episode.to_string()));
     }
-    query.push(format!("language={language}"));
+    query.push(("language", language.to_string()));
+    let url = reqwest::Url::parse_with_params("http://localhost/stream/anikoto", query)
+        .expect("invalid stream url... /ᐠ - ˕ -マ");
     Json(serde_json::json!({
         "source": "anikoto",
         "status": "ready",
-        "mochi_url": format!("/stream/anikoto?{}", query.join("&")),
+        "mochi_url": format!("{}?{}", url.path(), url.query().unwrap_or_default()),
     }))
     .into_response()
 }
+

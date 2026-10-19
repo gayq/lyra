@@ -47,10 +47,12 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.1",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "eslint": "^9.5.0",
     "javascript-obfuscator": "^5.0.1",
     "knip": "^6.33.0",
     "terser": "^5.46.1",
-    "typescript": "^7.0.2"
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "8.71.2"
   }
 }

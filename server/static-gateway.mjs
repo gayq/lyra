@@ -61,7 +61,6 @@ export function createStaticGateway({ backend = "",
   function requestBackend(request) {
     if (auth.backend) return auth.backend;
     const url = new URL(request.url);
-    // Public static backends use HTTPS; Caddy preserves Host across its local HTTP hop.
     if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) url.protocol = "https:";
     return url.origin;
   }

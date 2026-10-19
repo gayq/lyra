@@ -46,7 +46,6 @@ import {
   type AnimeIds,
 } from "../../features/anime/animeIdentity.ts";
 import {
-  IconCheckCircle2,
   IconChevronBottom,
   IconBubbleText,
   IconPlay,
@@ -62,10 +61,15 @@ import {
 } from "../icons";
 import EpisodePickerModal from "../anime/EpisodePickerModal.tsx";
 import { attachSeekBar } from "./seekBar.ts";
+import { PlayerMenu, PlayerOption } from "./PlayerMenu.tsx";
+import { attachPlaybackTracks } from "./playbackTracks.ts";
+import { createSourceRecovery } from "./sourceRecovery.ts";
 import { attachCaptionLayout } from "./captionLayout.ts";
 import {
   applySubtitleTrack,
+  audioLabels,
   externalSubtitleTracks,
+  preferredAudioVersion,
   selectTrack,
   subtitleLabels,
   trackLabel,
@@ -73,7 +77,6 @@ import {
   trackLanguage,
   trackRole,
   type AudioTrack,
-  type NativeAudioTrackList,
   type SubtitleTrack,
 } from "./tracks.ts";
 
@@ -92,8 +95,11 @@ interface StreamInfoResponse {
   duration?: number | null;
   needs_transmux?: boolean;
   hls?: boolean;
+  quality_fallback?: boolean;
+  available_4k?: boolean;
   tracks?: unknown;
   source?: {
+    provider?: string;
     id?: string;
     server?: number | string;
     language?: "sub" | "dub" | string | null;
@@ -267,7 +273,7 @@ function qualityLabel(height: number, bitrate: number): string {
   if (height > 0) {
     const rate =
       bitrate > 0 ? ` · ${(bitrate / 1_000_000).toFixed(1)} mbps` : "";
-    return `${height}p${rate}`;
+    return `${height === 2160 ? "4k" : `${height}p`}${rate}`;
   }
   return bitrate > 0 ? `${(bitrate / 1_000_000).toFixed(1)} mbps` : "source";
 }
@@ -340,12 +346,19 @@ export default function Player() {
       String(initialEpisode || (anikotoEpisodeId ? 1 : 0)),
     10,
   );
-  const initialLanguage = params.has("language")
-    ? params.get("language") === "dub"
-      ? "dub"
-      : "sub"
-    : readAnimeLanguage();
+  const initialLanguage = preferredAudioVersion(
+    readPlayerStorage("lyra-anime-audio") || "",
+    params.has("language")
+      ? params.get("language") === "dub"
+        ? "dub"
+        : "sub"
+      : readAnimeLanguage(),
+  );
   const [language, setLanguage] = useState<"sub" | "dub">(initialLanguage);
+  const [prefer4k, setPrefer4k] = useState(() => readAnimeQuality() === "2160p");
+  const [requested4kContext, setRequested4kContext] = useState("");
+  const [available4kSource, setAvailable4kSource] = useState("");
+  const [failed4kContext, setFailed4kContext] = useState("");
   const [activeAnikotoEpisodeId, setActiveAnikotoEpisodeId] =
     useState(anikotoEpisodeId);
   const [activePartRange, setActivePartRange] =
@@ -393,11 +406,21 @@ export default function Player() {
   );
   const streamSessionRef = useRef("");
   if (!streamSessionRef.current) streamSessionRef.current = crypto.randomUUID();
+  const episodeContext = [
+    episodeNumber,
+    sourceEpisodeNumber,
+    playbackIds.anilist || 0,
+    playbackIds.mal || 0,
+    playbackIds.anikotoEpisode || "",
+  ].join("|");
+  const playbackContext = `${episodeContext}|${language}`;
+  const request4k = requested4kContext === playbackContext && failed4kContext !== playbackContext;
   const fallbackQuery = new URLSearchParams({
     episode: String(sourceEpisodeNumber),
     language,
     session: streamSessionRef.current,
   });
+  if (request4k) fallbackQuery.set("preferred_quality", "2160p");
   appendMegaPlayParams(fallbackQuery, playbackIds);
   const baseVideoSrc =
     (episodeNumber > 0 || Boolean(playbackIds.anikotoEpisode)) &&
@@ -458,6 +481,7 @@ export default function Player() {
     playbackIds.anilist || 0,
     playbackIds.mal || 0,
     playbackIds.anikotoEpisode || "",
+    request4k,
   ].join("|");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -585,6 +609,23 @@ export default function Player() {
       ANIME_SUBTITLE_PREFERENCES[readAnimeSubtitles()],
   );
   const preferenceNoticesRef = useRef(new Set<string>());
+  const fallbackNoticesRef = useRef(new Set<string>());
+  const fallbackPendingRef = useRef(false);
+  const notify4kFallback = useCallback(() => {
+    const video = videoRef.current;
+    const key = `${animeIdentityCacheKey({ ids: playbackIds })}|${episodeNumber}`;
+    if (
+      !fallbackPendingRef.current || !video || video.paused ||
+      video.readyState < 2 || fallbackNoticesRef.current.has(key)
+    ) return;
+    fallbackNoticesRef.current.add(key);
+    showToast(
+      "warning",
+      "4k is unavailable; playing the best available quality",
+      undefined,
+      5000,
+    );
+  }, [playbackIds, episodeNumber]);
   const notifyPreference = useCallback((key: string, message: string) => {
     if (preferenceNoticesRef.current.has(key)) return;
     preferenceNoticesRef.current.add(key);
@@ -602,7 +643,13 @@ export default function Player() {
         language,
         subtitleChoice.source === baseVideoSrc ? subtitleChoice.id : undefined,
       ),
-    [subtitleTracks, subtitlePreference, language, subtitleChoice, baseVideoSrc],
+    [
+      subtitleTracks,
+      subtitlePreference,
+      language,
+      subtitleChoice,
+      baseVideoSrc,
+    ],
   );
   const selectedSubtitleTrack = subtitleTracks[selectedSubtitle];
   const selectedSidecar = selectedSubtitleTrack?.src
@@ -614,12 +661,23 @@ export default function Player() {
   const [selectedQuality, setSelectedQuality] = useState(-1);
   const [activeQuality, setActiveQuality] = useState(-1);
   const [autoQuality, setAutoQuality] = useState(-1);
+  const hasLocal4k = qualityOptions.some((option) => option.height >= 2160);
+  const hasRemote4k = available4kSource === baseVideoSrc && !hasLocal4k &&
+    failed4kContext !== playbackContext;
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
   const [activeAudioTrack, setActiveAudioTrack] = useState(-1);
+  const [audioTracksReady, setAudioTracksReady] = useState(false);
+  const [streamProvider, setStreamProvider] = useState<string | null>(null);
   const audioPreferencesRef = useRef({
     sub: readPlayerStorage("lyra-anime-audio-sub") || "",
     dub: readPlayerStorage("lyra-anime-audio-dub") || "",
   });
+  const audioPreferenceRef = useRef(
+    readPlayerStorage("lyra-anime-audio") || audioPreferencesRef.current[language],
+  );
+  const nextAudioLanguageRef = useRef(
+    preferredAudioVersion(audioPreferenceRef.current, language),
+  );
   const audioChoiceRef = useRef({ source: "", id: "" });
   const [activeSubtitle, setActiveSubtitle] = useState(-1);
   const [autoNext, setAutoNext] = useState<{
@@ -659,6 +717,24 @@ export default function Player() {
     } catch {}
   }, []);
   const videoSrc = baseVideoSrc;
+  const fallbackFrom4k = useCallback(() => {
+    if (!request4k) return false;
+    sourceSwitchTimeRef.current = Math.max(
+      0, pendingSeekRef.current ?? videoRef.current?.currentTime ?? 0,
+    );
+    const nextLanguage = preferredAudioVersion(audioPreferenceRef.current, language);
+    setFailed4kContext(`${episodeContext}|${nextLanguage}`);
+    setLanguage(nextLanguage);
+    return true;
+  }, [request4k, episodeContext, language]);
+
+  const unavailableMessage = useCallback((status?: number) => negativeMessage(
+    status === 404
+      ? isAnimeMovieFormat(format)
+        ? "this anime is unavailable from all providers"
+        : "this episode is unavailable from all providers"
+      : "unable to load this episode; please try again",
+  ), [format]);
   const displayDuration = mediaState.duration ?? 0;
   const buffering = mediaState.buffering;
   const loading = mediaState.status === "loading";
@@ -931,7 +1007,8 @@ export default function Player() {
     const container = containerRef.current;
     if (!container) return;
     const video = videoRef.current as
-      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+      | (HTMLVideoElement & { webkitEnterFullscreen?: () => void })
+      | null;
     if (document.fullscreenElement === container) {
       void document.exitFullscreen().catch(() => {});
     } else if (container.requestFullscreen) {
@@ -1000,6 +1077,29 @@ export default function Player() {
     };
   }, [clearAutoNext]);
 
+  useEffect(() => {
+    const apply = () => {
+      const next = readAnimeQuality() === "2160p";
+      if (next === prefer4k) return;
+      sourceSwitchTimeRef.current = Math.max(0, pendingSeekRef.current ?? videoRef.current?.currentTime ?? 0);
+      setFailed4kContext("");
+      setPrefer4k(next);
+      setRequested4kContext(next ? playbackContext : "");
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === ANIME_QUALITY_KEY) apply();
+    };
+    const onSetting = (event: Event) => {
+      if ((event as CustomEvent).detail?.key === ANIME_QUALITY_KEY) apply();
+    };
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("animeSettingUpdated", onSetting);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("animeSettingUpdated", onSetting);
+    };
+  }, [prefer4k, playbackContext]);
+
   const changeEpisode = useCallback(
     (nextEpisode: number, autoplay = false) => {
       if (
@@ -1046,6 +1146,7 @@ export default function Player() {
       setOpenSelector(null);
       setConfirmedEpisodeNumber(null);
       setEpisodeNumber(nextEpisode);
+      setLanguage(nextAudioLanguageRef.current);
       setActiveAnikotoEpisodeId("");
       const nextPart = episodeParts.find(
         (part) => nextEpisode >= part.start && nextEpisode <= part.end,
@@ -1056,6 +1157,7 @@ export default function Player() {
 
       const currentUrl = new URL(window.location.href);
       currentUrl.searchParams.set("episode", String(nextEpisode));
+      currentUrl.searchParams.set("language", nextAudioLanguageRef.current);
       currentUrl.searchParams.set("season", String(currentSeason.number || 1));
       currentUrl.searchParams.set("episodeName", `E${nextEpisode}`);
       if (nextPart) {
@@ -1125,7 +1227,9 @@ export default function Player() {
 
   useLayoutEffect(() => {
     clearAutoNext();
+    setAvailable4kSource("");
     preferenceNoticesRef.current.clear();
+    fallbackPendingRef.current = false;
     subtitleRetryRef.current = false;
     failedSubtitleIdsRef.current.clear();
     setFailedSubtitleIds([]);
@@ -1133,8 +1237,7 @@ export default function Player() {
     setSubtitleTracks([]);
     setEmbeddedSubtitles([]);
     setActiveSubtitle(-1);
-    setAudioTracks([]);
-    setActiveAudioTrack(-1);
+    setAudioTracksReady(false);
     const video = videoRef.current;
     if (video) applySubtitleTrack(video, undefined, hlsRef.current);
     setConfirmedEpisodeNumber(null);
@@ -1189,15 +1292,35 @@ export default function Player() {
     setSelectedQuality(-1);
     setActiveQuality(-1);
     setAutoQuality(-1);
-    setAudioTracks([]);
-    setActiveAudioTrack(-1);
+    setAudioTracksReady(false);
     setEmbeddedSubtitles([]);
     if (playIntentRef.current) {
       playAfterSeekRef.current = true;
     }
+    const trackCallbacks = {
+      onSubtitles: setEmbeddedSubtitles,
+      onAudio: (tracks: AudioTrack[]) => {
+        setAudioTracks(tracks);
+        setAudioTracksReady(true);
+      },
+      onAudioLoading: () => {
+        setAudioTracksReady(false);
+        setOpenSelector((current) => (current === "audio" ? null : current));
+      },
+      onActiveAudio: setActiveAudioTrack,
+      selectAudio: (tracks: AudioTrack[]) =>
+        selectTrack(
+          tracks,
+          audioPreferenceRef.current,
+          "audio",
+          language,
+          audioChoiceRef.current.source === videoSrc
+            ? audioChoiceRef.current.id
+            : undefined,
+        ),
+    };
     if (Hls.isSupported()) {
       let networkRecoveries = 0;
-      let sourceRefreshes = 0;
       let mediaRecoveries = 0;
       let recoveryTimer: number | null = null;
       const hls = new Hls({
@@ -1205,9 +1328,9 @@ export default function Player() {
         backBufferLength: 30,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
-        maxBufferSize: 24 * 1024 * 1024,
+        maxBufferSize: (prefer4k || request4k ? 64 : 24) * 1024 * 1024,
         ...PLAYER_SIZE_ABR_CONFIG,
-        manifestLoadPolicy: hlsLoadPolicy(12_000, 15_000, 0, 0),
+        manifestLoadPolicy: hlsLoadPolicy(12_000, 15_000, 1, 1),
         playlistLoadPolicy: hlsLoadPolicy(8_000, 15_000, 2, 2),
         fragLoadPolicy: hlsLoadPolicy(10_000, 45_000, 2, 3),
         keyLoadPolicy: hlsLoadPolicy(8_000, 20_000, 2, 2),
@@ -1217,101 +1340,32 @@ export default function Player() {
         hlsSession === hlsSessionRef.current &&
         hlsRef.current === hls &&
         sourceContext === sourceContextRef.current;
-      const nativeCaptions = new Set<TextTrack>();
-      const updateSubtitles = () => {
-        if (!isCurrentHls()) return;
-        const renditions: SubtitleTrack[] = hls.subtitleTracks.map(
-          (track, index) => ({
-            id: `hls:${track.groupId}:${track.url}:${track.name}:${track.lang}`,
-            label: track.name || "",
-            language: track.lang || "und",
-            hlsIndex: index,
-            default: track.default,
-            forced: track.forced,
-            characteristics: track.characteristics || "",
-          }),
-        );
-        const captions = Array.from(nativeCaptions)
-          .filter(
-            (track) =>
-              !hls.subtitleTracks.some(
-                (rendition) =>
-                  rendition.name.toLowerCase() === track.label.toLowerCase() &&
-                  (!track.language ||
-                    track.language.toLowerCase() ===
-                      (rendition.lang || "").toLowerCase()),
-              ),
-          )
-          .map((track, index) => ({
-            id: `native:${track.id || index}:${track.language}:${track.label}`,
-            label: track.label,
-            language: track.language,
-            kind: track.kind,
-            nativeTrack: track,
-          }));
-        setEmbeddedSubtitles([...renditions, ...captions]);
-      };
-      const onTextTrack = (event: Event) => {
-        if (!isCurrentHls()) return;
-        const track = (event as TrackEvent).track;
-        if (!track || (track.kind !== "subtitles" && track.kind !== "captions"))
-          return;
-        if (
-          Array.from(video.querySelectorAll("track")).some(
-            (element) => element.track === track,
-          )
-        )
-          return;
-        if (
-          hls.allSubtitleTracks.some(
-            (rendition) =>
-              rendition.name.toLowerCase() === track.label.toLowerCase() &&
-              (!track.language ||
-                track.language.toLowerCase() ===
-                  (rendition.lang || "").toLowerCase()),
-          )
-        )
-          return;
-        nativeCaptions.add(track);
-        updateSubtitles();
-      };
-      video.textTracks.addEventListener("addtrack", onTextTrack);
-      video.addEventListener("addtrack", onTextTrack);
+      const sourceRecovery = createSourceRecovery(
+        () => {
+          if (recoveryTimer !== null) window.clearTimeout(recoveryTimer);
+          recoveryTimer = null;
+          pendingSeekRef.current ??= video.currentTime;
+          hls.stopLoad();
+        },
+        () => {
+          if (!isCurrentHls()) return;
+          fallbackPendingRef.current = false;
+          hls.loadSource(videoSrc);
+          setInfoRevision((revision) => revision + 1);
+        },
+      );
+      const onPlaybackProgress = () => sourceRecovery.progress(video.currentTime);
+      video.addEventListener("timeupdate", onPlaybackProgress);
+      const detachTracks = attachPlaybackTracks({
+        video,
+        hls,
+        isCurrent: isCurrentHls,
+        ...trackCallbacks,
+      });
       hls.subtitleDisplay = false;
       hls.subtitleTrack = -1;
       hls.on(Hls.Events.MEDIA_ATTACHED, () => {
         if (isCurrentHls()) hls.loadSource(videoSrc);
-      });
-      hls.on(Hls.Events.MANIFEST_LOADING, () => {
-        if (!isCurrentHls()) return;
-        nativeCaptions.clear();
-        setEmbeddedSubtitles([]);
-        setAudioTracks([]);
-        setActiveAudioTrack(-1);
-      });
-      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, updateSubtitles);
-      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
-        if (!isCurrentHls()) return;
-        const tracks = hls.audioTracks.map((track, index) => ({
-          id: `hls:${track.groupId}:${track.url}:${track.name}:${track.lang}`,
-          label: track.name || "",
-          language: track.lang || "und",
-          hlsIndex: index,
-          default: track.default,
-          characteristics: track.characteristics || "",
-        }));
-        setAudioTracks(tracks);
-        const next = selectTrack(
-          tracks,
-          audioPreferencesRef.current[language],
-          "audio",
-          language,
-          audioChoiceRef.current.source === videoSrc
-            ? audioChoiceRef.current.id
-            : undefined,
-        );
-        setActiveAudioTrack(-1);
-        if (next >= 0 && hls.audioTrack !== next) hls.audioTrack = next;
       });
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, manifest) => {
         if (!isCurrentHls()) return;
@@ -1336,7 +1390,7 @@ export default function Player() {
           );
         setQualityOptions(levels);
         const preferredLevel = preferredQualityLevel(
-          readAnimeQuality(),
+          request4k ? "2160p" : readAnimeQuality(),
           levels,
         );
         applyQualitySelection(
@@ -1418,36 +1472,20 @@ export default function Player() {
           status: hlsError.response?.code ?? null,
           fatal: hlsError.fatal,
         });
+        if (sourceRecovery.recover(hlsError)) return;
         if (!hlsError.fatal) return;
         if (
           hlsError.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
           hlsError.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT
         ) {
+          if (fallbackFrom4k()) return;
           syncMediaState({
-            error: negativeMessage(
-              "stream is unavailable, try another episode or reload",
-            ),
+            error: unavailableMessage(hlsError.response?.code),
             buffering: false,
           });
           return;
         }
         if (hlsError.type === Hls.ErrorTypes.NETWORK_ERROR) {
-          if (
-            hlsError.response?.code === 409 &&
-            sourceRefreshes < 1 &&
-            recoveryTimer === null
-          ) {
-            sourceRefreshes += 1;
-            recoveryTimer = window.setTimeout(() => {
-              recoveryTimer = null;
-              if (isCurrentHls()) {
-                pendingSeekRef.current = video.currentTime;
-                hls.loadSource(videoSrc);
-                setInfoRevision((revision) => revision + 1);
-              }
-            }, 250);
-            return;
-          }
           if (networkRecoveries < 1 && recoveryTimer === null) {
             const delay = 500 * 2 ** networkRecoveries;
             networkRecoveries += 1;
@@ -1466,99 +1504,36 @@ export default function Player() {
           hls.recoverMediaError();
           return;
         }
+        if (fallbackFrom4k()) return;
         syncMediaState({
-          error: negativeMessage("hls playback failed"),
+          error: negativeMessage("playback was interrupted; please try again"),
           buffering: false,
         });
       });
       hls.attachMedia(video);
       return () => {
+        sourceRecovery.dispose();
+        video.removeEventListener("timeupdate", onPlaybackProgress);
         if (recoveryTimer !== null) window.clearTimeout(recoveryTimer);
         if (hlsSessionRef.current === hlsSession) hlsSessionRef.current += 1;
-        video.textTracks.removeEventListener("addtrack", onTextTrack);
-        video.removeEventListener("addtrack", onTextTrack);
+        detachTracks();
         hls.destroy();
         if (hlsRef.current === hls) hlsRef.current = null;
       };
     }
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      const audioList = (
-        video as HTMLVideoElement & { audioTracks?: NativeAudioTrackList }
-      ).audioTracks;
-      const isCurrentMedia = () =>
-        hlsSession === hlsSessionRef.current &&
-        sourceContext === sourceContextRef.current;
-      const updateTracks = () => {
-        if (!isCurrentMedia()) return;
-        const sidecars = new Set(
-          Array.from(video.querySelectorAll("track"), (track) => track.track),
-        );
-        setEmbeddedSubtitles(
-          Array.from(video.textTracks)
-            .filter(
-              (track) =>
-                !sidecars.has(track) &&
-                (track.kind === "subtitles" || track.kind === "captions"),
-            )
-            .map((track, index) => ({
-              id: `native:${track.id || index}:${track.language}:${track.label}`,
-              label: track.label,
-              language: track.language,
-              kind: track.kind,
-              nativeTrack: track,
-            })),
-        );
-      };
-      const updateAudio = () => {
-        if (!isCurrentMedia() || !audioList) return;
-        const tracks = Array.from(audioList, (track, index) => ({
-          id: `native:${track.id || index}:${track.language}:${track.label}`,
-          label: track.label,
-          language: track.language,
-          kind: track.kind,
-          nativeTrack: track,
-          default: track.kind === "main",
-        }));
-        const next = selectTrack(
-          tracks,
-          audioPreferencesRef.current[language],
-          "audio",
-          language,
-          audioChoiceRef.current.source === videoSrc
-            ? audioChoiceRef.current.id
-            : undefined,
-        );
-        for (const [index, track] of tracks.entries()) {
-          if (track.nativeTrack.enabled !== (index === next))
-            track.nativeTrack.enabled = index === next;
-        }
-        setAudioTracks(tracks);
-        setActiveAudioTrack(next);
-      };
-      const syncAudio = () => {
-        if (isCurrentMedia() && audioList)
-          setActiveAudioTrack(
-            Array.from(audioList).findIndex((track) => track.enabled),
-          );
-      };
-      video.textTracks.addEventListener("addtrack", updateTracks);
-      video.textTracks.addEventListener("removetrack", updateTracks);
-      video.addEventListener("loadedmetadata", updateTracks);
-      video.addEventListener("loadedmetadata", updateAudio);
-      audioList?.addEventListener("addtrack", updateAudio);
-      audioList?.addEventListener("removetrack", updateAudio);
-      audioList?.addEventListener("change", syncAudio);
+      const detachTracks = attachPlaybackTracks({
+        video,
+        isCurrent: () =>
+          hlsSession === hlsSessionRef.current &&
+          sourceContext === sourceContextRef.current,
+        ...trackCallbacks,
+      });
       video.src = videoSrc;
       video.load();
       return () => {
         if (hlsSessionRef.current === hlsSession) hlsSessionRef.current += 1;
-        video.textTracks.removeEventListener("addtrack", updateTracks);
-        video.textTracks.removeEventListener("removetrack", updateTracks);
-        video.removeEventListener("loadedmetadata", updateTracks);
-        video.removeEventListener("loadedmetadata", updateAudio);
-        audioList?.removeEventListener("addtrack", updateAudio);
-        audioList?.removeEventListener("removetrack", updateAudio);
-        audioList?.removeEventListener("change", syncAudio);
+        detachTracks();
         video.removeAttribute("src");
         video.load();
       };
@@ -1567,11 +1542,36 @@ export default function Player() {
       error: negativeMessage("hls playback is not supported in this browser"),
       buffering: false,
     });
-  }, [episodeNumber, language, videoSrc, syncMediaState]);
+  }, [episodeNumber, language, videoSrc, syncMediaState, prefer4k, request4k, fallbackFrom4k, unavailableMessage]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoSrc || request4k || hasLocal4k) return;
+    const controller = new AbortController();
+    let started = false;
+    const discover = () => {
+      if (started || video.paused || video.readyState < 3) return;
+      started = true;
+      const query = new URLSearchParams(videoSrc.split("?", 2)[1]);
+      query.set("discover_quality", "2160p");
+      void fetchStreamInfo(query, controller.signal).then((info) => {
+        if (!controller.signal.aborted && info.available_4k === true) {
+          setAvailable4kSource(videoSrc);
+        }
+      }).catch(() => {});
+    };
+    video.addEventListener("playing", discover);
+    discover();
+    return () => {
+      controller.abort();
+      video.removeEventListener("playing", discover);
+    };
+  }, [videoSrc, request4k, hasLocal4k]);
 
   useEffect(() => {
     if (
       preloadSource !== videoSrc ||
+      mediaState.status !== "playing" ||
       episodeNumber < 1 ||
       episodeCount <= episodeNumber ||
       isAnimeMovieFormat(format)
@@ -1617,6 +1617,7 @@ export default function Player() {
     };
   }, [
     preloadSource,
+    mediaState.status,
     videoSrc,
     episodeCount,
     episodeNumber,
@@ -1640,6 +1641,7 @@ export default function Player() {
     (index: number) => {
       const hls = hlsRef.current;
       if (!hls) return;
+      const changed = hls.manualLevel !== index;
       if (
         !applyQualitySelection(
           hls,
@@ -1651,9 +1653,22 @@ export default function Player() {
       setSelectedQuality(index);
       if (index < 0) refreshAutoQuality();
       setOpenSelector(null);
+      if (changed && videoRef.current?.paused) {
+        showToast("success", "please unpause for quality change to apply");
+      }
     },
     [qualityOptions, refreshAutoQuality],
   );
+
+  const chooseRemote4k = useCallback(() => {
+    if (!hasRemote4k) return;
+    sourceSwitchTimeRef.current = Math.max(
+      0, pendingSeekRef.current ?? videoRef.current?.currentTime ?? 0,
+    );
+    setFailed4kContext("");
+    setRequested4kContext(playbackContext);
+    setOpenSelector(null);
+  }, [hasRemote4k, playbackContext]);
 
   useEffect(() => {
     if (qualityOptions.length === 0) return;
@@ -1662,6 +1677,7 @@ export default function Player() {
       const preference = readAnimeQuality();
       if (
         preference !== "auto" &&
+        preference !== "2160p" &&
         !qualityOptions.some(
           (level) => level.height === Number.parseInt(preference, 10),
         )
@@ -1728,30 +1744,41 @@ export default function Player() {
   useEffect(() => {
     const preference = readAnimeSubtitles();
     if (
-      loadingStreamInfo || mediaState.readyState < 2 ||
+      loadingStreamInfo ||
+      mediaState.readyState < 2 ||
       (preference !== "english" && preference !== "english (forced)") ||
       subtitlePreference !== ANIME_SUBTITLE_PREFERENCES[preference]
-    ) return;
-    const available = subtitleTracks.some((track) =>
-      trackLanguage(track.language, track.label).split("-")[0] === "en" &&
-      (preference === "english (forced)"
-        ? trackRole(track) === "forced"
-        : ["main", "sdh"].includes(trackRole(track))),
+    )
+      return;
+    const available = subtitleTracks.some(
+      (track) =>
+        trackLanguage(track.language, track.label).split("-")[0] === "en" &&
+        (preference === "english (forced)"
+          ? trackRole(track) === "forced"
+          : ["main", "sdh"].includes(trackRole(track))),
     );
     if (available) return;
     const timer = window.setTimeout(() => {
-      notifyPreference(`subtitles:${preference}`, "selected subs are unavailable");
+      notifyPreference(
+        `subtitles:${preference}`,
+        "selected subs are unavailable",
+      );
     }, 1500);
     return () => window.clearTimeout(timer);
   }, [
-    subtitleTracks, subtitlePreference, loadingStreamInfo,
-    mediaState.readyState, videoSrc, notifyPreference,
+    subtitleTracks,
+    subtitlePreference,
+    loadingStreamInfo,
+    mediaState.readyState,
+    videoSrc,
+    notifyPreference,
   ]);
 
   const chooseAudioTrack = useCallback(
     (index: number) => {
       const track = audioTracks[index];
-      if (!track || tracksSourceRef.current !== videoSrc) return;
+      if (!track || !audioTracksReady || tracksSourceRef.current !== videoSrc)
+        return;
       const hls = hlsRef.current;
       if (track.hlsIndex !== undefined) {
         if (!hls || !hls.audioTracks[track.hlsIndex]) return;
@@ -1767,13 +1794,20 @@ export default function Player() {
       }
       audioChoiceRef.current = { source: videoSrc, id: track.id };
       const preference = trackPreference(track);
-      audioPreferencesRef.current[language] = preference;
+      audioPreferenceRef.current = preference;
+      const code = trackLanguage(track.language, track.label).split("-")[0];
+      const version = code === "ja" ? "sub" : code === "en" ? "dub" : null;
+      if (version) {
+        nextAudioLanguageRef.current = version;
+        audioPreferencesRef.current[version] = preference;
+      }
       try {
-        localStorage.setItem(`lyra-anime-audio-${language}`, preference);
+        localStorage.setItem("lyra-anime-audio", preference);
+        if (version) localStorage.setItem(`lyra-anime-audio-${version}`, preference);
       } catch {}
       setOpenSelector(null);
     },
-    [audioTracks, language, videoSrc],
+    [audioTracks, audioTracksReady, videoSrc],
   );
 
   useEffect(() => {
@@ -1797,6 +1831,7 @@ export default function Player() {
       language,
       session: streamSessionRef.current,
     });
+    if (request4k) params.set("preferred_quality", "2160p");
     appendMegaPlayParams(params, playbackIds);
 
     const confirmed = languageStreamInfoRef.current;
@@ -1825,11 +1860,17 @@ export default function Player() {
         }
         setIntroMarker(info?.intro || null);
         setOutroMarker(info?.outro || null);
+        setStreamProvider(info.source?.provider || "");
+        fallbackPendingRef.current = requested4kContext === playbackContext &&
+          (info.quality_fallback === true || (!request4k &&
+            !info.qualities?.some((quality) => Number(quality.height) >= 2160)));
+        notify4kFallback();
         const tracks = externalSubtitleTracks(info?.tracks);
         setSubtitleTracks(tracks);
         if (
           readPlayerStorage(ANIME_LANGUAGE_KEY) &&
-          language === readAnimeLanguage() && info.source?.language !== language
+          language === readAnimeLanguage() &&
+          info.source?.language !== language
         ) {
           notifyPreference("audio", "selected audio is unconfirmed");
         }
@@ -1848,13 +1889,8 @@ export default function Player() {
           status: err instanceof RequestError ? err.status : undefined,
           message: negativeMessage("stream information request failed"),
         });
-        if (readPlayerStorage(ANIME_LANGUAGE_KEY) && language === readAnimeLanguage()) {
-          notifyPreference(
-            "audio",
-            err instanceof RequestError && err.status === 404
-              ? "selected audio is unavailable"
-              : "selected audio is unconfirmed",
-          );
+        if (!mediaStateRef.current.sourceReady && err instanceof RequestError && err.status === 404) {
+          syncMediaState({ error: unavailableMessage(404), buffering: false });
         }
       })
       .finally(() => {
@@ -1876,8 +1912,14 @@ export default function Player() {
     playbackIds.mal,
     playbackIds.anikotoEpisode,
     language,
+    request4k,
+    prefer4k,
+    requested4kContext,
+    playbackContext,
     infoRevision,
     syncMediaState,
+    notify4kFallback,
+    unavailableMessage,
   ]);
 
   const applySubtitleSelection = useCallback(() => {
@@ -2033,6 +2075,7 @@ export default function Player() {
         language: nextLanguage,
         session: streamSessionRef.current,
       });
+      if (prefer4k) params.set("preferred_quality", "2160p");
       appendMegaPlayParams(params, playbackIds);
       const requestContext = sourceContextRef.current;
       const requestGeneration = sourceContextGenerationRef.current;
@@ -2067,6 +2110,17 @@ export default function Player() {
         currentUrl.searchParams.delete("mochi_url");
         window.history.replaceState(null, "", currentUrl);
         languageStreamInfoRef.current = { params: params.toString(), info };
+        nextAudioLanguageRef.current = nextLanguage;
+        audioPreferenceRef.current =
+          audioPreferencesRef.current[nextLanguage] ||
+          trackPreference({
+            id: "",
+            label: "",
+            language: nextLanguage === "sub" ? "ja" : "en",
+          });
+        try {
+          localStorage.setItem("lyra-anime-audio", audioPreferenceRef.current);
+        } catch {}
         setLanguage(nextLanguage);
       } catch (error) {
         if (
@@ -2100,7 +2154,14 @@ export default function Player() {
         }
       }
     },
-    [language, changingLanguage, persistProgress, sourceEpisodeNumber, playbackIds],
+    [
+      language,
+      changingLanguage,
+      persistProgress,
+      sourceEpisodeNumber,
+      playbackIds,
+      prefer4k,
+    ],
   );
 
   useEffect(() => {
@@ -2204,7 +2265,6 @@ export default function Player() {
       });
       if (!firstFrameRecordedRef.current) {
         firstFrameRecordedRef.current = true;
-        setPreloadSource(videoSrc);
         recordStreamDiagnostic("first_playable_frame", {
           elapsedMs: Math.round(
             performance.now() - sessionStartedAtRef.current,
@@ -2212,6 +2272,7 @@ export default function Player() {
         });
       }
       finishRebuffer();
+      notify4kFallback();
     };
     const handlePause = () => {
       if (!isCurrentMedia()) return;
@@ -2250,6 +2311,17 @@ export default function Player() {
           : {},
       );
       if (Date.now() - lastSavedAt >= 5_000) saveResume();
+      const remaining = video.duration - video.currentTime;
+      if (remaining > 60 || remaining <= 0) setPreloadSource("");
+      if (!video.paused && !video.seeking && remaining > 0 && remaining <= 60) {
+        for (let index = 0; index < video.buffered.length; index += 1) {
+          if (video.buffered.start(index) <= video.currentTime &&
+              video.buffered.end(index) - video.currentTime >= Math.min(10, remaining)) {
+            setPreloadSource(videoSrc);
+            break;
+          }
+        }
+      }
     };
     const handleMetadata = () => {
       if (!isCurrentMedia()) return;
@@ -2302,17 +2374,14 @@ export default function Player() {
       const mediaError = video.error;
       const code = mediaError ? mediaError.code : 0;
       recordStreamDiagnostic("media_error", { code });
-      syncMediaState({
-        error: negativeMessage(`media playback failed (code ${code})`),
-        buffering: false,
-        bufferingReason: null,
-      });
+      if (hlsRef.current) return;
       if (
         (code === 2 || code === 3 || code === 4) &&
         !Hls.isSupported() &&
         retryCountRef.current < 1 &&
         videoSrc
       ) {
+        syncMediaState({ error: null, buffering: true });
         const retryTime = boundedTime(
           pendingSeekRef.current ?? effectiveTime(),
         );
@@ -2329,7 +2398,14 @@ export default function Player() {
             }
           }
         }, 2000);
+        return;
       }
+      if (fallbackFrom4k()) return;
+      syncMediaState({
+        error: negativeMessage("playback was interrupted; please try again"),
+        buffering: false,
+        bufferingReason: null,
+      });
     };
 
     const handleProgress = () => {
@@ -2433,7 +2509,8 @@ export default function Player() {
     const saveResume = () => {
       if (!isCurrentMedia() || video.currentTime <= 0) return;
       lastKnownTime = video.currentTime;
-      lastKnownDuration = mediaStateRef.current.duration || cleanDuration(video.duration);
+      lastKnownDuration =
+        mediaStateRef.current.duration || cleanDuration(video.duration);
       completed = video.ended;
       lastSavedAt = Date.now();
       persistProgress(lastKnownTime, lastKnownDuration, completed);
@@ -2471,7 +2548,16 @@ export default function Player() {
         nativeRetryTimerRef.current = null;
       }
     };
-  }, [episodeNumber, resumeKey, videoSrc, renderPlaybackTime, syncMediaState, persistProgress]);
+  }, [
+    episodeNumber,
+    resumeKey,
+    videoSrc,
+    renderPlaybackTime,
+    syncMediaState,
+    persistProgress,
+    notify4kFallback,
+    fallbackFrom4k,
+  ]);
 
   useEffect(() => {
     const handleKeydown = (event: KeyboardEvent) => {
@@ -2735,14 +2821,13 @@ export default function Player() {
     autoQualityName,
     selectedQuality >= 0 && selectedQuality !== activeQuality,
   );
-  const activeAudioLabel =
-    activeAudioTrack >= 0
-      ? audioTracks[activeAudioTrack]
-        ? trackLabel(audioTracks[activeAudioTrack], activeAudioTrack, "audio")
-        : "unknown"
-      : audioTracks.length > 0
-        ? "unknown"
-        : negativeMessage("unavailable");
+  const audioMenuLabels = audioLabels(audioTracks, streamProvider === "framex");
+  const selectedAudioTrack = audioTracks[activeAudioTrack]
+    ? activeAudioTrack
+    : selectTrack(audioTracks, audioPreferenceRef.current, "audio", language);
+  const activeAudioLabel = streamProvider === null
+    ? "audio"
+    : audioMenuLabels[selectedAudioTrack] || "audio";
   const currentPlaybackTime = mediaState.currentTime;
   const activeSkip =
     !mediaState.seeking && currentPlaybackTime !== null
@@ -2795,7 +2880,7 @@ export default function Player() {
             loadedSubtitle?.source === videoSrc &&
             loadedSubtitle.id === selectedSidecar.id && (
               <track
-                key={loadedSubtitle.url}
+                key={`${loadedSubtitle.url}:${infoRevision}`}
                 data-track-id={selectedSidecar.id}
                 kind={
                   selectedSidecar.kind === "captions" ? "captions" : "subtitles"
@@ -2810,10 +2895,7 @@ export default function Player() {
         </video>
         {loadError && (
           <div class="video-loading is-error">
-            <span class="loading-status">
-              {negativeMessage("stream load failed")}
-            </span>
-            <span class="loading-speed">{loadError}</span>
+            <span class="loading-status">{loadError}</span>
           </div>
         )}
 
@@ -3058,226 +3140,149 @@ export default function Player() {
                 </div>
               </div>
             )}
-            <div class="player-control-popover player-language-selector">
-              <button
-                type="button"
-                class={`player-selector-selected${openSelector === "language" ? " is-open" : ""}`}
-                aria-haspopup="listbox"
-                aria-expanded={openSelector === "language"}
-                disabled={changingLanguage}
-                onClick={(event) => {
-                  event.stopPropagation();
+            {streamProvider !== null && streamProvider !== "framex" && (
+              <PlayerMenu
+                className="player-language-selector"
+                open={openSelector === "language"}
+                onToggle={() =>
                   setOpenSelector((current) =>
                     current === "language" ? null : "language",
-                  );
-                }}
+                  )
+                }
+                disabled={changingLanguage || loadingStreamInfo}
+                panelClassName="player-audio-options"
+                label={language}
               >
-                <span>
-                  {changingLanguage ? "..." : language}
-                </span>
-                <IconChevronBottom size={12} class="selector-chevron" />
-              </button>
-              <div
-                class={`player-selector-options${openSelector === "language" ? " is-open" : ""}`}
-                role="listbox"
-                aria-hidden={openSelector !== "language"}
-              >
-                {(["sub", "dub"] as const)
-                  .filter((option) => option !== language)
-                  .map((option) => (
-                    <button
-                      type="button"
-                      role="option"
-                      tabIndex={openSelector === "language" ? 0 : -1}
-                      key={option}
-                      onClick={() => void changeLanguage(option)}
-                    >
-                      {option}
-                    </button>
-                  ))}
-              </div>
-            </div>
-            {audioTracks.length > 1 && (
-              <div class="player-control-popover player-audio-selector">
-                <button
-                  type="button"
-                  class={`player-selector-selected${openSelector === "audio" ? " is-open" : ""}`}
-                  aria-haspopup="listbox"
-                  aria-expanded={openSelector === "audio"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setOpenSelector((current) =>
-                      current === "audio" ? null : "audio",
-                    );
-                  }}
-                >
-                  <span>
-                    {activeAudioTrack >= 0
-                      ? activeAudioLabel.toLowerCase()
-                      : "audio ?"}
-                  </span>
-                  <IconChevronBottom size={12} class="selector-chevron" />
-                </button>
-                <div
-                  class={`player-selector-options${openSelector === "audio" ? " is-open" : ""}`}
-                  role="listbox"
-                  aria-hidden={openSelector !== "audio"}
-                >
-                  {audioTracks.map((track, index) => (
-                    <button
-                      type="button"
-                      role="option"
-                      tabIndex={openSelector === "audio" ? 0 : -1}
-                      aria-selected={activeAudioTrack === index}
-                      class={activeAudioTrack === index ? "is-active" : ""}
-                      key={track.id}
-                      onClick={() => chooseAudioTrack(index)}
-                    >
-                      <span>
-                        {trackLabel(track, index, "audio").toLowerCase()}
-                      </span>
-                      {activeAudioTrack === index && (
-                        <IconCheckCircle2
-                          size={12}
-                          class="player-option-check"
-                        />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div class="player-control-popover player-subtitle-control">
-              <button
-                type="button"
-                class={`player-btn player-btn-cc${activeSubtitle >= 0 ? " is-active" : ""}${activeSubtitle < 0 ? " is-off" : ""}${openSelector === "subtitles" ? " is-open" : ""}`}
-                aria-haspopup="listbox"
-                aria-expanded={openSelector === "subtitles"}
-                aria-label="subtitles"
-                disabled={subtitleTracks.length === 0}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setOpenSelector((current) =>
-                    current === "subtitles" ? null : "subtitles",
-                  );
-                }}
-              >
-                <IconBubbleText size={24} />
-              </button>
-              <div
-                class={`player-selector-options player-subtitle-options${openSelector === "subtitles" ? " is-open" : ""}`}
-                role="listbox"
-                aria-hidden={openSelector !== "subtitles"}
-              >
-                <button
-                  type="button"
-                  role="option"
-                  tabIndex={openSelector === "subtitles" ? 0 : -1}
-                  aria-selected={selectedSubtitle < 0}
-                  class={selectedSubtitle < 0 ? "is-active" : ""}
-                  onClick={() => chooseSubtitle(-1)}
-                >
-                  <span>off</span>
-                  {selectedSubtitle < 0 && (
-                    <IconCheckCircle2
-                      size={12}
-                      solid
-                      class="player-option-check"
-                    />
-                  )}
-                </button>
-                {subtitleTracks.map((track, index) => (
-                  <button
-                    type="button"
-                    role="option"
-                    tabIndex={openSelector === "subtitles" ? 0 : -1}
-                    aria-selected={selectedSubtitle === index}
-                    class={selectedSubtitle === index ? "is-active" : ""}
-                    key={track.id}
-                    onClick={() => chooseSubtitle(index)}
+                {(["sub", "dub"] as const).map((option) => (
+                  <PlayerOption
+                    key={option}
+                    open={openSelector === "language"}
+                    selected={option === language}
+                    solid
+                    onSelect={() => void changeLanguage(option)}
                   >
-                    <span>{subtitleMenuLabels[index]?.toLowerCase()}</span>
-                    {selectedSubtitle === index && (
-                      <IconCheckCircle2
-                        size={12}
-                        solid
-                        class="player-option-check"
-                      />
-                    )}
-                  </button>
+                    {option}
+                  </PlayerOption>
                 ))}
-              </div>
-            </div>
-            {qualityOptions.length > 1 && (
-              <div class="player-control-popover player-quality-selector">
-                <button
-                  type="button"
-                  class={`player-selector-selected${openSelector === "quality" ? " is-open" : ""}`}
-                  aria-haspopup="listbox"
-                  aria-expanded={openSelector === "quality"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (openSelector !== "quality") refreshAutoQuality();
-                    setOpenSelector((current) =>
-                      current === "quality" ? null : "quality",
-                    );
-                  }}
-                >
-                  <span>{selectedQualityLabel}</span>
-                  <IconChevronBottom size={12} class="selector-chevron" />
-                </button>
-                <div
-                  class={`player-selector-options player-quality-options${openSelector === "quality" ? " is-open" : ""}`}
-                  role="listbox"
-                  aria-hidden={openSelector !== "quality"}
-                >
-                  <button
-                    type="button"
-                    role="option"
-                    tabIndex={openSelector === "quality" ? 0 : -1}
-                    aria-selected={selectedQuality < 0}
-                    class={selectedQuality < 0 ? "is-active" : ""}
-                    onClick={() => chooseQuality(-1)}
+              </PlayerMenu>
+            )}
+            {(streamProvider === null ||
+              (streamProvider === "framex" && (!audioTracksReady || audioTracks.length > 0)) ||
+              audioTracks.length > 1) && (
+              <PlayerMenu
+                className="player-audio-selector"
+                open={openSelector === "audio"}
+                onToggle={() =>
+                  setOpenSelector((current) =>
+                    current === "audio" ? null : "audio",
+                  )
+                }
+                label={activeAudioLabel.toLowerCase()}
+                panelClassName="player-audio-options"
+                ariaLabel="audio language"
+                disabled={
+                  !audioTracksReady ||
+                  loadingStreamInfo ||
+                  audioTracks.length <= 1 ||
+                  streamProvider === null
+                }
+              >
+                {audioTracks.map((track, index) => (
+                  <PlayerOption
+                    key={track.id}
+                    open={openSelector === "audio"}
+                    selected={selectedAudioTrack === index}
+                    solid
+                    onSelect={() => chooseAudioTrack(index)}
                   >
-                    <span>{qualityMenuLabel(null, autoQualityName)}</span>
-                    {selectedQuality < 0 && (
-                      <IconCheckCircle2
-                        size={12}
-                        solid
-                        class="player-option-check"
-                      />
-                    )}
-                  </button>
-                  {[...qualityOptions]
-                    .sort(
-                      (left, right) =>
-                        right.height - left.height ||
-                        right.bitrate - left.bitrate,
-                    )
-                    .map((option) => (
-                      <button
-                        type="button"
-                        role="option"
-                        tabIndex={openSelector === "quality" ? 0 : -1}
-                        aria-selected={selectedQuality === option.index}
-                        class={
-                          selectedQuality === option.index ? "is-active" : ""
-                        }
-                        key={`${option.index}-${option.label}`}
-                        onClick={() => chooseQuality(option.index)}
-                      >
-                        <span>{option.label}</span>
-                        {selectedQuality === option.index && (
-                          <IconCheckCircle2
-                            size={12}
-                            solid
-                            class="player-option-check"
-                          />
-                        )}
-                      </button>
-                    ))}
-                </div>
-              </div>
+                    {audioMenuLabels[index]?.toLowerCase()}
+                  </PlayerOption>
+                ))}
+              </PlayerMenu>
+            )}
+            <PlayerMenu
+              className="player-subtitle-control"
+              open={openSelector === "subtitles"}
+              onToggle={() =>
+                setOpenSelector((current) =>
+                  current === "subtitles" ? null : "subtitles",
+                )
+              }
+              triggerClassName={`player-btn player-btn-cc${activeSubtitle >= 0 ? " is-active" : " is-off"}`}
+              panelClassName="player-subtitle-options"
+              ariaLabel="subtitles"
+              disabled={subtitleTracks.length === 0}
+              label={<IconBubbleText size={24} />}
+            >
+              <PlayerOption
+                open={openSelector === "subtitles"}
+                selected={selectedSubtitle < 0}
+                solid
+                onSelect={() => chooseSubtitle(-1)}
+              >
+                off
+              </PlayerOption>
+              {subtitleTracks.map((track, index) => (
+                <PlayerOption
+                  key={track.id}
+                  open={openSelector === "subtitles"}
+                  selected={selectedSubtitle === index}
+                  solid
+                  onSelect={() => chooseSubtitle(index)}
+                >
+                  {subtitleMenuLabels[index]?.toLowerCase()}
+                </PlayerOption>
+              ))}
+            </PlayerMenu>
+            {(qualityOptions.length > 1 || hasRemote4k) && (
+              <PlayerMenu
+                className="player-quality-selector"
+                open={openSelector === "quality"}
+                onToggle={() => {
+                  if (openSelector !== "quality") refreshAutoQuality();
+                  setOpenSelector((current) =>
+                    current === "quality" ? null : "quality",
+                  );
+                }}
+                panelClassName="player-quality-options"
+                label={selectedQualityLabel}
+              >
+                <PlayerOption
+                  open={openSelector === "quality"}
+                  selected={selectedQuality < 0}
+                  solid
+                  onSelect={() => chooseQuality(-1)}
+                >
+                  {qualityMenuLabel(null, autoQualityName)}
+                </PlayerOption>
+                {hasRemote4k && (
+                  <PlayerOption
+                    open={openSelector === "quality"}
+                    selected={false}
+                    solid
+                    onSelect={chooseRemote4k}
+                  >
+                    4k
+                  </PlayerOption>
+                )}
+                {[...qualityOptions]
+                  .sort(
+                    (left, right) =>
+                      right.height - left.height ||
+                      right.bitrate - left.bitrate,
+                  )
+                  .map((option) => (
+                    <PlayerOption
+                      key={`${option.index}-${option.label}`}
+                      open={openSelector === "quality"}
+                      selected={selectedQuality === option.index}
+                      solid
+                      onSelect={() => chooseQuality(option.index)}
+                    >
+                      {option.label}
+                    </PlayerOption>
+                  ))}
+              </PlayerMenu>
             )}
             <button
               class="player-btn"

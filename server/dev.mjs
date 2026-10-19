@@ -7,6 +7,7 @@ import { Agent, createServer, request } from "http";
 import express from "express";
 import { Readable } from "node:stream";
 import { createPresence } from "./presence.mjs";
+import { turnConfig } from "./turn.mjs";
 import { createDevRuntime } from "./dev-secrets.mjs";
 import { httpError } from "./errors.mjs";
 import { createDnsService } from "./dns.mjs";
@@ -15,11 +16,8 @@ import {
   negativeMessage,
   positiveMessage,
 } from "../src/core/runtime/messages.ts";
-import {
-  createSearchSuggestionService,
-  normalizeSearchSuggestionQuery,
-  SEARCH_SUGGESTION_PROVIDER,
-} from "./searchSuggestions.mjs";
+import { createSearchSuggestionService } from "./search-suggestions.mjs";
+import { NO_STORE_CACHE_CONTROL, REVALIDATE_CACHE_CONTROL } from "./cache.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 
 let shuttingDown = false;
@@ -65,8 +63,6 @@ const libcurlPath = path.join(
   "dist",
 );
 
-const NO_STORE_CC = "no-store, max-age=0";
-const NO_CACHE_CC = "public, max-age=0, must-revalidate";
 const proxyAgent = new Agent({
   keepAlive: true,
   maxSockets: 256,
@@ -80,31 +76,11 @@ try {
 } catch {}
 
 function turnConfigForRequest(req) {
-  if (process.env.WEBRTC_TURN_ENABLED === "0") {
-    return { enabled: false, forceRelay: false, iceServers: [] };
-  }
   const host =
-    process.env.TURN_HOST ||
     req.hostname ||
     req.headers.host?.split(":")[0] ||
     "127.0.0.1";
-  const port = process.env.TURN_PORT || "3478";
-  const username = process.env.TURN_USERNAME || "lyly";
-  const credential = process.env.TURN_CREDENTIAL || "rara";
-  return {
-    enabled: true,
-    forceRelay: process.env.WEBRTC_FORCE_RELAY !== "0",
-    iceServers: [
-      {
-        urls: [
-          `turn:${host}:${port}?transport=udp`,
-          `turn:${host}:${port}?transport=tcp`,
-        ],
-        username,
-        credential,
-      },
-    ],
-  };
+  return turnConfig(host);
 }
 function buildFingerprint() {
   try {
@@ -168,7 +144,7 @@ function setIsolationHeaders(_req, res, next) {
 function sendText(res, status, body) {
   res.status(status);
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", NO_STORE_CC);
+  res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);
   res.end(body);
 }
 
@@ -194,33 +170,9 @@ function proxyTarget(url) {
 
 async function serveSearchSuggestions(req, res) {
   const rawQuery = typeof req.query.q === "string" ? req.query.q : "";
-  const query = normalizeSearchSuggestionQuery(rawQuery);
-  res.setHeader("Cache-Control", NO_STORE_CC);
-  if (!query) {
-    return res.json({
-      query: "",
-      suggestions: [],
-      provider: SEARCH_SUGGESTION_PROVIDER,
-    });
-  }
-
-  try {
-    const suggestions = await searchSuggestionService.get(query);
-    return res.json({
-      query,
-      suggestions,
-      provider: SEARCH_SUGGESTION_PROVIDER,
-    });
-  } catch (error) {
-    console.error("search suggestion request failed:", error, NEGATIVE);
-    const failure = httpError(
-      502,
-      "SEARCH_SUGGESTIONS_UNAVAILABLE",
-      "search suggestions are temporarily unavailable",
-      { provider: SEARCH_SUGGESTION_PROVIDER },
-    );
-    return res.status(failure.status).json(failure.body);
-  }
+  const result = await searchSuggestionService(rawQuery);
+  res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);
+  return res.status(result.status).json(result.body);
 }
 
 function proxyDevService(req, res, next) {
@@ -292,7 +244,7 @@ function serveBundleAll(_req, res) {
   }
 
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-  res.setHeader("Cache-Control", NO_CACHE_CC);
+  res.setHeader("Cache-Control", REVALIDATE_CACHE_CONTROL);
   res.send(fallbackBundle);
 }
 
@@ -303,7 +255,7 @@ async function transformHtml(
   filePath,
   url = req.originalUrl || req.url,
 ) {
-  res.setHeader("Cache-Control", NO_STORE_CC);
+  res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);
   try {
     let html = fs.readFileSync(filePath, "utf-8");
     html = await vite.transformIndexHtml(url, html);
@@ -332,7 +284,7 @@ function transpileTsFallback(req, res, next) {
       loader: filePath.endsWith(".tsx") ? "tsx" : "ts",
     }).transformSync(code);
     res.setHeader("Content-Type", "text/javascript; charset=utf-8");
-    res.setHeader("Cache-Control", NO_CACHE_CC);
+    res.setHeader("Cache-Control", REVALIDATE_CACHE_CONTROL);
     res.send(result);
   } catch (err) {
     console.error("typescript transpilation failed:", err, NEGATIVE);
@@ -359,7 +311,7 @@ app.get("/b", (req, res) => {
   const bundle = bundleById[req.query.id];
   if (!bundle) return sendText(res, 404, negativeMessage("file not found"));
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-  res.setHeader("Cache-Control", NO_CACHE_CC);
+  res.setHeader("Cache-Control", REVALIDATE_CACHE_CONTROL);
   res.send(bundle);
 });
 app.get("/api/search/suggestions", serveSearchSuggestions);
@@ -382,7 +334,7 @@ const swStaticOpts = { maxAge: 0, etag: true };
 app.get("/b/sw.js", (req, res) => {
   res.setHeader("Service-Worker-Allowed", "/f");
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-  res.setHeader("Cache-Control", NO_CACHE_CC);
+  res.setHeader("Cache-Control", REVALIDATE_CACHE_CONTROL);
   res.sendFile(path.join(srcPath, "b", "sw.js"));
 });
 app.use("/b/sw", express.static(path.join(srcPath, "b", "sw"), swStaticOpts));
@@ -419,7 +371,7 @@ app.get("/api/stuff", (req, res) => {
     );
     return res.status(failure.status).json(failure.body);
   }
-  res.setHeader("Cache-Control", NO_STORE_CC);
+  res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);
   res.json({
     version: packageData.version,
     build: buildFingerprint(),
@@ -480,7 +432,7 @@ const ALL_DEV_SERVICES = [
   {
     name: "mochi",
     dir: "services/mochi",
-    port: 4002,
+    port: DEV_MOCHI_PORT,
     requiresEphemeralSecrets: true,
   },
   {
@@ -492,7 +444,7 @@ const ALL_DEV_SERVICES = [
   {
     name: "isao",
     dir: "services/isao",
-    port: 4003,
+    port: DEV_ISAO_PORT,
     requiresEphemeralSecrets: true,
   },
 ];

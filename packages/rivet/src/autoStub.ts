@@ -42,7 +42,7 @@ export function withBrowserPromiseFallback<T extends object>(
   }
   const cached = browserWrapCache.get(real);
   if (cached) return cached as T;
-  const functionCache = new WeakMap<Function, Function>();
+  const functionCache = new WeakMap<object, object>();
   const proxy = new Proxy(real, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);

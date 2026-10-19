@@ -138,10 +138,6 @@ function initializeLyraApp() {
 
   store.initSplitResize();
 
-  document.addEventListener("gameSourceUpdated", () => {
-    store.allGames.length = 0;
-  });
-
   store.addTab(null, "fetching data...", false, null, {
     applyNewTabOverride: false,
   });

@@ -22,8 +22,9 @@ static ANIME: LazyLock<Cache<i64, Arc<Value>>> = LazyLock::new(|| {
 async fn wait_for_slot() {
     let mut last = LAST_REQUEST.lock().await;
     let interval = Duration::from_secs(1);
-    if last.elapsed() < interval {
-        tokio::time::sleep(interval - last.elapsed()).await;
+    let elapsed = last.elapsed();
+    if elapsed < interval {
+        tokio::time::sleep(interval - elapsed).await;
     }
     *last = Instant::now();
 }
@@ -217,14 +218,10 @@ fn relations_from_full(anime: JikanFullData, mal_id: i64) -> Option<Vec<AnimeRel
         }
     }
 
-    relations.sort_by(|a, b| {
-        if a.relation == b.relation {
-            std::cmp::Ordering::Equal
-        } else if a.relation == "Prequel" {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
+    relations.sort_by_key(|relation| match relation.relation.as_str() {
+        "Prequel" => 0,
+        "Self" => 1,
+        _ => 2,
     });
 
     Some(relations)

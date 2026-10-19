@@ -127,7 +127,7 @@ export function readMediaState(
         )
       : null;
   const mediaError = mediaErrorMessage(media);
-  const error = hints.error?.trim() || mediaError;
+  const error = hints.error === undefined ? mediaError : hints.error?.trim() || null;
   const staleWaitingHint =
     hints.buffering === true &&
     hints.bufferingReason === "waiting" &&

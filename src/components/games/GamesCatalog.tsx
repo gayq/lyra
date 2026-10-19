@@ -1,15 +1,6 @@
+import { useState, useEffect, useCallback, useMemo } from "preact/hooks";
 import {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-} from "preact/hooks";
-import {
-  fetchGameData,
-  resetGameCache,
   getGameDisplayLabel,
-  gameCatalogErrorMessage,
   searchGames,
   type GameEntry,
 } from "../../features/games/games.ts";
@@ -21,10 +12,9 @@ import {
 import { gamesViewSignal } from "../../core/ui/uiSignals.ts";
 import { svgIcon } from "../../core/ui/svgIcon.ts";
 import { app } from "../../core/runtime/app.ts";
-import { getStoredGameSource } from "../../core/config/settingsOptions.ts";
+import { useGameCatalog } from "../../features/games/useGameCatalog.ts";
 import { useMenuView } from "../../hooks/useMenuView.ts";
 import CatalogView from "../catalog/CatalogView.tsx";
-import "../../assets/styles/catalog/catalog.css";
 import "../../assets/styles/games/games.css";
 
 const SVG_GAMEPAD = svgIcon("IconGamecontroller", { solid: true });
@@ -38,43 +28,9 @@ export default function GamesCatalog({
 }: {
   openOnMount?: boolean;
 }) {
-  const [allGames, setAllGames] = useState<GameEntry[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const loadGeneration = useRef(0);
-  const loadGames = useCallback(() => {
-    const requestGeneration = ++loadGeneration.current;
-    const sourceAtStart = getStoredGameSource();
-    setError(null);
-    fetchGameData()
-      .then((games) => {
-        if (
-          requestGeneration !== loadGeneration.current ||
-          sourceAtStart !== getStoredGameSource()
-        ) {
-          return;
-        }
-        setAllGames(games);
-        setLoaded(true);
-      })
-      .catch((error) => {
-        if (
-          requestGeneration !== loadGeneration.current ||
-          sourceAtStart !== getStoredGameSource()
-        ) {
-          return;
-        }
-        setError(gameCatalogErrorMessage(error));
-        setLoaded(true);
-      });
-  }, []);
 
-  const loadGamesIfNeeded = useCallback(() => {
-    if (!loaded || allGames.length === 0) loadGames();
-  }, [allGames.length, loadGames, loaded]);
-
-  const { visible, active, searchBarRef, show, hide, toggle } = useMenuView({
+  const { visible, searchBarRef, show, hide, toggle } = useMenuView({
     bodyClass: "games-view",
     signal: gamesViewSignal,
     iconId: "games-icon",
@@ -83,46 +39,16 @@ export default function GamesCatalog({
     openedStorageKey: "lyraUserOpenedGameMenu",
     oppositeBodyClass: "anime-view",
     hideOpposite: () => window.hideAnimeMenu?.(),
-    onShowFrame: loadGamesIfNeeded,
     showOnMount: openOnMount,
   });
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
-          source?: string;
-          games?: GameEntry[];
-        }>
-      ).detail;
-      const selectedSource = getStoredGameSource();
-      if (!detail?.games || detail.source !== selectedSource) {
-        return;
-      }
-      setAllGames(detail.games);
-      setLoaded(true);
-      setError(null);
-    };
-    window.addEventListener("lyra:game-catalog-updated", handler);
-    return () => {
-      window.removeEventListener("lyra:game-catalog-updated", handler);
-      loadGeneration.current += 1;
-    };
-  }, []);
+  const { games: allGames, loaded, error } = useGameCatalog(visible);
 
   useEffect(() => {
-    const handler = () => {
-      loadGeneration.current += 1;
-      resetGameCache();
-      setAllGames([]);
-      setLoaded(false);
-      setError(null);
-      setQuery("");
-      if (visible) loadGames();
-    };
-    document.addEventListener("gameSourceUpdated", handler);
-    return () => document.removeEventListener("gameSourceUpdated", handler);
-  }, [visible, loadGames]);
+    const resetQuery = () => setQuery("");
+    document.addEventListener("gameSourceUpdated", resetQuery);
+    return () => document.removeEventListener("gameSourceUpdated", resetQuery);
+  }, []);
 
   useEffect(() => {
     window.showGameMenu = show;
@@ -196,19 +122,12 @@ export default function GamesCatalog({
     <CatalogView
       id="games-page"
       className="games-page"
-      topbarClassName="games-topbar"
-      searchBarClassName="games-search-bar"
-      searchIconClassName="games-search-icon"
       inputId="catalogSearchInput"
-      gridContainerClassName="game-grid-container"
-      gridClassName="game-grid"
       visible={visible}
-      active={active}
       searchBarRef={searchBarRef}
       query={query}
       placeholder={placeholder}
       onQueryChange={setQuery}
-      gridVisible={filteredGames.length > 0}
       showSkeleton={!loaded}
       items={filteredGames}
       getCard={gameCard}

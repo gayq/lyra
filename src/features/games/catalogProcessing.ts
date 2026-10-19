@@ -1,4 +1,4 @@
-import { normalizeCatalogText } from "./catalogSearch.ts";
+import { normalizeCatalogText } from "../../core/media/catalogSearch.ts";
 import {
   GameCatalogError,
   parseGameCatalog,

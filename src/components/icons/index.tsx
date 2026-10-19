@@ -42,6 +42,7 @@ export const IconPencil = makeIcon("IconPencil");
 export const IconPlusMedium = makeIcon("IconPlusMedium");
 export const IconPuzzle = makeIcon("IconPuzzle");
 export const IconBubbleText = makeIcon("IconBubbleText");
+export const IconBook = makeIcon("IconBook");
 export const IconSettingsSliderHor = makeIcon("IconSettingsSliderHor");
 export const IconCode = makeIcon("IconCode");
 export const IconSushi = makeIcon("IconSushi");

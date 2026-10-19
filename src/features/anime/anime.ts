@@ -4,7 +4,7 @@ import { cacheKey } from "../../core/runtime/cacheNamespace.ts";
 import {
   catalogMatchRank,
   normalizeCatalogText,
-} from "../games/catalogSearch.ts";
+} from "../../core/media/catalogSearch.ts";
 import { RequestError } from "../../core/runtime/messages.ts";
 import {
   appendMegaPlayParams,

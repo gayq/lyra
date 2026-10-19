@@ -10,7 +10,7 @@ import { registerGameMetadataProvider } from "../../core/media/gameMetadata.ts";
 import { recordGameMetric } from "../../core/media/gameDiagnostics.ts";
 import { NEGATIVE, negativeMessage } from "../../core/runtime/messages.ts";
 import { cacheKey } from "../../core/runtime/cacheNamespace.ts";
-import { catalogMatchRank, normalizeCatalogText } from "./catalogSearch.ts";
+import { catalogMatchRank, normalizeCatalogText } from "../../core/media/catalogSearch.ts";
 import { prepareCatalogGames } from "./catalogProcessing.ts";
 import { prepareCatalog } from "./prepareCatalog.ts";
 import {
@@ -557,7 +557,7 @@ export async function fetchGameData(
   const source = getStoredGameSource();
   const cached = options.forceRefresh ? null : await readStoredCache(source);
   if (cached) {
-    setAllGames(source, cached.games);
+    if (getStoredGameSource() === source) setAllGames(source, cached.games);
     recordGameMetric({
       stage: "catalog",
       source,
@@ -649,3 +649,10 @@ registerGameMetadataProvider({
   getCover: getGameCoverForUrl,
   getDisplayLabel: getGameDisplayLabel,
 });
+
+if (typeof document !== "undefined") {
+  document.addEventListener("gameSourceUpdated", resetGameCache);
+  import.meta.hot?.dispose(() => {
+    document.removeEventListener("gameSourceUpdated", resetGameCache);
+  });
+}

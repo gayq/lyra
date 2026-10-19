@@ -17,11 +17,13 @@ import {
 export default function TopBar() {
   useEffect(() => {
     if (!isStatic) {
-      const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
-      if (user.username) {
-        const statusEl = document.getElementById("auth-status");
-        if (statusEl) statusEl.textContent = user.username;
-      }
+      try {
+        const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
+        if (typeof user?.username === "string" && user.username) {
+          const statusEl = document.getElementById("auth-status");
+          if (statusEl) statusEl.textContent = user.username;
+        }
+      } catch {}
     }
     const choiIcon = document.getElementById("games-icon");
     if (choiIcon && !choiIcon.innerHTML) {

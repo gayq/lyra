@@ -1,5 +1,5 @@
 use crate::cache::{load_stream_from_disk, StreamCacheWriter, StreamDiskEntry};
-use crate::state::{AppState, CachedResponse};
+use crate::state::{AppState, CachedResponse, StreamFillState};
 use crate::{negative_message, NEGATIVE};
 use axum::body::Body;
 use axum::extract::State;
@@ -23,6 +23,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use url::Url;
 
+mod framex;
 mod megavid;
 mod range;
 mod subtitles;
@@ -40,15 +41,18 @@ const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 enum StreamProvider {
     Megaplay,
     Megavid,
+    Framex,
+    Framex4k(framex::MovieServer),
 }
 
 impl StreamProvider {
-    const ALL: [Self; 2] = [Self::Megaplay, Self::Megavid];
+    const ALL: [Self; 3] = [Self::Framex, Self::Megaplay, Self::Megavid];
 
     fn id(self) -> &'static str {
         match self {
             Self::Megaplay => "megaplay",
             Self::Megavid => "megavid",
+            Self::Framex | Self::Framex4k(_) => "framex",
         }
     }
 
@@ -56,13 +60,30 @@ impl StreamProvider {
         match self {
             Self::Megaplay => "https://megaplay.buzz/",
             Self::Megavid => "https://megavid.buzz/",
+            Self::Framex => "https://krussdomi.com/",
+            Self::Framex4k(server) => server.referer(),
         }
+    }
+
+    fn headers(self) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(REFERER, HeaderValue::from_static(self.referer()));
+        if self == Self::Framex {
+            headers.insert("origin", HeaderValue::from_static("https://krussdomi.com"));
+        } else if let Self::Framex4k(server) = self {
+            headers.insert(
+                "origin",
+                HeaderValue::from_str(server.referer().trim_end_matches('/')).unwrap(),
+            );
+        }
+        headers
     }
 
     fn supports(self, key: &EpisodeKey) -> bool {
         match self {
             Self::Megaplay => true,
             Self::Megavid => key.anilist_id > 0 || key.mal_id > 0,
+            Self::Framex | Self::Framex4k(_) => key.anilist_id > 0,
         }
     }
 
@@ -74,6 +95,8 @@ impl StreamProvider {
         match self {
             Self::Megaplay => resolve_megaplay(client, key).await,
             Self::Megavid => megavid::resolve(client, key).await,
+            Self::Framex => framex::resolve(client, key).await,
+            Self::Framex4k(server) => framex::resolve_4k(client, key, server).await,
         }
     }
 }
@@ -141,6 +164,7 @@ struct EpisodeKey {
     episode: i32,
     language: String,
     session: String,
+    prefer_4k: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -342,6 +366,7 @@ static SOURCE_CACHE: LazyLock<Cache<(StreamProvider, EpisodeKey), Arc<ResolvedSo
 struct SourceSession {
     source: Arc<ResolvedSource>,
     invalidated: AtomicBool,
+    refresh: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl SourceSession {
@@ -349,6 +374,7 @@ impl SourceSession {
         Arc::new(Self {
             source,
             invalidated: AtomicBool::new(false),
+            refresh: Arc::new(tokio::sync::Mutex::new(())),
         })
     }
 }
@@ -386,6 +412,28 @@ static RESOURCE_PROBES: LazyLock<Cache<String, ()>> = LazyLock::new(|| {
         .build()
 });
 
+static QUALITY_DISCOVERY: LazyLock<Cache<EpisodeKey, Option<Arc<ResolvedSource>>>> =
+    LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(60))
+            .max_capacity(8 * 1024 * 1024)
+            .weigher(|key: &EpisodeKey, source: &Option<Arc<ResolvedSource>>| {
+                source
+                    .as_ref()
+                    .map_or(256, |source| source.cache_weight(key))
+            })
+            .build()
+    });
+static QUALITY_DISCOVERY_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+static PROVIDER_FAILURES: LazyLock<Cache<(StreamProvider, EpisodeKey), ResolveError>> =
+    LazyLock::new(|| {
+        Cache::builder()
+            .time_to_live(Duration::from_secs(15))
+            .max_capacity(10_000)
+            .build()
+    });
+
 fn normalized_language(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "" | "sub" => Some("sub"),
@@ -401,6 +449,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
     let mut episode = 0;
     let mut language = "sub".to_string();
     let mut session = String::new();
+    let mut prefer_4k = false;
     let path_parts: Vec<_> = uri
         .path()
         .split('/')
@@ -420,6 +469,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
             "episode" => episode = value.parse().unwrap_or(0),
             "language" => language = value.into_owned(),
             "session" => session = value.into_owned(),
+            "preferred_quality" => prefer_4k = value == "2160p",
             _ => {}
         }
     }
@@ -452,6 +502,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
         episode,
         language: language.to_string(),
         session,
+        prefer_4k,
     })
 }
 
@@ -473,6 +524,9 @@ fn query_string(key: &EpisodeKey, extra: &[(&str, String)]) -> String {
     }
     query.append_pair("episode", &key.episode.to_string());
     query.append_pair("language", &key.language);
+    if key.prefer_4k {
+        query.append_pair("preferred_quality", "2160p");
+    }
     if !key.session.is_empty() {
         query.append_pair("session", &key.session);
     }
@@ -784,6 +838,11 @@ fn track_language(track: &serde_json::Value) -> String {
         _ if has("turkish") => "tr",
         _ if has("vietnamese") => "vi",
         _ if has("malay") => "ms",
+        _ if has("danish") => "da",
+        _ if has("norwegian") => "no",
+        _ if has("swedish") => "sv",
+        _ if has("ukrainian") => "uk",
+        _ if has("greek") => "el",
         _ => "und",
     }
     .to_string()
@@ -1011,6 +1070,7 @@ async fn resolve_megaplay(
 fn provider_cache_key(provider: StreamProvider, key: &EpisodeKey) -> (StreamProvider, EpisodeKey) {
     let mut episode = key.clone();
     episode.session.clear();
+    episode.prefer_4k = false;
     (provider, episode)
 }
 
@@ -1031,6 +1091,172 @@ async fn first_ready<T>(
     Err(failure)
 }
 
+fn has_4k(source: &ResolvedSource) -> bool {
+    parse_hls_qualities(&source.master)
+        .iter()
+        .any(|quality| quality.2 >= 2160)
+}
+
+async fn prefer_ready<T>(
+    preferred: impl std::future::Future<Output = Result<T, ResolveError>>,
+    fallback: impl std::future::Future<Output = Result<T, ResolveError>>,
+) -> Result<T, ResolveError> {
+    tokio::pin!(preferred, fallback);
+    tokio::select! {
+        result = &mut preferred => match result {
+            Ok(source) => Ok(source),
+            Err(_) => fallback.await,
+        },
+        backup = &mut fallback => preferred.await.or(backup),
+    }
+}
+
+async fn default_source(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+) -> Result<Arc<ResolvedSource>, ResolveError> {
+    ordered_source(client, key, StreamProvider::Framex).await
+}
+
+async fn first_available<T>(
+    candidates: impl IntoIterator<Item = impl std::future::Future<Output = Result<T, ResolveError>>>,
+) -> Result<T, ResolveError> {
+    let mut failure = ResolveError::NotFound;
+    for candidate in candidates {
+        match candidate.await {
+            Ok(source) => return Ok(source),
+            Err(error) if !matches!(error, ResolveError::NotFound) => failure = error,
+            Err(_) => {}
+        }
+    }
+    Err(failure)
+}
+
+async fn ordered_source(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+    start: StreamProvider,
+) -> Result<Arc<ResolvedSource>, ResolveError> {
+    first_available(
+        StreamProvider::ALL
+            .into_iter()
+            .skip_while(|provider| *provider != start)
+            .filter(|provider| provider.supports(key))
+            .map(|provider| {
+                Box::pin(async move {
+                    let cache_key = provider_cache_key(provider, key);
+                    if let Some(error) = PROVIDER_FAILURES.get(&cache_key).await {
+                        return Err(error);
+                    }
+                    let budget = if provider == StreamProvider::Framex {
+                        Duration::from_secs(6)
+                    } else {
+                        Duration::from_millis(2500)
+                    };
+                    let result = tokio::time::timeout(budget, ready_source(client, provider, key))
+                        .await
+                        .unwrap_or(Err(ResolveError::Upstream));
+                    if let Err(error) = result {
+                        PROVIDER_FAILURES.insert(cache_key, error).await;
+                    }
+                    result
+                })
+            }),
+    )
+    .await
+}
+
+async fn select_source(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+) -> Result<Arc<ResolvedSource>, ResolveError> {
+    if !key.prefer_4k {
+        return default_source(client, key).await;
+    }
+    let mut normal_key = key.clone();
+    normal_key.prefer_4k = false;
+    let current = SESSION_SOURCES
+        .get(&normal_key)
+        .await
+        .filter(|session| !session.invalidated.load(Ordering::Acquire));
+    if let Some(session) = &current {
+        if has_4k(&session.source) {
+            return Ok(session.source.clone());
+        }
+    }
+    let preferred = async {
+        discover_4k(
+            client,
+            key,
+            current.as_ref().map(|session| session.source.as_ref()),
+        )
+        .await?
+        .ok_or(ResolveError::NotFound)
+    };
+    let fallback = async {
+        match &current {
+            Some(session) => Ok(session.source.clone()),
+            None => default_source(client, key).await,
+        }
+    };
+    prefer_ready(preferred, fallback).await
+}
+
+fn quality_providers(key: &EpisodeKey) -> impl Iterator<Item = StreamProvider> + '_ {
+    StreamProvider::ALL
+        .into_iter()
+        .chain(framex::MovieServer::ALL.map(StreamProvider::Framex4k))
+        .filter(|provider| provider.supports(key))
+}
+
+async fn discover_4k(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+    current: Option<&ResolvedSource>,
+) -> Result<Option<Arc<ResolvedSource>>, ResolveError> {
+    let cache_key = provider_cache_key(StreamProvider::Megaplay, key).1;
+    if let Some(Some(source)) = QUALITY_DISCOVERY.get(&cache_key).await {
+        if FAILED_SOURCES.get(&source.playlist_url).await.is_some() {
+            QUALITY_DISCOVERY.invalidate(&cache_key).await;
+        }
+    }
+    QUALITY_DISCOVERY
+        .try_get_with(cache_key, async {
+            let _slot = QUALITY_DISCOVERY_SLOTS
+                .try_acquire()
+                .map_err(|_| ResolveError::Busy)?;
+            let result = tokio::time::timeout(
+                Duration::from_secs(9),
+                first_ready(
+                    quality_providers(key)
+                        .filter(|provider| {
+                            current.is_none_or(|source| source.provider != *provider)
+                        })
+                        .map(|provider| async move {
+                            if SOURCE_CACHE
+                                .get(&provider_cache_key(provider, key))
+                                .await
+                                .is_some_and(|source| !has_4k(&source))
+                            {
+                                return Err(ResolveError::NotFound);
+                            }
+                            let source = ready_source(client, provider, key).await?;
+                            if has_4k(&source) {
+                                Ok(source)
+                            } else {
+                                Err(ResolveError::NotFound)
+                            }
+                        }),
+                ),
+            )
+            .await
+            .unwrap_or(Err(ResolveError::Upstream));
+            Ok::<_, ResolveError>(result.ok())
+        })
+        .await
+        .map_err(|error| *error)
+}
+
 async fn ready_source(
     client: &reqwest::Client,
     provider: StreamProvider,
@@ -1043,14 +1269,19 @@ async fn ready_source(
         if let Some(mut source) = SOURCE_CACHE.get(&cache_key).await {
             stage = "readiness";
             match validate_source(client, &source).await {
-                Ok(master) => {
+                Ok(master)
+                    if !matches!(provider, StreamProvider::Framex4k(_))
+                        || parse_hls_qualities(&master)
+                            .iter()
+                            .any(|quality| quality.2 >= 2160) =>
+                {
                     if master != source.master {
                         source = Arc::new(with_master((*source).clone(), master));
                         SOURCE_CACHE.insert(cache_key.clone(), source.clone()).await;
                     }
                     return Ok(source);
                 }
-                Err(_) => {
+                _ => {
                     reject_source(key, &source, &[&source.playlist_url]).await;
                 }
             }
@@ -1060,6 +1291,13 @@ async fn ready_source(
                 for _ in 0..2 {
                     stage = "extraction";
                     let source = provider.resolve(client, key).await?;
+                    if matches!(
+                        provider,
+                        StreamProvider::Framex | StreamProvider::Framex4k(_)
+                    ) && !source.master.is_empty()
+                    {
+                        return Ok(Arc::new(source));
+                    }
                     stage = "readiness";
                     match prepare_source(client, source).await {
                         Ok(source) => return Ok(Arc::new(source)),
@@ -1239,7 +1477,7 @@ async fn probe_resource(
             let mut response = send_with_retry(|| {
                 client
                     .get(url)
-                    .header(REFERER, provider.referer())
+                    .headers(provider.headers())
                     .header(RANGE, "bytes=0-1023")
             })
             .await?;
@@ -1276,9 +1514,25 @@ async fn get_source(
         if !selected.invalidated.load(Ordering::Acquire) {
             return Ok(selected.source.clone());
         }
-        let source = ready_source(client, selected.source.provider, key).await?;
+        let _refresh = selected.refresh.lock().await;
+        let selected = SESSION_SOURCES.get(key).await.unwrap_or(selected.clone());
+        if !selected.invalidated.load(Ordering::Acquire) {
+            return Ok(selected.source.clone());
+        }
+        let source = if key.prefer_4k && has_4k(&selected.source) {
+            select_source(client, key).await?
+        } else {
+            ordered_source(client, key, selected.source.provider).await?
+        };
         SESSION_SOURCES
-            .insert(key.clone(), SourceSession::new(source.clone()))
+            .insert(
+                key.clone(),
+                Arc::new(SourceSession {
+                    source: source.clone(),
+                    invalidated: AtomicBool::new(false),
+                    refresh: selected.refresh.clone(),
+                }),
+            )
             .await;
         return Ok(source);
     }
@@ -1289,13 +1543,7 @@ async fn get_source(
         SOURCE_RESOLUTION_TIMEOUT,
         SESSION_SOURCES.try_get_with(key.clone(), async move {
             let started_at = Instant::now();
-            let result = first_ready(
-                StreamProvider::ALL
-                    .into_iter()
-                    .filter(|provider| provider.supports(key))
-                    .map(|provider| ready_source(client, provider, key)),
-            )
-            .await;
+            let result = select_source(client, key).await;
             if let Ok(source) = result.as_ref() {
                 tracing::info!(
                     provider = source.provider.id(),
@@ -1360,7 +1608,7 @@ async fn fetch_playlist(
                             ACCEPT,
                             "application/vnd.apple.mpegurl,application/x-mpegURL,text/plain",
                         )
-                        .header(REFERER, provider.referer())
+                        .headers(provider.headers())
                 })
                 .await?;
                 if !response.status().is_success() {
@@ -1662,6 +1910,18 @@ fn is_master_playlist(playlist: &str) -> bool {
 }
 
 async fn invalidate_source(key: &EpisodeKey, source: &ResolvedSource, playlist_urls: &[&str]) {
+    if source.provider == StreamProvider::Framex {
+        framex::invalidate(key).await;
+    }
+    let quality_key = provider_cache_key(StreamProvider::Megaplay, key).1;
+    if QUALITY_DISCOVERY
+        .get(&quality_key)
+        .await
+        .flatten()
+        .is_some_and(|cached| cached.generation == source.generation)
+    {
+        QUALITY_DISCOVERY.invalidate(&quality_key).await;
+    }
     let cache_key = provider_cache_key(source.provider, key);
     if SOURCE_CACHE
         .get(&cache_key)
@@ -1789,10 +2049,13 @@ fn error_response(error: ResolveError) -> Response {
             "invalid episode stream request",
         ),
         ResolveError::Stale => (StatusCode::CONFLICT, "stale episode stream resource"),
-        ResolveError::NotFound => (StatusCode::NOT_FOUND, "episode is unavailable"),
+        ResolveError::NotFound => (
+            StatusCode::NOT_FOUND,
+            "this episode is unavailable from all providers",
+        ),
         ResolveError::Upstream => (
             StatusCode::BAD_GATEWAY,
-            "anime stream source is unavailable",
+            "unable to load this episode; please try again",
         ),
         ResolveError::RateLimited => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2198,6 +2461,7 @@ impl SegmentFill {
             if sender.send(Ok(chunk.clone())).await.is_err() {
                 self.sender = None;
                 self.record_downstream_cancellation();
+                return Err(ResolveError::Upstream);
             } else {
                 STREAM_METRICS
                     .bytes_served
@@ -2289,9 +2553,21 @@ async fn fill_from_stream(
 ) -> Result<(), ResolveError> {
     futures_util::pin_mut!(chunks);
     loop {
-        let chunk = tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, chunks.next())
-            .await
-            .map_err(|_| ResolveError::Upstream)?;
+        let chunk = tokio::select! {
+            biased;
+            _ = async {
+                match fill.sender.as_ref() {
+                    Some(sender) => sender.closed().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                fill.record_downstream_cancellation();
+                return Err(ResolveError::Upstream);
+            }
+            chunk = tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, chunks.next()) => {
+                chunk.map_err(|_| ResolveError::Upstream)?
+            }
+        };
         let Some(chunk) = chunk else {
             return Ok(());
         };
@@ -2309,12 +2585,14 @@ async fn run_segment_fill(
     initial_chunks: Vec<Bytes>,
     response: reqwest::Response,
     started_at: Instant,
-    mut fill_guard: tokio::sync::OwnedMutexGuard<Option<bool>>,
+    mut fill_guard: tokio::sync::OwnedMutexGuard<Option<StreamFillState>>,
     _permit: adaptive_capacity::AdaptivePermit,
 ) {
     let chunks = futures_util::stream::iter(initial_chunks.into_iter().map(Ok))
         .chain(response.bytes_stream());
     let read_result = fill_from_stream(&mut fill, chunks).await;
+    let complete = read_result.is_ok()
+        && fill.expected_len.is_none_or(|expected| expected == fill.bytes);
 
     let result = match read_result {
         Ok(()) => fill.finish().await,
@@ -2330,6 +2608,17 @@ async fn run_segment_fill(
     STREAM_METRICS
         .segment_upstream_bytes
         .fetch_add(fill.bytes as u64, Ordering::Relaxed);
+    if fill.downstream_cancelled {
+        *fill_guard = None;
+        return;
+    }
+    *fill_guard = Some(if result.is_ok() {
+        StreamFillState::Complete
+    } else if !complete {
+        StreamFillState::Interrupted
+    } else {
+        StreamFillState::Failed
+    });
     if let Err(error) = &result {
         tracing::warn!(
             ?error,
@@ -2348,7 +2637,6 @@ async fn run_segment_fill(
         }
         fill.fail_downstream().await;
     }
-    *fill_guard = Some(result.is_ok());
 }
 
 async fn get_cached_upstream_resource(
@@ -2448,18 +2736,26 @@ async fn get_cached_upstream_resource(
             Ok(fill_guard) => fill_guard,
             Err(_) => {
                 let fill_guard = slot.lock_owned().await;
-                let succeeded = *fill_guard == Some(true);
+                let failed = matches!(
+                    *fill_guard,
+                    Some(StreamFillState::Failed | StreamFillState::Interrupted)
+                );
                 drop(fill_guard);
                 STREAM_METRICS
                     .segment_coalesced
                     .fetch_add(1, Ordering::Relaxed);
-                if !succeeded {
+                if failed {
                     return Err(ResolveError::Upstream);
                 }
                 coalesced = true;
                 continue;
             }
         };
+
+        if *fill_guard == Some(StreamFillState::Interrupted) {
+            *fill_guard = None;
+            return Err(ResolveError::Upstream);
+        }
 
         if let Some(cached) = state
             .stream_cache
@@ -2500,7 +2796,7 @@ async fn get_cached_upstream_resource(
         {
             Some(permit) => permit,
             None => {
-                *fill_guard = Some(false);
+                *fill_guard = Some(StreamFillState::Failed);
                 return Err(ResolveError::Busy);
             }
         };
@@ -2511,18 +2807,18 @@ async fn get_cached_upstream_resource(
                 .asset_client
                 .get(upstream_url)
                 .header(ACCEPT, accept)
-                .header(REFERER, provider.referer())
+                .headers(provider.headers())
         })
         .await
         {
             Ok(response) => response,
             Err(error) => {
-                *fill_guard = Some(false);
+                *fill_guard = Some(StreamFillState::Failed);
                 return Err(error);
             }
         };
         if response.status() != StatusCode::OK || response.headers().contains_key(CONTENT_RANGE) {
-            *fill_guard = Some(false);
+            *fill_guard = Some(StreamFillState::Failed);
             let status = response.status();
             let headers = crate::proxy::build_safe_response_headers(response.headers(), true);
             return Ok(range::stream_response(
@@ -2554,7 +2850,7 @@ async fn get_cached_upstream_resource(
         if raw_len
             .is_some_and(|length| length > max_entry_size.saturating_add(max_prefix_len) as u64)
         {
-            *fill_guard = Some(false);
+            *fill_guard = Some(StreamFillState::Failed);
             return Err(ResolveError::TooLarge);
         }
         let content_type = response.headers().get(CONTENT_TYPE).cloned();
@@ -2565,7 +2861,7 @@ async fn get_cached_upstream_resource(
             let next = match tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, response.chunk()).await {
                 Ok(Ok(next)) => next,
                 _ => {
-                    *fill_guard = Some(false);
+                    *fill_guard = Some(StreamFillState::Failed);
                     return Err(ResolveError::Upstream);
                 }
             };
@@ -2585,7 +2881,7 @@ async fn get_cached_upstream_resource(
             if initial.len().saturating_add(chunk.len())
                 > max_entry_size.saturating_add(max_prefix_len)
             {
-                *fill_guard = Some(false);
+                *fill_guard = Some(StreamFillState::Failed);
                 return Err(ResolveError::TooLarge);
             }
             initial.extend_from_slice(&chunk);
@@ -2594,7 +2890,7 @@ async fn get_cached_upstream_resource(
             }
         }
         if initial.is_empty() {
-            *fill_guard = Some(false);
+            *fill_guard = Some(StreamFillState::Failed);
             return Err(ResolveError::Upstream);
         }
         let prefix_len = if inspect_media_prefix {
@@ -2603,7 +2899,7 @@ async fn get_cached_upstream_resource(
             0
         };
         if raw_len.is_some_and(|length| length <= prefix_len as u64) {
-            *fill_guard = Some(false);
+            *fill_guard = Some(StreamFillState::Failed);
             return Err(ResolveError::Upstream);
         }
         let expected_len = raw_len.map(|length| length as usize - prefix_len);
@@ -2729,7 +3025,8 @@ async fn resource_handler(
             method,
             request_headers,
         )
-        .await;
+        .await
+        .and_then(media_response);
         return match fetched {
             Ok(response) => Ok(response),
             Err(ResolveError::NotFound | ResolveError::Upstream) => {
@@ -2772,7 +3069,8 @@ async fn resource_handler(
         method,
         request_headers,
     )
-    .await;
+    .await
+    .and_then(media_response);
     match fetched {
         Ok(response) => Ok(response),
         Err(ResolveError::NotFound | ResolveError::Upstream) => {
@@ -2793,6 +3091,16 @@ async fn resource_handler(
             .await
         }
         Err(error) => Err(error),
+    }
+}
+
+fn media_response(response: Response) -> Result<Response, ResolveError> {
+    match response.status() {
+        StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE => {
+            Err(ResolveError::NotFound)
+        }
+        status if status.is_server_error() => Err(ResolveError::Upstream),
+        _ => Ok(response),
     }
 }
 
@@ -2848,6 +3156,17 @@ pub async fn stream_info_handler(
     }
     let result = async {
         let key = parse_episode_key(&uri)?;
+        if query_value(&uri, "discover_quality").as_deref() == Some("2160p") {
+            let selected = SESSION_SOURCES.get(&key).await.ok_or(ResolveError::Busy)?;
+            if selected.invalidated.load(Ordering::Acquire) {
+                return Err(ResolveError::Busy);
+            }
+            let available = has_4k(&selected.source)
+                || discover_4k(&state.asset_client, &key, Some(&selected.source))
+                    .await?
+                    .is_some();
+            return Ok(Json(serde_json::json!({ "available_4k": available })).into_response());
+        }
         let (source, master) = source_master(&state, &key).await?;
         let tracks = source
             .tracks
@@ -2897,6 +3216,7 @@ pub async fn stream_info_handler(
             Json(serde_json::json!({
                 "hls": is_master_playlist(&master),
                 "needs_transmux": false,
+                "quality_fallback": key.prefer_4k && !has_4k(&source),
                 "tracks": tracks,
                 "source": {
                     "provider": source.provider.id(),
@@ -3078,11 +3398,16 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
 
 pub async fn reclaim_caches() {
     SOURCE_CACHE.invalidate_all();
+    PROVIDER_FAILURES.invalidate_all();
+    QUALITY_DISCOVERY.invalidate_all();
     PLAYLIST_CACHE.invalidate_all();
     FAILED_SOURCES.invalidate_all();
     RESOURCE_PROBES.invalidate_all();
     tokio::join!(
+        framex::reclaim_caches(),
         SOURCE_CACHE.run_pending_tasks(),
+        PROVIDER_FAILURES.run_pending_tasks(),
+        QUALITY_DISCOVERY.run_pending_tasks(),
         SESSION_SOURCES.run_pending_tasks(),
         PLAYLIST_CACHE.run_pending_tasks(),
         FAILED_SOURCES.run_pending_tasks(),

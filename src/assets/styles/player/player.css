@@ -38,9 +38,7 @@
 .video-container:hover {
   cursor: default;
 }
-.video-container.hide-cursor {
-  cursor: none !important;
-}
+.video-container.hide-cursor,
 .video-container.hide-cursor * {
   cursor: none !important;
 }
@@ -79,10 +77,6 @@
   font-size: 14px;
   font-weight: 300;
   text-align: center;
-}
-.loading-speed {
-  font-size: 12px;
-  color: var(--text-faint);
 }
 .player-skip-marker,
 .player-action-button {
@@ -457,7 +451,7 @@
 }
 .player-selector-options
   button:not(.episode-selector-button):not(.episode-season-tab):hover,
-.player-selector-options:not(.player-subtitle-options):not(
+.player-selector-options:not(.player-subtitle-options):not(.player-audio-options):not(
     .player-quality-options
   )
   button:not(.episode-selector-button):not(.episode-season-tab).is-active {
@@ -478,9 +472,12 @@
   background: var(--bg-surface-7);
   color: var(--text-primary);
   box-sizing: border-box;
+  clip-path: inset(0 round var(--radius-panel));
 }
 .episode-picker-embedded {
   max-height: min(45vh, 350px);
+  margin: -4px;
+  padding: 4px;
   overflow-y: auto;
 }
 .player-episode-heading {
@@ -506,28 +503,20 @@
   text-transform: lowercase;
   white-space: nowrap;
 }
-.player-episode-heading > div > span {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1;
-}
-.player-episode-grid {
-  padding: 4px;
-  max-height: min(48vh, 360px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
 .player-subtitle-options {
   min-width: 190px;
   max-width: min(320px, 70vw);
 }
-.player-subtitle-options.is-open {
+.player-subtitle-options.is-open,
+.player-audio-options.is-open {
   overflow-y: auto;
 }
-.player-selector-options.player-subtitle-options button.is-active,
-.player-selector-options.player-quality-options button.is-active {
+.player-selector-options.player-subtitle-options button.is-active {
   color: var(--text-white);
+}
+.player-selector-options.player-audio-options button.is-active,
+.player-selector-options.player-quality-options button.is-active {
+  display: none;
 }
 .player-option-check {
   flex: 0 0 auto;

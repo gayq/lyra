@@ -4,7 +4,7 @@ edition = "2021"
 
 [dependencies]
 adaptive-capacity = { path = "../../packages/adaptive-capacity" }
-axum = { version = "0.7", features = ["macros"] }
+axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -30,7 +30,6 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.24"
 mimalloc = "0.1"
 dashmap = "6"
-sysinfo = "0.32"
 zeroize = "1"
 
 [profile.release]

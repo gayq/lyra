@@ -187,6 +187,10 @@ export function useSearchInputBindings({
       warmProxyRuntime();
     };
 
+    const onBlur = () => {
+      input.scrollLeft = 0;
+    };
+
     const onKeydown = async (e: KeyboardEvent) => {
       if (
         e.isComposing ||
@@ -211,12 +215,14 @@ export function useSearchInputBindings({
 
     input.addEventListener("input", onInput);
     input.addEventListener("focus", onFocus);
+    input.addEventListener("blur", onBlur);
     input.addEventListener("mouseenter", onMouseEnter);
     input.addEventListener("keydown", onKeydown);
 
     return () => {
       input.removeEventListener("input", onInput);
       input.removeEventListener("focus", onFocus);
+      input.removeEventListener("blur", onBlur);
       input.removeEventListener("mouseenter", onMouseEnter);
       input.removeEventListener("keydown", onKeydown);
     };

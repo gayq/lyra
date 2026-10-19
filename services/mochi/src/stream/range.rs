@@ -94,7 +94,7 @@ pub(super) async fn uncached_resource(
                 .asset_client
                 .get(url)
                 .header(ACCEPT, accept)
-                .header(REFERER, provider.referer())
+                .headers(provider.headers())
                 .header("accept-encoding", "identity")
                 .header(RANGE, format!("bytes=0-{}", SEGMENT_PREFIX_BYTES + 188))
         })
@@ -149,7 +149,7 @@ pub(super) async fn uncached_resource(
             .asset_client
             .request(method.clone(), url)
             .header(ACCEPT, accept)
-            .header(REFERER, provider.referer())
+            .headers(provider.headers())
             .header("accept-encoding", "identity");
         for name in [
             "cache-control",

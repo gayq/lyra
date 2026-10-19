@@ -36,14 +36,6 @@ declare global {
   }
 }
 
-try {
-  (window as unknown as Record<string, unknown>)["folioReady"] =
-    Promise.resolve();
-} catch (e) {
-  (window as unknown as Record<string, unknown>)["folioReady"] =
-    Promise.resolve();
-}
-
 let _loadInitialized = false;
 let _initialStuffDataUsed = false;
 let versionCheckRunning = false;
@@ -62,7 +54,10 @@ export function initializeLoad(): void {
   {
     const search = window.location.search;
     if (search.startsWith("?=") && [appPath("/s"), ...(isStatic ? [appPath("/index.html")] : [])].includes(window.location.pathname)) {
-      const url = decodeURIComponent(search.slice(2));
+      let url = search.slice(2);
+      try {
+        url = decodeURIComponent(url);
+      } catch {}
       history.replaceState(null, "", isStatic ? appPath("/index.html") : "/");
       setTimeout(() => {
         (window as any).Lyra?.handleSearch(url);

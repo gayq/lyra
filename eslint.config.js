@@ -1,3 +1,7 @@
+import tseslint from "typescript-eslint";
+
+const typescriptFiles = ["**/*.{ts,tsx,mts,cts}"];
+
 const runtimeGlobals = {
   AbortController: "readonly",
   AbortSignal: "readonly",
@@ -7,13 +11,20 @@ const runtimeGlobals = {
   Bun: "readonly",
   clearInterval: "readonly",
   clearTimeout: "readonly",
+  CloseEvent: "readonly",
   console: "readonly",
+  crypto: "readonly",
   document: "readonly",
   DOMException: "readonly",
+  Event: "readonly",
+  EventTarget: "readonly",
   fetch: "readonly",
   Headers: "readonly",
+  HTMLRewriter: "readonly",
   localStorage: "readonly",
   MediaSource: "readonly",
+  MessageChannel: "readonly",
+  MessageEvent: "readonly",
   performance: "readonly",
   process: "readonly",
   queueMicrotask: "readonly",
@@ -22,19 +33,32 @@ const runtimeGlobals = {
   Request: "readonly",
   Response: "readonly",
   sessionStorage: "readonly",
+  self: "readonly",
+  setImmediate: "readonly",
   setInterval: "readonly",
   setTimeout: "readonly",
   TextDecoder: "readonly",
   TextEncoder: "readonly",
+  TransformStream: "readonly",
   URL: "readonly",
+  URLSearchParams: "readonly",
+  WebSocket: "readonly",
   window: "readonly",
 };
 
 export default [
   {
+    files: ["src/static/worker.js"],
+    languageOptions: { globals: { STATIC_SOCKET_SOURCE: "readonly" } },
+  },
+  {
     ignores: [
       "dist/**",
+      "dist-static/**",
       "node_modules/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.types/**",
       "public/b/**",
       "services/**/target/**",
       "src/b/**",
@@ -52,6 +76,23 @@ export default [
     rules: {
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "no-undef": "error",
+    },
+  },
+  ...tseslint.configs.recommended.map((config) => ({
+    ...config,
+    files: typescriptFiles,
+  })),
+  {
+    files: typescriptFiles,
+    rules: {
+      "no-undef": "off",
+      "no-unused-vars": "off",
+      "prefer-const": ["error", { ignoreReadBeforeAssign: true }],
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", caughtErrors: "none" },
+      ],
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
   {

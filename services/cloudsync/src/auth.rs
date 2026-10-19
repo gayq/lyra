@@ -16,7 +16,6 @@ use jsonwebtoken::{
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::sync::Arc as StdArc;
 use std::sync::OnceLock;
 use std::time::Instant;
 use time::Duration;
@@ -144,7 +143,7 @@ fn build_session_cookie(value: String, max_age: Duration, secure: bool) -> Cooki
 pub struct AppState {
     pub jwt_secret: Zeroizing<String>,
     pub pool: crate::db::DbPool,
-    pub aes_cipher: StdArc<Aes256Gcm>,
+    pub aes_cipher: Arc<Aes256Gcm>,
     pub auth_work: Arc<AdaptiveGate>,
     pub sync_work: Arc<AdaptiveGate>,
 }

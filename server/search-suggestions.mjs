@@ -1,5 +1,6 @@
-import { negativeMessage } from "../src/core/runtime/messages.ts";
+import { NEGATIVE, negativeMessage } from "../src/core/runtime/messages.ts";
 import { availableParallelism, totalmem } from "os";
+import { httpError } from "./errors.mjs";
 
 const GOOGLE_SUGGEST_URL = "https://suggestqueries.google.com/complete/search";
 const SEARCH_SUGGESTION_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -17,9 +18,9 @@ const SEARCH_SUGGESTION_MAX_RESULTS = 8;
 const SEARCH_SUGGESTION_MAX_QUERY_LENGTH = 120;
 const SEARCH_SUGGESTION_TIMEOUT_MS = 4_000;
 
-export const SEARCH_SUGGESTION_PROVIDER = "google-suggest";
+const SEARCH_SUGGESTION_PROVIDER = "google-suggest";
 
-export function normalizeSearchSuggestionQuery(value) {
+function normalizeSearchSuggestionQuery(value) {
   return String(value || "")
     .trim()
     .replace(/\s+/g, " ")
@@ -62,8 +63,7 @@ export function createSearchSuggestionService({
   const cache = new Map();
   const inFlight = new Map();
 
-  const get = async (rawQuery) => {
-    const query = normalizeSearchSuggestionQuery(rawQuery);
+  const get = async (query) => {
     if (!query) return [];
 
     const cached = cache.get(query);
@@ -116,11 +116,25 @@ export function createSearchSuggestionService({
     return request;
   };
 
-  return {
-    get,
-    clear() {
-      cache.clear();
-      inFlight.clear();
-    },
+  return async function suggest(rawQuery) {
+    const query = normalizeSearchSuggestionQuery(rawQuery);
+    try {
+      return {
+        status: 200,
+        body: {
+          query,
+          suggestions: await get(query),
+          provider: SEARCH_SUGGESTION_PROVIDER,
+        },
+      };
+    } catch (error) {
+      console.error("search suggestion request failed:", error, NEGATIVE);
+      return httpError(
+        502,
+        "SEARCH_SUGGESTIONS_UNAVAILABLE",
+        "search suggestions are temporarily unavailable",
+        { provider: SEARCH_SUGGESTION_PROVIDER },
+      );
+    }
   };
 }

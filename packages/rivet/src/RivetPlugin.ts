@@ -66,8 +66,7 @@ function installContentScriptDocumentProxy(
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
-  let documentProxy: Document;
-  documentProxy = new Proxy(win.document, {
+  const documentProxy: Document = new Proxy(win.document, {
     get(target, property) {
       if (property === "location") return location;
       if (property === "styleSheets") return contentStyleSheets;

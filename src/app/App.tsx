@@ -5,6 +5,7 @@ import SearchBar from "../components/browser/SearchBar.tsx";
 import Bookmarks from "../components/browser/Bookmarks.tsx";
 import Footer from "../components/layout/Footer.tsx";
 import TopBar from "../components/browser/TopBar.tsx";
+import Tutorial from "../components/layout/Tutorial.tsx";
 import hachiiUrl from "../assets/images/peaks/hachii.webp";
 import konaUrl from "../assets/images/peaks/kona.webp";
 import osaUrl from "../assets/images/peaks/osa.webp";
@@ -142,6 +143,7 @@ export default function App() {
         </Suspense>
       )}
       <div id="overlay" class="overlay" />
+      <Tutorial />
     </>
   );
 }

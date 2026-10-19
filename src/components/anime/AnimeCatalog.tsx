@@ -40,7 +40,6 @@ import { useMenuView } from "../../hooks/useMenuView.ts";
 import CatalogView from "../catalog/CatalogView.tsx";
 import EpisodePickerModal from "./EpisodePickerModal.tsx";
 import AnimeResumeCard from "./AnimeResumeCard.tsx";
-import "../../assets/styles/catalog/catalog.css";
 import "../../assets/styles/anime/anime.css";
 
 const SVG_SUSHI = svgIcon("IconSushi", { size: 22, solid: true });
@@ -118,7 +117,7 @@ export default function AnimeCatalog({
     if (!loaded || allAnime.length === 0) loadAnime();
   }, [allAnime.length, loadAnime, loaded]);
 
-  const { visible, active, searchBarRef, show, hide } = useMenuView({
+  const { visible, searchBarRef, show, hide, toggle } = useMenuView({
     bodyClass: "anime-view",
     signal: animeViewSignal,
     iconId: "anime-icon",
@@ -130,11 +129,6 @@ export default function AnimeCatalog({
     onShowFrame: loadAnimeIfNeeded,
     showOnMount: openOnMount,
   });
-
-  const toggleAnime = useCallback(() => {
-    if (document.body.classList.contains("anime-view")) hide();
-    else show();
-  }, [hide, show]);
 
   useEffect(() => {
     const refresh = () => setProgress(readAnimeProgress());
@@ -178,7 +172,7 @@ export default function AnimeCatalog({
   useEffect(() => {
     window.showAnimeMenu = show;
     window.hideAnimeMenu = hide;
-    window.toggleAnimeMenu = toggleAnime;
+    window.toggleAnimeMenu = toggle;
     window.playNextEpisode = (request: {
       title: string;
       year?: number;
@@ -217,7 +211,7 @@ export default function AnimeCatalog({
     return () => {
       delete window.playNextEpisode;
     };
-  }, [hide, show, toggleAnime]);
+  }, [hide, show, toggle]);
 
   useEffect(() => {
     searchRequestIdRef.current += 1;
@@ -410,19 +404,12 @@ export default function AnimeCatalog({
       <CatalogView
         id="anime-page"
         className="anime-page"
-        topbarClassName="anime-topbar"
-        searchBarClassName="anime-search-bar"
-        searchIconClassName="anime-search-icon"
         inputId="mediaSearchInput"
-        gridContainerClassName="anime-grid-container"
-        gridClassName="anime-grid"
         visible={visible}
-        active={active}
         searchBarRef={searchBarRef}
         query={query}
         placeholder={placeholder}
         onQueryChange={setQuery}
-        gridVisible={filteredAnime.length > 0}
         showSkeleton={showSkeleton}
         items={filteredAnime}
         getCard={getAnimeCard}

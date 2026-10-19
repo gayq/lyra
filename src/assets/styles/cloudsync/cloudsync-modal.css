@@ -64,10 +64,7 @@
   transform: scale(1);
 }
 
-#auth-title {
-  font-weight: 400;
-}
-
+#auth-title,
 #auth-forms label,
 #auth-logged-in p {
   font-weight: 400;

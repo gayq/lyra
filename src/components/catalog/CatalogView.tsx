@@ -3,23 +3,17 @@ import { useRef } from "preact/hooks";
 import { IconMagnifyingGlass2 } from "../icons";
 import EditableField from "../EditableField.tsx";
 import CatalogCanvas, { type CanvasCard } from "./CatalogCanvas.tsx";
+import "../../assets/styles/catalog/catalog.css";
 
 interface CatalogViewProps<T> {
   id: string;
   className: string;
-  topbarClassName: string;
-  searchBarClassName: string;
-  searchIconClassName: string;
   inputId: string;
-  gridContainerClassName: string;
-  gridClassName: string;
   visible: boolean;
-  active: boolean;
   searchBarRef: RefObject<HTMLDivElement>;
   query: string;
   placeholder: string;
   onQueryChange: (value: string) => void;
-  gridVisible: boolean;
   showSkeleton: boolean;
   items: readonly T[];
   getCard: (item: T) => CanvasCard;
@@ -33,19 +27,12 @@ interface CatalogViewProps<T> {
 export default function CatalogView<T>({
   id,
   className,
-  topbarClassName,
-  searchBarClassName,
-  searchIconClassName,
   inputId,
-  gridContainerClassName,
-  gridClassName,
   visible,
-  active,
   searchBarRef,
   query,
   placeholder,
   onQueryChange,
-  gridVisible,
   showSkeleton,
   items,
   getCard,
@@ -58,22 +45,23 @@ export default function CatalogView<T>({
   const opened = useRef(false);
   if (visible) opened.current = true;
   if (!opened.current) return null;
+  const gridVisible = items.length > 0 || showSkeleton;
 
   return (
     <section
       id={id}
-      class={`${className}${visible ? " is-visible" : ""}${active ? " is-active" : ""}`}
-      aria-hidden={!active}
+      class={`catalog-page ${className}${visible ? " is-visible is-active" : ""}`}
+      aria-hidden={!visible}
     >
-      <div class={topbarClassName}>
+      <div class="catalog-topbar">
         <div
-          class={`search-bar catalog-search-bar ${searchBarClassName}`}
+          class="search-bar catalog-search-bar"
           ref={searchBarRef}
         >
           <div class="light"></div>
           <div class="light-border"></div>
           <div class="light-inset-bg"></div>
-          <IconMagnifyingGlass2 class={searchIconClassName} />
+          <IconMagnifyingGlass2 class="catalog-search-icon" />
           <EditableField
             id={inputId}
             label={placeholder}
@@ -84,11 +72,10 @@ export default function CatalogView<T>({
         </div>
       </div>
 
-      <div class={gridContainerClassName}>
+      <div class="catalog-grid-container">
         {beforeGrid}
         <div
-          class={gridClassName}
-          style={gridVisible || showSkeleton ? "display:block" : "display:none"}
+          style={gridVisible ? "display:block" : "display:none"}
         >
           <CatalogCanvas
             items={items}
@@ -96,7 +83,7 @@ export default function CatalogView<T>({
             onSelect={onSelect}
             anime={anime}
             loading={showSkeleton}
-            active={visible && active && (gridVisible || showSkeleton)}
+            active={visible && gridVisible}
           />
         </div>
         {emptyMessage && <p class="no-results">{emptyMessage}</p>}

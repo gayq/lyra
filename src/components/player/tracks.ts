@@ -174,6 +174,24 @@ export function trackLabel(
   return `${type} ${index + 1}`;
 }
 
+export function audioLabels(tracks: AudioTrack[], compact: boolean): string[] {
+  const languages = tracks.map((track) =>
+    trackLanguage(track.language, track.label).split("-")[0],
+  );
+  const versions =
+    compact &&
+    languages.every((language) => language === "ja" || language === "en");
+  return tracks.map((track, index) => {
+    const label = versions
+      ? languages[index] === "ja"
+        ? "sub"
+        : "dub"
+      : trackLabel(track, index, "audio");
+    const role = trackRole(track);
+    return versions && role !== "main" ? `${label} (${role})` : label;
+  });
+}
+
 export function subtitleLabels(tracks: SubtitleTrack[]): string[] {
   const labels = tracks.map((track, index) => {
     const label = trackLabel(track, index, "subtitles");
@@ -236,6 +254,14 @@ function readPreference(
     label,
     role: trackRole({ label }),
   };
+}
+
+export function preferredAudioVersion(
+  saved: string,
+  fallback: "sub" | "dub",
+): "sub" | "dub" {
+  const language = readPreference(saved)?.language.split("-")[0];
+  return language === "ja" ? "sub" : language === "en" ? "dub" : fallback;
 }
 
 function languageMatch(language: string, preferred: string): number {

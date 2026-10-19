@@ -16,7 +16,7 @@ export default function AnimeResumeCard({
 }) {
   const image = useImageLoad(progress.posterUrl);
   return (
-    <button type="button" class="anime-card anime-resume-card" onClick={onResume}>
+    <button type="button" class="anime-resume-card" onClick={onResume}>
       <span
         class={`poster-cover${image.loaded ? " loaded" : ""}${image.errored ? " no-cover" : ""}`}
       >

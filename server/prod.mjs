@@ -8,16 +8,12 @@ import { availableParallelism, totalmem } from "os";
 import { httpError } from "./errors.mjs";
 import { createDnsService } from "./dns.mjs";
 import { createPresence } from "./presence.mjs";
+import { turnConfig } from "./turn.mjs";
 import {
-  NEGATIVE,
   negativeMessage,
   positiveMessage,
 } from "../src/core/runtime/messages.ts";
-import {
-  createSearchSuggestionService,
-  normalizeSearchSuggestionQuery,
-  SEARCH_SUGGESTION_PROVIDER,
-} from "./searchSuggestions.mjs";
+import { createSearchSuggestionService } from "./search-suggestions.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 import { productionStaticGateway } from "./static-backend.mjs";
 import {
@@ -128,31 +124,11 @@ try {
 } catch {}
 
 function turnConfigForRequest(req) {
-  if (process.env.WEBRTC_TURN_ENABLED === "0") {
-    return { enabled: false, forceRelay: false, iceServers: [] };
-  }
   const host =
-    process.env.TURN_HOST ||
     req.headers.get("x-forwarded-host")?.split(",")[0]?.trim().split(":")[0] ||
     req.headers.get("host")?.split(":")[0] ||
     "lyra.lat";
-  const port = process.env.TURN_PORT || "3478";
-  const username = process.env.TURN_USERNAME || "lyly";
-  const credential = process.env.TURN_CREDENTIAL || "rara";
-  return {
-    enabled: true,
-    forceRelay: process.env.WEBRTC_FORCE_RELAY !== "0",
-    iceServers: [
-      {
-        urls: [
-          `turn:${host}:${port}?transport=udp`,
-          `turn:${host}:${port}?transport=tcp`,
-        ],
-        username,
-        credential,
-      },
-    ],
-  };
+  return turnConfig(host);
 }
 
 const buildFingerprint = (() => {
@@ -429,43 +405,24 @@ setInterval(() => {
 
 async function routeStatic(req, pathname) {
   if (pathname.toLowerCase().endsWith(".map")) return null;
-  const versionedMounts = [
+  const mounts = [
     ["/bmux/", baremuxPath],
     ["/epoxy/", epoxyPath],
     ["/libcurl/", libcurlPath],
   ];
-  for (const [prefix, root] of versionedMounts) {
-    const response = await serveMounted(
-      req,
-      pathname,
-      `${prefix}${buildFingerprint}/`,
-      root,
-      IMMUTABLE_CACHE_CONTROL,
-    );
-    if (response) return response;
+  for (const versioned of [true, false]) {
+    for (const [prefix, root] of mounts) {
+      const response = await serveMounted(
+        req,
+        pathname,
+        versioned ? `${prefix}${buildFingerprint}/` : prefix,
+        root,
+        versioned ? IMMUTABLE_CACHE_CONTROL : REVALIDATE_CACHE_CONTROL,
+      );
+      if (response) return response;
+    }
   }
   return (
-    (await serveMounted(
-      req,
-      pathname,
-      "/bmux/",
-      baremuxPath,
-      REVALIDATE_CACHE_CONTROL,
-    )) ||
-    (await serveMounted(
-      req,
-      pathname,
-      "/epoxy/",
-      epoxyPath,
-      REVALIDATE_CACHE_CONTROL,
-    )) ||
-    (await serveMounted(
-      req,
-      pathname,
-      "/libcurl/",
-      libcurlPath,
-      REVALIDATE_CACHE_CONTROL,
-    )) ||
     (await serveDistFile(req, pathname)) ||
     (await serveMounted(
       req,
@@ -660,34 +617,8 @@ async function appFetch(req, server) {
   }
 
   if (pathname === "/api/search/suggestions" && method === "GET") {
-    const query = normalizeSearchSuggestionQuery(
-      url.searchParams.get("q") || "",
-    );
-    if (!query) {
-      return jsonResponse({
-        query: "",
-        suggestions: [],
-        provider: SEARCH_SUGGESTION_PROVIDER,
-      });
-    }
-
-    try {
-      const suggestions = await searchSuggestionService.get(query);
-      return jsonResponse({
-        query,
-        suggestions,
-        provider: SEARCH_SUGGESTION_PROVIDER,
-      });
-    } catch (error) {
-      console.error("search suggestion request failed:", error, NEGATIVE);
-      const failure = httpError(
-        502,
-        "SEARCH_SUGGESTIONS_UNAVAILABLE",
-        "search suggestions are temporarily unavailable",
-        { provider: SEARCH_SUGGESTION_PROVIDER },
-      );
-      return jsonResponse(failure.body, failure.status);
-    }
+    const result = await searchSuggestionService(url.searchParams.get("q"));
+    return jsonResponse(result.body, result.status);
   }
 
   if (!canServeBody) {

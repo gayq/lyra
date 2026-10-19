@@ -3,84 +3,35 @@ body.anime-view footer {
   display: none !important;
 }
 
-body.anime-view .anime-topbar {
+body.anime-view .catalog-topbar {
   flex-direction: column;
   align-items: center;
   gap: 12px;
 }
 
-.anime-grid-container {
-  margin-top: -80px;
-}
-
-.anime-grid {
-  display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(min(var(--catalog-card-min-width), 100%), 1fr)
-  );
-  gap: var(--catalog-card-gap);
-}
-
-.anime-card {
-  aspect-ratio: var(--catalog-poster-ratio);
-  contain-intrinsic-size: 150px 225px;
-}
-
-.anime-card:hover {
-  transform: scale(1.04);
-  z-index: 5;
-}
-
-.anime-info {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: var(--catalog-card-inset);
-  box-sizing: border-box;
-  z-index: 2;
-}
-
-.anime-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--catalog-meta-size);
-  color: var(--game-info-text);
-  margin-top: 2px;
-}
-
-.anime-year {
-  font-weight: 400;
-}
-
-.anime-rating {
-  font-weight: 600;
-}
-
-.anime-adult-badge {
-  background: rgba(239, 68, 68, 0.85);
-  color: #fff;
-  padding: 1px 4px;
-  border-radius: var(--radius-detail);
-  font-size: 9px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.anime-grid-container:has(.anime-resume-card) {
+.catalog-grid-container:has(.anime-resume-card) {
   display: flex;
   flex-direction: column;
   gap: var(--catalog-section-gap);
 }
 
 .anime-resume-card {
+  border-radius: var(--radius-item);
+  background-color: var(--game-card-bg);
+  width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  contain: layout style paint;
+  content-visibility: auto;
+  backface-visibility: hidden;
   display: flex;
   align-items: center;
   gap: var(--catalog-card-gap);
   aspect-ratio: auto;
-  contain-intrinsic-size: auto;
+  contain-intrinsic-size: auto 150px auto 225px;
   border: 0;
   font: inherit;
   text-align: left;
@@ -90,14 +41,10 @@ body.anime-view .anime-topbar {
     transform var(--motion-control) var(--motion-ease);
 }
 
-.anime-resume-card::before,
-.anime-resume-card::after {
-  content: none;
-}
-
 .anime-resume-card:hover {
   background-color: var(--hover-bg);
   transform: none;
+  z-index: 5;
 }
 
 .anime-resume-card:focus-visible {
@@ -106,6 +53,8 @@ body.anime-view .anime-topbar {
 
 .anime-resume-card .poster-cover {
   position: relative;
+  border-radius: inherit;
+  overflow: hidden;
   inset: auto;
   width: calc(var(--catalog-card-min-width) / 2);
   height: auto;
@@ -116,6 +65,9 @@ body.anime-view .anime-topbar {
 
 .anime-resume-card .anime-info {
   position: relative;
+  padding: var(--catalog-card-inset);
+  box-sizing: border-box;
+  z-index: 2;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -137,4 +89,54 @@ body.anime-view .anime-topbar {
   flex-shrink: 0;
   margin-right: var(--catalog-section-gap);
   color: var(--color-icon);
+}
+
+.poster-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  filter: brightness(var(--game-cover-brightness));
+  transition:
+    opacity var(--motion-control) var(--motion-ease),
+    filter var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
+}
+
+.poster-cover.loaded img {
+  opacity: 1;
+}
+
+.anime-resume-card:hover .poster-cover img {
+  filter: brightness(1);
+  transform: scale(1.05);
+}
+
+.poster-cover.no-cover {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.poster-cover.no-cover img {
+  display: none;
+}
+
+.poster-cover.no-cover::before {
+  content: none;
+}
+
+.no-cover-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--game-no-cover-line);
+  pointer-events: none;
+  line-height: 0;
+}
+
+.no-cover-icon svg {
+  display: block;
 }

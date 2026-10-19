@@ -59,6 +59,13 @@ pub struct FolioMetrics {
     pub upstream_errors: AtomicU64,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum StreamFillState {
+    Complete,
+    Failed,
+    Interrupted,
+}
+
 pub struct AppState {
     pub websocket_permit: Arc<tokio::sync::Semaphore>,
     pub memory_pressure: Arc<crate::memory::MemoryPressure>,
@@ -67,7 +74,7 @@ pub struct AppState {
     pub raw_client: Client,
     pub cache: Cache<String, Arc<CachedResponse>>,
     pub stream_cache: Cache<String, Arc<CachedResponse>>,
-    pub stream_fills: Cache<String, Arc<Mutex<Option<bool>>>>,
+    pub stream_fills: Cache<String, Arc<Mutex<Option<StreamFillState>>>>,
     pub folio_cache: Cache<String, Arc<FolioCachedResponse>>,
     pub folio_cache_generation: AtomicU64,
     pub folio_metrics: FolioMetrics,
@@ -87,14 +94,10 @@ pub struct AppState {
 }
 
 pub const CDN_DOMAINS: &[&str] = &[
-    "site-assets.fontawesome.com",
-    "ka-f.fontawesome.com",
-    "kit.fontawesome.com",
     "cdn.cloudflare.com",
     "ajax.googleapis.com",
     "cdn.jsdelivr.net",
     "raw.githubusercontent.com",
-    "gn-math.dev",
     "fonts.googleapis.com",
     "fonts.gstatic.com",
 ];

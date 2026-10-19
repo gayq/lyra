@@ -95,44 +95,18 @@ fn main() -> AppResult<()> {
     runtime.block_on(async_main(tuning))
 }
 
-fn public_redirect_policy() -> Policy {
-    Policy::custom(|attempt| {
-        if attempt.previous().len() >= 10 {
-            return attempt.error("too many redirects... /ᐠ - ˕ -マ");
-        }
-        let url = attempt.url();
-        let port_allowed = url
-            .port_or_known_default()
-            .is_some_and(|port| port == 80 || port == 443 || port >= 1024);
-        let host_allowed = url
-            .host_str()
-            .map(|host| {
-                let normalized = host.trim_end_matches('.').to_ascii_lowercase();
-                !normalized.is_empty()
-                    && normalized != "localhost"
-                    && !normalized.ends_with(".localhost")
-                    && !normalized.ends_with(".local")
-                    && !normalized.ends_with(".internal")
-                    && !normalized.ends_with(".home.arpa")
-                    && normalized
-                        .trim_matches(['[', ']'])
-                        .parse::<std::net::IpAddr>()
-                        .map(safe_dns::is_public_ip)
-                        .unwrap_or(true)
-            })
-            .unwrap_or(false);
-
-        if (url.scheme() != "http" && url.scheme() != "https")
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || !port_allowed
-            || !host_allowed
-        {
-            attempt.error("redirect target is not allowed... /ᐠ - ˕ -マ")
-        } else {
-            attempt.follow()
-        }
-    })
+fn upstream_client(pool_idle_timeout_secs: u64) -> reqwest::ClientBuilder {
+    Client::builder()
+        .no_proxy()
+        .retry(reqwest::retry::never())
+        .user_agent(BROWSER_USER_AGENT)
+        .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
+        .pool_idle_timeout(Duration::from_secs(pool_idle_timeout_secs))
+        .tcp_nodelay(true)
+        .tcp_keepalive(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(10))
+        .http2_keep_alive_interval(Duration::from_secs(15))
+        .http2_keep_alive_timeout(Duration::from_secs(20))
 }
 
 async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
@@ -169,52 +143,22 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .time_to_live(Duration::from_secs(tuning.cache_ttl_secs))
         .build();
 
-    let asset_client = Client::builder()
-        .no_proxy()
-        .retry(reqwest::retry::never())
-        .user_agent(BROWSER_USER_AGENT)
-        .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
-        .redirect(public_redirect_policy())
-        .pool_idle_timeout(Duration::from_secs(tuning.pool_idle_timeout_secs))
+    let asset_client = upstream_client(tuning.pool_idle_timeout_secs)
+        .redirect(safe_dns::redirect_policy())
         .pool_max_idle_per_host(tuning.pool_idle_per_host_asset)
-        .tcp_nodelay(true)
-        .tcp_keepalive(Duration::from_secs(60))
         .read_timeout(Duration::from_secs(60))
-        .connect_timeout(Duration::from_secs(10))
-        .http2_keep_alive_interval(Duration::from_secs(15))
-        .http2_keep_alive_timeout(Duration::from_secs(20))
         .build()?;
 
-    let html_client = Client::builder()
-        .no_proxy()
-        .retry(reqwest::retry::never())
-        .user_agent(BROWSER_USER_AGENT)
-        .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
-        .redirect(public_redirect_policy())
-        .pool_idle_timeout(Duration::from_secs(tuning.pool_idle_timeout_secs))
+    let html_client = upstream_client(tuning.pool_idle_timeout_secs)
+        .redirect(safe_dns::redirect_policy())
         .pool_max_idle_per_host(tuning.pool_idle_per_host_html)
-        .tcp_nodelay(true)
-        .tcp_keepalive(Duration::from_secs(60))
         .read_timeout(Duration::from_secs(60))
-        .connect_timeout(Duration::from_secs(10))
-        .http2_keep_alive_interval(Duration::from_secs(15))
-        .http2_keep_alive_timeout(Duration::from_secs(20))
         .build()?;
 
-    let raw_client = Client::builder()
-        .no_proxy()
-        .retry(reqwest::retry::never())
-        .user_agent(BROWSER_USER_AGENT)
+    let raw_client = upstream_client(tuning.pool_idle_timeout_secs)
         .redirect(Policy::none())
-        .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
-        .pool_idle_timeout(Duration::from_secs(tuning.pool_idle_timeout_secs))
         .pool_max_idle_per_host(tuning.pool_idle_per_host_asset)
-        .tcp_nodelay(true)
-        .tcp_keepalive(Duration::from_secs(60))
         .read_timeout(Duration::from_secs(120))
-        .connect_timeout(Duration::from_secs(10))
-        .http2_keep_alive_interval(Duration::from_secs(15))
-        .http2_keep_alive_timeout(Duration::from_secs(20))
         .build()?;
 
     let patterns = [

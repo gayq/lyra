@@ -8,11 +8,7 @@ import {
 import { store, useStore } from "../../state/store.ts";
 import { useManagedModal } from "../../core/ui/modal.ts";
 import "../../assets/styles/browser/new-tab-modal.css";
-import {
-  fetchGameData,
-  searchGames,
-  type GameEntry,
-} from "../../features/games/games.ts";
+import { searchGames } from "../../features/games/games.ts";
 import {
   buildAnimePlaybackUrl,
   searchAnime,
@@ -23,30 +19,10 @@ import { readAnimeLanguage } from "../../core/media/animeSettings.ts";
 import { fetchSearchSuggestions } from "../../features/search/searchSuggestions.ts";
 import { parseNewTabQuery } from "../../features/search/newTabSearch.ts";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue.ts";
-import { getStoredGameSource } from "../../core/config/settingsOptions.ts";
-import { NEGATIVE } from "../../core/runtime/messages.ts";
+import { useGameCatalog } from "../../features/games/useGameCatalog.ts";
 import { IconMagnifyingGlass2, IconGamecontroller, IconSushi } from "../icons";
 import { TabIcon } from "./TabIcon.tsx";
 import EditableField from "../EditableField.tsx";
-
-function loadNewTabGameData() {
-  return fetchGameData().catch((err) => {
-    console.error("failed to load new tab game data:", err, NEGATIVE);
-    return [];
-  });
-}
-
-function replaceGames(games: readonly GameEntry[]): boolean {
-  const unchanged =
-    store.allGames.length === games.length &&
-    games.every((game, index) => store.allGames[index] === game);
-  if (unchanged) return false;
-
-  store.allGames.splice(0, store.allGames.length, ...games);
-  window.Lyra.allGames = store.allGames;
-  store.notify();
-  return true;
-}
 
 export default function NewTabModal({
   openOnMount = false,
@@ -58,10 +34,6 @@ export default function NewTabModal({
   const [mode, setMode] = useState("newTab");
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLDivElement>(null);
-  const loadGeneration = useRef(0);
-  const loadedGameSourceRef = useRef<string | null>(null);
-  const [catalogVersion, setCatalogVersion] = useState(0);
-  const [gamesLoading, setGamesLoading] = useState(false);
   const [animeResults, setAnimeResults] = useState<AnimeEntry[]>([]);
   const [animeResultQuery, setAnimeResultQuery] = useState("");
   const [animeSearching, setAnimeSearching] = useState(false);
@@ -77,6 +49,11 @@ export default function NewTabModal({
   const activeTabId = useStore((s) => s.activeTabId);
   const splitPair = useStore((s) => s.splitPair) || { left: null, right: null };
   const isPickingSplitTab = useStore((s) => s.isPickingSplitTab);
+  const {
+    games,
+    loaded: gamesLoaded,
+    loading: gamesLoading,
+  } = useGameCatalog(visible && !isClosing && !isPickingSplitTab);
   const parsedSearch = useMemo(() => parseNewTabQuery(query), [query]);
   const debouncedAnimeQuery = useDebouncedValue(
     parsedSearch.mode === "anime" ? parsedSearch.query.trim() : "",
@@ -123,93 +100,8 @@ export default function NewTabModal({
     if (isClosing) return;
     setQuery("");
     if (inputRef.current) inputRef.current.textContent = "";
-
-    if (isPickingSplitTab) {
-      loadGeneration.current += 1;
-      setGamesLoading(false);
-      setMode("splitSelect");
-    } else {
-      setMode("newTab");
-      const requestGeneration = ++loadGeneration.current;
-      const sourceAtStart = getStoredGameSource();
-      if (visible && !isClosing) {
-        if (
-          loadedGameSourceRef.current === sourceAtStart &&
-          store.allGames.length > 0
-        ) {
-          setGamesLoading(false);
-          return;
-        }
-        setGamesLoading(true);
-        void loadNewTabGameData().then((games) => {
-          if (
-            requestGeneration !== loadGeneration.current ||
-            sourceAtStart !== getStoredGameSource()
-          ) {
-            return;
-          }
-          if (games.length > 0) loadedGameSourceRef.current = sourceAtStart;
-          if (replaceGames(games)) {
-            setCatalogVersion((version) => version + 1);
-          }
-          setGamesLoading(false);
-        });
-      }
-    }
+    setMode(isPickingSplitTab ? "splitSelect" : "newTab");
   }, [isPickingSplitTab, visible, isClosing]);
-
-  useEffect(() => {
-    const handleCatalogUpdated = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{ source?: string; games?: GameEntry[] }>
-      ).detail;
-      if (!detail?.games || detail.source !== getStoredGameSource()) {
-        return;
-      }
-      loadGeneration.current += 1;
-      loadedGameSourceRef.current = detail.source;
-      if (replaceGames(detail.games)) {
-        setCatalogVersion((version) => version + 1);
-      }
-      setGamesLoading(false);
-    };
-    const handleSourceUpdated = () => {
-      loadGeneration.current += 1;
-      loadedGameSourceRef.current = null;
-      store.allGames.length = 0;
-      window.Lyra.allGames = store.allGames;
-      store.notify();
-      setCatalogVersion((version) => version + 1);
-      if (visible && !isClosing && !isPickingSplitTab) {
-        setGamesLoading(true);
-        const requestGeneration = ++loadGeneration.current;
-        const sourceAtStart = getStoredGameSource();
-        void loadNewTabGameData().then((games) => {
-          if (
-            requestGeneration !== loadGeneration.current ||
-            sourceAtStart !== getStoredGameSource()
-          ) {
-            return;
-          }
-          if (games.length > 0) loadedGameSourceRef.current = sourceAtStart;
-          if (replaceGames(games)) {
-            setCatalogVersion((version) => version + 1);
-          }
-          setGamesLoading(false);
-        });
-      }
-    };
-    window.addEventListener("lyra:game-catalog-updated", handleCatalogUpdated);
-    document.addEventListener("gameSourceUpdated", handleSourceUpdated);
-    return () => {
-      window.removeEventListener(
-        "lyra:game-catalog-updated",
-        handleCatalogUpdated,
-      );
-      document.removeEventListener("gameSourceUpdated", handleSourceUpdated);
-      loadGeneration.current += 1;
-    };
-  }, [visible, isClosing, isPickingSplitTab]);
 
   useEffect(() => {
     animeRequestIdRef.current += 1;
@@ -312,6 +204,14 @@ export default function NewTabModal({
 
   useEffect(() => {
     if (!visible) return;
+    let blurTimeout: number | undefined;
+    const cancelSelection = () => {
+      requestClose();
+      if (store.isPickingSplitTab) {
+        store.isPickingSplitTab = false;
+        store.updateIframeView();
+      }
+    };
     const outsideClick = (e: MouseEvent) => {
       const target = e.target as Node | null;
       const modal = document.getElementById("new-tab-modal");
@@ -324,37 +224,23 @@ export default function NewTabModal({
         !addBtn.contains(target) &&
         (!splitBtn || !splitBtn.contains(target))
       ) {
-        requestClose();
-        if (store.isPickingSplitTab) {
-          store.isPickingSplitTab = false;
-          store.updateIframeView();
-        }
+        cancelSelection();
       }
     };
     const onBlur = () => {
-      window.setTimeout(() => {
-        if (document.activeElement?.tagName === "IFRAME") {
-          requestClose();
-          if (store.isPickingSplitTab) {
-            store.isPickingSplitTab = false;
-            store.updateIframeView();
-          }
-        }
+      if (blurTimeout !== undefined) window.clearTimeout(blurTimeout);
+      blurTimeout = window.setTimeout(() => {
+        if (document.activeElement?.tagName === "IFRAME") cancelSelection();
       }, 0);
     };
     const onEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        requestClose();
-        if (store.isPickingSplitTab) {
-          store.isPickingSplitTab = false;
-          store.updateIframeView();
-        }
-      }
+      if (e.key === "Escape") cancelSelection();
     };
     window.addEventListener("click", outsideClick);
     window.addEventListener("blur", onBlur);
     document.addEventListener("keydown", onEscape);
     return () => {
+      if (blurTimeout !== undefined) window.clearTimeout(blurTimeout);
       window.removeEventListener("click", outsideClick);
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("keydown", onEscape);
@@ -415,11 +301,8 @@ export default function NewTabModal({
     ) {
       return [];
     }
-    return searchGames(store.allGames as GameEntry[], parsedSearch.query).slice(
-      0,
-      4,
-    );
-  }, [catalogVersion, mode, parsedSearch.mode, parsedSearch.query]);
+    return searchGames(games, parsedSearch.query).slice(0, 4);
+  }, [games, mode, parsedSearch.mode, parsedSearch.query]);
 
   const filteredAnime = useMemo(() => {
     if (
@@ -481,7 +364,7 @@ export default function NewTabModal({
           : parsedSearch.mode === "games"
             ? gamesLoading ||
               filteredGames.length > 0 ||
-              (!gamesLoading && catalogVersion > 0)
+              (!gamesLoading && gamesLoaded)
             : animeSearching ||
               (!animeSearching && animeResultQuery === normalizedCatalogQuery);
 
@@ -601,14 +484,12 @@ export default function NewTabModal({
                     <span>fetching games...</span>
                   </div>
                 )}
-                {!gamesLoading &&
-                  catalogVersion > 0 &&
-                  filteredGames.length === 0 && (
-                    <div class="new-tab-result-item new-tab-result-status">
-                      <IconGamecontroller />
-                      <span>no games found</span>
-                    </div>
-                  )}
+                {!gamesLoading && gamesLoaded && filteredGames.length === 0 && (
+                  <div class="new-tab-result-item new-tab-result-status">
+                    <IconGamecontroller />
+                    <span>no games found</span>
+                  </div>
+                )}
               </>
             )}
           {mode === "newTab" &&

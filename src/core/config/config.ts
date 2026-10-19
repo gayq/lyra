@@ -22,11 +22,12 @@ export const DEFAULT_BOOKMARKS: Bookmark[] = [
   { name: "youtube", url: "https://youtube.com/" },
 ];
 
+
 export const SEARCH_ENGINES = {
   duckduckgo: "https://duckduckgo.com/?q=",
   brave: "https://search.brave.com/search?q=",
-  startpage: "https://startpage.com/search?q=",
-  mojeek: "https://www.mojeek.com/search?q=",
+  "4get": "https://4get.ca/web?s=",
+  yep: "https://yep.com/?q=",
   swisscows: "https://swisscows.com/en/web?query=",
   google: "https://www.google.com/search?q=",
 } as const;
@@ -35,8 +36,8 @@ export type SearchEngineKey = keyof typeof SEARCH_ENGINES;
 export const SEARCH_ENGINE_OPTIONS = [
   "duckduckgo",
   "brave",
-  "startpage",
-  "mojeek",
+  "4get",
+  "yep",
   "swisscows",
   "google",
 ] as const satisfies readonly SearchEngineKey[];

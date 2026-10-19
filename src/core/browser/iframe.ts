@@ -666,7 +666,7 @@ function updateTabDetails(iframe: HTMLIFrameElement): void {
     ) {
       const MAX_RELOADS = 3;
       const MIN_INTERVAL_MS = 1200;
-      let reloadCount = parseInt(iframe.dataset.reloadCount || "0", 10);
+      const reloadCount = parseInt(iframe.dataset.reloadCount || "0", 10);
       const lastReloadAt = parseInt(iframe.dataset.lastReloadAt || "0", 10);
       const now = Date.now();
       const cooldownReached =

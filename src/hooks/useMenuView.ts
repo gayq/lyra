@@ -26,7 +26,6 @@ interface MenuViewOptions {
 
 interface MenuViewState {
   visible: boolean;
-  active: boolean;
   searchBarRef: preact.RefObject<HTMLDivElement>;
   show: () => void;
   hide: () => void;
@@ -48,7 +47,6 @@ export function useMenuView({
   showOnMount = false,
 }: MenuViewOptions): MenuViewState {
   const [visible, setVisible] = useState(false);
-  const [active, setActive] = useState(false);
   const searchBarRef = useRef<HTMLDivElement | null>(null);
   const scrollTargetRef = useRef<ScrollTarget | null>(null);
   const savedScrollRef = useRef(0);
@@ -60,7 +58,6 @@ export function useMenuView({
     const target = scrollTargetRef.current;
     if (target) savedScrollRef.current = getScrollTop(target);
 
-    setActive(false);
     signal.value = false;
     setVisible(false);
     document.body.classList.remove(bodyClass);
@@ -82,7 +79,6 @@ export function useMenuView({
     document.body.classList.add(bodyClass);
     signal.value = true;
     setVisible(true);
-    setActive(true);
 
     requestAnimationFrame(() => {
       const target = scrollTargetRef.current;
@@ -175,5 +171,5 @@ export function useMenuView({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [hide, visible]);
 
-  return { visible, active, searchBarRef, show, hide, toggle };
+  return { visible, searchBarRef, show, hide, toggle };
 }

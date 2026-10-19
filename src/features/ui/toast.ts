@@ -37,55 +37,32 @@ function initToast(): void {
     );
     const visibleStackedCount = 3;
 
-    if (isHovered) {
-      const hoverGap = 13;
-      const heights = toasts.map((t) => t.offsetHeight);
-      let cumulativeHeight = 0;
-      toasts.forEach((toast, index) => {
-        toast.style.zIndex = String(toasts.length - index);
-        if (index < visibleStackedCount) {
-          const tf = `translateY(-${cumulativeHeight}px) scale(1)`;
-          toast.style.transform = tf;
-          toast.dataset.baseTransform = tf;
-          toast.style.opacity = "1";
-          toast.style.visibility = "";
-          toast.style.pointerEvents = "";
-          cumulativeHeight += heights[index]! + hoverGap;
-        } else {
-          toast.style.transform = "translateY(0) scale(0.9)";
-          toast.dataset.baseTransform = "translateY(0) scale(0.9)";
-          toast.style.opacity = "0";
-          toast.style.visibility = "hidden";
-          toast.style.pointerEvents = "none";
-          const ctrl = activeToasts.get(toast);
-          if (ctrl) ctrl.pause();
-        }
-      });
-    } else {
-      toasts.forEach((toast, index) => {
-        toast.style.zIndex = String(toasts.length - index);
-        if (index < visibleStackedCount) {
-          const scale = 1 - index * 0.05;
-          const translateY = index * -12;
-          const tf = `translateY(${translateY}px) scale(${scale})`;
-          toast.style.transform = tf;
-          toast.dataset.baseTransform = tf;
-          toast.style.opacity = "1";
-          toast.style.visibility = "";
-          toast.style.pointerEvents = "";
-          const ctrl = activeToasts.get(toast);
-          if (ctrl && !ctrl.id && ctrl.remaining > 0) ctrl.start();
-        } else {
-          toast.style.transform = "translateY(0) scale(0.9)";
-          toast.dataset.baseTransform = "translateY(0) scale(0.9)";
-          toast.style.opacity = "0";
-          toast.style.visibility = "hidden";
-          toast.style.pointerEvents = "none";
-          const ctrl = activeToasts.get(toast);
-          if (ctrl) ctrl.pause();
-        }
-      });
-    }
+    const heights = isHovered ? toasts.map((toast) => toast.offsetHeight) : [];
+    let cumulativeHeight = 0;
+    toasts.forEach((toast, index) => {
+      const ctrl = activeToasts.get(toast);
+      toast.style.zIndex = String(toasts.length - index);
+      if (index >= visibleStackedCount) {
+        toast.style.transform = "translateY(0) scale(0.9)";
+        toast.dataset.baseTransform = "translateY(0) scale(0.9)";
+        toast.style.opacity = "0";
+        toast.style.visibility = "hidden";
+        toast.style.pointerEvents = "none";
+        ctrl?.pause();
+        return;
+      }
+
+      const transform = isHovered
+        ? `translateY(-${cumulativeHeight}px) scale(1)`
+        : `translateY(${index * -12}px) scale(${1 - index * 0.05})`;
+      toast.style.transform = transform;
+      toast.dataset.baseTransform = transform;
+      toast.style.opacity = "1";
+      toast.style.visibility = "";
+      toast.style.pointerEvents = "";
+      if (isHovered) cumulativeHeight += heights[index]! + 13;
+      else if (ctrl && !ctrl.id && ctrl.remaining > 0) ctrl.start();
+    });
   };
 
   window.showToast = function (
@@ -159,7 +136,6 @@ function initToast(): void {
         }
       },
       start: function () {
-        if (this.remaining === 0) return;
         if (this.id || this.remaining <= 0) return;
         this.startTime = Date.now();
         this.id = setTimeout(() => hideToast(toast), this.remaining);

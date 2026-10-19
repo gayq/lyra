@@ -73,17 +73,18 @@ pub(super) async fn response(
 pub(super) fn webvtt(body: &[u8]) -> Result<String, ResolveError> {
     let decoded;
     let text = if body.starts_with(&[0xff, 0xfe]) || body.starts_with(&[0xfe, 0xff]) {
-        if body.len() % 2 != 0 {
+        let (pairs, remainder) = body[2..].as_chunks::<2>();
+        if !remainder.is_empty() {
             return Err(ResolveError::Upstream);
         }
         let little_endian = body[0] == 0xff;
-        let units = body[2..]
-            .chunks_exact(2)
+        let units = pairs
+            .iter()
             .map(|pair| {
                 if little_endian {
-                    u16::from_le_bytes([pair[0], pair[1]])
+                    u16::from_le_bytes(*pair)
                 } else {
-                    u16::from_be_bytes([pair[0], pair[1]])
+                    u16::from_be_bytes(*pair)
                 }
             })
             .collect::<Vec<_>>();
