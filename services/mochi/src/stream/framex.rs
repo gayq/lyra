@@ -4,10 +4,14 @@ use super::{
     EpisodeKey, ResolveError, ResolvedSource, StreamProvider, FAILED_SOURCES, MAX_METADATA_BYTES,
 };
 use base64::Engine as _;
+use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, REFERER};
 use serde_json::{json, Value};
 use std::{
-    sync::{Arc, LazyLock},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, LazyLock,
+    },
     time::Duration,
 };
 use url::Url;
@@ -17,7 +21,6 @@ mod vidfast;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(super) enum MovieServer {
-    Miner,
     Valkyrie,
     Boise,
     HogRider,
@@ -26,8 +29,7 @@ pub(super) enum MovieServer {
 }
 
 impl MovieServer {
-    pub(super) const ALL: [Self; 6] = [
-        Self::Miner,
+    pub(super) const ALL: [Self; 5] = [
         Self::Valkyrie,
         Self::Boise,
         Self::HogRider,
@@ -37,7 +39,6 @@ impl MovieServer {
 
     fn id(self) -> &'static str {
         match self {
-            Self::Miner => "miner",
             Self::Valkyrie | Self::Boise => "valkyrie",
             Self::HogRider => "hog_rider",
             Self::LavaHound => "lavahound",
@@ -47,7 +48,6 @@ impl MovieServer {
 
     pub(super) fn referer(self) -> &'static str {
         match self {
-            Self::Miner => "https://www.movy.bz/",
             Self::Valkyrie | Self::Boise => "https://player.videasy.to/",
             Self::HogRider => "https://vidup.to/",
             Self::LavaHound => "https://vidfast.vc/",
@@ -65,6 +65,8 @@ static MOVIE_JSON: LazyLock<moka::future::Cache<String, Value>> = LazyLock::new(
 
 const API: &str = "https://api.framextv.tech";
 const API_FALLBACK: &str = "https://api.framextv.xyz";
+const ANIME_APIS: [&str; 3] = [API, API_FALLBACK, "https://api.framextv.cc"];
+static ANIME_API: AtomicUsize = AtomicUsize::new(0);
 
 static ANIME_SOURCES: LazyLock<moka::future::Cache<(i64, i32), Arc<Vec<ResolvedSource>>>> =
     LazyLock::new(|| {
@@ -168,7 +170,7 @@ async fn movie_json(client: &reqwest::Client, url: &str) -> Result<Value, Resolv
     let response = send_with_retry(|| {
         client
             .get(url)
-            .header(REFERER, "https://framextv.xyz/")
+            .header(REFERER, "https://framextv.cc/")
             .header(ACCEPT, "application/json")
     })
     .await?;
@@ -368,7 +370,7 @@ pub(super) async fn resolve_4k(
     let tmdb = movie_id(&mapping, key).ok_or(ResolveError::NotFound)?;
     let source = async {
         match server {
-            MovieServer::Miner | MovieServer::Valkyrie | MovieServer::Boise => {
+            MovieServer::Valkyrie | MovieServer::Boise => {
                 ready_movie(
                     client,
                     city_sources(client, tmdb, server).await?,
@@ -454,7 +456,9 @@ fn source_url(value: &str) -> Option<Url> {
     {
         return None;
     }
-    if (url.origin() == base.origin() || url.origin() == Url::parse(API_FALLBACK).ok()?.origin())
+    if ANIME_APIS
+        .iter()
+        .any(|api| url.origin() == Url::parse(api).unwrap().origin())
         && matches!(
             url.path(),
             "/anime/api/proxy" | "/anime/api/subtitles/proxy"
@@ -532,6 +536,9 @@ fn parse_sources(payload: &Value, key: &EpisodeKey) -> Result<Vec<ResolvedSource
         if url.host_str() != Some("hls.krussdomi.com")
             || !url.path().starts_with("/manifest/")
             || !url.path().ends_with(".m3u8")
+            || sources
+                .iter()
+                .any(|source: &ResolvedSource| source.playlist_url == url.as_str())
         {
             continue;
         }
@@ -586,6 +593,47 @@ fn audio_url(master: &str, base: &str, language: &str) -> Option<String> {
     })
 }
 
+async fn anime_api_sources(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+    index: usize,
+) -> Result<Arc<Vec<ResolvedSource>>, ResolveError> {
+    let api = ANIME_APIS[index];
+    let result = tokio::time::timeout(Duration::from_secs(4), async {
+        let response = send_with_retry(|| {
+            client
+                .get(format!("{api}/anime/api/stream"))
+                .query(&[
+                    ("id", key.anilist_id.to_string()),
+                    ("episode", key.episode.to_string()),
+                    ("type", "tv".into()),
+                    ("season", "1".into()),
+                    ("sub_type", "sub".into()),
+                    ("provider", "goblin".into()),
+                ])
+                .header(ACCEPT, "application/json")
+                .header(REFERER, "https://framextv.cc/")
+                .header("origin", "https://framextv.cc")
+        })
+        .await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(ResolveError::NotFound);
+        }
+        if !response.status().is_success() {
+            return Err(ResolveError::Upstream);
+        }
+        let body = read_body_limited(response, MAX_METADATA_BYTES).await?;
+        let payload = serde_json::from_slice(&body).map_err(|_| ResolveError::Upstream)?;
+        parse_sources(&payload, key).map(Arc::new)
+    })
+    .await
+    .unwrap_or(Err(ResolveError::Upstream));
+    if matches!(result, Ok(_) | Err(ResolveError::NotFound)) {
+        ANIME_API.store(index, Ordering::Relaxed);
+    }
+    result
+}
+
 async fn anime_sources(
     client: &reqwest::Client,
     key: &EpisodeKey,
@@ -594,38 +642,18 @@ async fn anime_sources(
     discovery_key.language = "sub".into();
     ANIME_SOURCES
         .try_get_with((key.anilist_id, key.episode), async {
-            let mut failure = ResolveError::Upstream;
-            for api in [API, API_FALLBACK] {
-                let result = tokio::time::timeout(Duration::from_secs(3), async {
-                    let response = send_with_retry(|| {
-                        client
-                            .get(format!("{api}/anime/api/stream"))
-                            .query(&[
-                                ("id", key.anilist_id.to_string()),
-                                ("episode", key.episode.to_string()),
-                                ("type", "tv".into()),
-                                ("season", "1".into()),
-                                ("sub_type", "sub".into()),
-                                ("provider", "goblin".into()),
-                            ])
-                            .header(ACCEPT, "application/json")
-                            .header(REFERER, "https://framextv.xyz/")
-                            .header("origin", "https://framextv.xyz")
-                    })
-                    .await?;
-                    if response.status() == reqwest::StatusCode::NOT_FOUND {
-                        return Err(ResolveError::NotFound);
-                    }
-                    if !response.status().is_success() {
-                        return Err(ResolveError::Upstream);
-                    }
-                    let body = read_body_limited(response, MAX_METADATA_BYTES).await?;
-                    let payload =
-                        serde_json::from_slice(&body).map_err(|_| ResolveError::Upstream)?;
-                    parse_sources(&payload, &discovery_key).map(Arc::new)
-                })
-                .await
-                .unwrap_or(Err(ResolveError::Upstream));
+            let preferred = ANIME_API.load(Ordering::Relaxed);
+            let mut failure = match anime_api_sources(client, &discovery_key, preferred).await {
+                Ok(sources) => return Ok(sources),
+                Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
+                Err(error) => error,
+            };
+            // Both backups share one four-second window; healthy primary requests stay single-host.
+            let mut pending = futures_util::stream::iter((1..ANIME_APIS.len()).map(|offset| {
+                anime_api_sources(client, &discovery_key, (preferred + offset) % ANIME_APIS.len())
+            }))
+            .buffer_unordered(2);
+            while let Some(result) = pending.next().await {
                 match result {
                     Ok(sources) => return Ok(sources),
                     Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
@@ -638,6 +666,32 @@ async fn anime_sources(
         .map_err(|error| *error)
 }
 
+async fn prepare_anime(
+    client: &reqwest::Client,
+    key: &EpisodeKey,
+    mut source: ResolvedSource,
+) -> Result<ResolvedSource, ResolveError> {
+    if FAILED_SOURCES.get(&source.playlist_url).await.is_some() {
+        return Err(ResolveError::Upstream);
+    }
+    let master = fetch_playlist(client, &source.playlist_url, source.provider).await?;
+    let audio =
+        audio_url(&master, &source.playlist_url, &key.language).ok_or(ResolveError::NotFound)?;
+    source.language = Some(key.language.clone());
+    let provider = source.provider;
+    let audio_ready = async {
+        tokio::time::timeout(super::QUALITY_CHECK_TIMEOUT, async {
+            let media = fetch_playlist(client, &audio, provider).await?;
+            probe_media(client, &audio, &media, provider).await
+        })
+        .await
+        .map_err(|_| ResolveError::Upstream)?
+    };
+    let ((), source) =
+        tokio::try_join!(audio_ready, Box::pin(super::prepare_source(client, source)))?;
+    Ok(source)
+}
+
 pub(super) async fn resolve(
     client: &reqwest::Client,
     key: &EpisodeKey,
@@ -646,36 +700,19 @@ pub(super) async fn resolve(
         return Err(ResolveError::NotFound);
     }
     let candidates = anime_sources(client, key).await?;
-    let mut failed = false;
-    for mut source in candidates.iter().cloned() {
-        if FAILED_SOURCES.get(&source.playlist_url).await.is_some() {
-            failed = true;
-            continue;
-        }
-        let Ok(master) = fetch_playlist(client, &source.playlist_url, source.provider).await else {
-            failed = true;
-            continue;
-        };
-        let Some(audio) = audio_url(&master, &source.playlist_url, &key.language) else {
-            continue;
-        };
-        source.language = Some(key.language.clone());
-        let provider = source.provider;
-        let audio_ready = async {
-            let media = fetch_playlist(client, &audio, provider).await?;
-            tokio::time::timeout(
-                super::QUALITY_CHECK_TIMEOUT,
-                probe_media(client, &audio, &media, provider),
-            )
+    let mut pending = futures_util::stream::iter(candidates.iter().cloned().map(|source| async move {
+        tokio::time::timeout(Duration::from_secs(5), prepare_anime(client, key, source))
             .await
-            .map_err(|_| ResolveError::Upstream)?
-        };
-        if let Ok(((), source)) =
-            tokio::try_join!(audio_ready, Box::pin(super::prepare_source(client, source)))
-        {
-            return Ok(source);
+            .unwrap_or(Err(ResolveError::Upstream))
+    }))
+    .buffer_unordered(2);
+    let mut failed = false;
+    while let Some(result) = pending.next().await {
+        match result {
+            Ok(source) => return Ok(source),
+            Err(ResolveError::NotFound) => {}
+            Err(_) => failed = true,
         }
-        failed = true;
     }
     if failed {
         ANIME_SOURCES

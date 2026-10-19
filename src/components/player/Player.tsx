@@ -80,7 +80,7 @@ import {
   type SubtitleTrack,
 } from "./tracks.ts";
 
-const STREAM_INFO_TIMEOUT_MS = 12_000;
+const STREAM_INFO_TIMEOUT_MS = 23_000;
 const SUBTITLE_PREFERENCE_KEY = "lyra-anime-subtitle";
 
 interface StreamQualityOption {
@@ -1330,7 +1330,7 @@ export default function Player() {
         maxMaxBufferLength: 60,
         maxBufferSize: (prefer4k || request4k ? 64 : 24) * 1024 * 1024,
         ...PLAYER_SIZE_ABR_CONFIG,
-        manifestLoadPolicy: hlsLoadPolicy(12_000, 15_000, 1, 1),
+        manifestLoadPolicy: hlsLoadPolicy(23_000, 25_000, 1, 1),
         playlistLoadPolicy: hlsLoadPolicy(8_000, 15_000, 2, 2),
         fragLoadPolicy: hlsLoadPolicy(10_000, 45_000, 2, 3),
         keyLoadPolicy: hlsLoadPolicy(8_000, 20_000, 2, 2),

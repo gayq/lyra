@@ -34,7 +34,7 @@ const SEGMENT_PREFIX_BYTES: usize = 252;
 const MAX_METADATA_BYTES: usize = 2 * 1024 * 1024;
 const UPSTREAM_REQUEST_BUDGET: Duration = Duration::from_secs(12);
 const UPSTREAM_BODY_TIMEOUT: Duration = Duration::from_secs(30);
-const SOURCE_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(11);
+const SOURCE_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(21);
 const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -83,7 +83,8 @@ impl StreamProvider {
         match self {
             Self::Megaplay => true,
             Self::Megavid => key.anilist_id > 0 || key.mal_id > 0,
-            Self::Framex | Self::Framex4k(_) => key.anilist_id > 0,
+            Self::Framex => key.anilist_id > 0,
+            Self::Framex4k(_) => key.anilist_id > 0 && key.episode == 1,
         }
     }
 
@@ -1149,9 +1150,9 @@ async fn ordered_source(
                         return Err(error);
                     }
                     let budget = if provider == StreamProvider::Framex {
-                        Duration::from_secs(6)
+                        Duration::from_secs(10)
                     } else {
-                        Duration::from_millis(2500)
+                        Duration::from_secs(5)
                     };
                     let result = tokio::time::timeout(budget, ready_source(client, provider, key))
                         .await
@@ -1233,6 +1234,12 @@ async fn discover_4k(
                             current.is_none_or(|source| source.provider != *provider)
                         })
                         .map(|provider| async move {
+                            if let Some(error) = PROVIDER_FAILURES
+                                .get(&provider_cache_key(provider, key))
+                                .await
+                            {
+                                return Err(error);
+                            }
                             if SOURCE_CACHE
                                 .get(&provider_cache_key(provider, key))
                                 .await

@@ -94,10 +94,14 @@ pub struct AppState {
 }
 
 pub const CDN_DOMAINS: &[&str] = &[
+    "site-assets.fontawesome.com",
+    "ka-f.fontawesome.com",
+    "kit.fontawesome.com",
     "cdn.cloudflare.com",
     "ajax.googleapis.com",
     "cdn.jsdelivr.net",
     "raw.githubusercontent.com",
+    "gn-math.dev",
     "fonts.googleapis.com",
     "fonts.gstatic.com",
 ];
