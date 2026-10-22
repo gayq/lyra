@@ -1,8 +1,11 @@
-use crate::cache::{get_cache_path, load_from_disk, write_cache_header, write_to_disk};
+use crate::cache::{
+    get_cache_path, load_from_disk, request_bypasses_cache, stream_cache_fresh,
+    write_cache_header, write_to_disk,
+};
 use crate::constants;
 use crate::encoding::decode_mochi_url;
 use crate::helpers::{
-    fix_game_content_type, get_cdn_cache_control, is_blacklisted_header, is_blacklisted_res_header,
+    fix_game_content_type, is_blacklisted_header, is_blacklisted_res_header,
     is_likely_static_asset_fast,
 };
 use crate::rewrite::{rewrite_css_urls, rewrite_html};
@@ -25,7 +28,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc, OnceLock,
 };
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::fs::{self, File};
 use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::{broadcast, mpsc};
@@ -58,6 +61,10 @@ struct ProxyMetrics {
     unavailable_source_errors: AtomicU64,
     implementation_errors: AtomicU64,
     html_rewrites: AtomicU64,
+    policy_denials: AtomicU64,
+    cache_candidates: AtomicU64,
+    cache_bypasses: AtomicU64,
+    upstream_statuses: [AtomicU64; 6],
 }
 
 static PROXY_METRICS: OnceLock<ProxyMetrics> = OnceLock::new();
@@ -81,6 +88,11 @@ struct ProxyMetricsSnapshot {
     unavailable_source_errors: u64,
     implementation_errors: u64,
     html_rewrites: u64,
+    policy_denials: u64,
+    header_deadlines: u64,
+    cache_candidates: u64,
+    cache_bypasses: u64,
+    upstream_status_classes: [u64; 6],
     capacity: CapacityMetrics,
     memory: serde_json::Value,
 }
@@ -113,6 +125,11 @@ pub async fn metrics_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         unavailable_source_errors: metrics.unavailable_source_errors.load(Ordering::Relaxed),
         implementation_errors: metrics.implementation_errors.load(Ordering::Relaxed),
         html_rewrites: metrics.html_rewrites.load(Ordering::Relaxed),
+        policy_denials: metrics.policy_denials.load(Ordering::Relaxed),
+        header_deadlines: crate::deadline::expired(),
+        cache_candidates: metrics.cache_candidates.load(Ordering::Relaxed),
+        cache_bypasses: metrics.cache_bypasses.load(Ordering::Relaxed),
+        upstream_status_classes: std::array::from_fn(|i| metrics.upstream_statuses[i].load(Ordering::Relaxed)),
         memory: state.memory_pressure.snapshot(),
         capacity: CapacityMetrics {
             active: capacity.active,
@@ -134,8 +151,34 @@ fn is_retryable_upstream_status(status: u16) -> bool {
     matches!(status, 408 | 425 | 429) || status >= 500
 }
 
+pub(crate) fn upstream_error_category(error: &reqwest::Error) -> &'static str {
+    use std::error::Error;
+    let mut source: Option<&(dyn Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if let Some(io) = current.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::PermissionDenied { return "policy-denied"; }
+            if io.kind() == std::io::ErrorKind::InvalidInput { return "invalid-request"; }
+        }
+        source = current.source();
+    }
+    if error.is_timeout() { "network-timeout" }
+    else if error.is_connect() { "connect" }
+    else if error.is_redirect() { "redirect" }
+    else if error.is_body() || error.is_decode() { "upstream-data" }
+    else { "network" }
+}
+
 fn is_retryable_upstream_error(error: &reqwest::Error) -> bool {
-    error.is_connect() || error.is_timeout() || error.is_request()
+    !matches!(upstream_error_category(error), "policy-denied" | "invalid-request" | "redirect")
+        && (error.is_connect() || error.is_timeout())
+}
+
+fn upstream_failure(error: &reqwest::Error) -> Response {
+    if upstream_error_category(error) == "policy-denied" {
+        proxy_metrics().policy_denials.fetch_add(1, Ordering::Relaxed);
+        return classified_error_response(StatusCode::BAD_GATEWAY, "policy-denied", "the source is blocked by network policy");
+    }
+    upstream_network_error_response()
 }
 
 fn upstream_network_error_response() -> Response {
@@ -294,28 +337,22 @@ fn request_allows_shared_cache(headers: &HeaderMap) -> bool {
     })
 }
 
-fn request_forces_refresh(headers: &HeaderMap) -> bool {
-    if headers.contains_key("if-none-match") || headers.contains_key("if-modified-since") {
-        return true;
+fn prepare_proxy_cache_headers(headers: &mut HeaderMap) {
+    if !response_allows_shared_cache(headers) {
+        return;
     }
-    headers
-        .get("cache-control")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value.split(',').any(|directive| {
-                matches!(
-                    directive
-                        .trim()
-                        .split_once('=')
-                        .map(|(name, _)| name)
-                        .unwrap_or(directive.trim())
-                        .to_ascii_lowercase()
-                        .as_str(),
-                    "no-cache" | "no-store"
-                )
-            })
-        })
-        .unwrap_or(false)
+    if !headers.contains_key("cache-control") && !headers.contains_key("expires") {
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static("public, max-age=300"),
+        );
+    }
+    if !headers.contains_key("date") {
+        headers.insert(
+            "date",
+            HeaderValue::from_str(&httpdate::fmt_http_date(SystemTime::now())).unwrap(),
+        );
+    }
 }
 
 pub(crate) fn response_allows_shared_cache(headers: &HeaderMap) -> bool {
@@ -451,8 +488,11 @@ async fn send_upstream_with_retries(
         if !req_body.is_empty() {
             req_builder = req_builder.body(req_body.clone());
         }
+        let started = std::time::Instant::now();
         match req_builder.send().await {
             Ok(response) => {
+                let class = usize::from(response.status().as_u16() / 100).min(5);
+                proxy_metrics().upstream_statuses[class].fetch_add(1, Ordering::Relaxed);
                 if attempt + 1 < attempts
                     && is_retryable_upstream_status(response.status().as_u16())
                 {
@@ -466,6 +506,9 @@ async fn send_upstream_with_retries(
                 return Ok(response);
             }
             Err(error) => {
+                tracing::warn!(category = upstream_error_category(&error), attempt = attempt + 1,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "upstream attempt failed... /ᐠ - ˕ -マ");
                 let should_retry = attempt + 1 < attempts && is_retryable_upstream_error(&error);
                 if should_retry {
                     proxy_metrics()
@@ -635,8 +678,7 @@ pub async fn raw_proxy_handler(
             proxy_metrics()
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
-            error!("raw upstream request failed: {}{}", error, NEGATIVE);
-            return upstream_network_error_response();
+            return upstream_failure(&error);
         }
     };
 
@@ -689,6 +731,40 @@ pub async fn raw_proxy_handler(
     (StatusCode::OK, safe_headers, Body::from_stream(stream)).into_response()
 }
 
+fn decoded_target(raw: &str) -> Option<(String, Option<String>)> {
+    if raw.starts_with("http://") || raw.starts_with("https://")
+        || raw.starts_with("ws://") || raw.starts_with("wss://") || raw.starts_with("ws/")
+    {
+        return Some((raw.to_owned(), None));
+    }
+    let end = raw.find(['/', '?']).unwrap_or(raw.len());
+    let token = &raw[..end];
+    let base = Url::parse(&decode_mochi_url(token)?).ok()?;
+    let suffix = &raw[end..];
+    let suffix = suffix.strip_prefix('/').unwrap_or(suffix);
+    let suffix = suffix.strip_prefix("!a!").unwrap_or(suffix);
+    let resolved = if suffix.is_empty() { base } else { base.join(suffix).ok()? };
+    Some((resolved.to_string(), Some(token.to_owned())))
+}
+
+fn resolve_target(raw: &str, headers: &HeaderMap) -> Option<(String, Option<String>)> {
+    if let Some(target) = decoded_target(raw) {
+        return Some(target);
+    }
+    let referer = Url::parse(headers.get("referer")?.to_str().ok()?).ok()?;
+    let target = referer.path().strip_prefix(constants::MOCHI_PREFIX)
+        .or_else(|| referer.path().strip_prefix(constants::COVER_PREFIX))?;
+    let mut target = target.to_owned();
+    if let Some(query) = referer.query() {
+        target.push('?');
+        target.push_str(query);
+    }
+    let (base, _) = decoded_target(&target)?;
+    let base = Url::parse(&base).ok()?;
+    if !matches!(base.scheme(), "http" | "https") { return None; }
+    Some((base.join(raw).ok()?.to_string(), None))
+}
+
 pub async fn proxy_handler(
     State(state): State<Arc<AppState>>,
     method: Method,
@@ -699,101 +775,17 @@ pub async fn proxy_handler(
     req_body: Bytes,
 ) -> Response {
     proxy_metrics().requests.fetch_add(1, Ordering::Relaxed);
-    let mut valid_token: Option<String> = None;
-    let original_uri = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
-    let is_cover_request = path_and_query.contains(constants::COVER_PREFIX);
-    let prefix = if is_cover_request {
-        constants::COVER_PREFIX
-    } else {
-        constants::MOCHI_PREFIX
-    };
-    let raw_target = path_and_query
-        .find(prefix)
-        .map(|position| &path_and_query[position + prefix.len()..])
-        .unwrap_or_else(|| path_and_query.trim_start_matches('/'));
-    let decoded_target_owned = if !raw_target.starts_with("http")
-        && !raw_target.starts_with("ws")
-        && !raw_target.is_empty()
-    {
-        let clean = raw_target.trim_end_matches('/');
-        let (token, mut remainder) = clean.split_once('/').unwrap_or((clean, ""));
-
-        if remainder.starts_with("!a!") {
-            remainder = remainder.trim_start_matches("!a!");
-        }
-
-        if let Some(decoded_base) = decode_mochi_url(token) {
-            valid_token = Some(token.to_string());
-
-            if remainder.is_empty() {
-                decoded_base
-            } else {
-                let mut base_for_join = decoded_base.clone();
-                if !base_for_join.ends_with('/')
-                    && !base_for_join
-                        .split('?')
-                        .next()
-                        .unwrap_or("")
-                        .split('/')
-                        .next_back()
-                        .unwrap_or("")
-                        .contains('.')
-                {
-                    base_for_join.push('/');
-                }
-
-                match url::Url::parse(&base_for_join) {
-                    Ok(base) => base
-                        .join(remainder)
-                        .map(|u| u.to_string())
-                        .unwrap_or_else(|_| {
-                            format!("{}/{}", base_for_join.trim_end_matches('/'), remainder)
-                        }),
-                    Err(_) => {
-                        format!("{}/{}", base_for_join.trim_end_matches('/'), remainder)
-                    }
-                }
-            }
-        } else {
-            let mut fallback_target = raw_target.to_string();
-
-            if let Some(referer) = headers.get("referer").and_then(|v| v.to_str().ok()) {
-                if let Some(referer_target) = referer.split(prefix).nth(1) {
-                    let referer_clean = referer_target.trim_end_matches('/');
-                    let (ref_token, _) =
-                        referer_clean.split_once('/').unwrap_or((referer_clean, ""));
-                    if let Some(ref_decoded_base) = decode_mochi_url(ref_token) {
-                        if let Ok(ref_url) = url::Url::parse(&ref_decoded_base) {
-                            if let Ok(resolved) = ref_url.join(original_uri) {
-                                fallback_target = resolved.to_string();
-                            }
-                        }
-                    }
-                }
-            }
-
-            if fallback_target == raw_target {
-                if let Some(cookie_hdr) = headers.get("cookie").and_then(|c| c.to_str().ok()) {
-                    for cookie in cookie_hdr.split(';') {
-                        let cookie = cookie.trim();
-                        if let Some(base_token) = cookie.strip_prefix("mochi_base=") {
-                            if let Some(ref_decoded_base) = decode_mochi_url(base_token) {
-                                if let Ok(ref_url) = Url::parse(&ref_decoded_base) {
-                                    if let Ok(resolved) = ref_url.join(original_uri) {
-                                        fallback_target = resolved.to_string();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            fallback_target
-        }
-    } else {
-        raw_target.to_string()
+    let is_cover_request = uri.path().starts_with(constants::COVER_PREFIX);
+    let prefix = if is_cover_request { constants::COVER_PREFIX } else { constants::MOCHI_PREFIX };
+    let raw_target = path_and_query.strip_prefix(prefix).unwrap_or(path_and_query);
+    let (decoded_target_owned, valid_token) = match resolve_target(raw_target, &headers) {
+        Some(target) => target,
+        None => return classified_error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid-request",
+            "resource source context is missing or invalid",
+        ),
     };
     let target_url_str: &str = &decoded_target_owned;
     debug!("proxying request");
@@ -875,11 +867,7 @@ pub async fn proxy_handler(
         }
     }
 
-    let target_url_string = if !target_url_str.starts_with("http") {
-        format!("https://{}", target_url_str)
-    } else {
-        target_url_str.to_string()
-    };
+    let target_url_string = target_url_str.to_string();
     let target_url = match Url::parse(&target_url_string) {
         Ok(url) => url,
         Err(_) => {
@@ -899,16 +887,27 @@ pub async fn proxy_handler(
         );
     }
 
-    let force_refresh = request_forces_refresh(&headers);
+    let force_refresh = request_bypasses_cache(&headers);
 
     let request_cache_allowed = request_allows_shared_cache(&headers);
+    if method == Method::GET && request_cache_allowed && !force_refresh && !headers.contains_key("range") {
+        proxy_metrics().cache_candidates.fetch_add(1, Ordering::Relaxed);
+    } else {
+        proxy_metrics().cache_bypasses.fetch_add(1, Ordering::Relaxed);
+    }
+
 
     if method == Method::GET
         && !force_refresh
         && request_cache_allowed
         && !headers.contains_key("range")
     {
-        if let Some(cached) = state.cache.get(target_url_str).await {
+        if let Some(cached) = state
+            .cache
+            .get(target_url_str)
+            .await
+            .filter(|entry| stream_cache_fresh(&entry.headers))
+        {
             proxy_metrics().cache_hits.fetch_add(1, Ordering::Relaxed);
             let mut res_headers = cached.headers.clone();
             if res_headers
@@ -1012,8 +1011,7 @@ pub async fn proxy_handler(
             proxy_metrics()
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
-            error!("upstream request failed: {}{}", error, NEGATIVE);
-            return upstream_network_error_response();
+            return upstream_failure(&error);
         }
     };
 
@@ -1137,7 +1135,11 @@ pub async fn proxy_handler(
 
         let body_bytes = Bytes::from(body_vec);
 
+        if shared_cache_allowed(&headers, &safe_headers, force_refresh) {
+            prepare_proxy_cache_headers(&mut safe_headers);
+        }
         if shared_cache_allowed(&headers, &safe_headers, force_refresh)
+            && stream_cache_fresh(&safe_headers)
             && !body_bytes.is_empty()
             && body_bytes.len() <= state.max_cache_entry_size
         {
@@ -1187,6 +1189,10 @@ pub async fn proxy_handler(
         && response_allows_shared_cache(&safe_headers)
         && !headers.contains_key("upgrade")
         && !headers.contains_key("range");
+    if should_cache {
+        prepare_proxy_cache_headers(&mut safe_headers);
+    }
+    let should_cache = should_cache && stream_cache_fresh(&safe_headers);
 
     if is_css && status == StatusCode::OK && !headers.contains_key("range") && method == Method::GET
     {
@@ -1204,13 +1210,6 @@ pub async fn proxy_handler(
         let css_str = String::from_utf8_lossy(&full_body);
         let rewritten_css = rewrite_css_urls(&css_str, &target_url);
         let rewritten_bytes = Bytes::from(rewritten_css.into_bytes());
-
-        if should_cache {
-            safe_headers.insert(
-                "Cache-Control",
-                HeaderValue::from_static(get_cdn_cache_control(&target_url_string)),
-            );
-        }
 
         if should_cache && rewritten_bytes.len() <= state.max_cache_entry_size {
             let cached = Arc::new(CachedResponse {
@@ -1231,8 +1230,6 @@ pub async fn proxy_handler(
         let max_entry = state.max_cache_entry_size;
         let state_clone = state.clone();
         let status_u16 = status.as_u16();
-        let cc = get_cdn_cache_control(&target_url_string);
-        safe_headers.insert("Cache-Control", HeaderValue::from_static(cc));
         let safe_headers_clone = safe_headers.clone();
 
         tokio::spawn(async move {
@@ -1317,13 +1314,19 @@ async fn fetch_and_cache(
     req_body: &Bytes,
     max_body_size: Option<usize>,
 ) -> Result<Response, Box<Response>> {
-    let force_refresh = request_forces_refresh(headers);
+    let force_refresh = request_bypasses_cache(headers);
     let request_cache_allowed = request_allows_shared_cache(headers);
 
     let has_range = headers.contains_key("range");
 
     if request_cache_allowed && !force_refresh && !has_range {
-        if let Some(cached) = state.cache.get(target_url_str).await {
+        if let Some(cached) = state
+            .cache
+            .get(target_url_str)
+            .await
+            .filter(|entry| stream_cache_fresh(&entry.headers))
+        {
+            proxy_metrics().cache_hits.fetch_add(1, Ordering::Relaxed);
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
             fix_game_content_type(target_url_string, &mut res_headers);
@@ -1424,14 +1427,10 @@ async fn fetch_and_cache(
     {
         Ok(res) => res,
         Err(error) => {
-            error!(
-                "upstream error for {}: {}{}",
-                target_url_str, error, NEGATIVE
-            );
             proxy_metrics()
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
-            return Err(Box::new(upstream_network_error_response()));
+            return Err(Box::new(upstream_failure(&error)));
         }
     };
 
@@ -1470,14 +1469,8 @@ async fn fetch_and_cache(
 
     let mut safe_headers = build_safe_response_headers(res_headers_ref, true);
 
-    if status == StatusCode::OK && request_cache_allowed && upstream_allows_shared_cache {
-        let is_unstable = target_url_str.contains("/main/") || target_url_str.contains("/master/");
-        let cc_value = if is_unstable {
-            "public, max-age=300, stale-while-revalidate=60"
-        } else {
-            get_cdn_cache_control(target_url_string)
-        };
-        safe_headers.insert("Cache-Control", HeaderValue::from_static(cc_value));
+    if status == StatusCode::OK && request_cache_allowed {
+        prepare_proxy_cache_headers(&mut safe_headers);
     }
 
     fix_game_content_type(target_url_string, &mut safe_headers);
@@ -1500,6 +1493,7 @@ async fn fetch_and_cache(
         && !force_refresh
         && request_cache_allowed
         && upstream_allows_shared_cache
+        && stream_cache_fresh(&safe_headers)
         && !has_range;
 
     let actually_cache = should_cache

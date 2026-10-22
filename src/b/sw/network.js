@@ -31,7 +31,7 @@ async function mochiFetch(request, realUrl, timeoutMs = MOCHI_TIMEOUT_MS) {
     method: request.method,
     headers,
     redirect: "follow",
-    cache: "no-store",
+    cache: request.cache || "default",
     credentials: "include",
   };
   if (request.method !== "GET" && request.method !== "HEAD") {

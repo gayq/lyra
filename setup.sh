@@ -932,6 +932,9 @@ eturnal:
   log_level: warning
   modules:
     mod_log_stun: {}
+    mod_stats_prometheus:
+      ip: "127.0.0.1"
+      port: 8081
 EOF
 if [ -f /etc/eturnal.yml ]; then
   success "/etc/eturnal.yml applied"
@@ -1004,6 +1007,20 @@ if [[ ! "$CACHE_AVAILABLE_KB" =~ ^[1-9][0-9]*$ ]]; then
   fail "available cache disk space could not be determined"
   exit 1
 fi
+sudo install -d -m 755 /etc/lyra
+if ! sudo test -s /etc/lyra/metrics.token; then
+  openssl rand -hex 32 | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.token'
+fi
+METRICS_TOKEN=$(sudo cat /etc/lyra/metrics.token)
+if [[ ! "$METRICS_TOKEN" =~ ^[a-f0-9]{64}$ ]]; then
+  fail "metrics credential is invalid"
+  exit 1
+fi
+printf 'MOCHI_METRICS_TOKEN=%s\nNURU_METRICS_TOKEN=%s\n' "$METRICS_TOKEN" "$METRICS_TOKEN" \
+  | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.env'
+sudo chmod 600 /etc/lyra/metrics.token /etc/lyra/metrics.env
+sudo install -d -m 700 -o "$USER" /var/lib/lyra-tls
+
 ANIME_CACHE_GB=$((CACHE_AVAILABLE_KB / 1048576 / 5))
 if [ "$ANIME_CACHE_GB" -lt 1 ]; then
   ANIME_CACHE_GB=1
@@ -1070,7 +1087,8 @@ Restart=always
 RestartSec=10
 KillMode=mixed
 TimeoutStopSec=10
-Environment=RUST_LOG=off
+Environment=RUST_LOG=warn
+EnvironmentFile=/etc/lyra/metrics.env
 Environment=NURU_INSTANCES=$NURU_INSTANCES
 Environment=LD_PRELOAD=$JEMALLOC_PATH
 LimitNOFILE=65536
@@ -1101,6 +1119,7 @@ MemoryMax=infinity
 OOMPolicy=kill
 WorkingDirectory=/var/cache/lyra-mochi/instance-%i
 EnvironmentFile=/etc/mochi/instance-%i.env
+EnvironmentFile=/etc/lyra/metrics.env
 $MOCHI_VPN_PRESTART
 ExecStart=/usr/local/bin/mochi
 Restart=always
@@ -1146,6 +1165,7 @@ if [ -f /etc/caddy/Caddyfile ]; then
   success "existing caddy config backed up"
 fi
 
+sudo install -d -m 750 -o caddy -g caddy /var/log/caddy
 sudo tee /etc/caddy/Caddyfile <<EOF
 {
     email sefiicc@gmail.com
@@ -1166,7 +1186,7 @@ sudo tee /etc/caddy/Caddyfile <<EOF
     }
     reverse_proxy @mochi_stream $MOCHI_UPSTREAMS {
         lb_policy query session {
-            fallback first
+            fallback least_conn
         }
         health_uri /health
         health_interval 10s
@@ -1212,6 +1232,50 @@ http://127.0.0.1:4001 {
     tls {
         on_demand
     }
+
+    log lyra_access {
+        output file /var/log/caddy/access.json {
+            mode 0640
+            roll_size 64MiB
+            roll_keep 14
+            roll_keep_for 336h
+        }
+        format filter {
+            wrap json
+            fields {
+                request>headers delete
+                request>uri delete
+                request>host delete
+                request>tls delete
+                request>remote_port delete
+                request>remote_ip ip_mask 24 48
+                request>client_ip ip_mask 24 48
+                resp_headers delete
+            }
+        }
+    }
+    map {path} {lyra_route} {
+        ~^/api/auth/ auth
+        ~^/api/sync/ sync
+        ~^/api/anime/ anime
+        ~^/api/static/ static_gateway
+        /api/presence presence
+        /api/search/suggestions suggestions
+        ~^/stream/anime player
+        ~^/stream/ stream
+        ~^/!!folio/ folio
+        ~^/!!raw/ raw
+        ~^/!!/ proxy
+        ~^/!cover!/ cover
+        ~^$LYRA_WISP_PATH wisp
+        default frontend
+    }
+    log_append route {lyra_route}
+    log_append request_id {http.request.uuid}
+
+    @internal_metrics path /metrics /stream/metrics /!!folio/metrics /api/auth/metrics /api/anime/metrics
+    header @internal_metrics Cache-Control no-store
+    respond @internal_metrics "metrics access denied... /ᐠ - ˕ -マ" 403
 
     @compressible {
         not path /stream/* /api/static/v1/*
@@ -1426,7 +1490,10 @@ websocket_origin_scheme = "https"' \
     -e "s|^prefix = .*|prefix = \"${LYRA_WISP_PATH%/}\"|" \
     "$ROOT/services/nuru/config.toml" | sudo tee /etc/nuru/config.toml >/dev/null
 for ((i = 0; i < NURU_INSTANCES; i++)); do
-  sed "s|^bind = .*|bind = [\"tcp\", \"127.0.0.1:$((4200 + i))\"]|" \
+  sed -e "s|^bind = .*|bind = [\"tcp\", \"127.0.0.1:$((4200 + i))\"]|" \
+    -e '/^[[:space:]]*stats_endpoint[[:space:]]*=/d' \
+    -e '/^\[server\]$/a\
+stats_endpoint = ["tcp", "127.0.0.1:'"$((4300 + i))"'"]' \
     /etc/nuru/config.toml | sudo tee "/etc/nuru/config-$i.toml" >/dev/null
 done
 if [ -f /etc/nuru/config.toml ]; then
@@ -1456,6 +1523,8 @@ log "memory restart thresholds — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, i
 "$PM2_BIN" stop all >/dev/null 2>&1 || true
 "$PM2_BIN" delete all >/dev/null 2>&1 || true
 
+SETUP_UMASK=$(umask)
+umask 077
 tee ecosystem.config.cjs >/dev/null <<EOF
 module.exports = {
   apps: [
@@ -1467,9 +1536,13 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
+      log_date_format: "YYYY-MM-DDTHH:mm:ss.SSSZ",
       max_restarts: 10,
       min_uptime: 10000,
-      max_memory_restart: "256M"
+      max_memory_restart: "256M",
+      env: {
+        TZ: "UTC",
+      }
     },
     {
       name: "lyra",
@@ -1480,6 +1553,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
+      log_date_format: "YYYY-MM-DDTHH:mm:ss.SSSZ",
       max_restarts: 5,
       min_uptime: 15000,
       kill_timeout: 10000,
@@ -1487,6 +1561,8 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: "4444",
+        HOST: "127.0.0.1",
+        LYRA_METRICS_TOKEN: "$METRICS_TOKEN",
         MOCHI_ORIGIN: "http://127.0.0.1:4000",
         LYRA_WISP_PATH: "$LYRA_WISP_PATH",
         WEBRTC_TURN_ENABLED: "1",
@@ -1505,6 +1581,7 @@ module.exports = {
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
+      log_date_format: "YYYY-MM-DDTHH:mm:ss.SSSZ",
       max_memory_restart: "$CLOUDSYNC_MEM",
       max_restarts: 10,
       min_uptime: 10000,
@@ -1524,6 +1601,7 @@ tee -a ecosystem.config.cjs >/dev/null <<EOF
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
+      log_date_format: "YYYY-MM-DDTHH:mm:ss.SSSZ",
       max_memory_restart: "$ISAO_MEM",
       max_restarts: 10,
       min_uptime: 10000,
@@ -1540,6 +1618,7 @@ tee -a ecosystem.config.cjs >/dev/null <<'EOF'
 };
 EOF
 chmod 600 ecosystem.config.cjs
+umask "$SETUP_UMASK"
 
 if command -v ufw >/dev/null 2>&1; then
   UFW_STATUS=$(sudo ufw status)

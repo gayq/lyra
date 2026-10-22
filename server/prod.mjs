@@ -14,6 +14,7 @@ import {
   positiveMessage,
 } from "../src/core/runtime/messages.ts";
 import { createSearchSuggestionService } from "./search-suggestions.mjs";
+import { allowMetrics, createMetrics } from "./metrics.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 import { productionStaticGateway } from "./static-backend.mjs";
 import {
@@ -84,6 +85,7 @@ const API_LIMIT_MAX_CLIENTS = Math.max(
 );
 const apiHits = new Map();
 const searchSuggestionService = createSearchSuggestionService();
+const metrics = createMetrics();
 const dnsService = createDnsService();
 
 const MIME_TYPES = {
@@ -578,6 +580,14 @@ async function appFetch(req, server) {
     return healthResponse();
   }
 
+  if (pathname === "/metrics" && canServeBody) {
+    if (!allowMetrics(req, server.requestIP(req)?.address, process.env.LYRA_METRICS_TOKEN)) {
+      const failure = httpError(403, "FORBIDDEN", "access denied");
+      return jsonResponse(failure.body, failure.status);
+    }
+    return jsonResponse({ ...metrics.snapshot(), suggestions: searchSuggestionService.metrics() });
+  }
+
   if (pathname === "/eturnal/health" && canServeBody) {
     return healthResponse((await probeEturnal()) ? 200 : 503);
   }
@@ -673,15 +683,27 @@ async function appFetch(req, server) {
 
 const server = Bun.serve({
   port: PORT,
+  hostname: process.env.LYRA_HOST || "127.0.0.1",
   http2: true,
   idleTimeout: 60,
-  fetch: appFetch,
+  async fetch(req, server) {
+    const started = performance.now();
+    let status = 500;
+    try {
+      const response = await appFetch(req, server);
+      status = response?.status || 101;
+      return response;
+    } finally {
+      metrics.record(new URL(req.url).pathname, status, performance.now() - started);
+    }
+  },
   websocket: staticGateway.websocket,
 });
 
 async function gracefulShutdown() {
   if (shuttingDown) process.exit(0);
   shuttingDown = true;
+  metrics.close();
   console.log("\nshutting down...");
   server.stop(true);
   console.log(positiveMessage(`port ${PORT} released`));

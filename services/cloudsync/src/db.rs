@@ -21,11 +21,10 @@ pub fn init_pool(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 30000;
+             PRAGMA busy_timeout = 5000;
              PRAGMA cache_size = -{};
              PRAGMA mmap_size = {};
              PRAGMA temp_store = MEMORY;
-             PRAGMA auto_vacuum = INCREMENTAL;
              PRAGMA wal_autocheckpoint = 2000;",
             cache_size_kb, mmap_size
         ))
@@ -87,6 +86,8 @@ pub fn init_pool(
         [],
     )?;
 
+    let vacuum_mode: i64 = conn.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+    tracing::info!(auto_vacuum = vacuum_mode, "database page reuse policy");
     init_sync_transfers(&conn)?;
 
     Ok(pool)
@@ -107,6 +108,22 @@ pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Resu
             part INTEGER NOT NULL,
             data_blob BLOB NOT NULL,
             PRIMARY KEY (upload_id, part)
-        );",
+        );
+        CREATE TABLE IF NOT EXISTS sync_objects (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            digest TEXT NOT NULL,
+            raw_bytes INTEGER NOT NULL CHECK(raw_bytes > 0 AND raw_bytes <= 1048576),
+            data_blob BLOB NOT NULL,
+            PRIMARY KEY (user_id, digest)
+        );
+        CREATE TABLE IF NOT EXISTS sync_chunk_refs (
+            upload_id TEXT NOT NULL REFERENCES sync_uploads(id) ON DELETE CASCADE,
+            part INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            digest TEXT NOT NULL,
+            PRIMARY KEY (upload_id, part),
+            FOREIGN KEY (user_id, digest) REFERENCES sync_objects(user_id, digest)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_chunk_refs_object ON sync_chunk_refs(user_id, digest);",
     )
 }

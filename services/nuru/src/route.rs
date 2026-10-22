@@ -18,8 +18,8 @@ use wisp_mux::ws::{
 
 use crate::{
     config::SocketTransport,
-    generate_stats,
     listener::{ServerStream, ServerStreamExt, ServerStreamRead, ServerStreamWrite},
+    stats::generate_metrics,
     stream::WebSocketStreamWrapper,
     upgrade::{is_upgrade_request, origin_allowed, upgrade},
     util_chain::{chain, Chain},
@@ -76,12 +76,41 @@ fn non_ws_resp() -> anyhow::Result<Response<Body>> {
         .body(Body::new(CONFIG.server.non_ws_response.as_bytes().into()))?)
 }
 
-async fn send_stats() -> anyhow::Result<Response<Body>> {
-    match generate_stats().await {
+fn metrics_allowed(headers: &HeaderMap, token: Option<&str>) -> bool {
+    let Some(token) = token.filter(|value| !value.is_empty()) else {
+        return false;
+    };
+    let Some(value) = headers
+        .get(hyper::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return false;
+    };
+    value.len() == token.len()
+        && value
+            .bytes()
+            .zip(token.bytes())
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
+}
+
+async fn send_stats(headers: &HeaderMap) -> anyhow::Result<Response<Body>> {
+    static TOKEN: std::sync::LazyLock<Option<String>> =
+        std::sync::LazyLock::new(|| std::env::var("NURU_METRICS_TOKEN").ok());
+    if !metrics_allowed(headers, TOKEN.as_deref()) {
+        return Ok(Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header(hyper::header::CACHE_CONTROL, "no-store")
+            .body(Body::new(negative_message!("metrics access denied").into()))?);
+    }
+    match generate_metrics().await {
         Ok(x) => {
             debug!("sent server stats to http client{}", POSITIVE);
             Ok(Response::builder()
                 .status(StatusCode::OK)
+                .header(hyper::header::CONTENT_TYPE, "application/json")
+                .header(hyper::header::CACHE_CONTROL, "no-store")
                 .body(Body::new(x.into()))?)
         }
         Err(x) => {
@@ -129,7 +158,7 @@ where
 
         if let Some(stats_endpoint) = stats_endpoint {
             if req.uri().path() == stats_endpoint {
-                return send_stats().await;
+                return send_stats(req.headers()).await;
             }
         }
 
@@ -215,7 +244,12 @@ where
 pub async fn route_stats(stream: ServerStream) -> anyhow::Result<()> {
     let stream = TokioIo::new(stream);
     Builder::new()
-        .serve_connection(stream, service_fn(move |_| async { send_stats().await }))
+        .serve_connection(
+            stream,
+            service_fn(
+                move |req: Request<Incoming>| async move { send_stats(req.headers()).await },
+            ),
+        )
         .await?;
     Ok(())
 }
@@ -326,3 +360,4 @@ pub async fn route(
     }
     Ok(())
 }
+

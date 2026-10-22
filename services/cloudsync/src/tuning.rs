@@ -42,7 +42,7 @@ fn compute(ram_mb: u64, cores: usize) -> CloudSyncTuning {
     let auth_work_permits = cores.div_ceil(2).clamp(auth_work_min, auth_work_max);
     let sync_work_min = 1;
     let sync_memory_budget_mb = (ram_mb as usize).saturating_mul(3) / 5;
-    let sync_memory_bound = (sync_memory_budget_mb / 192).max(1);
+    let sync_memory_bound = (sync_memory_budget_mb / (80 * 8)).max(1);
     let sync_work_max = cores
         .saturating_mul(2)
         .min(sync_memory_bound)

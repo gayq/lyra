@@ -15,9 +15,7 @@ async function coalescedFetch(key, fetchFn) {
 }
 
 function mochiCoalesceKey(request, target) {
-  const range = request.headers.get("Range") || "";
-  const accept = request.headers.get("Accept") || "";
-  return `${request.method}\n${target}\n${range}\n${accept}`;
+  return `${request.method}\n${target}\n${request.cache || "default"}\n${JSON.stringify([...request.headers])}`;
 }
 
 function preconnectToOrigin(origin) {

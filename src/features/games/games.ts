@@ -23,7 +23,6 @@ import type { GameEntry } from "./gameSources.ts";
 export type { GameEntry } from "./gameSources.ts";
 
 const GAME_CACHE_KEY_PREFIX = "lyra-game-cache";
-const EDUROCKS_CACHE_REVISION = "codec-v2";
 const GAME_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const GAME_CACHE_STALE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000;
@@ -80,7 +79,7 @@ function now(): number {
 function getCacheKey(sourceKey: GameSourceKey): Promise<string> {
   const discriminator =
     sourceKey === "edurocks"
-      ? `${sourceKey}-${EDUROCKS_CACHE_REVISION}`
+      ? `${sourceKey}`
       : sourceKey;
   return cacheKey(GAME_CACHE_KEY_PREFIX, import.meta.url, discriminator);
 }

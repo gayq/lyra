@@ -108,10 +108,6 @@ pub const PART_2: &str = r##"";
         if (url.includes(window.__MOCHI_PREFIX__)) return url;
         
         try {
-            const match = document.cookie.match(/(?:^|; )mochi_base=([^;]*)/);
-            if (match && url.startsWith('/')) {
-                return window.__MOCHI_BASE__ + match[1] + '/!a!' + url;
-            }
             const resolved = new _U(url, window.__MOCHI_TARGET__).href;
             return window.__MOCHI_BASE__ + __mochiEncode(resolved);
         } catch (e) {

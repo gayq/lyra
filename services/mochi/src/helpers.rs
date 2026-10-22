@@ -1,4 +1,3 @@
-use crate::state::CDN_DOMAINS;
 use axum::http::{HeaderMap, HeaderValue};
 use std::path::Path;
 
@@ -100,23 +99,6 @@ pub fn is_likely_static_asset_fast(url: &str) -> bool {
         }
     }
     false
-}
-
-pub fn is_cdn_url(url: &str) -> bool {
-    CDN_DOMAINS.iter().any(|domain| url.contains(domain))
-}
-
-pub fn get_cdn_cache_control(url: &str) -> &'static str {
-    if is_cdn_url(url) {
-        let has_version = url.contains("/v") || url.contains("@") || url.contains("/releases/");
-        if has_version {
-            "public, max-age=31536000, immutable"
-        } else {
-            "public, max-age=604800, stale-while-revalidate=86400"
-        }
-    } else {
-        "public, max-age=86400, stale-while-revalidate=3600"
-    }
 }
 
 pub fn is_blacklisted_header(name: &str) -> bool {

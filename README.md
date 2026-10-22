@@ -17,6 +17,8 @@ leave a star or give credits if you like, fork, or take any ideas from this proj
 - private by design
 
 ## self-hosting
+
+normal
 ```bash
 # clone
 git clone https://github.com/gayq/lyra
@@ -25,6 +27,20 @@ git clone https://github.com/gayq/lyra
 cd lyra
 bash setup.sh
 ```
+
+static
+```bash
+# clone
+git clone https://github.com/gayq/lyra
+
+# run setup file
+cd lyra
+bun i
+bun build:static
+
+# built files are located in dist-static
+```
+
 ## local development
 ```bash
 bun i
@@ -34,9 +50,9 @@ bun dev
 ## credits
 - [selenite](https://selenite.cc/) - game source
 - [gn-math](https://github.com/gn-math/gn-math.github.io/) - game source
-- [wasm.rip](https://wasm.rip/) - game source
-- [edurocks](https://www.edurocks.org/) - game source
 - [truffled](https://truffled.lol/) - game source
+- [edurocks](https://www.edurocks.org/) - game source
+- [wasm.rip](https://wasm.rip/) - game source
 - [velara](https://velara.cc/) - game source
 - [mercury workshop](https://github.com/mercuryworkshop/) - scramjet, epoxy, and libcurl
 - [sapphire](https://github.com/x8rr/sapphire) - rivet's base

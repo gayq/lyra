@@ -120,7 +120,7 @@ fn get_cache_path_in(directory: &str, url: &str) -> String {
 }
 
 pub fn get_cache_path(url: &str) -> String {
-    get_cache_path_in("./cache", url)
+    get_cache_path_in("./cache", &format!("assets-v2\n{url}"))
 }
 
 pub fn get_stream_cache_path(url: &str) -> String {
@@ -190,6 +190,9 @@ pub async fn load_from_disk(
     let mut reader = tokio::io::BufReader::new(file);
 
     let (status_code, mut headers) = read_cache_header(&mut reader).await?;
+    if !stream_cache_fresh(&headers) || !crate::proxy::response_allows_shared_cache(&headers) {
+        return None;
+    }
 
     headers.insert("X-Cache", HeaderValue::from_static("DISK"));
     fix_game_content_type(url, &mut headers);

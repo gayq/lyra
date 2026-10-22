@@ -1123,7 +1123,12 @@ export async function fetchAnimeData(
 
     const anime = request.latest;
     if (generation !== animeFeedGeneration) return [];
-    return anime.length > 0 ? saveToCacheKey(cacheKey, anime) : anime;
+    if (anime.length === 0) {
+      throw new RequestError("failed to fetch anime data", {
+        code: "ANIME_CATALOG_UNAVAILABLE",
+      });
+    }
+    return saveToCacheKey(cacheKey, anime);
   })().finally(() => {
     if (animeFeedRequests.get(cacheKey) === request) {
       animeFeedRequests.delete(cacheKey);

@@ -1,5 +1,3 @@
-import { negativeMessage } from "../../core/runtime/messages.ts";
-
 const SEARCH_SUGGESTION_CACHE_TTL_MS = 5 * 60 * 1000;
 const SEARCH_SUGGESTION_CACHE_MAX_ENTRIES = 64;
 const SEARCH_SUGGESTION_MAX_RESULTS = 8;
@@ -30,14 +28,14 @@ function parseSuggestions(payload: unknown): string[] {
     .slice(0, SEARCH_SUGGESTION_MAX_RESULTS);
 }
 
-function cacheSuggestions(query: string, suggestions: string[]): void {
+function cacheSuggestions(query: string, suggestions: string[], ttlMs = SEARCH_SUGGESTION_CACHE_TTL_MS): void {
   if (suggestionCache.size >= SEARCH_SUGGESTION_CACHE_MAX_ENTRIES) {
     const oldestQuery = suggestionCache.keys().next().value;
     if (oldestQuery !== undefined) suggestionCache.delete(oldestQuery);
   }
   suggestionCache.set(query, {
     suggestions,
-    expiresAt: Date.now() + SEARCH_SUGGESTION_CACHE_TTL_MS,
+    expiresAt: Date.now() + ttlMs,
   });
 }
 
@@ -50,23 +48,25 @@ export async function fetchSearchSuggestions(
 
   const cached = suggestionCache.get(query);
   if (cached && cached.expiresAt > Date.now()) return cached.suggestions;
-  if (cached) suggestionCache.delete(query);
 
   const requestInit: RequestInit = {
     headers: { Accept: "application/json" },
   };
   if (signal) requestInit.signal = signal;
-  const response = await fetch(
-    `/api/search/suggestions?q=${encodeURIComponent(query)}`,
-    requestInit,
-  );
-  if (!response.ok) {
-    throw new Error(
-      negativeMessage(`search suggestions failed: ${response.status}`),
+  try {
+    const response = await fetch(
+      `/api/search/suggestions?q=${encodeURIComponent(query)}`,
+      requestInit,
     );
+    const suggestions = parseSuggestions(await response.json());
+    const fallback = suggestions.length ? suggestions : cached?.suggestions || [];
+    const result = response.ok ? suggestions : fallback;
+    cacheSuggestions(query, result, response.ok ? SEARCH_SUGGESTION_CACHE_TTL_MS : 30_000);
+    return result;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    const fallback = cached?.suggestions || [];
+    cacheSuggestions(query, fallback, 30_000);
+    return fallback;
   }
-
-  const suggestions = parseSuggestions(await response.json());
-  cacheSuggestions(query, suggestions);
-  return suggestions;
 }

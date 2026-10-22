@@ -470,19 +470,12 @@ self.addEventListener("fetch", (event) => {
       return event.respondWith(
         (async () => {
           try {
-            const cached = await caches.match(request);
-            if (cached) return cached;
             const response = await mochiFetch(
               request,
               decodedUrl,
               MOCHI_TIMEOUT_MS,
             );
             if (response && response.ok) {
-              const clone = response.clone();
-              caches.open(RUNTIME_CACHE).then((cache) => {
-                cache.put(request, clone);
-                capCache(RUNTIME_CACHE, MAX_RUNTIME);
-              });
               return response;
             }
             return (

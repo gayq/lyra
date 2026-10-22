@@ -92,16 +92,3 @@ pub struct AppState {
     pub ram_cache_limit: usize,
     pub channel_buffer: usize,
 }
-
-pub const CDN_DOMAINS: &[&str] = &[
-    "site-assets.fontawesome.com",
-    "ka-f.fontawesome.com",
-    "kit.fontawesome.com",
-    "cdn.cloudflare.com",
-    "ajax.googleapis.com",
-    "cdn.jsdelivr.net",
-    "raw.githubusercontent.com",
-    "gn-math.dev",
-    "fonts.googleapis.com",
-    "fonts.gstatic.com",
-];

@@ -80,7 +80,6 @@ export class CloudSync {
   isRestoring: boolean;
   _lastStatusText: string | undefined;
   _lastStatusType: string | undefined;
-  _uploadRetries: number;
   _mutationVersion: number;
   _pollInterval: number;
   _checkIntervalId: ReturnType<typeof setInterval> | null;
@@ -108,7 +107,6 @@ export class CloudSync {
     this.isRestoring = false;
     this._lastStatusText = undefined;
     this._lastStatusType = undefined;
-    this._uploadRetries = 0;
     this._mutationVersion = 0;
     this._pollInterval = POLL_INTERVAL;
     this._checkIntervalId = null;
@@ -559,30 +557,11 @@ export class CloudSync {
           uploadWasStale ? "syncing..." : "synced!! (˵◝ ⩊  ◜˵マ",
           uploadWasStale ? "loading" : "success",
         );
-        this._uploadRetries = 0;
-        this.onSyncSuccess();
+            this.onSyncSuccess();
       } else {
         console.warn(
           `[cloudsync] upload failed with status ${response.status}... /ᐠ - ˕ -マ`,
         );
-        if (
-          (response.status === 429 || response.status >= 500) &&
-          (!this._uploadRetries || this._uploadRetries < 3)
-        ) {
-          this._uploadRetries = (this._uploadRetries || 0) + 1;
-          const delay = Math.min(
-            2000 * Math.pow(2, this._uploadRetries - 1),
-            8000,
-          );
-          console.warn(
-            `[cloudsync] upload retry ${this._uploadRetries}/3 in ${delay}ms... /ᐠ - ˕ -マ`,
-          );
-          this.updateStatus("retrying sync...", "loading");
-          this.isSyncing = false;
-          setTimeout(() => this.syncData(manual, retryCount), delay);
-          return;
-        }
-        this._uploadRetries = 0;
         if (response.status === 401) {
           await this.checkAuthStatus();
           this.stopPolling();
@@ -601,21 +580,6 @@ export class CloudSync {
       }
     } catch {
       console.error("sync failed... /ᐠ - ˕ -マ");
-      if (!this._uploadRetries || this._uploadRetries < 3) {
-        this._uploadRetries = (this._uploadRetries || 0) + 1;
-        const delay = Math.min(
-          2000 * Math.pow(2, this._uploadRetries - 1),
-          8000,
-        );
-        console.warn(
-          `[cloudsync] upload retry ${this._uploadRetries}/3 in ${delay}ms... /ᐠ - ˕ -マ`,
-        );
-        this.updateStatus("retrying sync...", "loading");
-        this.isSyncing = false;
-        setTimeout(() => this.syncData(manual, retryCount), delay);
-        return;
-      }
-      this._uploadRetries = 0;
       this.updateStatus("connection error... /ᐠ - ˕ -マ", "error");
       this.onSyncError();
     } finally {
@@ -624,10 +588,7 @@ export class CloudSync {
     }
   }
 
-  async restoreData(
-    silent: boolean = false,
-    retryCount: number = 0,
-  ): Promise<void> {
+  async restoreData(silent: boolean = false): Promise<void> {
     if (!this.isAuthenticated) return;
     if (this.isRestoring) return;
     if (!silent) this.updateStatus("restoring...", "loading");
@@ -645,24 +606,10 @@ export class CloudSync {
       );
     }
 
-    const maxRetries = 6;
-    const jitter = (): number => Math.floor(Math.random() * 400);
-
     try {
       const response = await downloadSnapshot();
 
       if (response.status === 429 || response.status >= 500) {
-        if (retryCount < maxRetries) {
-          const delay =
-            Math.min(1000 * Math.pow(2, retryCount), 30000) + jitter();
-          if (!silent) this.updateStatus("restore retrying...", "loading");
-          console.warn(
-            `[cloudsync] restore retry ${retryCount + 1}/${maxRetries} after ${delay}ms with status ${response.status}... /ᐠ - ˕ -マ`,
-          );
-          this.isRestoring = false;
-          setTimeout(() => this.restoreData(silent, retryCount + 1), delay);
-          return;
-        }
         if (!silent) {
           this.updateStatus("sync service busy... /ᐠ - ˕ -マ", "error");
         }
@@ -671,21 +618,6 @@ export class CloudSync {
       }
 
       if (!response.ok && response.status !== 404) {
-        if (
-          retryCount < maxRetries &&
-          response.status >= 400 &&
-          response.status !== 401
-        ) {
-          const delay =
-            Math.min(1000 * Math.pow(2, retryCount), 30000) + jitter();
-          if (!silent) this.updateStatus("restore retrying...", "loading");
-          console.warn(
-            `[cloudsync] restore retry ${retryCount + 1}/${maxRetries} after ${delay}ms with status ${response.status}... /ᐠ - ˕ -マ`,
-          );
-          this.isRestoring = false;
-          setTimeout(() => this.restoreData(silent, retryCount + 1), delay);
-          return;
-        }
         if (!silent) {
           this.updateStatus("restore failed... /ᐠ - ˕ -マ", "error");
         }
@@ -730,14 +662,6 @@ export class CloudSync {
       }
     } catch {
       console.error("restore failed... /ᐠ - ˕ -マ");
-      if (retryCount < maxRetries) {
-        const delay =
-          Math.min(1000 * Math.pow(2, retryCount), 30000) + jitter();
-        if (!silent) this.updateStatus("restore retrying...", "loading");
-        this.isRestoring = false;
-        setTimeout(() => this.restoreData(silent, retryCount + 1), delay);
-        return;
-      }
       if (!silent) {
         this.updateStatus("restore failed... /ᐠ - ˕ -マ", "error");
       }

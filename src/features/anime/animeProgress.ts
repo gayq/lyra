@@ -1,5 +1,6 @@
 import {
   buildAnimePlaybackUrl,
+  isAnimeMovieFormat,
   type AnimeEntry,
   type AnimePlaybackUrlOptions,
 } from "./anime.ts";
@@ -125,7 +126,8 @@ export function animeProgressLabel(
     ? `${hours}:${String(minutes).padStart(2, "0")}`
     : String(minutes);
   const clock = `${clockMinutes}:${String(seconds % 60).padStart(2, "0")}`;
-  return `${label} episode ${progress.episode} · ${clock}`;
+  const episode = isAnimeMovieFormat(progress.format) ? "" : ` episode ${progress.episode}`;
+  return `${label}${episode} · ${clock}`;
 }
 
 export function animeResumeUrl(progress: AnimeProgress): string {

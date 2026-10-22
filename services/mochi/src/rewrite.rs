@@ -93,18 +93,7 @@ var s=typeof u==='string'?u:(u&&u.url?u.url:String(u));
 if(s.indexOf('data.jsdelivr.com/v1/stats/')!==-1){
 return Promise.resolve(new Response('{"total":0,"files":[],"versions":[]}',{status:200,headers:{'Content-Type':'application/json'}}));
 }
-return _f(u,o).then(function(r){
-if(r.status>=500||r.status===404){
-var ct=r.headers.get('content-type')||'';
-if(ct.indexOf('json')!==-1){
-return new Response('{"total":0,"files":[],"versions":[]}',{status:200,headers:{'Content-Type':'application/json'}});
-}
-return new Response('',{status:200,headers:{'Content-Type':'text/html'}});
-}
-return r;
-}).catch(function(){
-return new Response('{"total":0,"files":[],"versions":[]}',{status:200,headers:{'Content-Type':'application/json'}});
-});
+return _f(u,o);
 };
 var _iv=setInterval(function(){
 var zf=document.getElementById('zoneFrame');
@@ -114,7 +103,7 @@ zf.addEventListener('load',function(){
 try{if(zf.contentDocument&&zf.contentDocument.body){
 var t=zf.contentDocument.body.innerText||'';
 if(t.indexOf('Failed to fetch')!==-1||t.indexOf('upstream error')!==-1||t.indexOf('not found')!==-1){
-zf.srcdoc='<html><body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100%;margin:0;font-family:sans-serif;text-align:center"><div><h2 style="font-size:24px;margin-bottom:8px">Game Unavailable</h2><p style="color:#999">This game\u2019s content is no longer available.</p></div></body></html>';
+zf.srcdoc='<html><body style="background:#000;color:#fff;display:flex;align-items:center;justify-content:center;height:100%;margin:0;font-family:sans-serif;text-align:center"><div><h2 style="font-size:24px;margin-bottom:8px">game unavailable... /ᐠ - ˕ -マ</h2><p style="color:#999">this game\u2019s content is no longer available... /ᐠ - ˕ -マ</p></div></body></html>';
 }
 }}catch(e){}
 });

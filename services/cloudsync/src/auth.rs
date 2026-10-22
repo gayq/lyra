@@ -146,6 +146,7 @@ pub struct AppState {
     pub aes_cipher: Arc<Aes256Gcm>,
     pub auth_work: Arc<AdaptiveGate>,
     pub sync_work: Arc<AdaptiveGate>,
+    pub sync_admission: Arc<crate::admission::Admission>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -573,6 +574,8 @@ pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let auth = state.auth_work.snapshot();
     let sync = state.sync_work.snapshot();
     Json(serde_json::json!({
+        "transfer": state.sync_admission.metrics(),
+        "storage": crate::sync::transfer::metrics(),
         "auth": {
             "active": auth.active,
             "limit": auth.limit,

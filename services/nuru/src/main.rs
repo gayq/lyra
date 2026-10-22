@@ -205,6 +205,8 @@ fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(CONFIG.server.log_level)
         .parse_default_env()
+        .write_style(env_logger::WriteStyle::Never)
+        .format_timestamp_millis()
         .init();
 
     let cores = tuning::get_specs().cpu_cores;
@@ -236,6 +238,7 @@ async fn async_init() {
 
     validate_config_cache().await;
     init_capacity();
+    stats::mark_started();
 
     info!("nuru listening on {}{}", CONFIG.server.bind.1, POSITIVE);
 }

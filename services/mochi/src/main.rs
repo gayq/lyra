@@ -2,6 +2,7 @@ mod admission;
 mod cache;
 mod constants;
 mod encoding;
+mod deadline;
 mod folio;
 mod helpers;
 mod memory;
@@ -62,7 +63,9 @@ type AppResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 fn main() -> AppResult<()> {
     tracing_subscriber::fmt()
-        .with_env_filter("mochi=info")
+        .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| "mochi=info".into()))
+        .with_ansi(false)
         .init();
 
     let tuning = tuning::detect();
@@ -337,6 +340,7 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
             admission::Admission::from_env(),
             admission::admit,
         ))
+        .layer(axum::middleware::from_fn(deadline::headers))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

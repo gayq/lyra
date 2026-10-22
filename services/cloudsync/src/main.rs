@@ -1,3 +1,4 @@
+mod admission;
 mod auth;
 mod db;
 mod sync;
@@ -16,7 +17,6 @@ use mimalloc::MiMalloc;
 use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorError,
     GovernorLayer,
@@ -98,7 +98,7 @@ async fn main() {
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "cloudsync=debug,tower_http=debug".into()),
         ))
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_ansi(false))
         .init();
 
     let tuning = tuning::detect();
@@ -157,11 +157,7 @@ async fn main() {
     spawn_rebalancer(
         vec![
             CapacityTarget::new(auth_work.clone(), 24 * 1024 * 1024, Workload::Cpu),
-            CapacityTarget::new(
-                sync_work.clone(),
-                (tuning.body_limit_mb * 6 * 1024 * 1024) as u64,
-                Workload::Mixed,
-            ),
+            CapacityTarget::new(sync_work.clone(), 80 * 8 * 1024 * 1024, Workload::Mixed),
         ],
         std::time::Duration::from_secs(2),
     );
@@ -172,6 +168,7 @@ async fn main() {
         aes_cipher,
         auth_work,
         sync_work,
+        sync_admission: admission::Admission::new(),
     });
 
     auth::warm_password_verifier();
@@ -183,17 +180,34 @@ async fn main() {
         loop {
             interval.tick().await;
             let pool = checkpoint_pool.clone();
-            if tokio::task::spawn_blocking(move || {
-                let conn = pool.get().ok()?;
-                sync::transfer::cleanup(&conn).ok()?;
-                conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok()
-            })
-            .await
-            .ok()
-            .flatten()
-            .is_some()
-            {
-                tracing::debug!("wal checkpoint completed!! (˵◝ ⩊  ◜˵マ");
+            let started = std::time::Instant::now();
+            let outcome =
+                tokio::task::spawn_blocking(move || -> Result<(i64, i64, i64), &'static str> {
+                    let conn = pool.get().map_err(|_| "pool")?;
+                    sync::transfer::cleanup(&conn).map_err(|_| "cleanup")?;
+                    conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })
+                    .map_err(|_| "checkpoint")
+                })
+                .await;
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            match outcome {
+                Ok(Ok((busy, wal_pages, checkpointed_pages))) => tracing::info!(
+                    busy,
+                    wal_pages,
+                    checkpointed_pages,
+                    elapsed_ms,
+                    "database maintenance sample"
+                ),
+                Ok(Err(stage)) => tracing::warn!(
+                    stage,
+                    elapsed_ms,
+                    "database maintenance failed... /ᐠ - ˕ -マ"
+                ),
+                Err(_) => {
+                    tracing::warn!(elapsed_ms, "database maintenance task failed... /ᐠ - ˕ -マ")
+                }
             }
         }
     });
@@ -209,7 +223,7 @@ async fn main() {
     );
     let auth_read_conf = Box::new(
         GovernorConfigBuilder::default()
-            .per_second(20)
+            .per_millisecond(50)
             .burst_size(100)
             .error_handler(governor_response)
             .key_extractor(SmartIpKeyExtractor)
@@ -268,7 +282,6 @@ async fn main() {
             "/transfer/:id/commit",
             axum::routing::post(sync::transfer::commit),
         )
-        .layer(ConcurrencyLimitLayer::new(tuning.sync_work_max))
         .layer(GovernorLayer {
             config: sync_write_conf.into(),
         });
@@ -287,7 +300,6 @@ async fn main() {
             axum::routing::put(sync::transfer::put).get(sync::transfer::get),
         )
         .layer(DefaultBodyLimit::max(sync::transfer::CHUNK_SIZE))
-        .layer(ConcurrencyLimitLayer::new(tuning.sync_work_max))
         .layer(GovernorLayer {
             config: sync_chunk_conf.into(),
         });

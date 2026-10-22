@@ -1,8 +1,8 @@
+import { negativeMessage } from "../../core/runtime/messages.ts";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { getStoredGameSource } from "../../core/config/settingsOptions.ts";
 import {
   fetchGameData,
-  gameCatalogErrorMessage,
   type GameEntry,
 } from "./games.ts";
 
@@ -28,9 +28,9 @@ export function useGameCatalog(active: boolean) {
         setLoaded(true);
         setLoading(false);
       })
-      .catch((cause) => {
+      .catch(() => {
         if (!current()) return;
-        setError(gameCatalogErrorMessage(cause));
+        setError(negativeMessage("failed to fetch games data"));
         setLoaded(true);
         setLoading(false);
       });

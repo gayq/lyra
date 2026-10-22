@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::OnceLock,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use serde::Serialize;
 use wisp_mux::packet::{ConnectPacket, StreamType};
@@ -100,7 +104,7 @@ fn gate_stats(gate: &adaptive_capacity::AdaptiveGate) -> GateStats {
     }
 }
 
-pub async fn generate_stats() -> anyhow::Result<String> {
+fn memory_stats() -> anyhow::Result<MemoryStats> {
     #[cfg(not(target_os = "windows"))]
     let memory = {
         use tikv_jemalloc_ctl::stats::{active, allocated, mapped, metadata, resident, retained};
@@ -117,6 +121,37 @@ pub async fn generate_stats() -> anyhow::Result<String> {
     #[cfg(target_os = "windows")]
     let memory = MemoryStats {};
 
+    Ok(memory)
+}
+
+static STARTED_AT: OnceLock<u64> = OnceLock::new();
+
+pub fn mark_started() {
+    STARTED_AT.get_or_init(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    });
+}
+
+pub async fn generate_metrics() -> anyhow::Result<String> {
+    let (entries, hits, misses) = resolve_cache_stats();
+    Ok(serde_json::to_string(&serde_json::json!({
+        "started_at": STARTED_AT.get().copied().unwrap_or_default(),
+        "clients": CLIENTS.len(),
+        "active_streams": CLIENTS.iter().map(|client| client.value().0.len()).sum::<usize>(),
+        "memory": memory_stats()?,
+        "resolve_cache": ResolveCacheStats { entries, hits, misses },
+        "capacity": CapacityStats {
+            connections: gate_stats(connection_gate()),
+            streams: gate_stats(stream_gate()),
+        },
+    }))?)
+}
+
+pub async fn generate_stats() -> anyhow::Result<String> {
+    let memory = memory_stats()?;
     let mut clients = HashMap::with_capacity(CLIENTS.len());
     for client in CLIENTS.iter() {
         let id = client.key().clone();

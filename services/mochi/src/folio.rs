@@ -188,7 +188,7 @@ pub async fn request_handler(
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
             tracing::warn!(
-                error = %error,
+                category = crate::proxy::upstream_error_category(&error),
                 "folio upstream request failed{}",
                 NEGATIVE
             );

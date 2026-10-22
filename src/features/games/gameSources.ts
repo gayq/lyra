@@ -81,8 +81,11 @@ const EDUROCKS_PLAIN_ALPHABET =
 const EDUROCKS_FALLBACK_ENCODED_ALPHABET =
   "0547391826LHBYCGQMNWETRVKFUSODJAPIZXtfzwhjiuqnlobekgycavmxdprs";
 const EDUROCKS_STRING_LITERAL = String.raw`"(?:\\.|[^"\\])*"`;
+const EDUROCKS_SCALAR = String.raw`(?:${EDUROCKS_STRING_LITERAL}|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|![01]|true|false|null)`;
+const EDUROCKS_VALUE = String.raw`(?:${EDUROCKS_SCALAR}|\[\s*(?:${EDUROCKS_SCALAR}(?:\s*,\s*${EDUROCKS_SCALAR})*)?\s*\])`;
+const EDUROCKS_PROPERTY = String.raw`(${EDUROCKS_STRING_LITERAL}|[A-Za-z_$][\w$]*)\s*:\s*(${EDUROCKS_VALUE})`;
 const EDUROCKS_ENTRY_PATTERN = new RegExp(
-  String.raw`\{url:(${EDUROCKS_STRING_LITERAL}),name:(${EDUROCKS_STRING_LITERAL}),img:(${EDUROCKS_STRING_LITERAL}),(?:sharedArrayBuffer:!0,|exclusive:![01],|legacyId:${EDUROCKS_STRING_LITERAL},)*id:(\d+(?:e\d+)?),categories:\[(?:${EDUROCKS_STRING_LITERAL}(?:,${EDUROCKS_STRING_LITERAL})*)?\]\}`,
+  String.raw`\{\s*${EDUROCKS_PROPERTY}(?:\s*,\s*${EDUROCKS_PROPERTY})*\s*,?\s*\}`,
   "g",
 );
 const EDUROCKS_MAIN_SCRIPT_PATTERN =
@@ -179,8 +182,26 @@ function decodeEdurocksStringLiteral(
   }
 }
 
+function* edurocksEntries(value: string): Generator<Record<string, string>> {
+  for (const entry of value.matchAll(EDUROCKS_ENTRY_PATTERN)) {
+    const fields: Record<string, string> = Object.create(null);
+    for (const property of entry[0].matchAll(new RegExp(EDUROCKS_PROPERTY, "g"))) {
+      const key = property[1]!;
+      fields[key.startsWith('"') ? JSON.parse(key) : key] = property[2]!;
+    }
+    if (
+      fields.url?.startsWith('"') &&
+      fields.name?.startsWith('"') &&
+      fields.img?.startsWith('"') &&
+      fields.id && Number.isFinite(Number(fields.id))
+    ) {
+      yield fields;
+    }
+  }
+}
+
 function containsEdurocksCatalog(value: string): boolean {
-  return new RegExp(EDUROCKS_ENTRY_PATTERN.source).test(value);
+  return !edurocksEntries(value).next().done;
 }
 
 function edurocksModuleReferences(value: string): string[] {
@@ -423,14 +444,14 @@ function parseEdurocks(payload: unknown): GameEntry[] {
 
   const decodeMap = edurocksDecodeMap(encodedAlphabet);
   const games: GameEntry[] = [];
-  for (const match of body.matchAll(EDUROCKS_ENTRY_PATTERN)) {
+  for (const entry of edurocksEntries(body)) {
     const gameUrl = absoluteHttpUrl(
-      decodeEdurocksStringLiteral(match[1], decodeMap),
+      decodeEdurocksStringLiteral(entry.url, decodeMap),
       SOURCE_ORIGINS.edurocks,
     );
-    const name = decodeEdurocksStringLiteral(match[2], decodeMap);
-    const cover = decodeEdurocksStringLiteral(match[3], decodeMap);
-    const id = Number(match[4]);
+    const name = decodeEdurocksStringLiteral(entry.name, decodeMap);
+    const cover = decodeEdurocksStringLiteral(entry.img, decodeMap);
+    const id = Number(entry.id);
     if (!gameUrl || !name || !Number.isFinite(id)) continue;
 
     const mapped = mappedGame("edurocks", {

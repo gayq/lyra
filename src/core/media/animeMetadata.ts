@@ -58,12 +58,14 @@ export function getAnimeDisplayLabel(realUrl: string): string | null {
       .toLowerCase();
     if (!title) return null;
 
+    const format = url.searchParams.get("format")?.trim().toUpperCase();
+    const movie = format === "MOVIE" || format === "MUSIC";
     const episode = url.searchParams.get("episode")?.trim();
     const episodeLabel =
-      episode && /^\d+$/.test(episode) ? ` / episode: ${episode}` : "";
+      !movie && episode && /^\d+$/.test(episode) ? ` / episode: ${episode}` : "";
     const season = url.searchParams.get("season")?.trim();
     const seasonLabel =
-      season && /^[1-9]\d*$/.test(season) ? ` / season: ${season}` : "";
+      !movie && season && /^[1-9]\d*$/.test(season) ? ` / season: ${season}` : "";
     return `anime: ${title}${seasonLabel}${episodeLabel}`;
   } catch {
     return null;

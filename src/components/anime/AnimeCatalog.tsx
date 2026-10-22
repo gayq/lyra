@@ -103,7 +103,7 @@ export default function AnimeCatalog({
       })
       .catch(() => {
         if (loadRequestIdRef.current !== requestId) return;
-        setError(negativeMessage("anime could not be loaded"));
+        setError(negativeMessage("failed to fetch anime data"));
         setLoaded(true);
       })
       .finally(() => {

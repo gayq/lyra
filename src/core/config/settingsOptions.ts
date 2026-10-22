@@ -11,9 +11,9 @@ export const TRANSPORT_OPTIONS = ["epoxy", "libcurl"] as const;
 export const GAME_SOURCE_OPTIONS = [
   "selenite",
   "gn-math",
-  "wasm.rip",
-  "edurocks",
   "truffled",
+  "edurocks",
+  "wasm.rip",
   "velara",
 ] as const;
 export const SITE_CLOAKING_OPTIONS = [

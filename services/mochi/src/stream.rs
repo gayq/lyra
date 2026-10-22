@@ -1133,6 +1133,88 @@ async fn first_available<T>(
     Err(failure)
 }
 
+const PROVIDER_COOLDOWN: Duration = Duration::from_secs(30);
+
+#[derive(Default)]
+struct ProviderHealth {
+    failures: u32,
+    open_until: Option<Instant>,
+    probing: bool,
+    successes: u64,
+    missing: u64,
+    errors: u64,
+    skipped: u64,
+    elapsed_ms: u64,
+}
+
+impl ProviderHealth {
+    fn admit(&mut self, now: Instant) -> bool {
+        if self.probing || self.open_until.is_some_and(|until| now < until) {
+            self.skipped += 1;
+            return false;
+        }
+        self.probing = self.open_until.is_some();
+        true
+    }
+
+    fn record(&mut self, result: Result<(), ResolveError>, elapsed: Duration, now: Instant) {
+        self.elapsed_ms = self.elapsed_ms.saturating_add(elapsed.as_millis() as u64);
+        self.probing = false;
+        match result {
+            Ok(()) | Err(ResolveError::NotFound) => {
+                if result.is_ok() { self.successes += 1; } else { self.missing += 1; }
+                self.failures = 0;
+                self.open_until = None;
+            }
+            Err(ResolveError::Upstream) => {
+                self.errors += 1;
+                self.failures = self.failures.saturating_add(1);
+                if self.failures >= 3 { self.open_until = Some(now + PROVIDER_COOLDOWN); }
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+static PROVIDER_HEALTH: LazyLock<std::sync::Mutex<std::collections::HashMap<StreamProvider, ProviderHealth>>> =
+    LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+struct ProviderAttempt(StreamProvider);
+impl Drop for ProviderAttempt {
+    fn drop(&mut self) {
+        if let Some(health) = PROVIDER_HEALTH.lock().unwrap_or_else(|error| error.into_inner()).get_mut(&self.0) {
+            health.probing = false;
+        }
+    }
+}
+
+async fn guarded_source(
+    client: &reqwest::Client,
+    provider: StreamProvider,
+    key: &EpisodeKey,
+) -> Result<Arc<ResolvedSource>, ResolveError> {
+    let cache_key = provider_cache_key(provider, key);
+    if let Some(error) = PROVIDER_FAILURES.get(&cache_key).await { return Err(error); }
+    let cached = SOURCE_CACHE.get(&cache_key).await.is_some();
+    if !cached && !PROVIDER_HEALTH.lock().unwrap_or_else(|error| error.into_inner())
+        .entry(provider).or_default().admit(Instant::now()) {
+        return Err(ResolveError::Upstream);
+    }
+    let _attempt = (!cached).then_some(ProviderAttempt(provider));
+    let budget = if matches!(provider, StreamProvider::Framex | StreamProvider::Framex4k(_)) {
+        Duration::from_secs(10)
+    } else { Duration::from_secs(5) };
+    let started = Instant::now();
+    let result = tokio::time::timeout(budget, ready_source(client, provider, key))
+        .await.unwrap_or(Err(ResolveError::Upstream));
+    if !cached {
+        PROVIDER_HEALTH.lock().unwrap_or_else(|error| error.into_inner())
+            .entry(provider).or_default().record(result.as_ref().map(|_| ()).map_err(|error| *error), started.elapsed(), Instant::now());
+    }
+    if let Err(error) = result { PROVIDER_FAILURES.insert(cache_key, error).await; }
+    result
+}
+
 async fn ordered_source(
     client: &reqwest::Client,
     key: &EpisodeKey,
@@ -1143,26 +1225,7 @@ async fn ordered_source(
             .into_iter()
             .skip_while(|provider| *provider != start)
             .filter(|provider| provider.supports(key))
-            .map(|provider| {
-                Box::pin(async move {
-                    let cache_key = provider_cache_key(provider, key);
-                    if let Some(error) = PROVIDER_FAILURES.get(&cache_key).await {
-                        return Err(error);
-                    }
-                    let budget = if provider == StreamProvider::Framex {
-                        Duration::from_secs(10)
-                    } else {
-                        Duration::from_secs(5)
-                    };
-                    let result = tokio::time::timeout(budget, ready_source(client, provider, key))
-                        .await
-                        .unwrap_or(Err(ResolveError::Upstream));
-                    if let Err(error) = result {
-                        PROVIDER_FAILURES.insert(cache_key, error).await;
-                    }
-                    result
-                })
-            }),
+            .map(|provider| Box::pin(guarded_source(client, provider, key))),
     )
     .await
 }
@@ -1247,7 +1310,7 @@ async fn discover_4k(
                             {
                                 return Err(ResolveError::NotFound);
                             }
-                            let source = ready_source(client, provider, key).await?;
+                            let source = guarded_source(client, provider, key).await?;
                             if has_4k(&source) {
                                 Ok(source)
                             } else {
@@ -3326,7 +3389,17 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
         .unwrap_or(0);
     let upstream_capacity = state.stream_upstream_permit.snapshot();
     let rewrite_capacity = state.html_rewrite_permit.snapshot();
+    let providers = PROVIDER_HEALTH.lock().unwrap_or_else(|error| error.into_inner())
+        .iter().map(|(provider, health)| serde_json::json!({
+            "provider": provider.id(),
+            "adapter": format!("{provider:?}"),
+            "successes": health.successes, "missing": health.missing, "errors": health.errors,
+            "skipped": health.skipped, "total_ms": health.elapsed_ms,
+            "open": health.open_until.is_some_and(|until| Instant::now() < until),
+            "probing": health.probing,
+        })).collect::<Vec<_>>();
     let mut response = Json(serde_json::json!({
+        "providers": providers,
         "active_requests": STREAM_METRICS.active_requests.load(Ordering::Relaxed),
         "requests": STREAM_METRICS.requests.load(Ordering::Relaxed),
         "source_cache": {

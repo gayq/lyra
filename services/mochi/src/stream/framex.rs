@@ -648,7 +648,6 @@ async fn anime_sources(
                 Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
                 Err(error) => error,
             };
-            // Both backups share one four-second window; healthy primary requests stay single-host.
             let mut pending = futures_util::stream::iter((1..ANIME_APIS.len()).map(|offset| {
                 anime_api_sources(client, &discovery_key, (preferred + offset) % ANIME_APIS.len())
             }))

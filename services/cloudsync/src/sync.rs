@@ -1,3 +1,4 @@
+use crate::admission::Operation;
 use crate::auth::{get_current_user, AppState};
 use aes_gcm::{
     aead::{Aead, AeadCore, Payload},
@@ -5,7 +6,7 @@ use aes_gcm::{
 };
 use axum::{
     body::Bytes,
-    extract::{rejection::BytesRejection, Json, State},
+    extract::{Json, State},
     http::{
         header::{CONTENT_ENCODING, CONTENT_TYPE},
         HeaderMap, StatusCode,
@@ -200,7 +201,7 @@ fn response(
     error: Option<SyncError>,
 ) -> Response {
     let status = error.map_or(StatusCode::OK, SyncError::status);
-    (
+    let mut result = (
         status,
         Json(SyncResponse {
             success,
@@ -210,7 +211,14 @@ fn response(
             error: error.map(SyncError::message),
         }),
     )
-        .into_response()
+        .into_response();
+    if error == Some(SyncError::Busy) {
+        result.headers_mut().insert(
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderValue::from_static("1"),
+        );
+    }
+    result
 }
 
 fn get_meta_cache() -> &'static DashMap<i64, (String, Instant)> {
@@ -1244,7 +1252,7 @@ pub async fn upload(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     headers: HeaderMap,
-    payload: Result<Bytes, BytesRejection>,
+    request: axum::extract::Request,
 ) -> impl IntoResponse {
     let (user_id, _) = match get_current_user(&state, &cookies).await {
         Ok(user) => user,
@@ -1261,20 +1269,23 @@ pub async fn upload(
     if !content_type_valid {
         return response(false, None, None, Some(SyncError::UnsupportedMediaType));
     }
-    let payload = match payload {
-        Ok(payload) => payload,
-        Err(rejection) => {
-            let error = if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                SyncError::TooLarge
-            } else {
-                SyncError::InvalidPayload
-            };
-            return response(false, None, None, Some(error));
-        }
-    };
-    let permit = match state.sync_work.try_acquire() {
+    let permit = match state
+        .sync_admission
+        .acquire(user_id, Operation::Snapshot, &state.sync_work)
+        .await
+    {
         Some(permit) => permit,
         None => return response(false, None, None, Some(SyncError::Busy)),
+    };
+    let payload = match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        axum::body::to_bytes(request.into_body(), MAX_RAW_SIZE),
+    )
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(_)) => return response(false, None, None, Some(SyncError::TooLarge)),
+        Err(_) => return response(false, None, None, Some(SyncError::Busy)),
     };
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
@@ -1296,7 +1307,11 @@ pub async fn download(State(state): State<Arc<AppState>>, cookies: Cookies) -> i
         Ok(user) => user,
         Err(()) => return response(false, None, None, Some(SyncError::Unauthorized)),
     };
-    let permit = match state.sync_work.try_acquire() {
+    let permit = match state
+        .sync_admission
+        .acquire(user_id, Operation::Snapshot, &state.sync_work)
+        .await
+    {
         Some(permit) => permit,
         None => return response(false, None, None, Some(SyncError::Busy)),
     };
