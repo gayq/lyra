@@ -159,6 +159,64 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+# Advertising is opt-in and applies only to production server pages.
+ADCASH_TAG_PATH="$ROOT/.adcash-zone.tag"
+configure_adcash() {
+  local choice
+  choice="${LYRA_ADCASH:-}"
+  local source
+  source="${LYRA_ADCASH_TAG_FILE:-}"
+  local edited=0
+  if [ -z "$choice" ] && [ -t 0 ]; then
+    log "enable Adcash advertising on the production website? [y/N]"
+    read -r -p "> " choice
+  fi
+  case "$choice" in
+    y | Y | yes | YES | 1 | true)
+      if [ -z "$source" ] && [ -t 0 ]; then
+        if [ -s "$ADCASH_TAG_PATH" ]; then
+          log "existing Adcash zone tag found. Keep it? [Y/n]"
+          read -r -p "> " keep_choice
+          case "$keep_choice" in
+            "" | y | Y | yes | YES) source="$ADCASH_TAG_PATH" ;;
+          esac
+        fi
+        if [ -z "$source" ]; then
+          log "paste your Adcash publisher's INLINE zone tag into the editor."
+          log "Use the publisher tag from your dashboard, not the library URL."
+          log "Save and exit to continue; do not paste account passwords."
+          source="$(mktemp)"
+          edited=1
+          if ! command -v nano >/dev/null 2>&1; then
+            fail "nano is required to enter the Adcash zone tag"
+            rm -f "$source"
+            exit 1
+          fi
+          nano "$source" </dev/tty >/dev/tty 2>&1
+        fi
+      fi
+      if [ -z "$source" ] || [ ! -s "$source" ]; then
+        fail "Adcash enabled but no zone tag was supplied (set LYRA_ADCASH_TAG_FILE)"
+        exit 1
+      fi
+      if [ "$source" != "$ADCASH_TAG_PATH" ]; then
+        install -m 600 "$source" "$ADCASH_TAG_PATH"
+      fi
+      [ "$edited" -ne 1 ] || rm -f "$source"
+      success "Adcash enabled (publisher tag saved locally)"
+      ;;
+    "" | n | N | no | NO | 0 | false)
+      rm -f "$ADCASH_TAG_PATH"
+      log "Adcash disabled"
+      ;;
+    *)
+      fail "LYRA_ADCASH must be yes or no"
+      exit 1
+      ;;
+  esac
+}
+configure_adcash
+
 export DEBIAN_FRONTEND=noninteractive
 
 log "the setup process is about to start; support is available at discord.gg/4GeWaGPh6c"
@@ -559,6 +617,19 @@ fi
 require_cmd bun
 
 BUN_BIN="$(command -v bun)"
+if [ -f "$ADCASH_TAG_PATH" ]; then
+  "$BUN_BIN" -e '
+    import { readFileSync } from "node:fs";
+    import { normalizeAdcashZoneTag } from "./server/adcash.mjs";
+    try {
+      normalizeAdcashZoneTag(readFileSync(".adcash-zone.tag", "utf8"));
+      console.log("[setup] Adcash zone tag validated");
+    } catch (error) {
+      console.error("[setup] invalid Adcash tag: " + error.message);
+      process.exit(1);
+    }
+  '
+fi
 if [ "$("$BUN_BIN" --version)" != "$BUN_VERSION" ]; then
   fail "bun $BUN_VERSION is required"
   exit 1
