@@ -182,9 +182,14 @@ stop_pm2() {
   done
 
   if [ -n "$pm2_bin" ]; then
-    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" stop all >/dev/null 2>&1 || true
-    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" delete all >/dev/null 2>&1 || true
-    PATH="$HOME/.bun/bin:$PATH" "$pm2_bin" kill >/dev/null 2>&1 || true
+    local runner=("$pm2_bin")
+    local bun_bin
+    bun_bin="$(PATH="$HOME/.bun/bin:$PATH" command -v bun || true)"
+    # An old Node-only installation may need its original CLI for cleanup.
+    [ -z "$bun_bin" ] || runner=("$bun_bin" "$pm2_bin")
+    "${runner[@]}" stop all >/dev/null 2>&1 || true
+    "${runner[@]}" delete all >/dev/null 2>&1 || true
+    "${runner[@]}" kill >/dev/null 2>&1 || true
   fi
 }
 
@@ -430,7 +435,7 @@ if command -v modprobe >/dev/null 2>&1; then
   sudo modprobe nf_conntrack || true
 fi
 retry 3 sudo apt-get update -y
-retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git nodejs debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
+retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
 release_service_ports
 
 if [ "$WG_ENABLED" -eq 1 ]; then
@@ -538,7 +543,8 @@ if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl
 fi
 export PATH="/opt/eturnal/bin:$PATH"
 
-BUN_VERSION="1.4.2"
+BUN_VERSION="1.4.4"
+export PATH="$HOME/.bun/bin:$PATH"
 BUN_CURRENT_VERSION="$(bun --version 2>/dev/null || true)"
 if [ "$BUN_CURRENT_VERSION" != "$BUN_VERSION" ]; then
   log "installing bun $BUN_VERSION"
@@ -581,11 +587,8 @@ else
   fi
 fi
 
-PM2_BIN="$(command -v pm2 || true)"
-if [ -z "$PM2_BIN" ] && [ -x "$HOME/.bun/bin/pm2" ]; then
-  PM2_BIN="$HOME/.bun/bin/pm2"
-fi
-if [ -z "$PM2_BIN" ]; then
+PM2_BIN="$("$BUN_BIN" pm bin -g)/pm2"
+if [ ! -x "$PM2_BIN" ]; then
   fail "pm2 installation failed"
   exit 1
 fi
@@ -1007,6 +1010,7 @@ if [[ ! "$CACHE_AVAILABLE_KB" =~ ^[1-9][0-9]*$ ]]; then
   fail "available cache disk space could not be determined"
   exit 1
 fi
+# Keep collector credentials stable across reruns and outside the repository.
 sudo install -d -m 755 /etc/lyra
 if ! sudo test -s /etc/lyra/metrics.token; then
   openssl rand -hex 32 | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.token'
@@ -1019,7 +1023,6 @@ fi
 printf 'MOCHI_METRICS_TOKEN=%s\nNURU_METRICS_TOKEN=%s\n' "$METRICS_TOKEN" "$METRICS_TOKEN" \
   | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.env'
 sudo chmod 600 /etc/lyra/metrics.token /etc/lyra/metrics.env
-sudo install -d -m 700 -o "$USER" /var/lib/lyra-tls
 
 ANIME_CACHE_GB=$((CACHE_AVAILABLE_KB / 1048576 / 5))
 if [ "$ANIME_CACHE_GB" -lt 1 ]; then
@@ -1520,8 +1523,8 @@ CLOUDSYNC_MEM="$(calc_mem 6 128 768)M"
 ISAO_MEM="$(calc_mem 8 128 768)M"
 log "memory restart thresholds — lyra: $LYRA_MEM, cloudsync: $CLOUDSYNC_MEM, isao: $ISAO_MEM"
 
-"$PM2_BIN" stop all >/dev/null 2>&1 || true
-"$PM2_BIN" delete all >/dev/null 2>&1 || true
+"$BUN_BIN" "$PM2_BIN" stop all >/dev/null 2>&1 || true
+"$BUN_BIN" "$PM2_BIN" delete all >/dev/null 2>&1 || true
 
 SETUP_UMASK=$(umask)
 umask 077
@@ -1542,6 +1545,7 @@ module.exports = {
       max_memory_restart: "256M",
       env: {
         TZ: "UTC",
+        TLS_METRICS_TOKEN: "$METRICS_TOKEN"
       }
     },
     {
@@ -1697,18 +1701,24 @@ for svc in "${MOCHI_SERVICES[@]}"; do
   fi
 done
 
-"$PM2_BIN" start ecosystem.config.cjs --update-env
-"$PM2_BIN" save
-sudo env PATH="$PATH:$HOME/.bun/bin" "$PM2_BIN" startup systemd -u "$USER" --hp "$HOME" || true
+"$BUN_BIN" "$PM2_BIN" start ecosystem.config.cjs --update-env
+"$BUN_BIN" "$PM2_BIN" save
+sudo env PATH="$PATH:$HOME/.bun/bin" "$BUN_BIN" "$PM2_BIN" startup systemd -u "$USER" --hp "$HOME"
 PM2_SYSTEMD_SERVICE="pm2-$USER.service"
 if systemctl cat "$PM2_SYSTEMD_SERVICE" >/dev/null 2>&1; then
   sudo mkdir -p "/etc/systemd/system/$PM2_SYSTEMD_SERVICE.d"
   cat <<EOF | sudo tee "/etc/systemd/system/$PM2_SYSTEMD_SERVICE.d/limits.conf" >/dev/null
 [Service]
 LimitNOFILE=1048576
+ExecStart=
+ExecStart="$BUN_BIN" "$PM2_BIN" resurrect
+ExecReload=
+ExecReload="$BUN_BIN" "$PM2_BIN" reload all
+ExecStop=
+ExecStop="$BUN_BIN" "$PM2_BIN" kill
 EOF
   sudo systemctl daemon-reload
-  "$PM2_BIN" kill >/dev/null 2>&1 || true
+  "$BUN_BIN" "$PM2_BIN" kill >/dev/null 2>&1 || true
   sudo systemctl restart "$PM2_SYSTEMD_SERVICE"
 fi
 
@@ -1727,7 +1737,7 @@ success "nuru instances are running"
 
 PM2_SVCS=(tls-approval lyra cloudsync isao)
 for svc in "${PM2_SVCS[@]}"; do
-  if ! "$PM2_BIN" jlist | jq -e --arg name "$svc" \
+  if ! "$BUN_BIN" "$PM2_BIN" jlist | jq -e --arg name "$svc" \
     '.[] | select(.name == $name and .pm2_env.status == "online")' >/dev/null; then
     fail "pm2 service failed to start: $svc"
     exit 1

@@ -15,22 +15,21 @@ const toolPath = [
 ]
   .filter(Boolean)
   .join(path.delimiter);
-const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const corepackCommand =
-  process.platform === "win32" ? "corepack.cmd" : "corepack";
-const bunxCommand = process.platform === "win32" ? "bunx.cmd" : "bunx";
-const folioPnpmSpec = "pnpm@10.12.1";
 const tscPath = path.join(
   root,
   "node_modules",
-  ".bin",
-  process.platform === "win32" ? "tsc.cmd" : "tsc",
+  "@typescript",
+  "native",
+  "bin",
+  "tsc",
 );
 const tscAliasPath = path.join(
   vendorDir,
   "node_modules",
-  ".bin",
-  process.platform === "win32" ? "tsc-alias.cmd" : "tsc-alias",
+  "tsc-alias",
+  "dist",
+  "bin",
+  "index.js",
 );
 const rspackPath = path.join(
   vendorDir,
@@ -105,35 +104,6 @@ function run(command, args, options = {}) {
   });
 }
 
-function commandExists(command) {
-  return new Promise((resolve) => {
-    const checker = process.platform === "win32" ? "where" : "command";
-    const args = process.platform === "win32" ? [command] : ["-v", command];
-    const child = spawn(checker, args, {
-      env: { ...process.env, PATH: toolPath },
-      stdio: "ignore",
-      shell: process.platform !== "win32",
-    });
-
-    child.on("error", () => resolve(false));
-    child.on("exit", (code) => resolve(code === 0));
-  });
-}
-
-async function resolvePnpm() {
-  if (await commandExists(bunxCommand)) {
-    return { command: bunxCommand, prefix: [folioPnpmSpec] };
-  }
-  if (await commandExists(corepackCommand)) {
-    await run(corepackCommand, ["enable"]);
-    return { command: corepackCommand, prefix: ["pnpm"] };
-  }
-  if (await commandExists(pnpmCommand)) {
-    return { command: pnpmCommand, prefix: [] };
-  }
-  throw new Error("pnpm is required to build vendored folio... /ᐠ - ˕ -マ");
-}
-
 async function ensureVendoredSource() {
   if (!existsSync(path.join(vendorDir, "package.json"))) {
     throw new Error("vendored folio source is missing... /ᐠ - ˕ -マ");
@@ -141,15 +111,9 @@ async function ensureVendoredSource() {
 }
 
 async function ensureInstall() {
-  const pnpm = await resolvePnpm();
   await run(
-    pnpm.command,
-    [
-      ...pnpm.prefix,
-      "install",
-      "--frozen-lockfile",
-      "--config.dangerously-allow-all-builds=true",
-    ],
+    process.execPath,
+    ["install", "--frozen-lockfile", "--prefer-offline"],
     { cwd: vendorDir },
   );
 }
@@ -174,9 +138,9 @@ async function buildDeclarations() {
   );
 
   for (const { config, rewriteAliases } of declarations) {
-    await run(tscPath, ["--project", config], { cwd: vendorDir });
+    await run(process.execPath, [tscPath, "--project", config], { cwd: vendorDir });
     if (rewriteAliases) {
-      await run(tscAliasPath, ["--project", config], { cwd: vendorDir });
+      await run(process.execPath, [tscAliasPath, "--project", config], { cwd: vendorDir });
     }
   }
 }
@@ -203,10 +167,9 @@ async function copyExpectedFiles() {
 
 await ensureVendoredSource();
 await ensureInstall();
-const pnpm = await resolvePnpm();
 await run(
-  pnpm.command,
-  [...pnpm.prefix, "--filter", "@mercuryworkshop/folio", "rewriter:build"],
+  process.execPath,
+  ["run", "--filter", "@mercuryworkshop/folio", "rewriter:build"],
   {
     cwd: vendorDir,
   },

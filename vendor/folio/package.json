@@ -6,10 +6,9 @@
 	"keywords": [],
 	"author": "Mercury Workshop",
 	"license": "AGPL-3.0-only",
-	"packageManager": "pnpm@10.12.1",
+	"packageManager": "bun@1.4.4",
 	"scripts": {
-		"test:package": "ava tests/ci/packageValidation.js",
-		"preinstall": "npx only-allow pnpm"
+		"test:package": "ava tests/ci/packageValidation.js"
 	},
 	"ava": {
 		"files": [
@@ -25,5 +24,20 @@
 		"@types/yargs": "^17.0.35",
 		"ava": "^6.4.1",
 		"tsc-alias": "^1.8.16"
+	},
+	"workspaces": [
+		"packages/core",
+		"packages/rpc",
+		"packages/controller",
+		"packages/utils"
+	],
+	"catalog": {
+		"@mercuryworkshop/proxy-transports": "1.0.2"
+	},
+	"overrides": {
+		"htmlparser2": "12.0.0"
+	},
+	"patchedDependencies": {
+		"htmlparser2@12.0.0": "patches/htmlparser2@12.0.0.patch"
 	}
 }

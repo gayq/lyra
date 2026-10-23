@@ -8,7 +8,6 @@ dist/
 dist-static/
 target/
 **/target/
-bun.lock
 /pnpm-lock.yaml
 Cargo.lock
 public/b/fl/

@@ -42,7 +42,7 @@
 		"dom-serializer": "^2.0.0",
 		"domhandler": "^5.0.3",
 		"domutils": "^3.2.2",
-		"htmlparser2": "catalog:",
+		"htmlparser2": "12.0.0",
 		"idb": "^8.0.3",
 		"parse-domain": "^8.2.2"
 	}

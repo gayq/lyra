@@ -3,7 +3,7 @@
 	"version": "0.0.3",
 	"description": "Utilities for Folio proxy integrations",
 	"type": "module",
-	"packageManager": "pnpm@10.12.1",
+	"packageManager": "bun@1.4.4",
 	"license": "AGPL-3.0-only",
 	"repository": {
 		"type": "git",
@@ -24,7 +24,7 @@
 	],
 	"scripts": {
 		"build": "cd ../.. && rspack build --mode production",
-		"prepack": "pnpm run build"
+		"prepack": "bun run build"
 	},
 	"peerDependencies": {
 		"@mercuryworkshop/folio": "*",

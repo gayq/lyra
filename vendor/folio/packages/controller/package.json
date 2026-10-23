@@ -2,7 +2,7 @@
 	"name": "@mercuryworkshop/folio-controller",
 	"version": "0.0.14",
 	"type": "module",
-	"packageManager": "pnpm@10.12.1",
+	"packageManager": "bun@1.4.4",
 	"license": "AGPL-3.0-only",
 	"main": "./dist/controller-external.mjs",
 	"module": "./dist/controller-external.mjs",
@@ -14,7 +14,7 @@
 	},
 	"scripts": {
 		"build": "cd ../.. && rspack build --mode production --config-name folio-esmodule --config-name folio-controller",
-		"prepack": "pnpm build"
+		"prepack": "bun run build"
 	},
 	"exports": {
 		".": {
