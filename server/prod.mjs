@@ -17,6 +17,7 @@ import { createSearchSuggestionService } from "./search-suggestions.mjs";
 import { allowMetrics, createMetrics } from "./metrics.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 import { productionStaticGateway } from "./static-backend.mjs";
+import { createAdcash } from "./adcash.mjs";
 import {
   distCacheControl,
   IMMUTABLE_CACHE_CONTROL,
@@ -28,6 +29,7 @@ let shuttingDown = false;
 const connectPresence = createPresence();
 
 const ROOT = process.cwd();
+const adcash = createAdcash({ root: ROOT });
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
 const TURN_HEALTH_HOST = process.env.TURN_HEALTH_HOST || "127.0.0.1";
 const TURN_HEALTH_PORT = Number.parseInt(process.env.TURN_PORT || "3478", 10);
@@ -553,6 +555,17 @@ async function proxyToMochi(req) {
   }
 }
 
+async function injectAdcashPage(req, response) {
+  if (response.status !== 200 || req.method === "HEAD") return response;
+  const html = adcash.injectHtml(await response.text());
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  headers.delete("ETag");
+  headers.delete("Last-Modified");
+  headers.set("Cache-Control", "no-store");
+  return new Response(html, { status: response.status, headers });
+}
+
 async function appFetch(req, server) {
   const url = new URL(req.url);
   const pathname = url.pathname;
@@ -574,6 +587,10 @@ async function appFetch(req, server) {
 
   if (pathname.startsWith("/api/static/v1/")) {
     return staticGateway.handle(req, { ip: getClientIp(req, server), server });
+  }
+
+  if (canServeBody && adcash.enabled && (pathname === "/_lyra/adcash/library.js" || pathname === "/_lyra/adcash/zone.js")) {
+    return adcash.handle(req, pathname);
   }
 
   if (pathname === "/health" && canServeBody) {
@@ -650,7 +667,7 @@ async function appFetch(req, server) {
       path.join(distPath, "index.html"),
       NO_STORE_CACHE_CONTROL,
     );
-    if (response) return response;
+    if (response) return adcash.enabled ? injectAdcashPage(req, response) : response;
   }
 
   if (pathname === "/stream/anime") {
@@ -659,7 +676,7 @@ async function appFetch(req, server) {
       path.join(distPath, "player.html"),
       NO_STORE_CACHE_CONTROL,
     );
-    if (response) return response;
+    if (response) return adcash.enabled ? injectAdcashPage(req, response) : response;
   }
 
   return (
