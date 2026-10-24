@@ -737,14 +737,39 @@ fn decoded_target(raw: &str) -> Option<(String, Option<String>)> {
     {
         return Some((raw.to_owned(), None));
     }
+    for scheme in ["https:/", "http:/"] {
+        if let Some(rest) = raw.strip_prefix(scheme) {
+            return Some((format!("{scheme}/{rest}"), None));
+        }
+    }
+    let (token, base, suffix) = token_relative(raw)?;
+    let resolved = if suffix.is_empty() { base } else { base.join(suffix).ok()? };
+    Some((resolved.to_string(), Some(token.to_owned())))
+}
+
+fn token_relative(raw: &str) -> Option<(&str, Url, &str)> {
     let end = raw.find(['/', '?']).unwrap_or(raw.len());
     let token = &raw[..end];
     let base = Url::parse(&decode_mochi_url(token)?).ok()?;
     let suffix = &raw[end..];
     let suffix = suffix.strip_prefix('/').unwrap_or(suffix);
-    let suffix = suffix.strip_prefix("!a!").unwrap_or(suffix);
-    let resolved = if suffix.is_empty() { base } else { base.join(suffix).ok()? };
-    Some((resolved.to_string(), Some(token.to_owned())))
+    Some((token, base, suffix.strip_prefix("!a!").unwrap_or(suffix)))
+}
+
+async fn effective_base(state: &AppState, headers: &HeaderMap, base: Url) -> Url {
+    if validate_public_target(&base).is_err() {
+        return base;
+    }
+    state
+        .effective_bases
+        .get_with(base.to_string(), async {
+            let probe = state.html_client.head(base.clone()).timeout(Duration::from_secs(5));
+            match apply_common_request_headers(probe, headers, &base, false, false).send().await {
+                Ok(res) if matches!(res.url().scheme(), "http" | "https") => res.url().clone(),
+                _ => base.clone(),
+            }
+        })
+        .await
 }
 
 fn resolve_target(raw: &str, headers: &HeaderMap) -> Option<(String, Option<String>)> {
@@ -786,6 +811,16 @@ pub async fn proxy_handler(
             "invalid-request",
             "resource source context is missing or invalid",
         ),
+    };
+    let decoded_target_owned = match token_relative(raw_target) {
+        Some((_, base, suffix)) if !suffix.is_empty() && !suffix.starts_with('?') => {
+            effective_base(&state, &headers, base)
+                .await
+                .join(suffix)
+                .map(String::from)
+                .unwrap_or(decoded_target_owned)
+        }
+        _ => decoded_target_owned,
     };
     let target_url_str: &str = &decoded_target_owned;
     debug!("proxying request");

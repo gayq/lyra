@@ -24,29 +24,22 @@ function proxyGameFavicon(icon: string): string {
   return `/!cover!/${encodeMochiUrl(icon)}/`;
 }
 
-export type PlayerStatus =
-  | "idle"
-  | "loading"
-  | "buffering"
-  | "waiting"
-  | "stalled"
-  | "playing"
-  | "paused"
-  | "ended"
-  | "error";
+const PLAYER_STATUSES = [
+  "idle",
+  "loading",
+  "buffering",
+  "waiting",
+  "stalled",
+  "playing",
+  "paused",
+  "ended",
+  "error",
+] as const;
+
+export type PlayerStatus = (typeof PLAYER_STATUSES)[number];
 
 function isPlayerStatus(value: string): value is PlayerStatus {
-  return [
-    "idle",
-    "loading",
-    "buffering",
-    "waiting",
-    "stalled",
-    "playing",
-    "paused",
-    "ended",
-    "error",
-  ].includes(value);
+  return (PLAYER_STATUSES as readonly string[]).includes(value);
 }
 
 interface Tab {
@@ -190,6 +183,15 @@ const decodePageMetadata = (encoded: string) => {
   }
 };
 
+function disposeTabFrame(tab: Tab) {
+  tab.iframe.removeEventListener("iframe-focus", tab._iframeFocusHandler!);
+  tab.iframe.removeEventListener("focus", tab._iframeElementFocusHandler!);
+  tab.iframe.removeEventListener("pointerdown", tab._iframeElementFocusHandler!);
+  tab.iframe.removeEventListener("mouseenter", tab._iframeElementFocusHandler!);
+  cleanupIframe(tab.iframe);
+  tab.wrapper?.remove();
+}
+
 export const store = {
   tabs: [] as Tab[],
   activeTabId: null as number | null,
@@ -197,16 +199,8 @@ export const store = {
   isPickingSplitTab: false,
   isLoading: false,
 
-  subscribe(fn: (state: unknown, prevState: unknown) => void) {
-    return useStore.subscribe(fn);
-  },
-
   notify() {
     syncToZustand(this);
-  },
-
-  notifySync() {
-    this.notify();
   },
 
   getActiveTab(): Tab | null {
@@ -419,24 +413,7 @@ export const store = {
     const closedTab = this.tabs.splice(tabIndex, 1)[0]!;
 
     if (closedTab.iframe) {
-      closedTab.iframe.removeEventListener(
-        "iframe-focus",
-        closedTab._iframeFocusHandler!,
-      );
-      closedTab.iframe.removeEventListener(
-        "focus",
-        closedTab._iframeElementFocusHandler!,
-      );
-      closedTab.iframe.removeEventListener(
-        "pointerdown",
-        closedTab._iframeElementFocusHandler!,
-      );
-      closedTab.iframe.removeEventListener(
-        "mouseenter",
-        closedTab._iframeElementFocusHandler!,
-      );
-      cleanupIframe(closedTab.iframe);
-      closedTab.wrapper.remove();
+      disposeTabFrame(closedTab);
       closedTab._iframeFocusHandler = null;
       closedTab._iframeElementFocusHandler = null;
       (closedTab as any).iframe = null;
@@ -663,26 +640,7 @@ export const store = {
     }
     const tabsCopy = [...this.tabs];
     for (const tab of tabsCopy) {
-      if (tab.iframe) {
-        tab.iframe.removeEventListener(
-          "iframe-focus",
-          tab._iframeFocusHandler!,
-        );
-        tab.iframe.removeEventListener(
-          "focus",
-          tab._iframeElementFocusHandler!,
-        );
-        tab.iframe.removeEventListener(
-          "pointerdown",
-          tab._iframeElementFocusHandler!,
-        );
-        tab.iframe.removeEventListener(
-          "mouseenter",
-          tab._iframeElementFocusHandler!,
-        );
-        cleanupIframe(tab.iframe);
-        tab.wrapper?.remove();
-      }
+      if (tab.iframe) disposeTabFrame(tab);
       if (tab.historyManager?.destroy) tab.historyManager.destroy();
     }
 

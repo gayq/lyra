@@ -61,10 +61,6 @@ fn upload_info(connection: &Connection, user_id: i64, id: &str) -> SyncResult<(i
         .ok_or(SyncError::Conflict)
 }
 
-fn begin_upload(connection: &mut Connection, user_id: i64, parts: i64) -> SyncResult<String> {
-    begin_with_hashes(connection, user_id, parts, None).map(|(id, _)| id)
-}
-
 fn begin_with_hashes(
     connection: &mut Connection,
     user_id: i64,

@@ -281,7 +281,7 @@ async function patchHtml(response, upstreamUrlStr) {
       statusText: response.statusText,
       headers: fixHtmlHeaders(response.headers),
     });
-  } catch (e) {
+  } catch {
     return response;
   }
 }

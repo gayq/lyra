@@ -135,21 +135,9 @@ export class CloudSync {
     let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const authResponse = await fetchWithTimeout("/api/auth/me", {
-        cache: "no-store",
-      });
-
-      if (authResponse.ok) {
-        const authPayload = await authResponse.json();
-        this.user = authPayload.user;
-        this.isAuthenticated = true;
-        localStorage.setItem("auth_user", JSON.stringify(this.user));
-      } else {
-        this.isAuthenticated = false;
-        this.user = {};
-        localStorage.removeItem("auth_user");
-      }
-      this.updateModalState();
+      await this.applyAuthResponse(
+        await fetchWithTimeout("/api/auth/me", { cache: "no-store" }),
+      );
 
       if (this.isAuthenticated) {
         const metadataResponse = await fetchWithTimeout("/api/sync/meta", {
@@ -261,22 +249,25 @@ export class CloudSync {
     }
   }
 
+  async applyAuthResponse(response: Response): Promise<void> {
+    if (response.ok) {
+      const authPayload = await response.json();
+      this.user = authPayload.user;
+      this.isAuthenticated = true;
+      localStorage.setItem("auth_user", JSON.stringify(this.user));
+    } else {
+      this.isAuthenticated = false;
+      this.user = {};
+      localStorage.removeItem("auth_user");
+    }
+    this.updateModalState();
+  }
+
   async checkAuthStatus(): Promise<void> {
     try {
-      const response = await fetchWithTimeout("/api/auth/me", {
-        cache: "no-store",
-      });
-      if (response.ok) {
-        const authPayload = await response.json();
-        this.user = authPayload.user;
-        this.isAuthenticated = true;
-        localStorage.setItem("auth_user", JSON.stringify(this.user));
-      } else {
-        this.isAuthenticated = false;
-        this.user = {};
-        localStorage.removeItem("auth_user");
-      }
-      this.updateModalState();
+      await this.applyAuthResponse(
+        await fetchWithTimeout("/api/auth/me", { cache: "no-store" }),
+      );
     } catch {
       console.warn("auth check failed... /ᐠ - ˕ -マ");
       this.isAuthenticated = false;

@@ -50,7 +50,7 @@ export function createApprovalService({
   };
 }
 
-export const handleApproval = createApprovalService();
+const handleApproval = createApprovalService();
 
 if (import.meta.main) {
   const server = Bun.serve({ hostname: '127.0.0.1', port: PORT, fetch: handleApproval });

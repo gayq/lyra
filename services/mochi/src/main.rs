@@ -226,6 +226,10 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         stream_cache,
         stream_fills,
         folio_cache,
+        effective_bases: Cache::builder()
+            .max_capacity(4096)
+            .time_to_live(Duration::from_secs(600))
+            .build(),
         folio_cache_generation: Default::default(),
         folio_metrics: FolioMetrics::default(),
         blocklist_matcher,

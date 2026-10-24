@@ -1,9 +1,39 @@
-import { signal } from "@preact/signals";
+import { useSyncExternalStore } from "preact/compat";
 
-export const sidebarHiddenSignal = signal(false);
-export const gamesViewSignal = signal(false);
-export const animeViewSignal = signal(false);
-export const currentUrlSignal = signal<string>("");
+export interface UiSignal<T> {
+  value: T;
+  subscribe(listener: () => void): () => void;
+}
+
+function uiSignal<T>(initial: T): UiSignal<T> {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  return {
+    get value() {
+      return current;
+    },
+    set value(next) {
+      if (Object.is(next, current)) return;
+      current = next;
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+export function useUiSignal<T>(signal: UiSignal<T>): T {
+  return useSyncExternalStore(signal.subscribe, () => signal.value);
+}
+
+export const sidebarHiddenSignal = uiSignal(false);
+export const gamesViewSignal = uiSignal(false);
+export const animeViewSignal = uiSignal(false);
+export const currentUrlSignal = uiSignal<string>("");
 
 export function initUiSignals(): void {
   const isHidden = localStorage.getItem("sidebarHidden") === "true";

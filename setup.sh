@@ -137,6 +137,7 @@ fi
 
 require_cmd apt-get
 require_cmd systemctl
+require_cmd runuser
 
 for controller in cpu memory pids; do
   if ! grep -qw "$controller" /sys/fs/cgroup/cgroup.controllers 2>/dev/null; then
@@ -159,7 +160,243 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+SETUP_TEMP="$(mktemp -d)"
+trap 'rm -rf -- "$SETUP_TEMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+edit_config() {
+  local editor=()
+  read -r -a editor <<< "${VISUAL:-${EDITOR:-nano}}"
+  require_cmd "${editor[0]}"
+  "${editor[@]}" "$1" </dev/tty >/dev/tty 2>&1
+}
+
+configure_adcash() {
+  ADCASH_TAG_PATH="$ROOT/.adcash-zone.tag"
+  ADCASH_ACTION=keep
+  ADCASH_SOURCE="${LYRA_ADCASH_TAG_FILE:-}"
+  local choice="${LYRA_ADCASH:-}"
+  local keep_choice
+  if [ -z "$choice" ] && [ ! -t 0 ]; then
+    return
+  fi
+  if [ -z "$choice" ]; then
+    log "enable adcash advertising on the production website?"
+    log "type 'y' to configure adcash or 'n' to disable it"
+  fi
+  while true; do
+    if [ -z "$choice" ]; then read -r -p "> " choice; fi
+    case "$choice" in
+      y | yes | Y | YES | true | 1) ADCASH_ACTION=enable; break ;;
+      n | no | N | NO | false | 0) ADCASH_ACTION=disable; return ;;
+      *)
+        fail "please type 'y' or 'n'"
+        [ -t 0 ] || return 1
+        choice=""
+        ;;
+    esac
+  done
+  if [ -z "$ADCASH_SOURCE" ] && [ -t 0 ] && [ -s "$ADCASH_TAG_PATH" ]; then
+    log "type 'k' to keep existing adcash config or 'r' to replace it"
+    while true; do
+      read -r -p "> " keep_choice
+      case "$keep_choice" in
+        k | keep) ADCASH_SOURCE="$ADCASH_TAG_PATH"; break ;;
+        r | replace) break ;;
+        *) fail "please type 'k' or 'r'" ;;
+      esac
+    done
+  fi
+  if [ -z "$ADCASH_SOURCE" ] && [ ! -t 0 ] && [ -s "$ADCASH_TAG_PATH" ]; then
+    ADCASH_SOURCE="$ADCASH_TAG_PATH"
+  fi
+  if [ -z "$ADCASH_SOURCE" ] && [ -t 0 ]; then
+    ADCASH_SOURCE="$SETUP_TEMP/adcash-zone.tag"
+    log "paste your inline adcash zone script in the editor, then save and exit"
+    : > "$ADCASH_SOURCE"
+    edit_config "$ADCASH_SOURCE"
+  fi
+  if [ -z "$ADCASH_SOURCE" ] || [ ! -s "$ADCASH_SOURCE" ]; then
+    fail "adcash needs an inline zone script; set LYRA_ADCASH_TAG_FILE"
+    return 1
+  fi
+  cp "$ADCASH_SOURCE" "$SETUP_TEMP/adcash-pending.tag"
+  ADCASH_SOURCE="$SETUP_TEMP/adcash-pending.tag"
+}
+
+validate_adcash() {
+  [ "$ADCASH_ACTION" = enable ] || return 0
+  "$1" --eval '
+    import { readFileSync } from "node:fs";
+    import { normalizeAdcashZoneTag } from "./server/adcash.mjs";
+    try {
+      normalizeAdcashZoneTag(readFileSync(process.argv[1], "utf8"));
+    } catch {
+      console.error("[setup] invalid adcash zone script; saved config unchanged... /ᐠ - ˕ -マ");
+      process.exit(1);
+    }
+  ' "$ADCASH_SOURCE"
+}
+
+WG_ENABLED=0
+WG_REUSE=0
+WG_CONFIG_EXISTS=0
+
+if sudo [ -f /etc/wireguard/wg0.conf ]; then
+  WG_CONFIG_EXISTS=1
+  log "detected existing wireguard config"
+fi
+
+if [ -t 0 ]; then
+  log "route mochi and nuru through a wireguard vpn?"
+  fail "all outbound traffic from both services will use the vpn and may be slower"
+  if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+    log "type 'y' to use wireguard or 'n' to keep both services on the server's direct connection"
+  else
+    log "type 'y' to configure wireguard or 'n' to use the server's direct connection"
+  fi
+  while true; do
+    read -r -p "> " ws_choice
+    case "$ws_choice" in
+    yes | y)
+      WG_ENABLED=1
+      break
+      ;;
+    no | n)
+      WG_ENABLED=0
+      break
+      ;;
+    *)
+      fail "please type 'y' or 'n'"
+      ;;
+    esac
+  done
+
+  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+    log "type 'k' to keep existing config or 'r' to replace it"
+    while true; do
+      read -r -p "> " keep_choice
+      case "$keep_choice" in
+      k | keep)
+        WG_REUSE=1
+        break
+        ;;
+      r | replace)
+        WG_REUSE=0
+        break
+        ;;
+      *)
+        fail "please type 'k' or 'r'"
+        ;;
+      esac
+    done
+  fi
+
+  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
+    while true; do
+      WG_CONFIG_FILE="$SETUP_TEMP/wg0.conf"
+      cat >"$WG_CONFIG_FILE" <<'WGEOF'
+# paste your wireguard config below then save and exit!
+#
+# example:
+# [Interface]
+# PrivateKey = ...
+# Address = ...
+# DNS = ...
+#
+# [Peer]
+# PublicKey = ...
+# AllowedIPs = ...
+# Endpoint = ...
+# PresharedKey = ...
+WGEOF
+      edit_config "$WG_CONFIG_FILE"
+      if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$WG_CONFIG_FILE" 2>/dev/null; then
+        fail "empty config"
+        log "type 'r' to retry or 'c' to cancel vpn setup"
+        read -r -p "> " retry
+        case "$retry" in
+        r | retry) continue ;;
+        *)
+          WG_ENABLED=0
+          break
+          ;;
+        esac
+      elif ! grep -Eq '^[[:space:]]*\[Interface\][[:space:]]*$' "$WG_CONFIG_FILE" 2>/dev/null; then
+        fail "invalid config (missing [Interface] section)"
+        log "type 'r' to retry or 'c' to cancel vpn setup"
+        read -r -p "> " retry
+        case "$retry" in
+        r | retry) continue ;;
+        *)
+          WG_ENABLED=0
+          break
+          ;;
+        esac
+      else
+        success "wireguard config is valid"
+        break
+      fi
+    done
+  fi
+else
+  case "${LYRA_WIREGUARD:-no}" in
+  1 | true | yes | y)
+    if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
+      WG_ENABLED=1
+      WG_REUSE=1
+      success "wireguard routing enabled by LYRA_WIREGUARD using the existing config"
+    else
+      fail "LYRA_WIREGUARD requested, but /etc/wireguard/wg0.conf is missing; using the direct connection"
+    fi
+    ;;
+  *)
+    log "wireguard routing mode: direct connection"
+    ;;
+  esac
+fi
+
+configure_adcash
 export DEBIAN_FRONTEND=noninteractive
+
+# Package and runtime failures must occur before shutting down the live site.
+retry 3 sudo apt-get update -y
+retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
+
+BUN_VERSION="1.4.4"
+export PATH="$HOME/.bun/bin:$PATH"
+BUN_CURRENT_VERSION="$(bun --version 2>/dev/null || true)"
+if [ "$BUN_CURRENT_VERSION" != "$BUN_VERSION" ]; then
+  log "installing bun $BUN_VERSION"
+  curl -fsSL https://bun.com/install | bash -s -- "bun-v$BUN_VERSION"
+  export PATH="$HOME/.bun/bin:$PATH"
+fi
+
+if ! command -v bun >/dev/null 2>&1; then
+  fail "bun installation failed"
+  exit 1
+fi
+require_cmd bun
+
+BUN_BIN="$(command -v bun)"
+validate_adcash "$BUN_BIN"
+
+if [ "$("$BUN_BIN" --version)" != "$BUN_VERSION" ]; then
+  fail "bun $BUN_VERSION is required"
+  exit 1
+fi
+
+"$BUN_BIN" -e '
+import { productionStaticGateway } from "./server/static-backend.mjs";
+try {
+  productionStaticGateway(() => ({}));
+  console.log("[setup] static gateway configuration validated!! (˵◝ ⩊  ◜˵マ");
+} catch {
+  console.error("[setup] invalid static gateway configuration... /ᐠ - ˕ -マ");
+  process.exit(1);
+}
+'
 
 log "the setup process is about to start; support is available at discord.gg/4GeWaGPh6c"
 success "setup started"
@@ -298,124 +535,6 @@ kill_service_processes
 release_service_ports
 success "all services stopped"
 
-WG_ENABLED=0
-WG_REUSE=0
-WG_CONFIG_EXISTS=0
-
-if sudo [ -f /etc/wireguard/wg0.conf ]; then
-  WG_CONFIG_EXISTS=1
-  log "detected existing wireguard config"
-fi
-
-if [ -t 0 ]; then
-  log "route mochi and nuru through a wireguard vpn?"
-  fail "all outbound traffic from both services will use the vpn and may be slower"
-  if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
-    log "type 'y' to use wireguard or 'n' to keep both services on the server's direct connection"
-  else
-    log "type 'y' to configure wireguard or 'n' to use the server's direct connection"
-  fi
-  while true; do
-    read -r -p "> " ws_choice
-    case "$ws_choice" in
-    yes | y)
-      WG_ENABLED=1
-      break
-      ;;
-    no | n)
-      WG_ENABLED=0
-      break
-      ;;
-    *)
-      fail "please type 'y' or 'n'"
-      ;;
-    esac
-  done
-
-  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
-    log "type 'k' to keep existing config or 'r' to replace it"
-    while true; do
-      read -r -p "> " keep_choice
-      case "$keep_choice" in
-      k | keep)
-        WG_REUSE=1
-        break
-        ;;
-      r | replace)
-        WG_REUSE=0
-        break
-        ;;
-      *)
-        fail "please type 'k' or 'r'"
-        ;;
-      esac
-    done
-  fi
-
-  if [ "$WG_ENABLED" -eq 1 ] && [ "$WG_REUSE" -eq 0 ]; then
-    while true; do
-      WG_CONFIG_FILE="/tmp/wg0-config-paste"
-      cat >"$WG_CONFIG_FILE" <<'WGEOF'
-# paste your wireguard config below then save and exit!
-#
-# example:
-# [Interface]
-# PrivateKey = ...
-# Address = ...
-# DNS = ...
-#
-# [Peer]
-# PublicKey = ...
-# AllowedIPs = ...
-# Endpoint = ...
-# PresharedKey = ...
-WGEOF
-      nano "$WG_CONFIG_FILE" </dev/tty >/dev/tty 2>&1 || true
-      if ! grep -Eq '^[[:space:]]*[^#[:space:]]' "$WG_CONFIG_FILE" 2>/dev/null; then
-        fail "empty config"
-        log "type 'r' to retry or 'c' to cancel vpn setup"
-        read -r -p "> " retry
-        case "$retry" in
-        r | retry) continue ;;
-        *)
-          WG_ENABLED=0
-          break
-          ;;
-        esac
-      elif ! grep -Eq '^[[:space:]]*\[Interface\][[:space:]]*$' "$WG_CONFIG_FILE" 2>/dev/null; then
-        fail "invalid config (missing [Interface] section)"
-        log "type 'r' to retry or 'c' to cancel vpn setup"
-        read -r -p "> " retry
-        case "$retry" in
-        r | retry) continue ;;
-        *)
-          WG_ENABLED=0
-          break
-          ;;
-        esac
-      else
-        success "wireguard config is valid"
-        break
-      fi
-    done
-  fi
-else
-  case "${LYRA_WIREGUARD:-no}" in
-  1 | true | yes | y)
-    if [ "$WG_CONFIG_EXISTS" -eq 1 ]; then
-      WG_ENABLED=1
-      WG_REUSE=1
-      success "wireguard routing enabled by LYRA_WIREGUARD using the existing config"
-    else
-      fail "LYRA_WIREGUARD requested, but /etc/wireguard/wg0.conf is missing; using the direct connection"
-    fi
-    ;;
-  *)
-    log "wireguard routing mode: direct connection"
-    ;;
-  esac
-fi
-
 if [ "$WG_ENABLED" -eq 0 ]; then
   sudo systemctl stop nuru 2>/dev/null || true
   sudo systemctl disable nuru 2>/dev/null || true
@@ -434,8 +553,6 @@ fi
 if command -v modprobe >/dev/null 2>&1; then
   sudo modprobe nf_conntrack || true
 fi
-retry 3 sudo apt-get update -y
-retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
 release_service_ports
 
 if [ "$WG_ENABLED" -eq 1 ]; then
@@ -543,37 +660,17 @@ if ! command -v eturnalctl >/dev/null 2>&1 && [ ! -x /opt/eturnal/bin/eturnalctl
 fi
 export PATH="/opt/eturnal/bin:$PATH"
 
-BUN_VERSION="1.4.4"
-export PATH="$HOME/.bun/bin:$PATH"
-BUN_CURRENT_VERSION="$(bun --version 2>/dev/null || true)"
-if [ "$BUN_CURRENT_VERSION" != "$BUN_VERSION" ]; then
-  log "installing bun $BUN_VERSION"
-  curl -fsSL https://bun.com/install | bash -s -- "bun-v$BUN_VERSION"
-  export PATH="$HOME/.bun/bin:$PATH"
-fi
-
-if ! command -v bun >/dev/null 2>&1; then
-  fail "bun installation failed"
-  exit 1
-fi
-require_cmd bun
-
-BUN_BIN="$(command -v bun)"
-if [ "$("$BUN_BIN" --version)" != "$BUN_VERSION" ]; then
-  fail "bun $BUN_VERSION is required"
-  exit 1
-fi
-
-"$BUN_BIN" -e '
-import { productionStaticGateway } from "./server/static-backend.mjs";
-try {
-  productionStaticGateway(() => ({}));
-  console.log("[setup] static gateway configuration validated!! (˵◝ ⩊  ◜˵マ");
-} catch {
-  console.error("[setup] invalid static gateway configuration... /ᐠ - ˕ -マ");
-  process.exit(1);
-}
-'
+case "$ADCASH_ACTION" in
+  enable)
+    install -m 600 "$ADCASH_SOURCE" "$ADCASH_TAG_PATH.pending"
+    mv -f "$ADCASH_TAG_PATH.pending" "$ADCASH_TAG_PATH"
+    success "adcash config saved"
+    ;;
+  disable)
+    rm -f "$ADCASH_TAG_PATH"
+    log "adcash disabled"
+    ;;
+esac
 
 if ! "$BUN_BIN" pm -g ls | grep -q "pm2@"; then
   if ! retry 3 "$BUN_BIN" add -g pm2; then
@@ -1023,6 +1120,22 @@ fi
 printf 'MOCHI_METRICS_TOKEN=%s\nNURU_METRICS_TOKEN=%s\n' "$METRICS_TOKEN" "$METRICS_TOKEN" \
   | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.env'
 sudo chmod 600 /etc/lyra/metrics.token /etc/lyra/metrics.env
+# nuru tickets are signed with hourly keys derived from this secret; the edge token
+# lets caddy trust cloudfront's viewer address header.
+for secret in nuru-ticket edge; do
+  if ! sudo test -s "/etc/lyra/$secret.token"; then
+    openssl rand -hex 32 | sudo sh -c "umask 077; cat > /etc/lyra/$secret.token"
+  fi
+done
+NURU_TICKET_SECRET=$(sudo cat /etc/lyra/nuru-ticket.token)
+EDGE_TOKEN=$(sudo cat /etc/lyra/edge.token)
+if [[ ! "$NURU_TICKET_SECRET" =~ ^[a-f0-9]{64}$ || ! "$EDGE_TOKEN" =~ ^[a-f0-9]{64}$ ]]; then
+  fail "connection credential is invalid"
+  exit 1
+fi
+printf 'NURU_TICKET_SECRET=%s\n' "$NURU_TICKET_SECRET" \
+  | sudo sh -c 'umask 077; cat > /etc/lyra/nuru-ticket.env'
+sudo chmod 600 /etc/lyra/nuru-ticket.token /etc/lyra/edge.token /etc/lyra/nuru-ticket.env
 
 ANIME_CACHE_GB=$((CACHE_AVAILABLE_KB / 1048576 / 5))
 if [ "$ANIME_CACHE_GB" -lt 1 ]; then
@@ -1092,6 +1205,7 @@ KillMode=mixed
 TimeoutStopSec=10
 Environment=RUST_LOG=warn
 EnvironmentFile=/etc/lyra/metrics.env
+EnvironmentFile=/etc/lyra/nuru-ticket.env
 Environment=NURU_INSTANCES=$NURU_INSTANCES
 Environment=LD_PRELOAD=$JEMALLOC_PATH
 LimitNOFILE=65536
@@ -1169,7 +1283,14 @@ if [ -f /etc/caddy/Caddyfile ]; then
 fi
 
 sudo install -d -m 750 -o caddy -g caddy /var/log/caddy
-sudo tee /etc/caddy/Caddyfile <<EOF
+# Root validation used to create this file as root:root 0640, preventing startup.
+# Preserve existing log contents while repairing older installations.
+sudo touch /var/log/caddy/access.json
+sudo chown caddy:caddy /var/log/caddy/access.json
+sudo chmod 640 /var/log/caddy/access.json
+# the caddyfile carries the edge token, so keep it unreadable to others and out of the terminal
+sudo install -m 640 -o root -g caddy /dev/null /etc/caddy/Caddyfile
+sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
 {
     email sefiicc@gmail.com
 
@@ -1276,6 +1397,12 @@ http://127.0.0.1:4001 {
     log_append route {lyra_route}
     log_append request_id {http.request.uuid}
 
+    # cloudfront mirrors send X-Lyra-Edge (an origin custom header) with the viewer address
+    map "{http.request.header.X-Lyra-Edge} {http.request.header.CloudFront-Viewer-Address}" {lyra_client_ip} {
+        "~^$EDGE_TOKEN ([0-9A-Fa-f:.]+):[0-9]+\$" "\${1}"
+        default {http.request.remote.host}
+    }
+
     @internal_metrics path /metrics /stream/metrics /!!folio/metrics /api/auth/metrics /api/anime/metrics
     header @internal_metrics Cache-Control no-store
     respond @internal_metrics "metrics access denied... /ᐠ - ˕ -マ" 403
@@ -1288,28 +1415,28 @@ http://127.0.0.1:4001 {
     handle /lyra/health {
         rewrite * /health
         reverse_proxy h2c://127.0.0.1:4444 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /tls-approval/health {
         rewrite * /health
         reverse_proxy 127.0.0.1:3001 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /cloudsync/health {
         rewrite * /health
         reverse_proxy 127.0.0.1:4005 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /isao/health {
         rewrite * /health
         reverse_proxy 127.0.0.1:6001 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
@@ -1320,7 +1447,7 @@ http://127.0.0.1:4001 {
             unhealthy_request_count $MOCHI_REQUESTS
             fail_duration 10s
             health_uri /health
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
@@ -1331,19 +1458,19 @@ http://127.0.0.1:4001 {
             unhealthy_request_count $NURU_REQUESTS
             fail_duration 10s
             health_uri /health
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /eturnal/health {
         reverse_proxy h2c://127.0.0.1:4444 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /health {
         reverse_proxy h2c://127.0.0.1:4444 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
@@ -1358,7 +1485,7 @@ http://127.0.0.1:4001 {
         fail_duration 10s
         max_fails 4
         header_up Host {http.request.hostport}
-        header_up X-Real-IP {remote_host}
+        header_up X-Real-IP {lyra_client_ip}
         flush_interval -1
         transport http {
             keepalive 120s
@@ -1370,11 +1497,11 @@ http://127.0.0.1:4001 {
         }
     }
 
-    import mochi_stream {remote_host}
+    import mochi_stream {lyra_client_ip}
 
     handle /api/static/v1/* {
         reverse_proxy 127.0.0.1:4444 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
             flush_interval 10ms
             transport http {
                 keepalive 120s
@@ -1395,7 +1522,7 @@ http://127.0.0.1:4001 {
         fail_duration 10s
         max_fails 4
         header_up Host {upstream_hostport}
-        header_up X-Real-IP {remote_host}
+        header_up X-Real-IP {lyra_client_ip}
         flush_interval -1
         transport http {
             keepalive 120s
@@ -1410,24 +1537,24 @@ http://127.0.0.1:4001 {
         path /assets/* /b/* /bmux/* /epoxy/* /libcurl/*
     }
     reverse_proxy @static_assets h2c://127.0.0.1:4444 {
-        header_up X-Real-IP {remote_host}
+        header_up X-Real-IP {lyra_client_ip}
     }
 
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:4005 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:4005 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     handle /api/anime/* {
         reverse_proxy 127.0.0.1:6001 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
@@ -1435,17 +1562,17 @@ http://127.0.0.1:4001 {
         path /stream/anime*
     }
     reverse_proxy @lyra_player h2c://127.0.0.1:4444 {
-        header_up X-Real-IP {remote_host}
+        header_up X-Real-IP {lyra_client_ip}
     }
 
     handle /s {
         reverse_proxy h2c://127.0.0.1:4444 {
-            header_up X-Real-IP {remote_host}
+            header_up X-Real-IP {lyra_client_ip}
         }
     }
 
     reverse_proxy 127.0.0.1:4444 {
-        header_up X-Real-IP {remote_host}
+        header_up X-Real-IP {lyra_client_ip}
         transport http {
             keepalive 120s
             keepalive_idle_conns 512
@@ -1569,6 +1696,8 @@ module.exports = {
         LYRA_METRICS_TOKEN: "$METRICS_TOKEN",
         MOCHI_ORIGIN: "http://127.0.0.1:4000",
         LYRA_WISP_PATH: "$LYRA_WISP_PATH",
+        NURU_TICKET_SECRET: "$NURU_TICKET_SECRET",
+        LYRA_MEMORY_MB: "${LYRA_MEM%M}",
         WEBRTC_TURN_ENABLED: "1",
         WEBRTC_FORCE_RELAY: "1",
         TURN_HOST: "$TURN_HOST",
@@ -1755,7 +1884,7 @@ for upstream in $MOCHI_UPSTREAMS $NURU_UPSTREAMS; do
   fi
 done
 sudo caddy fmt --overwrite /etc/caddy/Caddyfile
-sudo caddy validate --config /etc/caddy/Caddyfile
+sudo runuser -u caddy -- caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl enable caddy >/dev/null 2>&1 || true
 sudo systemctl restart caddy
 
@@ -1784,4 +1913,4 @@ for health_check in "${SERVICE_HEALTH_CHECKS[@]}"; do
   fi
 done
 
-success "all done!! lyra is now up and running!!!!"
+success "all done; lyra is now running"

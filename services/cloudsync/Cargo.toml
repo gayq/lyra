@@ -18,7 +18,6 @@ rand = "0.8"
 brotli = "8.0.4"
 flate2 = "1"
 tower-cookies = "0.10"
-tower = { version = "0.5", features = ["limit"] }
 tower-http = { version = "0.5", features = ["set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -8,6 +8,7 @@ import {
 } from "../runtime/messages";
 import { runtimeAssetPath, wispPath } from "../runtime/build.ts";
 import { isStatic, staticBackend, appPath } from "../runtime/hosting.ts";
+import { nuruSocketClass } from "./nuruSocket.js";
 
 type ConnectionState =
   "IDLE" | "CONNECTING" | "CONNECTED" | "FAILED" | "RECONNECTING";
@@ -47,6 +48,7 @@ const TRANSPORT_MAP: Record<string, string> = {
 };
 
 const FOLIO_SCOPE = appPath("/f");
+const NuruWebSocket: typeof WebSocket = nuruSocketClass(WebSocket, wispPath);
 
 function createResolvablePromise<T = void>(): ResolvablePromise<T> {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -199,7 +201,7 @@ class LyraConnectionManager {
       let ws: WebSocket | undefined;
       let settled = false;
       try {
-        ws = new WebSocket(url);
+        ws = new NuruWebSocket(url);
       } catch {
         return reject(new Error(negativeMessage("invalid websocket url")));
       }

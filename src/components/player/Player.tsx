@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
 } from "preact/hooks";
 import Hls from "hls.js";
+import type { PlayerStatus } from "../../state/store.ts";
 import { showToast } from "../../core/ui/toast.ts";
 import { recordStreamDiagnostic } from "../../core/media/streamDiagnostics.ts";
 import {
@@ -115,17 +116,6 @@ interface StreamInfoResponse {
     codecs?: string;
   }>;
 }
-
-type PlayerStatus =
-  | "idle"
-  | "loading"
-  | "buffering"
-  | "waiting"
-  | "stalled"
-  | "playing"
-  | "paused"
-  | "ended"
-  | "error";
 
 interface PlaybackEpisodePartRange {
   start: number;

@@ -37,7 +37,7 @@ async function mochiFetch(request, realUrl, timeoutMs = MOCHI_TIMEOUT_MS) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
       init.body = request.clone().body;
-    } catch (e) {}
+    } catch {}
   }
   const target = mochiTarget(realUrl);
   try {
@@ -69,7 +69,7 @@ async function fetchLargeFileStreaming(
     const urlObj = new URL(realUrl);
     headers.set("X-DNS-Prefetch-Control", "on");
     preconnectToOrigin(`${urlObj.protocol}//${urlObj.host}`);
-  } catch (e) {}
+  } catch {}
   const init = {
     method: request.method,
     headers,
@@ -80,7 +80,7 @@ async function fetchLargeFileStreaming(
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
       init.body = request.clone().body;
-    } catch (e) {}
+    } catch {}
   }
   const target = mochiTarget(realUrl);
   try {
@@ -110,7 +110,7 @@ async function fetchLargeFileStreaming(
     try {
       const urlObj = new URL(realUrl);
       newHeaders.set("Link", `<${urlObj.origin}>; rel=preconnect`);
-    } catch (e) {}
+    } catch {}
     newHeaders.set("Access-Control-Allow-Origin", "*");
     newHeaders.set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
     newHeaders.set(
@@ -133,7 +133,7 @@ async function fetchLargeFileStreaming(
       statusText: response.statusText,
       headers: newHeaders,
     });
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -150,9 +150,9 @@ async function sendProgressUpdate(url, totalBytes, status) {
     for (const client of clients) {
       try {
         client.postMessage(payload);
-      } catch (e) {}
+      } catch {}
     }
-  } catch (e) {}
+  } catch {}
 }
 
 function notifyTransportError() {
@@ -180,7 +180,7 @@ function prefetchNavCacheKeyRequest(reqUrl) {
     const u = new URL(reqUrl);
     u.hash = "";
     return new Request(u.href, { method: "GET" });
-  } catch (e) {
+  } catch {
     return new Request(String(reqUrl).split("#")[0], { method: "GET" });
   }
 }
@@ -193,7 +193,7 @@ function trackPrefetchUrl(urlStr) {
     const age = lastAt ? Date.now() - lastAt : Infinity;
     if (age < PREFETCH_VALIDITY) return false;
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -206,13 +206,13 @@ async function matchPrefetchedNavHtml(request) {
     if (hit) return hit;
     hit = await cache.match(key);
     if (hit) return hit;
-  } catch (e) {}
+  } catch {}
   try {
     const cache = await caches.open(RUNTIME_CACHE);
     let hit = await cache.match(key, { ignoreVary: true });
     if (hit) return hit;
     return await cache.match(key);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -237,15 +237,11 @@ async function ensureFolioConfig() {
 
 async function runFolioProxy(engine, event, timeoutMs, notifyOnFailure = true) {
   const controllerTimeoutMs = Math.max(1, timeoutMs - 250);
-  const proxyP = (
+  const proxyP =
     typeof engine.fetch === "function"
       ? engine.fetch(event, controllerTimeoutMs)
-      : engine.route(event, controllerTimeoutMs)
-  ).catch((e) => {
-    throw e;
-  });
-  const timedProxyP = tryWithTimeout(proxyP, timeoutMs);
-  const response = await timedProxyP;
+      : engine.route(event, controllerTimeoutMs);
+  const response = await tryWithTimeout(proxyP, timeoutMs);
   if (response && response.ok) resetProxyHealth();
   if (!response && notifyOnFailure) notifyTransportError();
   return response;
@@ -260,10 +256,10 @@ async function reviveFolioRoutes() {
     for (const client of clients) {
       try {
         client.postMessage({ $controller$swrevive: { routeMiss: true } });
-      } catch (e) {}
+      } catch {}
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
-  } catch (e) {}
+  } catch {}
 }
 
 async function folioRouteMissFallback(request, url, realUrl, isNavigate) {
@@ -283,7 +279,6 @@ async function folioRouteMissFallback(request, url, realUrl, isNavigate) {
 
 async function handlePrefetchProxyRequest(event) {
   const { request } = event;
-  const url = new URL(request.url);
   const urlKey = prefetchNavCacheKeyRequest(request.url).url;
   const active = _activePrefetches.get(urlKey);
   if (active) {
@@ -294,22 +289,18 @@ async function handlePrefetchProxyRequest(event) {
       return new Response(null, { status: 204 });
     }
   }
-  const realUrl = unwrapUrl(url);
   const fetchPrefetchResponse = async () => {
     try {
-      const engine = isFolio ? folio : null;
-      if (!engine) return new Response(null, { status: 204 });
-      if (isFolio) {
-        await ensureFolioConfig();
-      }
+      if (!isFolio) return new Response(null, { status: 204 });
+      await ensureFolioConfig();
       if (
-        typeof engine.shouldRoute === "function" &&
-        !engine.shouldRoute(event)
+        typeof folio.shouldRoute === "function" &&
+        !folio.shouldRoute(event)
       ) {
         return new Response(null, { status: 204 });
       }
       const response = await runFolioProxy(
-        engine,
+        folio,
         event,
         PROXY_NAV_TIMEOUT_MS,
         false,

@@ -51,6 +51,8 @@ mod route;
 mod stats;
 #[doc(hidden)]
 mod stream;
+#[doc(hidden)]
+mod ticket;
 pub mod tuning;
 #[doc(hidden)]
 mod upgrade;
@@ -208,6 +210,10 @@ fn main() -> Result<()> {
         .write_style(env_logger::WriteStyle::Never)
         .format_timestamp_millis()
         .init();
+
+    if ticket::TicketVerifier::from_env()?.is_some() {
+        info!("websocket tickets enabled{}", POSITIVE);
+    }
 
     let cores = tuning::get_specs().cpu_cores;
     let mut builder: runtime::Builder = match CONFIG.server.runtime {

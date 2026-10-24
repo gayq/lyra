@@ -14,7 +14,7 @@ async function broadcastMeta() {
           continue;
         try {
           client.postMessage(pendingMeta.payload);
-        } catch (e) {}
+        } catch {}
       }
     }
   } finally {
@@ -83,7 +83,7 @@ self.addEventListener("message", (event) => {
     if (event.source && typeof event.source.postMessage === "function") {
       try {
         event.source.postMessage(payload);
-      } catch (e) {}
+      } catch {}
     }
     metaPending = { payload, sourceId };
     if (!metaFlush) {

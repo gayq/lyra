@@ -56,8 +56,8 @@ async function jsonBody(request) {
 }
 
 export function createStaticGateway({ backend = "",
-  forward, metadata = () => ({}), wispUpstream, now = Date.now }) {
-  const auth = new StaticAuth({ backend, now });
+  forward, metadata = () => ({}), wispUpstream, nuruTicket = null, sessions, starts, idle, now = Date.now }) {
+  const auth = new StaticAuth({ backend, now, sessions, starts, idle });
   function requestBackend(request) {
     if (auth.backend) return auth.backend;
     const url = new URL(request.url);
@@ -214,7 +214,7 @@ export function createStaticGateway({ backend = "",
     const method = request.method;
     if (route === "status" && method === "GET") {
       if (origin && !isStaticOrigin(origin)) return error(403);
-      return json({ protocol: STATIC_PROTOCOL, enabled: true }, 200, origin);
+      return json({ protocol: STATIC_PROTOCOL, enabled: true, nuru: Boolean(nuruTicket) }, 200, origin);
     }
     if (!auth.limit(`gateway:${ip}`, 2400)) return error(429, origin);
     if (!isStaticOrigin(origin)) return error(403);
@@ -223,7 +223,7 @@ export function createStaticGateway({ backend = "",
     const target = route.startsWith("http/") ? `/${route.slice(5)}` : null;
     const requestedMethod = method === "OPTIONS" && request.headers.has("access-control-request-method")
       ? request.headers.get("access-control-request-method") : method;
-    const control = { start: "POST", refresh: "POST", revoke: "POST", ticket: "POST", metadata: "GET", "socket/": "GET" };
+    const control = { start: "POST", refresh: "POST", revoke: "POST", ticket: "POST", nuru: "POST", metadata: "GET", "socket/": "GET" };
     if (target ? !staticRoute(target, requestedMethod) : control[route] !== requestedMethod) return error(404, origin);
     if (method === "OPTIONS" && request.headers.has("access-control-request-method")) {
       const requested = (request.headers.get("access-control-request-headers") || "").toLowerCase().split(",").map((name) => name.trim()).filter(Boolean);
@@ -250,6 +250,10 @@ export function createStaticGateway({ backend = "",
       return json({ success: true, user: null, error: null }, 200, origin);
     }
     if (route === "metadata") return json({ ...await metadata(backendOrigin), protocol: STATIC_PROTOCOL, wisp }, 200, origin);
+    if (route === "nuru") {
+      if (!nuruTicket) return error(404, origin);
+      return auth.limit(`nuru:${ip}`, 120) ? json(nuruTicket(), 200, origin) : error(429, origin);
+    }
     if (route === "ticket") {
       const body = await jsonBody(request);
       if (!body || Object.keys(body).some((name) => name !== "path")) return error(400, origin);
@@ -317,7 +321,8 @@ export function createStaticGateway({ backend = "",
       const target = await wispUpstream({ path: claim.path });
       phase = "handshake";
       const upstreamHeaders = { origin: backendOrigin, host: new URL(backendOrigin).host, "x-real-ip": ip, "x-forwarded-for": ip };
-      if (actual.length) upstreamHeaders["sec-websocket-protocol"] = actual.join(", ");
+      const upstreamProtocols = !claim.path && nuruTicket ? [...actual, nuruTicket().ticket] : actual;
+      if (upstreamProtocols.length) upstreamHeaders["sec-websocket-protocol"] = upstreamProtocols.join(", ");
       const upstream = new WebSocket(target, { headers: upstreamHeaders });
       connection.upstream = upstream;
       upstream.binaryType = "arraybuffer";

@@ -157,7 +157,7 @@ export default function Sidebar() {
         onPointerEnter={() => void loadNewTabModal()}
         onFocus={() => void loadNewTabModal()}
         onClick={openNewTabModal}
-        aria-pressed={sidebarHiddenSignal}
+        aria-pressed={sidebarHiddenSignal.value}
       >
         <IconPlusMedium /> new tab
       </button>

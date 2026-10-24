@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import fs from "fs";
 import net from "net";
 import path from "path";
@@ -17,6 +14,7 @@ import { createSearchSuggestionService } from "./search-suggestions.mjs";
 import { allowMetrics, createMetrics } from "./metrics.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 import { productionStaticGateway } from "./static-backend.mjs";
+import { ADCASH_LIBRARY_PATH, createAdcash } from "./adcash.mjs";
 import {
   distCacheControl,
   IMMUTABLE_CACHE_CONTROL,
@@ -28,6 +26,7 @@ let shuttingDown = false;
 const connectPresence = createPresence();
 
 const ROOT = process.cwd();
+const adcash = createAdcash({ root: ROOT });
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
 const TURN_HEALTH_HOST = process.env.TURN_HEALTH_HOST || "127.0.0.1";
 const TURN_HEALTH_PORT = Number.parseInt(process.env.TURN_PORT || "3478", 10);
@@ -209,13 +208,11 @@ function safeJoin(root, pathname, prefix = "") {
 }
 
 async function existingFile(filePath) {
-  const file = Bun.file(filePath);
-  if (!(await file.exists())) return null;
   try {
     const stats = await fs.promises.stat(filePath);
     if (!stats.isFile()) return null;
     return {
-      file,
+      file: Bun.file(filePath),
       etag: `W/"${stats.size.toString(16)}-${Math.trunc(stats.mtimeMs).toString(16)}"`,
       lastModified: stats.mtime.toUTCString(),
     };
@@ -405,24 +402,23 @@ setInterval(() => {
   }
 }, API_LIMIT_WINDOW_MS).unref?.();
 
-async function routeStatic(req, pathname) {
-  if (pathname.toLowerCase().endsWith(".map")) return null;
-  const mounts = [
+const RUNTIME_MOUNTS = [true, false].flatMap((versioned) =>
+  [
     ["/bmux/", baremuxPath],
     ["/epoxy/", epoxyPath],
     ["/libcurl/", libcurlPath],
-  ];
-  for (const versioned of [true, false]) {
-    for (const [prefix, root] of mounts) {
-      const response = await serveMounted(
-        req,
-        pathname,
-        versioned ? `${prefix}${buildFingerprint}/` : prefix,
-        root,
-        versioned ? IMMUTABLE_CACHE_CONTROL : REVALIDATE_CACHE_CONTROL,
-      );
-      if (response) return response;
-    }
+  ].map(([prefix, root]) => [
+    versioned ? `${prefix}${buildFingerprint}/` : prefix,
+    root,
+    versioned ? IMMUTABLE_CACHE_CONTROL : REVALIDATE_CACHE_CONTROL,
+  ]),
+);
+
+async function routeStatic(req, pathname) {
+  if (pathname.toLowerCase().endsWith(".map")) return null;
+  for (const [prefix, root, cacheControl] of RUNTIME_MOUNTS) {
+    const response = await serveMounted(req, pathname, prefix, root, cacheControl);
+    if (response) return response;
   }
   return (
     (await serveDistFile(req, pathname)) ||
@@ -441,6 +437,14 @@ function isMochiPath(pathname) {
     !pathname.startsWith("/stream/anime") &&
     MOCHI_PROXY_PATHS.some((prefix) => pathname.startsWith(prefix))
   );
+}
+
+function hasMochiReferer(req) {
+  try {
+    return new URL(req.headers.get("referer")).pathname.startsWith("/!!/");
+  } catch {
+    return false;
+  }
 }
 
 async function proxyToMochi(req) {
@@ -553,8 +557,17 @@ async function proxyToMochi(req) {
   }
 }
 
-async function appFetch(req, server) {
-  const url = new URL(req.url);
+async function injectAdcashPage(req, response) {
+  if (response.status !== 200) return response;
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  headers.delete("ETag");
+  headers.delete("Last-Modified");
+  if (req.method === "HEAD") return new Response(null, { status: 200, headers });
+  return new Response(adcash.injectHtml(await response.text()), { status: 200, headers });
+}
+
+async function appFetch(req, server, url) {
   const pathname = url.pathname;
 
   if (shuttingDown) {
@@ -574,6 +587,10 @@ async function appFetch(req, server) {
 
   if (pathname.startsWith("/api/static/v1/")) {
     return staticGateway.handle(req, { ip: getClientIp(req, server), server });
+  }
+
+  if (canServeBody && pathname === ADCASH_LIBRARY_PATH) {
+    return adcash.handle(req, pathname);
   }
 
   if (pathname === "/health" && canServeBody) {
@@ -597,7 +614,7 @@ async function appFetch(req, server) {
     if (limited) return limited;
   }
 
-  if (isMochiPath(pathname)) return proxyToMochi(req);
+  if (isMochiPath(pathname) || hasMochiReferer(req)) return proxyToMochi(req);
   if (pathname === "/api/dns") return dnsService.handle(req);
   if (pathname === "/api/presence" && method === "GET") {
     return connectPresence(req.signal);
@@ -649,8 +666,9 @@ async function appFetch(req, server) {
       req,
       path.join(distPath, "index.html"),
       NO_STORE_CACHE_CONTROL,
+      { precompressed: !adcash.enabled },
     );
-    if (response) return response;
+    if (response) return adcash.enabled ? injectAdcashPage(req, response) : response;
   }
 
   if (pathname === "/stream/anime") {
@@ -658,8 +676,9 @@ async function appFetch(req, server) {
       req,
       path.join(distPath, "player.html"),
       NO_STORE_CACHE_CONTROL,
+      { precompressed: !adcash.enabled },
     );
-    if (response) return response;
+    if (response) return adcash.enabled ? injectAdcashPage(req, response) : response;
   }
 
   return (
@@ -688,13 +707,14 @@ const server = Bun.serve({
   idleTimeout: 60,
   async fetch(req, server) {
     const started = performance.now();
+    const url = new URL(req.url);
     let status = 500;
     try {
-      const response = await appFetch(req, server);
+      const response = await appFetch(req, server, url);
       status = response?.status || 101;
       return response;
     } finally {
-      metrics.record(new URL(req.url).pathname, status, performance.now() - started);
+      metrics.record(url.pathname, status, performance.now() - started);
     }
   },
   websocket: staticGateway.websocket,

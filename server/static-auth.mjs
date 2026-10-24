@@ -31,28 +31,36 @@ function thumbprint(jwk) {
 }
 
 export class StaticAuth {
-  constructor({ backend = "", now = Date.now }) {
+  constructor({ backend = "", now = Date.now, sessions = 2_000, starts = 60, idle = 0 }) {
     this.backend = backend ? new URL(backend).origin : "";
     this.now = now;
+    this.capacity = sessions;
+    this.starts = starts;
+    this.idle = idle;
     this.access = new Map();
     this.refresh = new Map();
     this.tickets = new Map();
     this.sessions = new Set();
+    this.subjects = new Map();
     this.limits = new Map();
   }
 
   sweep() {
     const now = this.now();
     for (const [id, ticket] of this.tickets) if (ticket.expires <= now) this.tickets.delete(id);
-    for (const session of this.sessions) if (session.expires <= now) this.revoke(session);
+    for (const session of this.sessions) if (session.expires <= now || this.idled(session, now)) this.revoke(session);
     for (const [id, limit] of this.limits) if (limit.expires <= now) this.limits.delete(id);
+  }
+
+  idled(session, now) {
+    return this.idle > 0 && now - session.seen >= this.idle && !session.sockets.size && !session.streams.size;
   }
 
   limit(id, maximum, window = 60_000) {
     const now = this.now();
     let limit = this.limits.get(id);
     if (!limit || limit.expires <= now) {
-      if (!limit && this.limits.size >= 20_000) return false;
+      if (!limit && this.limits.size >= this.capacity * 10) return false;
       limit = { count: 0, expires: now + window };
       this.limits.set(id, limit);
     }
@@ -60,19 +68,20 @@ export class StaticAuth {
   }
 
   async start(origin, body, ip, backend = this.backend) {
-    this.sweep();
-    if (!isStaticOrigin(origin) || !isStaticOrigin(backend) || !this.limit(`start:${ip}`, 60, 5 * 60_000) ||
-        this.sessions.size >= 2_000 || !body || Object.keys(body).some((name) => !["jwk", "base"].includes(name))) return null;
+    if (this.sessions.size >= this.capacity) this.sweep();
+    if (!isStaticOrigin(origin) || !isStaticOrigin(backend) || !this.limit(`start:${ip}`, this.starts, 5 * 60_000) ||
+        this.sessions.size >= this.capacity || !body || Object.keys(body).some((name) => !["jwk", "base"].includes(name))) return null;
     const base = body.base === undefined ? "/" : body.base;
     if (typeof base !== "string" || base.length > 1024 || !/^\/(?:[a-zA-Z0-9_-]+\/)*$/.test(base)) return null;
     try {
       const jwk = publicKey(body.jwk);
       const key = await crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-      if (this.sessions.size >= 2_000 || [...this.sessions].filter((entry) => entry.subject === ip).length >= 256) return null;
+      if (this.sessions.size >= this.capacity || (this.subjects.get(ip) || 0) >= 256) return null;
       const session = { id: token(), origin, base, backend, key, thumb: thumbprint(jwk), subject: ip,
-        expires: this.now() + SESSION_MS, nonce: token(), proofs: new Map(),
+        expires: this.now() + SESSION_MS, seen: this.now(), nonce: token(), proofs: new Map(),
         sockets: new Set(), streams: new Set(), requests: 0 };
       this.sessions.add(session);
+      this.subjects.set(ip, (this.subjects.get(ip) || 0) + 1);
       return this.issue(session);
     } catch { return null; }
   }
@@ -86,7 +95,7 @@ export class StaticAuth {
     this.access.set(digest(session.access), session);
     this.refresh.set(digest(session.refresh), session);
     return { access: session.access, refresh: session.refresh, nonce: session.nonce,
-      expires: session.accessExpires, protocol: STATIC_PROTOCOL };
+      expires: session.accessExpires, protocol: STATIC_PROTOCOL, backend: session.backend };
   }
 
   async proof(request, session, credential) {
@@ -132,11 +141,12 @@ export class StaticAuth {
         !this.limit(`session:${session.id}`, 2_000) ||
         !await this.proof(request, session, credential) || !this.active(session)) return null;
     if ((refresh ? this.refresh : this.access).get(digest(credential)) !== session) return null;
+    session.seen = this.now();
     return session;
   }
 
   ticket(session, ip, path = null) {
-    this.sweep();
+    if (this.tickets.size >= 4_000) this.sweep();
     if (!this.sessions.has(session) || session.sockets.size >= 4 || this.tickets.size >= 4_000 ||
         !this.limit(`ticket:${ip}`, 60)) return null;
     const value = token();
@@ -158,7 +168,10 @@ export class StaticAuth {
   revoke(session) {
     this.access.delete(digest(session.access));
     this.refresh.delete(digest(session.refresh));
-    this.sessions.delete(session);
+    if (this.sessions.delete(session)) {
+      const count = (this.subjects.get(session.subject) || 1) - 1;
+      if (count) this.subjects.set(session.subject, count); else this.subjects.delete(session.subject);
+    }
     for (const [key, ticket] of this.tickets) if (ticket.session === session) this.tickets.delete(key);
     for (const socket of session.sockets) socket.close(1008, `authorization ended${negative}`);
     session.sockets.clear();

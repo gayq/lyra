@@ -16,7 +16,6 @@ pub fn rewrite_html(
     let target_url_for_base = target_url.clone();
 
     let rewrite_url = {
-        let current_base = current_base.clone();
         Rc::new(move |url: &str| -> Option<String> {
             if url.is_empty()
                 || url.starts_with("data:")
@@ -33,12 +32,11 @@ pub fn rewrite_html(
                 return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(url)));
             }
             if url.starts_with("//") {
-                let scheme = current_base.borrow().scheme().to_string();
-                let full = format!("{}:{}", scheme, url);
+                let full = format!("{}:{}", current_base.borrow().scheme(), url);
                 return Some(format!("{}{}/", MOCHI_PREFIX, encode_mochi_url(&full)));
             }
-            let base = current_base.borrow().clone();
-            if let Ok(resolved) = base.join(url) {
+            let resolved = current_base.borrow().join(url);
+            if let Ok(resolved) = resolved {
                 return Some(format!(
                     "{}{}/",
                     MOCHI_PREFIX,
@@ -55,13 +53,14 @@ pub fn rewrite_html(
     let rw5 = rewrite_url.clone();
     let rw6 = rewrite_url.clone();
     let rw7 = rewrite_url.clone();
+    let rw8 = rewrite_url.clone();
     let base_url_for_head = base_url_owned.clone();
     let base_url_for_html = base_url_owned.clone();
     let script_injected = Rc::new(RefCell::new(false));
     let script_injected_for_head = script_injected.clone();
     let script_injected_for_html = script_injected.clone();
     let base_for_href = base_for_updater.clone();
-    let base_for_style = base_for_updater.clone();
+    let base_for_style = base_for_updater;
     let mut output = Vec::with_capacity(body.len() + 2048);
     let mut rewriter = HtmlRewriter::new(
         Settings {
@@ -201,6 +200,15 @@ setTimeout(function(){clearInterval(_iv);},15000);
                     }
                     Ok(())
                 }),
+                element!("img[srcset], source[srcset]", move |el| {
+                    if let Some(val) = el.get_attribute("srcset") {
+                        let rewritten = rewrite_srcset(&val, |url| rw8(url));
+                        if rewritten != val {
+                            el.set_attribute("srcset", &rewritten)?;
+                        }
+                    }
+                    Ok(())
+                }),
                 element!(
                     "source[src], video[src], audio[src], video[poster]",
                     move |el| {
@@ -273,6 +281,54 @@ setTimeout(function(){clearInterval(_iv);},15000);
     }
 
     Ok(output)
+}
+
+fn rewrite_srcset(srcset: &str, rewrite: impl Fn(&str) -> Option<String>) -> String {
+    let mut result = String::with_capacity(srcset.len() + 64);
+    let mut rest = srcset;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace() || c == ',');
+        if rest.is_empty() {
+            break;
+        }
+        let url_end = rest
+            .find(|c: char| c.is_ascii_whitespace())
+            .unwrap_or(rest.len());
+        let (mut url, mut tail) = rest.split_at(url_end);
+        let mut descriptors = "";
+        if url.ends_with(',') {
+            url = url.trim_end_matches(',');
+        } else {
+            let mut depth = 0u32;
+            let end = tail
+                .char_indices()
+                .find(|&(_, c)| match c {
+                    '(' => {
+                        depth += 1;
+                        false
+                    }
+                    ')' => {
+                        depth = depth.saturating_sub(1);
+                        false
+                    }
+                    ',' => depth == 0,
+                    _ => false,
+                })
+                .map_or(tail.len(), |(index, _)| index);
+            descriptors = tail[..end].trim();
+            tail = &tail[end..];
+        }
+        if !result.is_empty() {
+            result.push_str(", ");
+        }
+        result.push_str(&rewrite(url).unwrap_or_else(|| url.to_string()));
+        if !descriptors.is_empty() {
+            result.push(' ');
+            result.push_str(descriptors);
+        }
+        rest = tail;
+    }
+    result
 }
 
 pub fn rewrite_css_urls(css: &str, base_url: &Url) -> String {

@@ -21,6 +21,7 @@ use crate::{
     listener::{ServerStream, ServerStreamExt, ServerStreamRead, ServerStreamWrite},
     stats::generate_metrics,
     stream::WebSocketStreamWrapper,
+    ticket::{split_protocols, TICKETS},
     upgrade::{is_upgrade_request, origin_allowed, upgrade},
     util_chain::{chain, Chain},
     util_map_err::MapErr,
@@ -166,15 +167,22 @@ where
         return non_ws_resp();
     }
 
-    if let Some(scheme) = &CONFIG.server.websocket_origin_scheme {
-        if !origin_allowed(req.headers(), scheme) {
-            return Ok(Response::builder()
-                .status(StatusCode::FORBIDDEN)
-                .header(hyper::header::CACHE_CONTROL, "no-store")
-                .body(Body::new(
-                    negative_message!("connection not allowed").into(),
-                ))?);
-        }
+    let (tickets, protocols) = split_protocols(req.headers());
+    let allowed = match TICKETS.as_ref() {
+        Some(verifier) => matches!(tickets.as_slice(), [ticket] if verifier.verify(ticket)),
+        None => CONFIG
+            .server
+            .websocket_origin_scheme
+            .as_ref()
+            .is_none_or(|scheme| origin_allowed(req.headers(), scheme)),
+    };
+    if !allowed {
+        return Ok(Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header(hyper::header::CACHE_CONTROL, "no-store")
+            .body(Body::new(
+                negative_message!("connection not allowed").into(),
+            ))?);
     }
 
     trace!("received websocket request");
@@ -188,7 +196,6 @@ where
         None
     };
 
-    let ws_protocol = headers.get(SEC_WEBSOCKET_PROTOCOL);
     let req_path = req.uri().path().to_string();
 
     let wisp_prefix = CONFIG.wisp.prefix.as_str();
@@ -196,7 +203,7 @@ where
         && req_path.ends_with('/')
         && req_path.len() == (wisp_prefix.len() + 1);
     if is_wisp_path {
-        let has_ws_protocol = ws_protocol.is_some();
+        let has_ws_protocol = !protocols.is_empty();
         let is_wispnet =
             CONFIG.wisp.has_wispnet() && req.uri().query().unwrap_or_default() == "net";
         tokio::spawn(async move {
@@ -213,9 +220,9 @@ where
                 error!("failed to serve client: {:?}{}", err, NEGATIVE);
             }
         });
-        if let Some(protocol) = ws_protocol {
+        if has_ws_protocol {
             resp.headers_mut()
-                .append(SEC_WEBSOCKET_PROTOCOL, protocol.clone());
+                .append(SEC_WEBSOCKET_PROTOCOL, protocols.join(", ").parse()?);
         }
     } else if CONFIG.wisp.allow_wsproxy {
         let udp = req.uri().query().unwrap_or_default() == "udp";

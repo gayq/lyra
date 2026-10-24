@@ -37,6 +37,7 @@ const runtimeGlobals = {
   setImmediate: "readonly",
   setInterval: "readonly",
   setTimeout: "readonly",
+  structuredClone: "readonly",
   TextDecoder: "readonly",
   TextEncoder: "readonly",
   TransformStream: "readonly",
@@ -47,10 +48,6 @@ const runtimeGlobals = {
 };
 
 export default [
-  {
-    files: ["src/static/worker.js"],
-    languageOptions: { globals: { STATIC_SOCKET_SOURCE: "readonly" } },
-  },
   {
     ignores: [
       "dist/**",
@@ -77,6 +74,14 @@ export default [
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
       "no-undef": "error",
     },
+  },
+  {
+    files: ["src/static/*.js"],
+    languageOptions: {
+      sourceType: "script",
+      globals: { STATIC_SOCKET_SOURCE: "readonly" },
+    },
+    rules: { "no-unused-vars": ["warn", { argsIgnorePattern: "^_", vars: "local" }] },
   },
   ...tseslint.configs.recommended.map((config) => ({
     ...config,

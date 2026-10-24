@@ -182,79 +182,95 @@ struct AuthResponse {
     error: Option<String>,
 }
 
+type AuthReply = (StatusCode, Json<AuthResponse>);
+
+fn auth_success(status: StatusCode, user: Option<UserResponse>) -> AuthReply {
+    (
+        status,
+        Json(AuthResponse {
+            success: true,
+            user,
+            error: None,
+        }),
+    )
+}
+
+fn auth_error(status: StatusCode, error: String) -> AuthReply {
+    (
+        status,
+        Json(AuthResponse {
+            success: false,
+            user: None,
+            error: Some(error),
+        }),
+    )
+}
+
+fn start_session(
+    state: &AppState,
+    cookies: &Cookies,
+    id: i64,
+    username: &str,
+    token_version: i64,
+) -> Result<(), AuthFailure> {
+    let claims = Claims {
+        id,
+        username: username.to_owned(),
+        v: token_version,
+        exp: (time::OffsetDateTime::now_utc() + Duration::days(7)).unix_timestamp() as usize,
+    };
+    let token = encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+    )
+    .map_err(|_| AuthFailure::Internal)?;
+    cookies.add(session_cookie(token, Duration::days(7)));
+    Ok(())
+}
+
 pub async fn register(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     payload: Result<Json<RegisterRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let Json(payload) = match payload {
+    let Json(RegisterRequest { username, password }) = match payload {
         Ok(payload) => payload,
         Err(rejection) => {
-            return (
+            return auth_error(
                 rejection.status(),
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(AuthFailure::InvalidRequest)),
-                }),
+                failure_message(AuthFailure::InvalidRequest),
             )
         }
     };
-    let RegisterRequest { username, password } = payload;
     let password = Zeroizing::new(password);
     if username.len() < 3 || username.len() > 20 {
-        return (
+        return auth_error(
             StatusCode::BAD_REQUEST,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(negative("username must be 3-20 chars")),
-            }),
+            negative("username must be 3-20 chars"),
         );
     }
     if !valid_username(&username) {
-        return (
+        return auth_error(
             StatusCode::BAD_REQUEST,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(negative("username must be alphanumeric")),
-            }),
+            negative("username must be alphanumeric"),
         );
     }
     if password.chars().count() < MIN_PASSWORD_CHARS {
-        return (
+        return auth_error(
             StatusCode::BAD_REQUEST,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(negative("password must be at least 15 characters")),
-            }),
+            negative("password must be at least 15 characters"),
         );
     }
     if !valid_new_password(&password) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(negative("password is too long")),
-            }),
-        );
+        return auth_error(StatusCode::BAD_REQUEST, negative("password is too long"));
     }
 
-    let permit = match state.auth_work.try_acquire() {
-        Some(permit) => permit,
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(AuthFailure::Busy)),
-                }),
-            )
-        }
+    let Some(permit) = state.auth_work.try_acquire() else {
+        return auth_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            failure_message(AuthFailure::Busy),
+        );
     };
 
     let pool = state.pool.clone();
@@ -287,73 +303,28 @@ pub async fn register(
         Ok(conn.last_insert_rowid())
     })
     .await
-    .map_err(|_| AuthFailure::Internal);
+    .unwrap_or(Err(AuthFailure::Internal))
+    .and_then(|user_id| {
+        start_session(&state, &cookies, user_id, &username, 1)?;
+        Ok(user_id)
+    });
 
     match result {
-        Ok(Ok(user_id)) => {
-            let claims = Claims {
+        Ok(user_id) => auth_success(
+            StatusCode::CREATED,
+            Some(UserResponse {
                 id: user_id,
-                username: username.clone(),
-                v: 1,
-                exp: (time::OffsetDateTime::now_utc() + Duration::days(7)).unix_timestamp()
-                    as usize,
-            };
-
-            let token = match encode(
-                &Header::default(),
-                &claims,
-                &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
-            ) {
-                Ok(t) => t,
-                Err(_) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(AuthResponse {
-                            success: false,
-                            user: None,
-                            error: Some(failure_message(AuthFailure::Internal)),
-                        }),
-                    )
-                }
-            };
-
-            cookies.add(session_cookie(token, Duration::days(7)));
-
-            (
-                StatusCode::CREATED,
-                Json(AuthResponse {
-                    success: true,
-                    user: Some(UserResponse {
-                        id: user_id,
-                        username,
-                    }),
-                    error: None,
-                }),
-            )
-        }
-        Ok(Err(e)) => {
-            let status = if e == AuthFailure::UsernameTaken {
+                username,
+            }),
+        ),
+        Err(failure) => {
+            let status = if failure == AuthFailure::UsernameTaken {
                 StatusCode::CONFLICT
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            (
-                status,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(e)),
-                }),
-            )
+            auth_error(status, failure_message(failure))
         }
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(failure_message(AuthFailure::Internal)),
-            }),
-        ),
     }
 }
 
@@ -362,47 +333,31 @@ pub async fn login(
     cookies: Cookies,
     payload: Result<Json<LoginRequest>, JsonRejection>,
 ) -> impl IntoResponse {
-    let Json(payload) = match payload {
+    let Json(LoginRequest { username, password }) = match payload {
         Ok(payload) => payload,
         Err(rejection) => {
-            return (
+            return auth_error(
                 rejection.status(),
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(AuthFailure::InvalidRequest)),
-                }),
+                failure_message(AuthFailure::InvalidRequest),
             )
         }
     };
-    let LoginRequest { username, password } = payload;
     let password = Zeroizing::new(password);
     if !valid_username(&username)
         || password.is_empty()
         || password.chars().count() > MAX_PASSWORD_CHARS
     {
-        return (
+        return auth_error(
             StatusCode::BAD_REQUEST,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(failure_message(AuthFailure::InvalidCredentials)),
-            }),
+            failure_message(AuthFailure::InvalidCredentials),
         );
     }
 
-    let permit = match state.auth_work.try_acquire() {
-        Some(permit) => permit,
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(AuthFailure::Busy)),
-                }),
-            )
-        }
+    let Some(permit) = state.auth_work.try_acquire() else {
+        return auth_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            failure_message(AuthFailure::Busy),
+        );
     };
 
     let pool = state.pool.clone();
@@ -443,63 +398,21 @@ pub async fn login(
 
         Ok((id, token_version))
     })
-    .await
-    .map_err(|_| AuthFailure::Internal);
+    .await;
 
     match result {
         Ok(Ok((id, token_version))) => {
-            let claims = Claims {
-                id,
-                username: username.clone(),
-                v: token_version,
-                exp: (time::OffsetDateTime::now_utc() + Duration::days(7)).unix_timestamp()
-                    as usize,
-            };
-
-            let token = match encode(
-                &Header::default(),
-                &claims,
-                &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
-            ) {
-                Ok(t) => t,
-                Err(_) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(AuthResponse {
-                            success: false,
-                            user: None,
-                            error: Some(failure_message(AuthFailure::Internal)),
-                        }),
-                    )
+            match start_session(&state, &cookies, id, &username, token_version) {
+                Ok(()) => auth_success(StatusCode::OK, Some(UserResponse { id, username })),
+                Err(failure) => {
+                    auth_error(StatusCode::INTERNAL_SERVER_ERROR, failure_message(failure))
                 }
-            };
-
-            cookies.add(session_cookie(token, Duration::days(7)));
-
-            (
-                StatusCode::OK,
-                Json(AuthResponse {
-                    success: true,
-                    user: Some(UserResponse { id, username }),
-                    error: None,
-                }),
-            )
+            }
         }
-        Ok(Err(e)) => (
-            StatusCode::UNAUTHORIZED,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(failure_message(e)),
-            }),
-        ),
-        Err(_) => (
+        Ok(Err(failure)) => auth_error(StatusCode::UNAUTHORIZED, failure_message(failure)),
+        Err(_) => auth_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(failure_message(AuthFailure::Internal)),
-            }),
+            failure_message(AuthFailure::Internal),
         ),
     }
 }
@@ -519,81 +432,41 @@ pub async fn logout(State(state): State<Arc<AppState>>, cookies: Cookies) -> imp
         })
         .await;
         if !matches!(revoked, Ok(Ok(()))) {
-            return (
+            return auth_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(failure_message(AuthFailure::Internal)),
-                }),
+                failure_message(AuthFailure::Internal),
             );
         }
         cached_token_invalidate(user_id);
     }
     cookies.add(session_cookie(String::new(), Duration::seconds(0)));
-
-    (
-        StatusCode::OK,
-        Json(AuthResponse {
-            success: true,
-            user: None,
-            error: None,
-        }),
-    )
+    auth_success(StatusCode::OK, None)
 }
 
 pub async fn me(State(state): State<Arc<AppState>>, cookies: Cookies) -> impl IntoResponse {
-    let (user_id, username) = match get_current_user(&state, &cookies).await {
-        Ok(u) => u,
-        Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(negative("unauthorized")),
-                }),
-            )
-        }
-    };
-
-    (
-        StatusCode::OK,
-        Json(AuthResponse {
-            success: true,
-            user: Some(UserResponse {
-                id: user_id,
-                username,
-            }),
-            error: None,
-        }),
-    )
+    match get_current_user(&state, &cookies).await {
+        Ok((id, username)) => auth_success(StatusCode::OK, Some(UserResponse { id, username })),
+        Err(()) => auth_error(StatusCode::UNAUTHORIZED, negative("unauthorized")),
+    }
 }
 
 pub async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let auth = state.auth_work.snapshot();
-    let sync = state.sync_work.snapshot();
+    let gate = |snapshot: adaptive_capacity::GateSnapshot| {
+        serde_json::json!({
+            "active": snapshot.active,
+            "limit": snapshot.limit,
+            "minimum": snapshot.minimum,
+            "maximum": snapshot.maximum,
+            "peak": snapshot.peak,
+            "waits": snapshot.waits,
+            "rejected": snapshot.rejected,
+        })
+    };
     Json(serde_json::json!({
         "transfer": state.sync_admission.metrics(),
         "storage": crate::sync::transfer::metrics(),
-        "auth": {
-            "active": auth.active,
-            "limit": auth.limit,
-            "minimum": auth.minimum,
-            "maximum": auth.maximum,
-            "peak": auth.peak,
-            "waits": auth.waits,
-            "rejected": auth.rejected,
-        },
-        "sync": {
-            "active": sync.active,
-            "limit": sync.limit,
-            "minimum": sync.minimum,
-            "maximum": sync.maximum,
-            "peak": sync.peak,
-            "waits": sync.waits,
-            "rejected": sync.rejected,
-        }
+        "auth": gate(state.auth_work.snapshot()),
+        "sync": gate(state.sync_work.snapshot()),
     }))
 }
 
@@ -601,18 +474,8 @@ pub async fn delete_account(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
 ) -> impl IntoResponse {
-    let (user_id, _) = match get_current_user(&state, &cookies).await {
-        Ok(u) => u,
-        Err(_) => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(AuthResponse {
-                    success: false,
-                    user: None,
-                    error: Some(negative("unauthorized")),
-                }),
-            )
-        }
+    let Ok((user_id, _)) = get_current_user(&state, &cookies).await else {
+        return auth_error(StatusCode::UNAUTHORIZED, negative("unauthorized"));
     };
 
     let pool = state.pool.clone();
@@ -625,28 +488,16 @@ pub async fn delete_account(
     })
     .await;
     if !matches!(delete_result, Ok(Ok(()))) {
-        return (
+        return auth_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AuthResponse {
-                success: false,
-                user: None,
-                error: Some(failure_message(AuthFailure::Internal)),
-            }),
+            failure_message(AuthFailure::Internal),
         );
     }
 
     crate::sync::cached_meta_invalidate(user_id);
     cached_token_invalidate(user_id);
     cookies.add(session_cookie(String::new(), Duration::seconds(0)));
-
-    (
-        StatusCode::OK,
-        Json(AuthResponse {
-            success: true,
-            user: None,
-            error: None,
-        }),
-    )
+    auth_success(StatusCode::OK, None)
 }
 
 static TOKEN_CACHE: OnceLock<DashMap<i64, (i64, Instant)>> = OnceLock::new();

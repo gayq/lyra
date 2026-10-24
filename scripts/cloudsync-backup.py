@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Create a consistent local SQLite snapshot for an encrypted off-host backup job."""
 
 import os
 from pathlib import Path

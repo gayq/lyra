@@ -1,6 +1,3 @@
-import dotenv from "dotenv";
-dotenv.config();
-
 import fs from "fs";
 import path from "path";
 import { Agent, createServer, request } from "http";
@@ -148,9 +145,18 @@ function sendText(res, status, body) {
   res.end(body);
 }
 
-function proxyTarget(url) {
+function hasMochiReferer(referer) {
+  try {
+    return new URL(referer).pathname.startsWith("/!!/");
+  } catch {
+    return false;
+  }
+}
+
+function proxyTarget(url, referer) {
   if (url.startsWith("/w/")) return { port: 4001, label: "nuru" };
   if (
+    hasMochiReferer(referer) ||
     url.startsWith("/!!raw/") ||
     url.startsWith("/!!/") ||
     url.startsWith("/!!folio/") ||
@@ -178,7 +184,7 @@ async function serveSearchSuggestions(req, res) {
 function proxyDevService(req, res, next) {
   if (req.headers.upgrade?.toLowerCase() === "websocket") return next();
 
-  const target = proxyTarget(req.url);
+  const target = proxyTarget(req.url, req.headers.referer);
   if (!target) return next();
 
   const headers = { ...req.headers, host: `127.0.0.1:${target.port}` };

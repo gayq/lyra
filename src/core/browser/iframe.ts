@@ -203,7 +203,7 @@ function pageStateUrl(tab: UrlTrackedTab | null | undefined): string | null {
   return typeof url === "string" && url && url !== "about:blank" ? url : null;
 }
 
-export function getBestKnownUrl(
+function getBestKnownUrl(
   iframe: HTMLIFrameElement,
   tab?: UrlTrackedTab | null,
 ): string | null {
@@ -320,7 +320,7 @@ function shouldRouteThroughFolio(url: string): boolean {
   }
 }
 
-async function waitForFolioNavigationTransport(): Promise<void> {
+async function waitForNavigationTransport(strict: boolean): Promise<void> {
   if (!window.Lyra?.waitForTransport) return;
   try {
     await window.Lyra.waitForTransport(8000);
@@ -333,11 +333,21 @@ async function waitForFolioNavigationTransport(): Promise<void> {
     const conn = (window as unknown as Record<string, unknown>)[
       "lyraConnection"
     ] as { recoverOnWake?: () => Promise<void> } | undefined;
-    if (!conn?.recoverOnWake) throw e;
+    if (!conn?.recoverOnWake) {
+      if (strict) throw e;
+      return;
+    }
     try {
       await conn.recoverOnWake();
       await window.Lyra.waitForTransport?.(6000);
     } catch (recoveryError) {
+      if (!strict) {
+        console.warn(
+          "iframe navigation: recovery failed; continuing without recovery",
+          NEGATIVE,
+        );
+        return;
+      }
       console.warn(
         "iframe navigation: recovery failed before folio navigation",
         NEGATIVE,
@@ -347,20 +357,13 @@ async function waitForFolioNavigationTransport(): Promise<void> {
   }
 }
 
-async function prepareFolioNavigation(
-  prepareRuntime: () => Promise<void> = ensureProxyRuntime,
-  waitForTransport: () => Promise<void> = waitForFolioNavigationTransport,
-): Promise<void> {
-  await prepareRuntime();
-  await waitForTransport();
-}
-
 async function navigateExternalThroughFolio(
   iframe: HTMLIFrameElement,
   url: string,
   version: number,
 ): Promise<void> {
-  await prepareFolioNavigation();
+  await ensureProxyRuntime();
+  await waitForNavigationTransport(true);
   if (!isCurrentNavigation(iframe, version)) return;
   const folio = await import("../proxy/folio");
   await folio.navigateFolioIframe(iframe, url, () =>
@@ -417,13 +420,7 @@ export function stopIframeLoading(iframe: HTMLIFrameElement): void {
       version,
     );
   }
-  const iframeExt = iframe as HTMLIFrameElement & Record<string, unknown>;
-
   clearGameLoadState(iframe, true);
-  if (iframeExt.__usableTimeout) {
-    clearTimeout(iframeExt.__usableTimeout as ReturnType<typeof setTimeout>);
-    iframeExt.__usableTimeout = null;
-  }
 
   try {
     if (iframe.contentWindow) iframe.contentWindow.stop();
@@ -508,11 +505,6 @@ export function navigateIframeTo(
     tab?.id ?? getTabIdFromIframe(iframe),
   );
 
-  if (iframeExt.__usableTimeout) {
-    clearTimeout(iframeExt.__usableTimeout as ReturnType<typeof setTimeout>);
-    iframeExt.__usableTimeout = null;
-  }
-
   const shouldUseFolio = shouldRouteThroughFolio(url);
   let isProxyUrl = false;
   try {
@@ -535,33 +527,10 @@ export function navigateIframeTo(
       },
     );
   } else if (isProxyUrl && window.Lyra?.waitForTransport) {
-    (async () => {
-      try {
-        await window.Lyra.waitForTransport?.(8000);
-      } catch (e: unknown) {
-        console.warn(
-          "iframe navigation: transport not ready; attempting recovery:",
-          (e as Error).message,
-          NEGATIVE,
-        );
-        const conn = (window as unknown as Record<string, unknown>)[
-          "lyraConnection"
-        ] as { recoverOnWake?: () => Promise<void> } | undefined;
-        if (conn?.recoverOnWake) {
-          try {
-            await conn.recoverOnWake();
-            await window.Lyra.waitForTransport?.(6000);
-          } catch {
-            console.warn(
-              "iframe navigation: recovery failed; continuing without recovery",
-              NEGATIVE,
-            );
-          }
-        }
-      }
+    void waitForNavigationTransport(false).then(() => {
       if (!isCurrentNavigation(iframe, navigationVersion)) return;
       iframe.src = url;
-    })();
+    });
   } else {
     iframe.src = url;
   }
@@ -982,10 +951,6 @@ function installIframeLoadHandlers(
     if (!isCurrentNavigation(iframe, navigationVersion)) return;
     iframeExt.__gameLoadTerminal = "error";
     finishGameLoadMetric(iframe, "error");
-    if (iframeExt.__usableTimeout) {
-      clearTimeout(iframeExt.__usableTimeout as ReturnType<typeof setTimeout>);
-      iframeExt.__usableTimeout = null;
-    }
     hideLoading(tabId ?? undefined);
     syncGlobalLoadingState();
     const tab = window.Lyra?.tabs?.find(
@@ -1007,10 +972,6 @@ function installIframeLoadHandlers(
     }
     iframeExt.__gameLoadTerminal = "success";
     finishGameLoadMetric(iframe, "success");
-    if (iframeExt.__usableTimeout) {
-      clearTimeout(iframeExt.__usableTimeout as ReturnType<typeof setTimeout>);
-      iframeExt.__usableTimeout = null;
-    }
 
     if (tab?.isGame && tab.playerStatus === "error") {
       window.Lyra.setPlayerStatus?.(tab.id, "idle");

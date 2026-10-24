@@ -1,12 +1,14 @@
 import path from "path";
 import { cp, mkdir, readFile, readdir, writeFile } from "fs/promises";
-import { brotliCompressSync, constants as zlibConstants, gzipSync } from "zlib";
+import { brotliCompress, constants as zlibConstants, gzip } from "zlib";
+import { promisify } from "util";
 import { createHash } from "crypto";
 import JavaScriptObfuscator from "javascript-obfuscator";
 import { createSourceBuildId } from "./build-id.mjs";
 
 const { obfuscate } = JavaScriptObfuscator;
-
+const brotliCompressAsync = promisify(brotliCompress);
+const gzipAsync = promisify(gzip);
 const SENSITIVE_TERM = /(games?|anime|proxy|rivet|folio|lyra)/i;
 const SENSITIVE_STRING_PATTERN =
   "[Gg]ames?|[Aa]nime|[Pp]roxy|[Rr]ivet|[Ff]olio|[Ll]yra";
@@ -158,14 +160,14 @@ function stripSourceMapComments(source) {
     .replace(/\/\*[#@]\s*sourceMappingURL=.*?\*\//gs, "");
 }
 
-export function encodeBuildLexemes(source) {
+function encodeBuildLexemes(source) {
   return source.replace(ZERO_MATCH_TERM, (match) => {
     const escapedCharacter = match.charCodeAt(1).toString(16).padStart(4, "0");
     return `${match[0]}\\u${escapedCharacter}${match.slice(2)}`;
   });
 }
 
-export function obfuscateSource(source, options, identifiersPrefix) {
+function obfuscateSource(source, options, identifiersPrefix) {
   const compatibleSource = source.replaceAll("(?i:url)", "[uU][rR][lL]");
   return encodeBuildLexemes(
     obfuscate(compatibleSource, {
@@ -205,7 +207,7 @@ function addSensitiveToken(tokens, token) {
   if (SENSITIVE_TERM.test(token)) tokens.add(token);
 }
 
-export function createCssTokenMap(cssSources, salt) {
+function createCssTokenMap(cssSources, salt) {
   const tokens = new Set();
 
   for (const source of cssSources) {
@@ -356,8 +358,9 @@ export default function lyraPlugin(
         ],
       ]);
 
+      const runtimePaths = createRuntimePathMap(buildId);
       const pathAliases = new Map(
-        Object.entries(createRuntimePathMap(buildId)).map(([key, value]) =>
+        Object.entries(runtimePaths).map(([key, value]) =>
           [key, staticBase ? staticBase + value.slice(1) : value]),
       );
       const runtimeBundleFileName = opaqueFileName("/b/all.js", buildId);
@@ -367,6 +370,8 @@ export default function lyraPlugin(
       const socketSource = staticBase
         ? (await readFile(path.join(projectRoot, "src/static/socket.js"), "utf8"))
           .replaceAll("__STATIC_BASE__", staticBase) : "";
+      const nuruSocketSource = staticBase ? "" :
+        (await readFile(path.join(projectRoot, "src/core/proxy/nuruSocket.js"), "utf8")).replace(/^export /m, "");
       let staticPrelude = "";
       if (staticBase) {
         const config = staticBackends.map((origin) => ({ origin,
@@ -387,7 +392,7 @@ export default function lyraPlugin(
         const sourcePath = path.join(projectRoot, ...source);
         const emittedPath = path.join(
           outputDirectory,
-          createRuntimePathMap(buildId)[logicalPath].slice(1),
+          runtimePaths[logicalPath].slice(1),
         );
         let contents;
         try {
@@ -404,6 +409,9 @@ export default function lyraPlugin(
           );
           if (staticBase && /^\/(?:epoxy|libcurl)\//.test(logicalPath)) {
             sourceCode = `${staticPrelude}\n${socketSource}\nconst WebSocket = staticSocketClass(globalThis.WebSocket);\n${sourceCode}`;
+          }
+          if (!staticBase && /^\/(?:epoxy|libcurl)\//.test(logicalPath)) {
+            sourceCode = `${nuruSocketSource}\nconst WebSocket = nuruSocketClass(globalThis.WebSocket, ${JSON.stringify(wispPath)});\n${sourceCode}`;
           }
           if (staticBase && logicalPath === "/b/fl/controller.inject.js") {
             sourceCode = `${staticPrelude}\n${sourceCode}`;
@@ -562,14 +570,15 @@ export default function lyraPlugin(
               await compressDirectory(filePath);
             } else if (/\.(js|css|html|mjs)$/.test(entry.name)) {
               const contents = await readFile(filePath);
+              const [brotli, gzipped] = await Promise.all([
+                brotliCompressAsync(contents, {
+                  params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
+                }),
+                gzipAsync(contents, { level: 9 }),
+              ]);
               await Promise.all([
-                writeFile(
-                  filePath + ".br",
-                  brotliCompressSync(contents, {
-                    params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 11 },
-                  }),
-                ),
-                writeFile(filePath + ".gz", gzipSync(contents, { level: 9 })),
+                writeFile(filePath + ".br", brotli),
+                writeFile(filePath + ".gz", gzipped),
               ]);
             }
           }),

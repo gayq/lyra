@@ -1,4 +1,5 @@
 import { createStaticGateway } from "./static-gateway.mjs";
+import { nuruTicketMinter } from "./nuru-ticket.mjs";
 
 export function productionStaticGateway(metadata, env = process.env) {
   const backend = env.LYRA_STATIC_BACKEND || "";
@@ -18,8 +19,11 @@ export function productionStaticGateway(metadata, env = process.env) {
   const isao = env.ISAO_ORIGIN || "http://127.0.0.1:6001";
   const app = `http://127.0.0.1:${env.PORT || "4444"}`;
   const nuru = env.NURU_ORIGIN || "ws://127.0.0.1:4001";
+  const nuruTicket = nuruTicketMinter(env.NURU_TICKET_SECRET);
   return createStaticGateway({
     backend,
+    nuruTicket,
+    ...(nuruTicket ? { sessions: (Number(env.LYRA_MEMORY_MB) || 512) * 32, starts: 300, idle: 15 * 60_000 } : {}),
     forward(target, init) {
       const upstream = target.startsWith("/api/anime/") ? isao :
         target.startsWith("/api/") ? app : mochi;

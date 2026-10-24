@@ -80,7 +80,7 @@ async function handleLargeFile(request, realUrl) {
       fallback ||
       new Response(swNegativeMessage("gateway timeout"), { status: 504 })
     );
-  } catch (e) {
+  } catch {
     const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
     return (
       fallback ||
@@ -95,14 +95,14 @@ async function tryConsumeActivePrefetch(urlKey) {
     try {
       const prefRes = await active;
       if (prefRes && prefRes.ok) return prefRes.clone();
-    } catch (e) {}
+    } catch {}
   }
   if (_prefetchedResponses.has(urlKey)) {
     const memHit = _prefetchedResponses.get(urlKey);
     _prefetchedResponses.delete(urlKey);
     try {
       if (memHit && memHit.ok) return memHit.clone();
-    } catch (e) {}
+    } catch {}
   }
   return null;
 }
@@ -134,7 +134,7 @@ async function runProxyEngine(
       if (prefetched) return prefetched;
       const navHit = await tryMatchPrefetchedNav(request, urlKey);
       if (navHit) return navHit;
-    } catch (e) {}
+    } catch {}
   }
   const timeoutMs = isNavigate
     ? PROXY_NAV_TIMEOUT_MS
@@ -153,7 +153,7 @@ async function runProxyEngine(
       return response;
     }
     return timeoutFallbackResponse(request, url);
-  } catch (e) {
+  } catch {
     notifyTransportError();
     return timeoutFallbackResponse(request, url);
   }
@@ -165,7 +165,7 @@ function isGoogleVideoUrl(targetUrl) {
     return (
       hostname === "googlevideo.com" || hostname.endsWith(".googlevideo.com")
     );
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -321,7 +321,7 @@ async function handleLocalOriginGet(event, request, url, preloadPromise) {
             return fallbackResponse;
           }
         }
-      } catch (e) {}
+      } catch {}
     }
     if (cached) return cached;
     if (response) return response;
@@ -577,7 +577,7 @@ self.addEventListener("fetch", (event) => {
         return new Response(swNegativeMessage("request forbidden"), {
           status: 403,
         });
-      } catch (err) {
+      } catch {
         if (realUrl && !realUrl.includes(self.location.host)) {
           const mf = await mochiFetch(request, realUrl, MOCHI_TIMEOUT_MS);
           if (mf) return patchHtml(mf, realUrl);

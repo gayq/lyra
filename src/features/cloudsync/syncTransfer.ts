@@ -75,7 +75,7 @@ async function transferParts(
     { length: Math.min(allowance, parts.length) },
     async () => {
       while (!stopped && next < parts.length) {
-        const part = parts[next++];
+        const part = parts[next++]!;
         try {
           const response = await transfer(part);
           if (!response.ok) {

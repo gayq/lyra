@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "preact/hooks";
 import {
   gamesViewSignal,
   animeViewSignal,
+  useUiSignal,
 } from "../../core/ui/uiSignals.ts";
 import { IconCloud, IconSettingsGear4 } from "../icons";
 import { svgIcon } from "../../core/ui/svgIcon";
@@ -15,6 +16,9 @@ import {
 } from "../../app/loaders.ts";
 
 export default function TopBar() {
+  const gamesView = useUiSignal(gamesViewSignal);
+  const animeView = useUiSignal(animeViewSignal);
+
   useEffect(() => {
     if (!isStatic) {
       try {
@@ -71,7 +75,7 @@ export default function TopBar() {
           href="#"
           id="choi"
           class="icon-btn"
-          data-tooltip={gamesViewSignal.value ? "search" : "games"}
+          data-tooltip={gamesView ? "search" : "games"}
           onPointerEnter={preloadGamesCatalog}
           onFocus={preloadGamesCatalog}
           onClick={handleGamesClick}
@@ -82,7 +86,7 @@ export default function TopBar() {
           href="#"
           id="media-catalog"
           class="icon-btn"
-          data-tooltip={animeViewSignal.value ? "search" : "anime"}
+          data-tooltip={animeView ? "search" : "anime"}
           onPointerEnter={preloadAnimeCatalog}
           onFocus={preloadAnimeCatalog}
           onClick={handleAnimeClick}

@@ -63,7 +63,7 @@ const TYPED_ARRAY_NAMES = new Set([
   "BigUint64Array",
 ]);
 
-function syncError(message: string): Error {
+export function syncError(message: string): Error {
   return new Error(negativeMessage(message));
 }
 
@@ -422,7 +422,7 @@ export function decodeBrowserValue(encoded: EncodedValue): unknown {
   return decodeValue(encoded, new Map());
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

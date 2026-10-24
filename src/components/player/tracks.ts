@@ -14,7 +14,7 @@ export interface SubtitleTrack extends MediaTrack {
   nativeTrack?: TextTrack;
 }
 
-export interface NativeAudioTrack {
+interface NativeAudioTrack {
   id: string;
   label: string;
   language: string;

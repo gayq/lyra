@@ -6,7 +6,7 @@ import {
 import type { RivetRegistry } from "./registry";
 import type { RivetHostBindings } from "./types";
 
-export const EXTENSION_POPUP_MOUNTED_EVENT = "rivet-extension-popup-mounted";
+const EXTENSION_POPUP_MOUNTED_EVENT = "rivet-extension-popup-mounted";
 
 interface PopupRecoveryState {
   beforeUnloadListener: (() => void) | null;

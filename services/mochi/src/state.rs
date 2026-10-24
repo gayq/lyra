@@ -76,6 +76,7 @@ pub struct AppState {
     pub stream_cache: Cache<String, Arc<CachedResponse>>,
     pub stream_fills: Cache<String, Arc<Mutex<Option<StreamFillState>>>>,
     pub folio_cache: Cache<String, Arc<FolioCachedResponse>>,
+    pub effective_bases: Cache<String, url::Url>,
     pub folio_cache_generation: AtomicU64,
     pub folio_metrics: FolioMetrics,
     pub blocklist_matcher: Arc<AhoCorasick>,

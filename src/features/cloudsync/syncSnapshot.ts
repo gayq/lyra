@@ -17,6 +17,8 @@ import {
   encodeBrowserValue,
   decodeBrowserValue,
   validEncodedValue,
+  isRecord,
+  syncError,
   type EncodedValue,
 } from "./snapshotValue.ts";
 export {
@@ -26,7 +28,6 @@ export {
   containsLocalOnlySiteData,
   canSyncStorageValue,
 } from "./syncPolicy.ts";
-import { negativeMessage } from "../../core/runtime/messages.ts";
 import { prepareSnapshot } from "./prepareSnapshot.ts";
 export { payloadFingerprint } from "./snapshotPayload.ts";
 const SYNC_SCHEMA_VERSION = 3 as const;
@@ -107,10 +108,6 @@ interface StorageLike {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
-}
-
-function syncError(message: string): Error {
-  return new Error(negativeMessage(message));
 }
 
 function hasOwn(value: object, key: PropertyKey): boolean {
@@ -689,10 +686,6 @@ export async function exportSyncSnapshot(): Promise<SyncSnapshot> {
     cookies,
     indexedDB,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validKeyPath(value: unknown): value is KeyPath {

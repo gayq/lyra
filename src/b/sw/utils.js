@@ -4,7 +4,7 @@ async function coalescedFetch(key, fetchFn) {
     return existing.then((value) => {
       try {
         return value instanceof Response ? value.clone() : value;
-      } catch (e) {
+      } catch {
         return value;
       }
     });
@@ -32,7 +32,7 @@ function preconnectToOrigin(origin) {
       for (const client of clients) {
         try {
           client.postMessage(payload);
-        } catch (e) {}
+        } catch {}
       }
     })
     .catch(() => {});
@@ -53,7 +53,7 @@ async function capCache(cacheName, maxEntries) {
       const doomed = keys.slice(0, over);
       await Promise.all(doomed.map((k) => cache.delete(k)));
     }
-  } catch (e) {
+  } catch {
   } finally {
     _trimmingCaches.delete(cacheName);
   }
@@ -84,7 +84,7 @@ async function tryWithTimeout(promise, ms) {
     const out = await Promise.race([promise, timeoutP]);
     clearTimeout(timer);
     return out;
-  } catch (e) {
+  } catch {
     clearTimeout(timer);
     return null;
   }
@@ -129,7 +129,7 @@ function urlExt(targetUrl) {
     const lastDot = parsed.pathname.lastIndexOf(".");
     if (lastDot === -1) return "";
     return parsed.pathname.substring(lastDot).toLowerCase();
-  } catch (e) {
+  } catch {
     const path = targetUrl.split("?")[0];
     const lastDot = path.lastIndexOf(".");
     return lastDot !== -1 ? path.substring(lastDot).toLowerCase() : "";
@@ -144,7 +144,7 @@ function isLargeFile(url, request) {
     if (dest === "audio" || dest === "video") return true;
     const accept = request?.headers?.get("Accept") || "";
     return accept.includes("audio/") || accept.includes("video/");
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -153,7 +153,7 @@ function isRangeRequest(request) {
   try {
     const rangeHeader = request.headers.get("Range");
     return !!rangeHeader && rangeHeader.startsWith("bytes=");
-  } catch (e) {
+  } catch {
     return false;
   }
 }
