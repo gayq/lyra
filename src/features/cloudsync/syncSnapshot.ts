@@ -29,7 +29,6 @@ export {
   containsLocalOnlySiteData,
   canSyncStorageValue,
 } from "./syncPolicy.ts";
-import { prepareSnapshot } from "./prepareSnapshot.ts";
 export { payloadFingerprint } from "./snapshotPayload.ts";
 const SYNC_SCHEMA_VERSION = 3 as const;
 const LEGACY_SYNC_SCHEMA_VERSION = 2 as const;
@@ -1705,12 +1704,6 @@ export async function applySyncDelta(
   progress("restoring indexeddb...");
   changes += await applyIndexedDBDelta(previous.indexedDB, target.indexedDB);
   return changes;
-}
-
-export async function snapshotFingerprint(
-  snapshot: SyncSnapshot,
-): Promise<string> {
-  return (await prepareSnapshot({ snapshot })).fingerprint;
 }
 
 export function changedDuringUpload(

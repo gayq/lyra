@@ -62,7 +62,7 @@ function folioCookies(record: SyncRecord): Record<string, unknown> | null {
   }
 }
 
-export function snapshotItems(snapshot: SyncSnapshot): Map<string, SnapshotItem> {
+function snapshotItems(snapshot: SyncSnapshot): Map<string, SnapshotItem> {
   const items = new Map<string, SnapshotItem>();
   const add = (id: string, value: unknown) =>
     items.set(id, { hash: hashText(JSON.stringify(value) ?? "null"), value });

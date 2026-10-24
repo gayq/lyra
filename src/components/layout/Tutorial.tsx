@@ -76,11 +76,10 @@ export default function Tutorial() {
       const above = rect.top - gap - inset;
       const placeBelow = below >= panel.scrollHeight || below >= above;
       panel.style.maxHeight = `${Math.max(120, placeBelow ? below : above)}px`;
-      panel.style.left = `${Math.max(inset, Math.min(rect.left, width - panel.offsetWidth - inset))}px`;
+      const left = Math.max(inset, Math.min(rect.left, width - panel.offsetWidth - inset));
       const top = placeBelow ? rect.bottom + gap : rect.top - gap - panel.offsetHeight;
-      panel.style.top = `${Math.max(inset, Math.min(top, height - panel.offsetHeight - inset))}px`;
-      light.style.left = `${rect.left - SPOTLIGHT_PAD}px`;
-      light.style.top = `${rect.top - SPOTLIGHT_PAD}px`;
+      panel.style.transform = `translate(${left}px, ${Math.max(inset, Math.min(top, height - panel.offsetHeight - inset))}px)`;
+      light.style.transform = `translate(${rect.left - SPOTLIGHT_PAD}px, ${rect.top - SPOTLIGHT_PAD}px)`;
       light.style.width = `${rect.width + SPOTLIGHT_PAD * 2}px`;
       light.style.height = `${rect.height + SPOTLIGHT_PAD * 2}px`;
       light.style.borderRadius = spotlightRadius(target);

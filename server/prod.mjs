@@ -519,6 +519,7 @@ async function proxyToMochi(req) {
               return;
             }
             streamController.enqueue(value);
+            timeout.refresh();
           } catch (error) {
             cleanup();
             streamController.error(error);
@@ -536,7 +537,6 @@ async function proxyToMochi(req) {
       headers: responseHeaders,
     });
     bodyOwnsLifecycle = body !== null;
-    if (!bodyOwnsLifecycle) cleanup();
     return proxiedResponse;
   } catch (error) {
     const aborted = error?.name === "AbortError";

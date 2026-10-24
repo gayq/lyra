@@ -7,6 +7,7 @@ import type {
 import { RpcHelper } from "@mercuryworkshop/rpc";
 import type { Config } from ".";
 import { CONTROLLERFRAME } from "./symbols";
+import { yieldGetInjectScripts } from "./injectScripts";
 import type {
 	SerializedCookieSyncEntry,
 	ControllerToTransport,
@@ -195,14 +196,6 @@ type Init = {
 	flconfig: FolioConfig;
 	prefix: URL;
 	cookies: string;
-	yieldGetInjectScripts: (
-		config: Config,
-		flconfig: FolioConfig,
-		prefix: URL,
-		cookieJar: CookieJar,
-		codecEncode: (input: string) => string,
-		codecDecode: (input: string) => string
-	) => any;
 	codecEncode: (input: string) => string;
 	codecDecode: (input: string) => string;
 	initHeaders: RawHeaders;
@@ -357,7 +350,7 @@ class ExecutionContextWrapper {
 			routePrefix: new URL(this.init.config.prefix, this.init.prefix),
 			cookieJar: this.cookieJar,
 			interface: {
-				getInjectScripts: this.init.yieldGetInjectScripts(
+				getInjectScripts: yieldGetInjectScripts(
 					this.init.config,
 					this.init.flconfig,
 					this.init.prefix,

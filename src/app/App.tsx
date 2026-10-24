@@ -59,7 +59,11 @@ export default function App() {
   const [animeMounted, setAnimeMounted] = useState(false);
   const [newTabMounted, setNewTabMounted] = useState(false);
   const [settingsMounted, setSettingsMounted] = useState(false);
-  const [peakIndex] = useState(getRandomPeakIndex);
+  const [peakSrc] = useState(
+    () =>
+      document.documentElement.dataset.peakSrc ||
+      peakUrls[getRandomPeakIndex()],
+  );
 
   useEffect(() => {
     const showGames = () => setGamesMounted(true);
@@ -104,7 +108,7 @@ export default function App() {
         <div class="main-container">
           <div class="title">
             <img
-              src={peakUrls[peakIndex]}
+              src={peakSrc}
               alt=""
               width="85"
               height="90"

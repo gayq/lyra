@@ -2,7 +2,7 @@ import { chunkId, manifestSeal, type SyncBytes, type SyncKeys } from "./syncCryp
 import { hashText, snapshotIndex, type SnapshotIndex } from "./syncMerge.ts";
 import type { SyncSnapshot } from "./syncSnapshot.ts";
 
-export const SEALED_CHUNK_LIMIT = 1024 * 1024 - 4096;
+const SEALED_CHUNK_LIMIT = 1024 * 1024 - 4096;
 const MIN_CHUNK = 256 * 1024;
 const AVERAGE_CHUNK = 512 * 1024;
 const STRICT_MASK = 0xfffff800;

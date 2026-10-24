@@ -17,6 +17,8 @@
 .tutorial-card {
   outline: none;
   position: absolute;
+  left: 0;
+  top: 0;
   box-sizing: border-box;
   width: 360px;
   max-width: calc(100vw - 24px);
@@ -32,6 +34,8 @@
 .tutorial::backdrop { background: transparent; }
 .tutorial-spotlight {
   position: absolute;
+  left: 0;
+  top: 0;
   border-radius: var(--radius-control);
   box-shadow: 0 0 0 200vmax #0008;
   pointer-events: none;

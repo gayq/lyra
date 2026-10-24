@@ -80,6 +80,7 @@
         preload.href = peakUrls[nextIndex];
         preload.fetchPriority = "high";
         document.head.append(preload);
+        document.documentElement.dataset.peakSrc = preload.href;
         try {
           localStorage.setItem("lyra-title-peak-index", String(nextIndex));
         } catch {}

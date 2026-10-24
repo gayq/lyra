@@ -732,6 +732,10 @@ if [ -f /etc/sysctl.d/99-lyra-optimizations.conf ]; then
   sudo cp /etc/sysctl.d/99-lyra-optimizations.conf /etc/sysctl.d/99-lyra-optimizations.conf.bak.$(date +%s)
 fi
 
+LYRA_RESERVED_PORTS="$(sudo sysctl -n net.ipv4.ip_local_reserved_ports)"
+LYRA_RESERVED_PORTS="${LYRA_RESERVED_PORTS:+$LYRA_RESERVED_PORTS,}2019,3001,${TURN_PORT:-3478},4000-4444,6001,8923"
+sudo sysctl -w "net.ipv4.ip_local_reserved_ports=$LYRA_RESERVED_PORTS" >/dev/null
+
 cat <<EOF | sudo tee /etc/sysctl.d/99-lyra-optimizations.conf
 net.netfilter.nf_conntrack_max = 524288
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 10
@@ -745,6 +749,7 @@ net.ipv4.tcp_max_syn_backlog = 65535
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.ip_local_port_range = 1024 65535
+net.ipv4.ip_local_reserved_ports = $LYRA_RESERVED_PORTS
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 0
@@ -1269,6 +1274,8 @@ sudo tee /etc/systemd/system/caddy.service.d/override.conf <<EOF
 [Service]
 Environment="NO_PROXY=127.0.0.1"
 LimitNOFILE=1048576
+Restart=on-failure
+RestartSec=5
 EOF
 sudo systemctl daemon-reload
 
@@ -1865,7 +1872,13 @@ for svc in "${PM2_SVCS[@]}"; do
 done
 
 health_ok() {
-  [ "$(curl --fail --silent --max-time 3 "$1")" = "oki" ]
+  local response
+  response="$(curl --fail --silent --max-time 3 "$1")" || return 1
+  if [[ "$1" = */api/static/v1/status ]]; then
+    jq -e '.protocol == 1 and .enabled == true' <<< "$response" >/dev/null 2>&1
+  else
+    [ "$response" = "oki" ]
+  fi
 }
 
 for upstream in $MOCHI_UPSTREAMS $NURU_UPSTREAMS; do
