@@ -12,9 +12,6 @@ import {
 	URL_createObjectURL,
 } from "../snapshot";
 
-// user: manually triggered navigation
-// link: link clicked by the user. still user initiated, but doesn't wipe
-// location: location = ...
 export type NavigationType = "user" | "link" | "location";
 
 export type RewriteUrlOptions = {
@@ -137,8 +134,6 @@ function rewriteUrlInternal(
 	} else if (url.startsWith("data:")) {
 		const URL_MAX_LENGTH = 1024 * 1024 * 2;
 		const BUFFER = 1024;
-		// chrome will explode if you make a request to a service worker with a 2MB+ URL
-		// there's an okayish workaround which is just Pretending It's a Blob
 		if (url.length + context.prefix.href.length + BUFFER > URL_MAX_LENGTH) {
 			const { objectUrl } = dataToBlob(url);
 			return (
@@ -157,13 +152,11 @@ function rewriteUrlInternal(
 		let base = meta.base.href;
 
 		if (base.startsWith("about:"))
-			base = unrewriteUrl(self.location.href, context); // jank!!!!! weird jank!!!
+			base = unrewriteUrl(self.location.href, context);
 		const realUrl = tryCanParseURL(url, base);
 		if (!realUrl) return url;
 
 		if (realUrl.protocol != "http:" && realUrl.protocol != "https:") {
-			// custom protocol. best thing to do is pass it through so it can open an app etc
-			// there's also extension:// pages we might need to worry about later
 			return url;
 		}
 
@@ -172,9 +165,6 @@ function rewriteUrlInternal(
 			realUrl.origin === routePrefix.origin &&
 			(realUrl.pathname === routePrefix.pathname.replace(/\/f\/.*$/, "/f") || realUrl.pathname.startsWith(routePrefix.pathname))
 		) {
-			// Requests may pass through more than one patched API (or another proxy
-			// integration) before reaching the browser. URLs that already belong to
-			// this proxy's service-worker route must remain local and idempotent.
 			return realUrl.href;
 		}
 
@@ -197,8 +187,6 @@ function rewriteUrlInternal(
 		if (options?.destination)
 			paramsInit.set(QP.destination, options.destination);
 
-		// specific tracking for sec-fetch-site
-		// don't send for the top level controller calling it in go()
 		if (meta.origin.origin !== context.prefix.origin) {
 			paramsInit.set(QP.initiatorOrigin, meta.origin.origin);
 		}
@@ -224,10 +212,8 @@ export function unrewriteUrl(url: string | URL, context: FolioContext) {
 	url = String(url);
 	if (/^https?:/.test(url)) url = openRoute(url).href;
 	if (url.startsWith("javascript:")) {
-		//TODO
 		return url;
 	} else if (url.startsWith("blob:")) {
-		// realistically this shouldn't happen
 		return url;
 	} else if (url.startsWith(context.prefix.href + "blob:")) {
 		return url.substring(context.prefix.href.length);
@@ -239,12 +225,9 @@ export function unrewriteUrl(url: string | URL, context: FolioContext) {
 		const realUrl = tryCanParseURL(url);
 		if (!realUrl) return url;
 		if (realUrl.protocol != "http:" && realUrl.protocol != "https:") {
-			// custom protocol
 			return url;
 		}
 		if (!realUrl.href.startsWith(context.prefix.href)) {
-			// CSSOM readers and extensions can expose URLs that never passed through
-			// Folio. Unrewriting is intentionally idempotent for those values.
 			return url;
 		}
 		const decodedHash = context.interface.codecDecode(realUrl.hash.slice(1));
@@ -260,7 +243,6 @@ export function unrewriteUrl(url: string | URL, context: FolioContext) {
 	} else if (url == "") {
 		return url;
 	} else {
-		// Fragment, data, and custom-scheme values are valid pass-through URLs.
 		return url;
 	}
 }

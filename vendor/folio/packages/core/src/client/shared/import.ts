@@ -19,10 +19,8 @@ export default function (client: FolioClient, self: Self) {
 				url.startsWith(".") ||
 				url.startsWith("..")
 			) {
-				// this is a url
 				return boundimport(client.rewriteUrl(resolved, { isModule: true }));
 			} else {
-				// this is a specifier handled by importmaps
 				return boundimport(url);
 			}
 		},

@@ -12,6 +12,7 @@ import {
   containsLocalOnlySiteData,
   canSyncStorageValue,
   containsSensitiveTextValue,
+  isGameFileRecord,
 } from "./syncPolicy.ts";
 import {
   encodeBrowserValue,
@@ -461,7 +462,11 @@ function saveDatabaseNames(names: Iterable<string>): void {
 }
 
 export function rememberIndexedDBName(name: string): void {
-  if (!name || (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))) {
+  if (
+    !name ||
+    LOCAL_ONLY_DATABASES.has(name) ||
+    (!allowsSensitiveDatabase(name) && isSensitiveSyncName(name))
+  ) {
     return;
   }
   const names = registeredDatabaseNames();
@@ -603,6 +608,7 @@ async function encodeRecord(
 ): Promise<SyncRecord | null> {
   if (
     isSiteDatabaseName(databaseName) &&
+    !isGameFileRecord(value) &&
     (containsLocalOnlySiteData(key) || containsLocalOnlySiteData(value))
   ) {
     return null;
@@ -798,7 +804,8 @@ function replaceStorage(
   storage: StorageLike,
   remote: Record<string, string>,
   includeSensitive: boolean,
-): void {
+): number {
+  let changes = 0;
   const currentKeys: string[] = [];
   for (let index = 0; index < storage.length; index++) {
     const key = storage.key(index);
@@ -815,12 +822,17 @@ function replaceStorage(
       !hasOwn(remote, key)
     ) {
       storage.removeItem(key);
+      changes++;
     }
   }
   for (const [key, value] of Object.entries(remote)) {
-    if (isLocalOnlySyncStorageKey(key)) continue;
+    if (isLocalOnlySyncStorageKey(key) || storage.getItem(key) === value) {
+      continue;
+    }
     storage.setItem(key, value);
+    changes++;
   }
+  return changes;
 }
 
 function expireCookie(name: string): void {
@@ -853,32 +865,52 @@ function writeCookie(cookie: SyncCookie): void {
   globalThis.document.cookie = attributes.join("; ");
 }
 
-async function replaceCookies(remote: SyncCookie[]): Promise<void> {
+async function deleteCookie(
+  store: CookieStoreLike | null,
+  cookie: SyncCookie,
+): Promise<void> {
+  if (!store) {
+    expireCookie(cookie.name);
+    return;
+  }
+  const options: {
+    name: string;
+    domain?: string;
+    path?: string;
+    partitioned?: boolean;
+  } = {
+    name: cookie.name,
+    path: cookie.path,
+    partitioned: cookie.partitioned,
+  };
+  if (cookie.domain !== null) options.domain = cookie.domain;
+  await store.delete(options);
+}
+
+async function replaceCookies(remote: SyncCookie[]): Promise<number> {
   const current = await exportBrowserCookies();
   const remoteIds = new Set(remote.map(cookieIdentity));
+  const currentCookies = new Map(
+    current.map((cookie) => [cookieIdentity(cookie), JSON.stringify(cookie)]),
+  );
   const store = cookieStore();
+  let changes = 0;
   for (const cookie of current) {
     if (remoteIds.has(cookieIdentity(cookie))) continue;
-    if (store) {
-      const options: {
-        name: string;
-        domain?: string;
-        path?: string;
-        partitioned?: boolean;
-      } = {
-        name: cookie.name,
-        path: cookie.path,
-        partitioned: cookie.partitioned,
-      };
-      if (cookie.domain !== null) options.domain = cookie.domain;
-      await store.delete(options);
-    } else {
-      expireCookie(cookie.name);
-    }
+    changes++;
+    await deleteCookie(store, cookie);
   }
   for (const cookie of remote) {
-    if (domainMatchesCurrentHost(cookie.domain)) writeCookie(cookie);
+    if (
+      !domainMatchesCurrentHost(cookie.domain) ||
+      currentCookies.get(cookieIdentity(cookie)) === JSON.stringify(cookie)
+    ) {
+      continue;
+    }
+    writeCookie(cookie);
+    changes++;
   }
+  return changes;
 }
 
 function createStore(
@@ -960,8 +992,13 @@ async function reconcileDatabase(
   snapshot: SyncDatabase,
   exists: boolean,
   includeSensitive: boolean,
-): Promise<IDBDatabase> {
-  if (!exists) return openNewDatabase(factory, name, snapshot);
+): Promise<{ database: IDBDatabase; changed: boolean }> {
+  if (!exists) {
+    return {
+      database: await openNewDatabase(factory, name, snapshot),
+      changed: true,
+    };
+  }
   const allowSensitive = includeSensitive && allowsSensitiveDatabase(name);
   let database = await openExistingDatabase(factory, name);
   const syncStores = Array.from(database.objectStoreNames).filter(
@@ -980,7 +1017,7 @@ async function reconcileDatabase(
       ),
     );
   }
-  if (schemaMatches) return database;
+  if (schemaMatches) return { database, changed: false };
 
   const nextVersion = database.version + 1;
   database.close();
@@ -1016,7 +1053,7 @@ async function reconcileDatabase(
     request.onblocked = () =>
       reject(syncError("indexeddb schema restore blocked"));
   });
-  return database;
+  return { database, changed: true };
 }
 
 function mergeLocalSecrets(remote: unknown, local: unknown): unknown {
@@ -1032,14 +1069,28 @@ function mergeLocalSecrets(remote: unknown, local: unknown): unknown {
   return remote;
 }
 
+async function sameStoredValue(left: unknown, right: unknown): Promise<boolean> {
+  if (left === right) return true;
+  try {
+    return (
+      JSON.stringify(await encodeBrowserValue(left, true)) ===
+      JSON.stringify(await encodeBrowserValue(right, true))
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function replaceRecords(
   database: IDBDatabase,
   databaseName: string,
   storeName: string,
   snapshot: SyncStore,
   includeSensitive: boolean,
-): Promise<number | null> {
-  if (!canSyncIndexedDBStore(databaseName, storeName)) return null;
+): Promise<{ changes: number; folioUpdatedAt: number | null }> {
+  if (!canSyncIndexedDBStore(databaseName, storeName)) {
+    return { changes: 0, folioUpdatedAt: null };
+  }
   const replaceSensitive =
     includeSensitive && allowsSensitiveDatabase(databaseName);
   const readTransaction = database.transaction(storeName, "readonly");
@@ -1059,12 +1110,14 @@ async function replaceRecords(
   const remoteByKey = new Map(
     remoteRecords.map((record) => [record.keyId, record]),
   );
+  const localByKey = new Map<string, (typeof localRecords)[number]>();
   for (const localRecord of localRecords) {
     const encodedKey = await encodeBrowserValue(
       localRecord.key,
       replaceSensitive,
     );
     const keyId = JSON.stringify(encodedKey);
+    localByKey.set(keyId, localRecord);
     const remote = remoteByKey.get(keyId);
     if (remote && !replaceSensitive) {
       remote.value = mergeLocalSecrets(remote.value, localRecord.value);
@@ -1097,25 +1150,44 @@ async function replaceRecords(
       (record) => record.key === FOLIO_COOKIE_KEY,
     );
     if (remote) {
-      remote.value = mergeFolioCookieState(
+      const merged = mergeFolioCookieState(
         remote.value,
         local?.value,
         replaceSensitive,
-      );
-      folioUpdatedAt = (remote.value as { updatedAt: number }).updatedAt;
+      ) as { updatedAt: number; cookies: string };
+      const localCookies = isRecord(local?.value) ? local.value.cookies : null;
+      if (local && localCookies === merged.cookies) {
+        remote.value = local.value;
+      } else {
+        remote.value = merged;
+        folioUpdatedAt = merged.updatedAt;
+      }
     }
   }
+
+  const remoteKeys = new Set(remoteRecords.map((record) => record.keyId));
+  const deletes = [...localByKey]
+    .filter(([keyId]) => !remoteKeys.has(keyId))
+    .map(([, record]) => record.key);
+  const puts: typeof remoteRecords = [];
+  for (const record of remoteRecords) {
+    const local = localByKey.get(record.keyId);
+    if (!local || !(await sameStoredValue(local.value, record.value))) {
+      puts.push(record);
+    }
+  }
+  if (!deletes.length && !puts.length) return { changes: 0, folioUpdatedAt };
 
   const writeTransaction = database.transaction(storeName, "readwrite");
   const done = transactionDone(writeTransaction);
   const store = writeTransaction.objectStore(storeName);
-  store.clear();
-  for (const record of remoteRecords) {
+  for (const key of deletes) store.delete(key);
+  for (const record of puts) {
     if (snapshot.keyPath === null) store.put(record.value, record.key);
     else store.put(record.value);
   }
   await done;
-  return folioUpdatedAt;
+  return { changes: deletes.length + puts.length, folioUpdatedAt };
 }
 
 function deleteDatabase(factory: IDBFactory, name: string): Promise<void> {
@@ -1135,10 +1207,11 @@ function deleteDatabase(factory: IDBFactory, name: string): Promise<void> {
 async function restoreIndexedDB(
   remote: Record<string, SyncDatabase>,
   includeSensitive: boolean,
-): Promise<void> {
+): Promise<number> {
   const factory = globalThis.indexedDB;
   if (!factory) throw syncError("indexeddb is unavailable");
   const currentNames = await databaseNames(factory);
+  let changes = 0;
   for (const name of currentNames) {
     const replaceSensitive = includeSensitive && allowsSensitiveDatabase(name);
     if (
@@ -1146,31 +1219,36 @@ async function restoreIndexedDB(
       !hasOwn(remote, name)
     ) {
       await deleteDatabase(factory, name);
+      changes++;
     }
   }
 
   let folioUpdatedAt: number | null = null;
   for (const [databaseName, databaseSnapshot] of Object.entries(remote)) {
     if (LOCAL_ONLY_DATABASES.has(databaseName)) continue;
-    const database = await reconcileDatabase(
+    const { database, changed } = await reconcileDatabase(
       factory,
       databaseName,
       databaseSnapshot,
       currentNames.includes(databaseName),
       includeSensitive,
     );
+    if (changed) changes++;
     try {
       for (const [storeName, storeSnapshot] of Object.entries(
         databaseSnapshot.stores,
       )) {
-        const updatedAt = await replaceRecords(
+        const restored = await replaceRecords(
           database,
           databaseName,
           storeName,
           storeSnapshot,
           includeSensitive,
         );
-        if (updatedAt !== null) folioUpdatedAt = updatedAt;
+        changes += restored.changes;
+        if (restored.folioUpdatedAt !== null) {
+          folioUpdatedAt = restored.folioUpdatedAt;
+        }
       }
     } finally {
       database.close();
@@ -1182,6 +1260,7 @@ async function restoreIndexedDB(
     channel.postMessage({ updatedAt: folioUpdatedAt });
     channel.close();
   }
+  return changes;
 }
 
 function legacyStoreSchema(
@@ -1359,7 +1438,7 @@ async function normalizeLegacySnapshot(
 export async function importSyncSnapshot(
   value: unknown,
   progress: (message: string) => void = () => {},
-): Promise<void> {
+): Promise<number> {
   const snapshot = isSyncSnapshot(value)
     ? value
     : isRecord(value) && value.schemaVersion === SYNC_SCHEMA_VERSION
@@ -1370,27 +1449,268 @@ export async function importSyncSnapshot(
   }
   const includeSensitive = snapshot.schemaVersion === SYNC_SCHEMA_VERSION;
   progress("restoring local storage...");
-  replaceStorage(
+  let changes = replaceStorage(
     globalThis.localStorage,
     snapshot.localStorage,
     includeSensitive,
   );
   progress("restoring session storage...");
-  replaceStorage(
+  changes += replaceStorage(
     globalThis.sessionStorage,
     snapshot.sessionStorage,
     includeSensitive,
   );
   progress("restoring cookies...");
-  await replaceCookies(snapshot.cookies);
+  changes += await replaceCookies(snapshot.cookies);
   progress("restoring indexeddb...");
-  await restoreIndexedDB(snapshot.indexedDB, includeSensitive);
+  changes += await restoreIndexedDB(snapshot.indexedDB, includeSensitive);
+  return changes;
+}
+
+function applyStorageDelta(
+  storage: StorageLike,
+  previous: Record<string, string>,
+  target: Record<string, string>,
+): number {
+  let changes = 0;
+  for (const key of new Set([...Object.keys(previous), ...Object.keys(target)])) {
+    if (isLocalOnlySyncStorageKey(key)) continue;
+    const next = hasOwn(target, key) ? target[key]! : null;
+    const prior = hasOwn(previous, key) ? previous[key]! : null;
+    if (next === prior || storage.getItem(key) === next) continue;
+    if (next === null) storage.removeItem(key);
+    else storage.setItem(key, next);
+    changes++;
+  }
+  return changes;
+}
+
+async function applyCookieDelta(
+  previous: SyncCookie[],
+  target: SyncCookie[],
+): Promise<number> {
+  const store = cookieStore();
+  const before = new Map(
+    previous.map((cookie) => [cookieIdentity(cookie), JSON.stringify(cookie)]),
+  );
+  const after = new Set(target.map(cookieIdentity));
+  let changes = 0;
+  for (const cookie of previous) {
+    if (after.has(cookieIdentity(cookie))) continue;
+    await deleteCookie(store, cookie);
+    changes++;
+  }
+  for (const cookie of target) {
+    if (
+      before.get(cookieIdentity(cookie)) === JSON.stringify(cookie) ||
+      !domainMatchesCurrentHost(cookie.domain)
+    ) {
+      continue;
+    }
+    writeCookie(cookie);
+    changes++;
+  }
+  return changes;
+}
+
+function sameStoreDefinition(
+  left: SyncStore | undefined,
+  right: SyncStore,
+): boolean {
+  return (
+    left !== undefined &&
+    sameKeyPath(left.keyPath, right.keyPath) &&
+    left.autoIncrement === right.autoIncrement &&
+    JSON.stringify(left.indexes) === JSON.stringify(right.indexes)
+  );
+}
+
+interface RecordDelta {
+  puts: Array<{ key: IDBValidKey; value: unknown }>;
+  deletes: IDBValidKey[];
+}
+
+function recordDelta(
+  previous: SyncStore | undefined,
+  target: SyncStore,
+): RecordDelta {
+  const before = new Map(
+    (previous?.records ?? []).map((record) => [JSON.stringify(record.key), record]),
+  );
+  const targetKeys = new Set<string>();
+  const puts: RecordDelta["puts"] = [];
+  for (const record of target.records) {
+    const keyId = JSON.stringify(record.key);
+    targetKeys.add(keyId);
+    const prior = before.get(keyId);
+    if (prior && JSON.stringify(prior.value) === JSON.stringify(record.value)) {
+      continue;
+    }
+    puts.push({
+      key: decodeBrowserValue(record.key) as IDBValidKey,
+      value: decodeBrowserValue(record.value),
+    });
+  }
+  const deletes: IDBValidKey[] = [];
+  for (const [keyId, record] of before) {
+    if (!targetKeys.has(keyId)) {
+      deletes.push(decodeBrowserValue(record.key) as IDBValidKey);
+    }
+  }
+  return { puts, deletes };
+}
+
+async function applyRecordDelta(
+  database: IDBDatabase,
+  databaseName: string,
+  storeName: string,
+  keyPath: KeyPath,
+  delta: RecordDelta,
+): Promise<number | null> {
+  let folioUpdatedAt: number | null = null;
+  const folioCookies =
+    databaseName === FOLIO_DB && storeName === FOLIO_STORE
+      ? delta.puts.find((record) => record.key === FOLIO_COOKIE_KEY)
+      : undefined;
+  if (folioCookies) {
+    const readTransaction = database.transaction(storeName, "readonly");
+    const readDone = transactionDone(readTransaction);
+    const current = readTransaction.objectStore(storeName).get(FOLIO_COOKIE_KEY);
+    await readDone;
+    folioCookies.value = mergeFolioCookieState(
+      folioCookies.value,
+      current.result,
+      true,
+    );
+    folioUpdatedAt = (folioCookies.value as { updatedAt: number }).updatedAt;
+  }
+  const transaction = database.transaction(storeName, "readwrite");
+  const done = transactionDone(transaction);
+  const store = transaction.objectStore(storeName);
+  for (const key of delta.deletes) store.delete(key);
+  for (const record of delta.puts) {
+    if (keyPath === null) store.put(record.value, record.key);
+    else store.put(record.value);
+  }
+  await done;
+  return folioUpdatedAt;
+}
+
+async function applyIndexedDBDelta(
+  previous: Record<string, SyncDatabase>,
+  target: Record<string, SyncDatabase>,
+): Promise<number> {
+  const factory = globalThis.indexedDB;
+  if (!factory) throw syncError("indexeddb is unavailable");
+  let changes = 0;
+  let folioUpdatedAt: number | null = null;
+  for (const name of Object.keys(previous)) {
+    if (hasOwn(target, name) || LOCAL_ONLY_DATABASES.has(name)) continue;
+    await deleteDatabase(factory, name);
+    changes++;
+  }
+  const currentNames = new Set(await databaseNames(factory));
+  for (const [name, snapshot] of Object.entries(target)) {
+    if (LOCAL_ONLY_DATABASES.has(name)) continue;
+    const prior = previous[name];
+    const storeNames = Object.keys(snapshot.stores);
+    const schemaUnchanged =
+      prior !== undefined &&
+      currentNames.has(name) &&
+      storeNames.length === Object.keys(prior.stores).length &&
+      storeNames.every((storeName) =>
+        sameStoreDefinition(prior.stores[storeName], snapshot.stores[storeName]!),
+      );
+    if (!schemaUnchanged || !allowsSensitiveDatabase(name)) {
+      const { database, changed } = await reconcileDatabase(
+        factory,
+        name,
+        snapshot,
+        currentNames.has(name),
+        true,
+      );
+      if (changed) changes++;
+      try {
+        for (const [storeName, store] of Object.entries(snapshot.stores)) {
+          const restored = await replaceRecords(database, name, storeName, store, true);
+          changes += restored.changes;
+          if (restored.folioUpdatedAt !== null) {
+            folioUpdatedAt = restored.folioUpdatedAt;
+          }
+        }
+      } finally {
+        database.close();
+      }
+      continue;
+    }
+    const deltas = storeNames
+      .filter((storeName) => canSyncIndexedDBStore(name, storeName))
+      .map((storeName) => ({
+        storeName,
+        delta: recordDelta(prior.stores[storeName], snapshot.stores[storeName]!),
+      }))
+      .filter(({ delta }) => delta.puts.length || delta.deletes.length);
+    if (!deltas.length) continue;
+    const database = await openExistingDatabase(factory, name);
+    try {
+      for (const { storeName, delta } of deltas) {
+        const updatedAt = await applyRecordDelta(
+          database,
+          name,
+          storeName,
+          snapshot.stores[storeName]!.keyPath,
+          delta,
+        );
+        changes += delta.puts.length + delta.deletes.length;
+        if (updatedAt !== null) folioUpdatedAt = updatedAt;
+      }
+    } finally {
+      database.close();
+    }
+  }
+  if (folioUpdatedAt !== null && typeof BroadcastChannel !== "undefined") {
+    const channel = new BroadcastChannel(FOLIO_CHANNEL);
+    channel.postMessage({ updatedAt: folioUpdatedAt });
+    channel.close();
+  }
+  return changes;
+}
+
+export async function applySyncDelta(
+  previous: SyncSnapshot,
+  target: unknown,
+  progress: (message: string) => void = () => {},
+): Promise<number> {
+  if (
+    !isSyncSnapshot(previous) ||
+    !isSyncSnapshot(target) ||
+    target.schemaVersion !== SYNC_SCHEMA_VERSION
+  ) {
+    return importSyncSnapshot(target, progress);
+  }
+  progress("restoring local storage...");
+  let changes = applyStorageDelta(
+    globalThis.localStorage,
+    previous.localStorage,
+    target.localStorage,
+  );
+  progress("restoring session storage...");
+  changes += applyStorageDelta(
+    globalThis.sessionStorage,
+    previous.sessionStorage,
+    target.sessionStorage,
+  );
+  progress("restoring cookies...");
+  changes += await applyCookieDelta(previous.cookies, target.cookies);
+  progress("restoring indexeddb...");
+  changes += await applyIndexedDBDelta(previous.indexedDB, target.indexedDB);
+  return changes;
 }
 
 export async function snapshotFingerprint(
   snapshot: SyncSnapshot,
 ): Promise<string> {
-  return (await prepareSnapshot(snapshot)).fingerprint;
+  return (await prepareSnapshot({ snapshot })).fingerprint;
 }
 
 export function changedDuringUpload(

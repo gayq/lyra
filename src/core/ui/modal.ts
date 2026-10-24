@@ -6,6 +6,17 @@ const MODAL_CLOSING_CLASS = "modal-closing";
 const MODAL_MOTION_CLASS = "modal-motion-paused";
 
 let modalMotionUsers = 0;
+const pendingCloseListeners = new WeakMap<
+  HTMLElement,
+  (e: AnimationEvent) => void
+>();
+
+function cancelPendingClose(el: HTMLElement): void {
+  const listener = pendingCloseListeners.get(el);
+  if (!listener) return;
+  el.removeEventListener("animationend", listener);
+  pendingCloseListeners.delete(el);
+}
 
 interface ManagedModalOptions {
   visible: boolean;
@@ -58,6 +69,8 @@ export function useManagedModal({
 }: ManagedModalOptions) {
   const overlayBoundRef = useRef(false);
   const motionBoundRef = useRef(false);
+  const onRequestCloseRef = useRef(onRequestClose);
+  onRequestCloseRef.current = onRequestClose;
 
   useLayoutEffect(() => {
     if (visible) {
@@ -84,22 +97,22 @@ export function useManagedModal({
   useEffect(() => {
     if (!visible || isClosing || !closeOnEscape) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onRequestClose();
+      if (e.key === "Escape") onRequestCloseRef.current();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [visible, isClosing, closeOnEscape, onRequestClose]);
+  }, [visible, isClosing, closeOnEscape]);
 
   useEffect(() => {
     if (!visible || isClosing || !closeOnOverlay) return;
     const overlay = document.getElementById("overlay");
     if (!overlay) return;
     const onClick = (e: MouseEvent) => {
-      if (e.target === overlay) onRequestClose();
+      if (e.target === overlay) onRequestCloseRef.current();
     };
     overlay.addEventListener("click", onClick);
     return () => overlay.removeEventListener("click", onClick);
-  }, [visible, isClosing, closeOnOverlay, onRequestClose]);
+  }, [visible, isClosing, closeOnOverlay]);
 
   const onAnimationEnd = useCallback(
     (e: AnimationEvent) => {
@@ -132,6 +145,7 @@ export function openManagedModal(
   { useOverlay = true }: DomModalOptions = {},
 ): void {
   if (el.classList.contains(MODAL_VISIBLE_CLASS)) return;
+  cancelPendingClose(el);
   if (el.dataset.modalMotionBound !== "true") {
     const motionBoundRef = { current: false };
     holdModalMotion(motionBoundRef);
@@ -168,6 +182,7 @@ export function closeManagedModal(
 
   const onAnimationEnd = (e: AnimationEvent) => {
     if (e.target !== el || e.animationName !== "modalOut") return;
+    cancelPendingClose(el);
     finish();
   };
 
@@ -177,5 +192,7 @@ export function closeManagedModal(
     delete el.dataset.modalOverlayBound;
   }
   el.classList.add(MODAL_CLOSING_CLASS);
-  el.addEventListener("animationend", onAnimationEnd, { once: true });
+  cancelPendingClose(el);
+  pendingCloseListeners.set(el, onAnimationEnd);
+  el.addEventListener("animationend", onAnimationEnd);
 }

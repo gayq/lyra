@@ -1,12 +1,4 @@
-// WARNING: SLOP FILE
-// DO NOT TRUST THIS CODE
-
 import { _Set } from "./snapshot";
-
-/**
- * MIME type groups (WHATWG-style), for classifying MIME types.
- * @see https://mimesniff.spec.whatwg.org/#mime-type-groups
- */
 
 const HTTP_WHITESPACE = /^[\t\n\f\r ]+|[\t\n\f\r ]+$/g;
 
@@ -24,10 +16,6 @@ export interface ParsedMimeType {
 	essence: string;
 }
 
-/**
- * Parses a MIME type string (e.g. a Content-Type value) into type, subtype, and essence.
- * Returns null if the input is not a valid MIME type.
- */
 export function parseMimeType(input: string): ParsedMimeType | null {
 	const trimmed = trimHttpWhitespace(input);
 	if (!trimmed) return null;
@@ -148,21 +136,12 @@ export function isJavascriptMimeType(mime: string | ParsedMimeType): boolean {
 	return p !== null && JAVASCRIPT_ESSENCES.has(p.essence);
 }
 
-/**
- * True if the string is an ASCII case-insensitive match for one of the
- * JavaScript MIME type essence strings (not necessarily a full parsed MIME type).
- */
 export function isJavascriptMimeTypeEssenceMatch(s: string): boolean {
 	const t = trimHttpWhitespace(s);
 	if (!t) return false;
 	return JAVASCRIPT_ESSENCES.has(asciiLower(t));
 }
 
-/**
- * Script block type string for a `<script>` element (prepare a script).
- * Resolves `type` when present; otherwise maps obsolete `language` to `text/…`.
- * @see https://html.spec.whatwg.org/multipage/scripting.html#prepare-a-script
- */
 export function getScriptBlockTypeString(
 	type: string | null | undefined,
 	language: string | null | undefined,
@@ -184,11 +163,6 @@ export function getScriptBlockTypeString(
 	return `text/${language ?? ""}`;
 }
 
-/**
- * Whether a `<script type="...">` value denotes executable JavaScript
- * (classic or module script), not a data block or import map.
- * @see https://html.spec.whatwg.org/multipage/scripting.html#attr-script-type
- */
 export function isScriptType(type: string | null | undefined): boolean {
 	if (type == null) return true;
 	const t = trimHttpWhitespace(type);
@@ -203,10 +177,6 @@ export function isModuleScriptType(type: string | null | undefined): boolean {
 	return t !== "" && asciiLower(t) === "module";
 }
 
-/**
- * MIME types typically shown inline in a browsing context (navigation / iframe),
- * as opposed to triggering a download when Content-Disposition is absent.
- */
 export function isInlineDisplayableMimeType(
 	mime: string | ParsedMimeType
 ): boolean {

@@ -1,5 +1,25 @@
-import { uploadSnapshot, downloadSnapshot } from "./syncTransfer.ts";
+import {
+  uploadSnapshot,
+  uploadSealedSnapshot,
+  downloadSnapshot,
+} from "./syncTransfer.ts";
 import { prepareSnapshot } from "./prepareSnapshot.ts";
+import type { SnapshotPayload } from "./snapshotPayload.ts";
+import {
+  canEncryptSync,
+  deriveSyncKeys,
+  forgetSyncKeys,
+  loadSyncKeys,
+  saveSyncKeys,
+  type SyncKeys,
+} from "./syncCrypto.ts";
+import {
+  mergeSnapshots,
+  snapshotIndex,
+  type SnapshotIndex,
+} from "./syncMerge.ts";
+import { readLocalState, writeLocalState } from "./syncLocalState.ts";
+import { SYNC_LOCAL_DATABASE } from "./syncPolicy.ts";
 import { svgIcon } from "../../core/ui/svgIcon";
 import { negativeMessage } from "../../core/runtime/messages.ts";
 import { appServiceWorkers, logicalDatabaseName, isStatic } from "../../core/runtime/hosting.ts";
@@ -10,12 +30,12 @@ import {
   openManagedModal,
 } from "../../core/ui/modal.ts";
 import {
+  applySyncDelta,
   changedDuringUpload,
   canSyncIndexedDBStore,
   canSyncStorageValue,
   forgetIndexedDBName,
   rememberIndexedDBName,
-  snapshotFingerprint,
   type SyncSnapshot,
 } from "./syncSnapshot.ts";
 
@@ -23,11 +43,18 @@ interface SyncMeta {
   dirty: boolean;
   last_synced: string | null;
   fingerprint?: string | null;
+  changed_at?: number | null;
+}
+
+interface SyncBase {
+  revision: string;
+  index: SnapshotIndex;
 }
 
 interface AuthUser {
   username?: string;
   id?: string | number;
+  sync_salt?: string;
   [key: string]: unknown;
 }
 
@@ -36,13 +63,18 @@ interface SessionData {
   [key: string]: unknown;
 }
 
+interface LocalExport {
+  snapshot: SyncSnapshot;
+  prepared: SnapshotPayload;
+}
+
 declare global {
   interface Window {
     lyraExportAllData?: () => Promise<SyncSnapshot>;
     lyraImportDataFromObject?: (
       data: unknown,
       callback?: (progressText: string) => void,
-    ) => Promise<void>;
+    ) => Promise<number>;
     bypassPreventClosing?: boolean;
   }
 }
@@ -50,6 +82,13 @@ declare global {
 const POLL_INTERVAL = 20000;
 const POLL_MAX_INTERVAL = 60000;
 const SYNC_DELAY = 750;
+const SCAN_COST_FACTOR = 40;
+const SCAN_MAX_INTERVAL = 5 * 60_000;
+const FOLLOW_UP_THRESHOLD = 1000;
+const FOLLOW_UP_MAX = 30_000;
+const SYNC_LOCK = "lyra-cloudsync";
+const SYNC_META_KEY = "lyra-sync-meta";
+const LOCKED_STATUS = "sync is locked; enter your password... /ᐠ - ˕ -マ";
 
 const LOADING_SCREEN = `
     <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
@@ -71,6 +110,51 @@ function fetchWithTimeout(
   }).finally(() => clearTimeout(id));
 }
 
+function now(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
+function revisionTime(revision: string): number {
+  return Date.parse(revision.slice(0, 24));
+}
+
+function isCurrentSnapshot(value: unknown): value is SyncSnapshot {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { schemaVersion?: unknown }).schemaVersion === 3
+  );
+}
+
+function sameIndex(
+  left: SnapshotIndex | undefined,
+  right: SnapshotIndex,
+): boolean {
+  if (!left || left.size !== right.size) return false;
+  for (const [id, hash] of right) {
+    if (left.get(id) !== hash) return false;
+  }
+  return true;
+}
+
+async function responseCode(response: Response): Promise<string | null> {
+  try {
+    const body = await response.clone().json();
+    return typeof body?.code === "string" ? body.code : null;
+  } catch {
+    return null;
+  }
+}
+
+function withSyncLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks = (
+    globalThis.navigator as { locks?: LockManager } | undefined
+  )?.locks;
+  return typeof locks?.request === "function"
+    ? (locks.request(SYNC_LOCK, task) as Promise<T>)
+    : task();
+}
+
 export class CloudSync {
   user: AuthUser;
   syncMeta: SyncMeta;
@@ -78,11 +162,18 @@ export class CloudSync {
   isSyncing: boolean;
   isAuthenticated: boolean;
   isRestoring: boolean;
+  keys: SyncKeys | null;
+  locked: boolean;
   _lastStatusText: string | undefined;
+  _statusText: string | undefined;
   _lastStatusType: string | undefined;
   _mutationVersion: number;
   _pollInterval: number;
   _checkIntervalId: ReturnType<typeof setInterval> | null;
+  _lastScan: number;
+  _scanInterval: number;
+  _lastCycleMs: number;
+  _lockNotified: boolean;
 
   constructor() {
     try {
@@ -94,7 +185,7 @@ export class CloudSync {
     }
     try {
       this.syncMeta = JSON.parse(
-        localStorage.getItem("lyra-sync-meta") ||
+        localStorage.getItem(SYNC_META_KEY) ||
           '{"dirty": false, "last_synced": null}',
       );
     } catch (e) {
@@ -105,11 +196,18 @@ export class CloudSync {
     this.isSyncing = false;
     this.isAuthenticated = false;
     this.isRestoring = false;
+    this.keys = null;
+    this.locked = false;
     this._lastStatusText = undefined;
+    this._statusText = undefined;
     this._lastStatusType = undefined;
     this._mutationVersion = 0;
     this._pollInterval = POLL_INTERVAL;
     this._checkIntervalId = null;
+    this._lastScan = 0;
+    this._scanInterval = POLL_INTERVAL;
+    this._lastCycleMs = 0;
+    this._lockNotified = false;
 
     this.init();
   }
@@ -140,27 +238,21 @@ export class CloudSync {
       );
 
       if (this.isAuthenticated) {
-        const metadataResponse = await fetchWithTimeout("/api/sync/meta", {
-          cache: "no-store",
-        });
-        if (!metadataResponse.ok) {
+        this.keys = await loadSyncKeys(this.user.id);
+        const serverUpdatedAt = await this.remoteRevision();
+        if (serverUpdatedAt === null) {
           throw new Error(negativeMessage("sync metadata unavailable"));
         }
-        const syncMetadata = await metadataResponse.json();
-        const serverUpdatedAt: string = syncMetadata.updated_at;
 
-        if (this.syncMeta.dirty || !serverUpdatedAt) {
-          this.syncMeta.dirty = true;
-          this.saveMeta();
-          await this.syncData(!serverUpdatedAt);
-        } else if (
-          serverUpdatedAt &&
-          serverUpdatedAt !== this.syncMeta.last_synced
-        ) {
+        if (serverUpdatedAt && serverUpdatedAt !== this.syncMeta.last_synced) {
           needsLoadingScreen = true;
           this.showLoadingScreen();
           safetyTimer = setTimeout(() => this.hideLoadingScreen(), 10000);
           await this.restoreData(true);
+        } else if (this.syncMeta.dirty || !serverUpdatedAt) {
+          this.syncMeta.dirty = true;
+          this.saveMeta();
+          await this.syncData(!serverUpdatedAt);
         } else {
           this.updateStatus("synced!! (˵◝ ⩊  ◜˵マ", "success");
         }
@@ -174,7 +266,7 @@ export class CloudSync {
 
     ready = true;
     if (togglePending) void this.toggleCloudSyncModal();
-    if (this.isAuthenticated) {
+    if (this.isAuthenticated && !this.locked) {
       this.startPolling();
       void this.poll();
     }
@@ -206,26 +298,46 @@ export class CloudSync {
     }
   }
 
-  async sync(): Promise<void> {
+  async remoteRevision(): Promise<string | null> {
     try {
-      if (!this.isAuthenticated) return;
-      const metaRes = await fetchWithTimeout("/api/sync/meta", {
+      const response = await fetchWithTimeout("/api/sync/meta", {
         cache: "no-store",
       });
-      if (!metaRes.ok) return;
+      if (response.status === 401) {
+        await this.checkAuthStatus();
+        return null;
+      }
+      if (!response.ok) return null;
+      const meta = await response.json();
+      return typeof meta?.updated_at === "string" ? meta.updated_at : "";
+    } catch {
+      return null;
+    }
+  }
 
-      const metaData = await metaRes.json();
-      const serverUpdatedAt: string = metaData.updated_at;
+  scanDue(): boolean {
+    return Date.now() - (this._lastScan ?? 0) >= (this._scanInterval ?? POLL_INTERVAL);
+  }
 
-      if (this.syncMeta.dirty || !serverUpdatedAt) {
+  async sync(manual: boolean = false): Promise<void> {
+    try {
+      if (!this.isAuthenticated || this.isSyncing || this.isRestoring) return;
+      if (this.locked) {
+        this.updateStatus(LOCKED_STATUS, "error");
+        return;
+      }
+      if (globalThis.navigator?.onLine === false) return;
+      const serverUpdatedAt = await this.remoteRevision();
+      if (serverUpdatedAt === null) return;
+
+      if (serverUpdatedAt && serverUpdatedAt !== this.syncMeta.last_synced) {
+        await this.restoreData(true);
+      } else if (this.syncMeta.dirty || !serverUpdatedAt || manual) {
         this.syncMeta.dirty = true;
         this.saveMeta();
-        await this.syncData(!serverUpdatedAt);
-      } else if (
-        serverUpdatedAt &&
-        serverUpdatedAt !== this.syncMeta.last_synced
-      ) {
-        await this.restoreData(true);
+        await this.syncData(manual || !serverUpdatedAt);
+      } else if (this.scanDue()) {
+        await this.syncData();
       } else {
         this.updateStatus("synced!! (˵◝ ⩊  ◜˵マ", "success");
       }
@@ -275,7 +387,85 @@ export class CloudSync {
   }
 
   saveMeta(): void {
-    localStorage.setItem("lyra-sync-meta", JSON.stringify(this.syncMeta));
+    localStorage.setItem(SYNC_META_KEY, JSON.stringify(this.syncMeta));
+  }
+
+  baseKey(): string | null {
+    const id = this.user?.id;
+    return typeof id === "number" || typeof id === "string" ? String(id) : null;
+  }
+
+  async loadBase(): Promise<SyncBase | null> {
+    const key = this.baseKey();
+    if (!key) return null;
+    const base = await readLocalState<SyncBase>("base", key);
+    return base && typeof base.revision === "string" && base.index instanceof Map
+      ? base
+      : null;
+  }
+
+  async saveBase(revision: string, index: SnapshotIndex | undefined): Promise<void> {
+    const key = this.baseKey();
+    if (key && index) await writeLocalState("base", key, { revision, index });
+  }
+
+  setLocked(locked: boolean): void {
+    this.locked = locked;
+    if (locked) {
+      this.stopPolling();
+      this.updateStatus(LOCKED_STATUS, "error");
+      if (!this._lockNotified && window.showToast) {
+        this._lockNotified = true;
+        window.showToast(
+          "error",
+          "open cloud sync and enter your password to keep syncing... /ᐠ - ˕ -マ",
+          "IconExclamationTriangle",
+        );
+      }
+    } else if (this.isAuthenticated) {
+      this.startPolling();
+    }
+    this.updateModalState();
+  }
+
+  async adoptKeys(password: string, salt: unknown): Promise<void> {
+    if (!canEncryptSync() || typeof salt !== "string" || !salt) {
+      this.keys = null;
+      return;
+    }
+    try {
+      const keys = await deriveSyncKeys(password, salt);
+      await saveSyncKeys(this.user.id, keys);
+      this.keys = keys;
+      this.locked = false;
+    } catch {
+      this.keys = null;
+      console.warn("[cloudsync] encryption key setup failed... /ᐠ - ˕ -マ");
+    }
+  }
+
+  async exportLocal(): Promise<LocalExport> {
+    const exporter = window.lyraExportAllData;
+    if (typeof exporter !== "function") {
+      throw new Error(negativeMessage("export boundary unavailable"));
+    }
+    const started = now();
+    const snapshot = await exporter();
+    const prepared = await prepareSnapshot({
+      snapshot,
+      keys: this.keys ?? null,
+    });
+    this._lastScan = Date.now();
+    this._scanInterval = Math.min(
+      SCAN_MAX_INTERVAL,
+      Math.max(POLL_INTERVAL, (now() - started) * SCAN_COST_FACTOR),
+    );
+    return { snapshot, prepared };
+  }
+
+  remoteIsNewer(revision: string): boolean {
+    const remote = revisionTime(revision);
+    return !Number.isFinite(remote) || remote >= (this.syncMeta.changed_at ?? 0);
   }
 
   hookStorage(): void {
@@ -320,6 +510,12 @@ export class CloudSync {
     }
 
     window.addEventListener("storage", (e: StorageEvent) => {
+      if (e.storageArea === localStorage && e.key === SYNC_META_KEY) {
+        try {
+          if (e.newValue) this.syncMeta = JSON.parse(e.newValue);
+        } catch {}
+        return;
+      }
       if (this.isRestoring) return;
       if (e.storageArea !== localStorage && e.storageArea !== sessionStorage)
         return;
@@ -393,12 +589,13 @@ export class CloudSync {
       const originalDeleteDatabase = IDBFactory.prototype.deleteDatabase;
       IDBFactory.prototype.deleteDatabase = function (...args) {
         const request = originalDeleteDatabase.apply(this, args);
+        const name = logicalDatabaseName(String(args[0]));
         request.addEventListener(
           "success",
-          () => forgetIndexedDBName(logicalDatabaseName(String(args[0]))),
+          () => forgetIndexedDBName(name),
           { once: true },
         );
-        markDirty();
+        if (canSyncIndexedDBStore(name, "")) markDirty();
         return request;
       };
     }
@@ -460,6 +657,7 @@ export class CloudSync {
   markDirty(): void {
     if (this.isRestoring || (!this.isAuthenticated && !this.user.id)) return;
     this._mutationVersion++;
+    this.syncMeta.changed_at = Date.now();
     if (!this.syncMeta.dirty) {
       this.syncMeta.dirty = true;
       this.saveMeta();
@@ -477,15 +675,7 @@ export class CloudSync {
   }
 
   async poll(): Promise<void> {
-    await this.checkForChanges();
-    if (
-      this.isAuthenticated &&
-      !this.isSyncing &&
-      !this.isRestoring &&
-      !this.syncMeta.dirty
-    ) {
-      await this.sync();
-    }
+    await this.sync();
   }
 
   async syncData(
@@ -493,10 +683,16 @@ export class CloudSync {
     retryCount: number = 0,
   ): Promise<void> {
     if (!this.isAuthenticated || this.isSyncing || this.isRestoring) return;
+    if (this.locked) {
+      this.updateStatus(LOCKED_STATUS, "error");
+      return;
+    }
     if (this.syncTimeout !== null) clearTimeout(this.syncTimeout);
     this.syncTimeout = null;
     this.isSyncing = true;
     let acknowledged = false;
+    let conflicted = false;
+    const started = now();
 
     try {
       if (typeof window.lyraExportAllData !== "function") {
@@ -517,43 +713,65 @@ export class CloudSync {
         return;
       }
 
-      const snapshotVersion = this._mutationVersion;
-      const snapshot = await window.lyraExportAllData();
-      const { body, fingerprint } = await prepareSnapshot(snapshot);
+      await withSyncLock(async () => {
+        const snapshotVersion = this._mutationVersion;
+        const { prepared } = await this.exportLocal();
+        const { fingerprint } = prepared;
 
-      const unchanged =
-        !manual &&
-        this.syncMeta.last_synced !== null &&
-        fingerprint === this.syncMeta.fingerprint;
-      this.syncMeta.dirty = true;
-      this.saveMeta();
-      const response = unchanged ? null : await uploadSnapshot(body);
-
-      if (response === null || response.ok) {
-        const uploadResult = response === null ? null : await response.json();
-        acknowledged = true;
-        const uploadWasStale = changedDuringUpload(
-          snapshotVersion,
-          this._mutationVersion,
-        );
-        this.syncMeta.dirty = uploadWasStale;
-        this.syncMeta.fingerprint = fingerprint;
-        if (uploadResult)
-          this.syncMeta.last_synced =
-            uploadResult.updated_at ||
-            new Date().toISOString().replace("T", " ").slice(0, 19);
+        const unchanged =
+          !manual &&
+          this.syncMeta.last_synced !== null &&
+          fingerprint === this.syncMeta.fingerprint;
+        this.syncMeta.dirty = true;
         this.saveMeta();
+        const options = { base: this.syncMeta.last_synced ?? "" };
+        const response = unchanged
+          ? null
+          : this.keys && prepared.sealed
+            ? await uploadSealedSnapshot(
+                prepared.body,
+                prepared.sealed,
+                this.keys,
+                options,
+              )
+            : await uploadSnapshot(prepared.body, options);
 
-        this.updateStatus(
-          uploadWasStale ? "syncing..." : "synced!! (˵◝ ⩊  ◜˵マ",
-          uploadWasStale ? "loading" : "success",
-        );
-            this.onSyncSuccess();
-      } else {
+        if (response === null || response.ok) {
+          const uploadResult = response === null ? null : await response.json();
+          acknowledged = true;
+          const uploadWasStale = changedDuringUpload(
+            snapshotVersion,
+            this._mutationVersion,
+          );
+          this.syncMeta.dirty = uploadWasStale;
+          this.syncMeta.fingerprint = fingerprint;
+          if (!uploadWasStale) this.syncMeta.changed_at = null;
+          if (uploadResult) {
+            this.syncMeta.last_synced =
+              uploadResult.updated_at ||
+              new Date().toISOString().replace("T", " ").slice(0, 19);
+            await this.saveBase(this.syncMeta.last_synced!, prepared.index);
+          }
+          this.saveMeta();
+
+          this.updateStatus(
+            uploadWasStale ? "syncing..." : "synced!! (˵◝ ⩊  ◜˵マ",
+            uploadWasStale ? "loading" : "success",
+          );
+          this.onSyncSuccess();
+          return;
+        }
+
+        const code = await responseCode(response);
         console.warn(
           `[cloudsync] upload failed with status ${response.status}... /ᐠ - ˕ -マ`,
         );
-        if (response.status === 401) {
+        if (response.status === 409 && code === "sync_revision_conflict") {
+          conflicted = true;
+          this.updateStatus("syncing...", "loading");
+        } else if (response.status === 423) {
+          this.setLocked(true);
+        } else if (response.status === 401) {
           await this.checkAuthStatus();
           this.stopPolling();
           this.updateStatus("sign in again to sync... /ᐠ - ˕ -マ", "error");
@@ -567,19 +785,33 @@ export class CloudSync {
         } else {
           this.updateStatus("sync failed... /ᐠ - ˕ -マ", "error");
         }
-        if (this.isAuthenticated) this.onSyncError();
-      }
+        if (this.isAuthenticated && !conflicted && !this.locked) {
+          this.onSyncError();
+        }
+      });
     } catch {
       console.error("sync failed... /ᐠ - ˕ -マ");
       this.updateStatus("connection error... /ᐠ - ˕ -マ", "error");
       this.onSyncError();
     } finally {
       this.isSyncing = false;
-      if (acknowledged && this.syncMeta.dirty) this.scheduleSync(0);
+      this._lastCycleMs = now() - started;
+      if (conflicted) {
+        void this.restoreData(true);
+      } else if (acknowledged && this.syncMeta.dirty) {
+        this.scheduleSync(
+          this._lastCycleMs > FOLLOW_UP_THRESHOLD
+            ? Math.min(FOLLOW_UP_MAX, this._lastCycleMs * 2)
+            : 0,
+        );
+      }
     }
   }
 
-  async restoreData(silent: boolean = false): Promise<void> {
+  async restoreData(
+    silent: boolean = false,
+    replace: boolean = false,
+  ): Promise<void> {
     if (!this.isAuthenticated) return;
     if (this.isRestoring) return;
     if (!silent) this.updateStatus("restoring...", "loading");
@@ -587,6 +819,7 @@ export class CloudSync {
 
     let restoreToast: ToastController | null = null;
     let reloading = false;
+    let followUp = false;
 
     if (!silent && window.showToast) {
       restoreToast = window.showToast(
@@ -598,59 +831,110 @@ export class CloudSync {
     }
 
     try {
-      const response = await downloadSnapshot();
+      await withSyncLock(async () => {
+        const local = replace ? null : await this.exportLocal();
+        const response = await downloadSnapshot({
+          keys: this.keys ?? null,
+          local: local?.prepared.sealed
+            ? { body: local.prepared.body, chunks: local.prepared.sealed.chunks }
+            : null,
+        });
 
-      if (response.status === 429 || response.status >= 500) {
-        if (!silent) {
-          this.updateStatus("sync service busy... /ᐠ - ˕ -マ", "error");
-        }
-        this.isRestoring = false;
-        return;
-      }
-
-      if (!response.ok && response.status !== 404) {
-        if (!silent) {
-          this.updateStatus("restore failed... /ᐠ - ˕ -マ", "error");
-        }
-        this.isRestoring = false;
-        return;
-      }
-
-      const syncPayload = await response.json();
-
-      if (response.ok && syncPayload.data) {
-        if (typeof window.lyraImportDataFromObject === "function") {
-          await window.lyraImportDataFromObject(
-            syncPayload.data,
-            (progressText: string) => {
-              const loadingH1 =
-                document.querySelector<HTMLElement>("#loading-screen h1");
-              if (loadingH1) loadingH1.textContent = progressText;
-            },
-          );
-
-          this.syncMeta.dirty = false;
-          this.syncMeta.last_synced = syncPayload.updated_at;
-          const exporter = window.lyraExportAllData;
-          if (typeof exporter !== "function") {
-            throw new Error(negativeMessage("export boundary unavailable"));
+        if (response.status === 423) {
+          if ((await responseCode(response)) === "sync_key_mismatch") {
+            this.keys = null;
+            await forgetSyncKeys(this.user.id);
           }
-          this.syncMeta.fingerprint = await snapshotFingerprint(
-            await exporter(),
-          );
+          this.setLocked(true);
+          return;
+        }
+
+        if (response.status === 429 || response.status >= 500) {
+          if (!silent) {
+            this.updateStatus("sync service busy... /ᐠ - ˕ -マ", "error");
+          }
+          return;
+        }
+
+        if (!response.ok && response.status !== 404) {
+          if (!silent) {
+            this.updateStatus("restore failed... /ᐠ - ˕ -マ", "error");
+          }
+          return;
+        }
+
+        const syncPayload = await response.json();
+
+        if (response.ok && syncPayload.data) {
+          const importer = window.lyraImportDataFromObject;
+          if (typeof importer !== "function") return;
+          const remote: unknown = syncPayload.data;
+          const revision: string = syncPayload.updated_at;
+          let target: unknown = remote;
+          let localWins = 0;
+          if (local && isCurrentSnapshot(remote)) {
+            const base = await this.loadBase();
+            const usableBase =
+              base && base.revision === this.syncMeta.last_synced
+                ? base.index
+                : null;
+            if (usableBase || this.syncMeta.dirty) {
+              const merged = mergeSnapshots(
+                local.snapshot,
+                remote,
+                usableBase,
+                this.remoteIsNewer(revision),
+              );
+              target = merged.snapshot;
+              localWins = merged.localWins;
+            }
+          }
+          const progress = (progressText: string) => {
+            const loadingH1 =
+              document.querySelector<HTMLElement>("#loading-screen h1");
+            if (loadingH1) loadingH1.textContent = progressText;
+          };
+          const changes = local
+            ? await applySyncDelta(local.snapshot, target, progress)
+            : await importer(target, progress);
+
+          this.syncMeta.last_synced = revision;
+          if (isCurrentSnapshot(remote)) {
+            await this.saveBase(revision, snapshotIndex(remote));
+          }
+          let pending = localWins > 0;
+          if (changes > 0 || !local) {
+            const after = await this.exportLocal();
+            this.syncMeta.fingerprint = after.prepared.fingerprint;
+            pending ||=
+              local !== null &&
+              isCurrentSnapshot(target) &&
+              !sameIndex(after.prepared.index, snapshotIndex(target));
+          } else {
+            this.syncMeta.fingerprint = local.prepared.fingerprint;
+          }
+          this.syncMeta.dirty = pending;
+          if (pending) this.syncMeta.fingerprint = null;
           this.saveMeta();
 
-          document.dispatchEvent(new CustomEvent("cloudsync-restored"));
-          reloading = true;
-          window.bypassPreventClosing = true;
-          window.location.reload();
+          if (changes > 0) {
+            document.dispatchEvent(new CustomEvent("cloudsync-restored"));
+            reloading = true;
+            window.bypassPreventClosing = true;
+            window.location.reload();
+          } else if (pending) {
+            followUp = true;
+          } else {
+            this.updateStatus("synced!! (˵◝ ⩊  ◜˵マ", "success");
+          }
+        } else if (response.status === 404) {
+          this.syncMeta.dirty = true;
+          this.syncMeta.last_synced = null;
+          this.saveMeta();
+          this.updateStatus("syncing...", "loading");
+          followUp = true;
         }
-      } else if (response.status === 404) {
-        this.syncMeta.dirty = true;
-        this.saveMeta();
-        this.updateStatus("syncing...", "loading");
-        setTimeout(() => void this.syncData(true), 0);
-      }
+      });
     } catch {
       console.error("restore failed... /ᐠ - ˕ -マ");
       if (!silent) {
@@ -661,6 +945,7 @@ export class CloudSync {
       if (restoreToast && !reloading) {
         restoreToast.hide();
       }
+      if (followUp && !reloading) setTimeout(() => void this.syncData(true), 0);
     }
   }
 
@@ -718,9 +1003,19 @@ export class CloudSync {
 
                     <div style="margin-bottom: 20px;">
                         <span id="sync-status-indicator" style="color: var(--text-muted); font-size: 14px;">
-                            synced!! (˵◝ ⩊  ◜˵マ
+                            ${this._statusText ?? "synced!! (˵◝ ⩊  ◜˵マ"}
                         </span>
+                        <div id="sync-encryption-status" style="color: var(--text-muted); font-size: 12px; margin-top: 6px;"></div>
                     </div>
+
+                    <form id="unlock-form" class="input-container" style="display: none; margin-bottom: 15px;">
+                        <input type="password" id="unlock-password" placeholder="enter password" autocomplete="current-password" maxlength="128">
+                        <button type="submit" id="unlock-btn" class="auth-action-btn" style="width: 60%; margin-top: 10px;">encrypt sync</button>
+                    </form>
+
+                    <button id="sync-now-btn" class="auth-action-btn auth-secondary-btn">
+                        sync now
+                    </button>
 
                     <button id="logout-btn" class="auth-action-btn auth-secondary-btn">
                         logout
@@ -826,6 +1121,15 @@ export class CloudSync {
 
     loginForm.addEventListener("submit", (e) => this.handleLogin(e));
     regForm.addEventListener("submit", (e) => this.handleRegister(e));
+    modal
+      .querySelector<HTMLFormElement>("#unlock-form")!
+      .addEventListener("submit", (e) => this.handleUnlock(e));
+
+    modal
+      .querySelector<HTMLElement>("#sync-now-btn")!
+      .addEventListener("click", () => {
+        void this.sync(true);
+      });
 
     modal
       .querySelector<HTMLElement>("#logout-btn")!
@@ -879,6 +1183,7 @@ export class CloudSync {
     if (isManagedModalOpen(modal)) {
       closeManagedModal(modal);
     } else {
+      this.updateModalState();
       openManagedModal(modal);
     }
   }
@@ -888,6 +1193,9 @@ export class CloudSync {
     const formsView = document.getElementById("auth-forms");
     const userDisplay = document.getElementById("auth-user-display");
     const authTitle = document.getElementById("auth-title");
+    const encryptionStatus = document.getElementById("sync-encryption-status");
+    const unlockForm = document.getElementById("unlock-form");
+    const unlockButton = document.getElementById("unlock-btn");
 
     if (this.isAuthenticated) {
       if (loggedInView) loggedInView.style.display = "block";
@@ -900,6 +1208,22 @@ export class CloudSync {
       if (authTitle) authTitle.textContent = "login";
     }
 
+    const encryptable = canEncryptSync();
+    const needsKey = this.isAuthenticated && encryptable && !this.keys;
+    if (encryptionStatus) {
+      encryptionStatus.textContent = !this.isAuthenticated || !encryptable
+        ? ""
+        : this.keys
+          ? `end-to-end encrypted${this.lastSyncedText()}`
+          : this.locked
+            ? "enter your password to unlock sync"
+            : `enter your password to encrypt sync end-to-end${this.lastSyncedText()}`;
+    }
+    if (unlockForm) unlockForm.style.display = needsKey ? "block" : "none";
+    if (unlockButton) {
+      unlockButton.textContent = this.locked ? "unlock sync" : "encrypt sync";
+    }
+
     const statusEl = document.querySelector<HTMLElement>("#auth-status");
     if (statusEl)
       statusEl.textContent = this.isAuthenticated
@@ -907,7 +1231,20 @@ export class CloudSync {
         : "cloud sync";
   }
 
+  lastSyncedText(): string {
+    const revision = this.syncMeta.last_synced;
+    const time = revision ? revisionTime(revision) : Number.NaN;
+    if (!Number.isFinite(time)) return "";
+    const minutes = Math.max(0, Math.round((Date.now() - time) / 60_000));
+    if (minutes < 1) return "; last synced just now";
+    if (minutes < 60) return `; last synced ${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `; last synced ${hours}h ago`;
+    return `; last synced ${Math.round(hours / 24)}d ago`;
+  }
+
   updateStatus(text: string, cls?: string): void {
+    this._statusText = text;
     const ind = document.getElementById("sync-status-indicator");
 
     const updateEl = (el: HTMLElement | null): void => {
@@ -920,6 +1257,7 @@ export class CloudSync {
     };
 
     updateEl(ind);
+    if (cls === "success") this.updateModalState();
   }
 
   async handleLogin(e: Event): Promise<void> {
@@ -954,10 +1292,11 @@ export class CloudSync {
         .catch(() => null)) as Record<string, unknown> | null;
 
       if (response.ok && sessionPayload) {
-        if (toastController) toastController.hide();
         this.setSession(sessionPayload as unknown as SessionData);
+        await this.adoptKeys(password, this.user.sync_salt);
+        if (toastController) toastController.hide();
         this.toggleCloudSyncModal();
-        await this.restoreData();
+        await this.restoreData(false, true);
       } else {
         if (toastController) toastController.hide();
         const message = "login failed... /ᐠ - ˕ -マ";
@@ -1018,12 +1357,13 @@ export class CloudSync {
         .catch(() => null)) as Record<string, unknown> | null;
 
       if (response.ok && sessionPayload) {
-        if (toastController) toastController.hide();
         this.setSession(sessionPayload as unknown as SessionData);
+        await this.adoptKeys(password, this.user.sync_salt);
+        if (toastController) toastController.hide();
         this.toggleCloudSyncModal();
-        this.syncMeta.dirty = true;
+        this.syncMeta = { dirty: true, last_synced: null };
         this.saveMeta();
-        await this.syncData();
+        await this.syncData(true);
       } else {
         if (toastController) toastController.hide();
         const message = "account creation failed... /ᐠ - ˕ -マ";
@@ -1038,6 +1378,55 @@ export class CloudSync {
         window.showToast("error", message, "IconExclamationTriangle");
       else this.showError(message);
       console.error("account creation failed... /ᐠ - ˕ -マ");
+    }
+  }
+
+  async handleUnlock(e: Event): Promise<void> {
+    e.preventDefault();
+    const input = document.getElementById(
+      "unlock-password",
+    ) as HTMLInputElement | null;
+    const password = input?.value ?? "";
+    if (input) input.value = "";
+    if (!password || !this.user.username) return;
+
+    let toastController: ToastController | null = null;
+    if (window.showToast)
+      toastController = window.showToast(
+        "info",
+        "securing sync...",
+        "IconArrowRotateClockwise",
+        0,
+      );
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ username: this.user.username, password }),
+      });
+      const sessionPayload = (await response
+        .json()
+        .catch(() => null)) as Record<string, unknown> | null;
+      if (!response.ok || !sessionPayload) {
+        throw new Error(negativeMessage("unlock failed"));
+      }
+      this.setSession(sessionPayload as unknown as SessionData);
+      await this.adoptKeys(password, this.user.sync_salt);
+      if (!this.keys) throw new Error(negativeMessage("unlock failed"));
+      toastController?.hide();
+      this._lockNotified = false;
+      this.setLocked(false);
+      if (window.showToast)
+        window.showToast("success", "sync is end-to-end encrypted!! (˵◝ ⩊  ◜˵マ", "IconCircleInfo");
+      this.syncMeta.dirty = true;
+      this.saveMeta();
+      await this.sync(true);
+    } catch {
+      toastController?.hide();
+      if (window.showToast)
+        window.showToast("error", "unlock failed... /ᐠ - ˕ -マ", "IconExclamationTriangle");
+      else this.showError("unlock failed... /ᐠ - ˕ -マ");
     }
   }
 
@@ -1095,8 +1484,9 @@ export class CloudSync {
     this.stopPolling();
     this.isAuthenticated = false;
     this.user = {};
+    this.keys = null;
     localStorage.removeItem("auth_user");
-    localStorage.removeItem("lyra-sync-meta");
+    localStorage.removeItem(SYNC_META_KEY);
 
     await this.wipeLocalData();
 
@@ -1159,8 +1549,9 @@ export class CloudSync {
         this.stopPolling();
         this.isAuthenticated = false;
         this.user = {};
+        this.keys = null;
         localStorage.removeItem("auth_user");
-        localStorage.removeItem("lyra-sync-meta");
+        localStorage.removeItem(SYNC_META_KEY);
 
         await this.wipeLocalData();
 
@@ -1229,12 +1620,15 @@ export class CloudSync {
       console.warn("cookie clear failed... /ᐠ - ˕ -マ");
     }
 
-    if ("indexedDB" in window && typeof indexedDB.databases === "function") {
+    if ("indexedDB" in window) {
       try {
-        const dbs = await indexedDB.databases();
-        for (const dbInfo of dbs) {
-          if (dbInfo.name) {
-            indexedDB.deleteDatabase(dbInfo.name!);
+        indexedDB.deleteDatabase(SYNC_LOCAL_DATABASE);
+        if (typeof indexedDB.databases === "function") {
+          const dbs = await indexedDB.databases();
+          for (const dbInfo of dbs) {
+            if (dbInfo.name) {
+              indexedDB.deleteDatabase(dbInfo.name!);
+            }
           }
         }
       } catch {

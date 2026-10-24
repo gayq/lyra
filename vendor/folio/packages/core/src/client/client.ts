@@ -44,10 +44,8 @@ import {
 	_Map,
 } from "@/shared/snapshot";
 
-// https://github.com/Microsoft/TypeScript/issues/27024#issuecomment-421529650
 type IfEquals<T, U, Y = unknown, N = never> =
 	(<G>() => G extends T ? 1 : 2) extends <G>() => G extends U ? 1 : 2 ? Y : N;
-// thank you psm (https://github.com/psmpm) <3
 type Traverse<
 	O extends Record<any, any>,
 	P extends string,
@@ -343,17 +341,22 @@ export class FolioClient {
 		};
 		// eslint-disable-next-line @typescript-eslint/no-this-alias
 		const client = this;
+		// live collections are cached by the browser until the dom changes, unlike
+		// selector queries that rescan the whole document on every url rewrite.
+		let baseElements: HTMLCollectionOf<Element> | undefined;
+		let metaElements: HTMLCollectionOf<Element> | undefined;
 		this.meta = {
 			get origin() {
 				return client.url;
 			},
 			get base() {
 				if (iswindow) {
-					const base = client.natives.call(
-						"Document.prototype.querySelector",
+					baseElements ??= client.natives.call(
+						"Document.prototype.getElementsByTagName",
 						client.global.document,
 						"base"
 					);
+					const base = baseElements[0];
 					if (base) {
 						let url = base.getAttribute("href");
 						if (!url) return client.url;
@@ -367,7 +370,6 @@ export class FolioClient {
 
 				return client.url;
 			},
-			// TODO: very bad assumptions made here, window.parent never throws
 			get topFrameName() {
 				if (!iswindow)
 					throw new Error("topFrameName was called from a worker?");
@@ -376,7 +378,6 @@ export class FolioClient {
 
 				try {
 					if (currentWin.parent.window == currentWin.window) {
-						// we're top level & we don't have a frame name
 						return null;
 					}
 				} catch {
@@ -384,7 +385,6 @@ export class FolioClient {
 				}
 
 				try {
-					// find the topmost frame that's controlled by folio, stopping before the real top frame
 					while (currentWin.parent.window !== currentWin.window) {
 						if (!currentWin.parent.window[FOLIOCLIENT]) break;
 						currentWin = currentWin.parent.window;
@@ -399,12 +399,9 @@ export class FolioClient {
 					currentWin
 				);
 				if (!frame) {
-					// we're inside an iframe, but the top frame is folio-controlled and top level, so we can't get a top frame name
-					// or we're cross-origin and frameElement doesn't exist. that's a TODO because this won't work
 					return null;
 				}
 				if (!frame.name) {
-					// the top frame is folio-controlled, but it has no name. this is user error
 					dbg.error(
 						"YOU NEED TO USE `new FolioFrame()`! DIRECT IFRAMES WILL NOT WORK"
 					);
@@ -421,17 +418,14 @@ export class FolioClient {
 				try {
 					try {
 						if (client.global.parent.window == client.global.window) {
-							// we're top level & we don't have a frame name
 							return null;
 						}
 					} catch {
-						// accessing parent was blocked by CORS, we're in a frame but the parent is cross origin
 						return null;
 					}
 
 					const parentWin = client.global.parent.window;
 					if (parentWin[FOLIOCLIENT]) {
-						// we're inside an iframe, and the parent is folio-controlled
 						const parentClient = parentWin[FOLIOCLIENT];
 						const frame = parentClient.descriptors.get(
 							"window.frameElement",
@@ -439,13 +433,11 @@ export class FolioClient {
 						);
 
 						if (!frame) {
-							// parent is folio controlled and top-level. there is no parent frame name
 							return null;
 						}
 
 						const frameName = frame.getAttribute("name");
 						if (!frameName) {
-							// the parent frame is folio-controlled, but it has no name. this is user error
 							dbg.error(
 								"direct iframes are unsupported; use new FolioFrame() /ᐠ - ˕ -マ"
 							);
@@ -455,15 +447,12 @@ export class FolioClient {
 
 						return frameName;
 					} else {
-						// we're inside an iframe, and the parent is not folio-controlled
-						// return our own frame name
 						const frame = client.descriptors.get(
 							"window.frameElement",
 							client.global
 						);
 						const frameName = frame.getAttribute("name");
 						if (!frameName) {
-							// the parent frame is not folio-controlled, so we can't get a parent frame name
 							dbg.error(
 								"direct iframes are unsupported; use new FolioFrame() /ᐠ - ˕ -マ"
 							);
@@ -483,25 +472,34 @@ export class FolioClient {
 				}
 				if (!iswindow) return "";
 
-				// TODO: need to nullify the actual meta tag so it still sends unsafe-url
-				const meta = [
-					...client.natives.call(
-						"Document.prototype.querySelectorAll",
-						client.global.document,
-						"meta[name='referrer']"
-					),
-					...client.natives.call(
-						"Document.prototype.querySelectorAll",
-						client.global.document,
-						"meta[name='referrer-policy']"
-					),
-					...client.natives.call(
-						"Document.prototype.querySelectorAll",
-						client.global.document,
-						"meta[http-equiv='referrer-policy']"
-					),
-				];
-				const last = meta[meta.length - 1];
+				// same precedence as before: http-equiv, then name=referrer-policy, then
+				// name=referrer, each taking the last match in document order.
+				metaElements ??= client.natives.call(
+					"Document.prototype.getElementsByTagName",
+					client.global.document,
+					"meta"
+				);
+				let byName: Element | undefined;
+				let byPolicyName: Element | undefined;
+				let byHttpEquiv: Element | undefined;
+				for (let i = 0; i < metaElements.length; i++) {
+					const element = metaElements[i];
+					const name = client.natives.call(
+						"Element.prototype.getAttribute",
+						element,
+						"name"
+					);
+					if (name === "referrer") byName = element;
+					else if (name === "referrer-policy") byPolicyName = element;
+					const httpEquiv = client.natives.call(
+						"Element.prototype.getAttribute",
+						element,
+						"http-equiv"
+					);
+					if (httpEquiv?.toLowerCase() === "referrer-policy")
+						byHttpEquiv = element;
+				}
+				const last = byHttpEquiv ?? byPolicyName ?? byName;
 				if (last) {
 					return last.getAttribute("content");
 				}
@@ -559,8 +557,16 @@ export class FolioClient {
 		}
 	}
 
+	private urlSource = "";
+	private urlTarget = "";
+
 	get url(): _URL {
-		return new _URL(this.unrewriteUrl(this.global.location.href));
+		const href = this.global.location.href;
+		if (href !== this.urlSource) {
+			this.urlTarget = this.unrewriteUrl(href);
+			this.urlSource = href;
+		}
+		return new _URL(this.urlTarget);
 	}
 
 	set url(url: _URL | string) {
@@ -591,9 +597,6 @@ export class FolioClient {
 		}
 	}
 
-	// below are the utilities for proxying and trapping dom APIs
-	// you don't have to understand this it just makes the rest easier
-	// i'll document it eventually
 	Proxy<T extends string>(name: T, handler: Proxy<T>): void;
 	Proxy<const T extends readonly string[]>(
 		name: T,
@@ -649,7 +652,6 @@ export class FolioClient {
 			if (!windowName) windowName = "<unnamed window>";
 			let location = this.url.href;
 
-			// sanitize newlines just in case somehow
 			location = location.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 			windowName = windowName.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 			fnName = fnName.replace(/\n/g, "\\n").replace(/\r/g, "\\r");
@@ -746,7 +748,6 @@ return { apply, construct };
 					!this.flagEnabled("debugTrampolines") &&
 					this.flagEnabled("allowFailedIntercepts")
 				) {
-					// fast path, no error detection
 					handler.apply(ctx);
 
 					if (earlyreturn) {
@@ -773,7 +774,6 @@ return { apply, construct };
 				} catch (err) {
 					if (this.box.instanceof(err, "Error")) {
 						if (this.box.instanceof(err.stack, "Object")) {
-							//i'm not going to explain this
 							err.stack = err.stack.stack;
 							// eslint-disable-next-line folio-core/no-globals
 							console.error("ERROR FROM FOLIO INTERNALS", err);
@@ -804,7 +804,6 @@ return { apply, construct };
 		const proxy = new Proxy(value, h);
 		this.box.unproxy.set(proxy, value);
 		h.getOwnPropertyDescriptor = getOwnPropertyDescriptorHandler;
-		// Preserve original property descriptor (enumerable, configurable, etc.)
 		Object_defineProperty(target, prop, {
 			value: proxy,
 			writable: originalDescriptor?.writable ?? true,

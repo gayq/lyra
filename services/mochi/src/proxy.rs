@@ -1,5 +1,5 @@
 use crate::cache::{
-    get_cache_path, load_from_disk, request_bypasses_cache, stream_cache_fresh,
+    disk_writer, get_cache_path, load_from_disk, request_bypasses_cache, stream_cache_fresh,
     write_cache_header, write_to_disk,
 };
 use crate::constants;
@@ -30,7 +30,7 @@ use std::sync::{
 };
 use std::time::{Duration, SystemTime};
 use tokio::fs::{self, File};
-use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{broadcast, mpsc};
 use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
@@ -1129,6 +1129,10 @@ pub async fn proxy_handler(
         };
 
         let effective_url = upstream_res.url().clone();
+        state
+            .effective_bases
+            .insert(target_url.to_string(), effective_url.clone())
+            .await;
 
         let full_body = match read_limited_body(upstream_res, MAX_HTML_BODY_SIZE).await {
             Ok(body) => body,
@@ -1266,11 +1270,15 @@ pub async fn proxy_handler(
         let state_clone = state.clone();
         let status_u16 = status.as_u16();
         let safe_headers_clone = safe_headers.clone();
+        let capacity = upstream_res
+            .content_length()
+            .filter(|len| *len < max_entry as u64)
+            .map_or(0, |len| (len as usize).min(state.ram_cache_limit));
 
         tokio::spawn(async move {
             let _request_permit = request_permit;
             let mut stream = upstream_res.bytes_stream();
-            let mut accumulator = Vec::new();
+            let mut accumulator = Vec::with_capacity(capacity);
             let mut total_size = 0usize;
             let mut aborted = false;
 
@@ -1371,10 +1379,11 @@ async fn fetch_and_cache(
     }
 
     if request_cache_allowed && !force_refresh && !has_range {
-        if let Some(disk_response) = load_from_disk(
+        if let Some((mut response, promoted)) = load_from_disk(
             target_url_str,
             state.max_cache_entry_size,
             state.disk_cache_max_age_secs,
+            state.ram_cache_limit,
         )
         .await
         {
@@ -1382,7 +1391,9 @@ async fn fetch_and_cache(
                 .disk_cache_hits
                 .fetch_add(1, Ordering::Relaxed);
             debug!("disk cache hit");
-            let (mut response, _) = disk_response;
+            if let Some(cached) = promoted {
+                state.cache.insert(target_url_str.to_string(), cached).await;
+            }
             fix_game_content_type(target_url_string, response.headers_mut());
             return Ok(response);
         }
@@ -1548,7 +1559,9 @@ async fn fetch_and_cache(
         let max_stream_size = max_body_size.unwrap_or(state.max_cache_entry_size);
         let state_clone = state.clone();
         let safe_headers_clone = safe_headers.clone();
-        let coalesce_owner = coalesce_tx_clone;
+        let content_length = upstream_res.content_length();
+        let mut coalesce_owner =
+            coalesce_tx_clone.filter(|_| content_length.is_none_or(|len| len < ram_limit as u64));
 
         tokio::spawn(async move {
             let _permit = permit;
@@ -1557,7 +1570,7 @@ async fn fetch_and_cache(
             let mut disk_write_success = true;
 
             let mut file = match File::create(&temp_path).await {
-                Ok(f) => Some(BufWriter::new(f)),
+                Ok(f) => Some(disk_writer(f)),
                 Err(e) => {
                     warn!(
                         "failed to create temporary file {}: {}{}",
@@ -1583,10 +1596,15 @@ async fn fetch_and_cache(
             }
 
             let mut stream = upstream_res.bytes_stream();
-            let mut accumulator = Vec::new();
+            let mut is_too_large_for_ram =
+                content_length.is_some_and(|len| len >= ram_limit as u64);
+            let mut accumulator = if is_too_large_for_ram {
+                Vec::new()
+            } else {
+                Vec::with_capacity(content_length.unwrap_or(0) as usize)
+            };
             let mut total_size = 0;
             let mut aborted = false;
-            let mut is_too_large_for_ram = false;
 
             loop {
                 let item = tokio::select! {
@@ -1622,14 +1640,6 @@ async fn fetch_and_cache(
                             let _ = fs::remove_file(&temp_path).await;
                         }
 
-                        if let Some(ref mut f) = file {
-                            if f.write_all(&chunk).await.is_err() {
-                                file = None;
-                                disk_write_success = false;
-                                let _ = fs::remove_file(&temp_path).await;
-                            }
-                        }
-
                         if !is_too_large_for_ram {
                             if total_size < ram_limit {
                                 accumulator.extend_from_slice(&chunk);
@@ -1638,10 +1648,21 @@ async fn fetch_and_cache(
                                 accumulator = Vec::new();
                             }
                         }
+                        if is_too_large_for_ram {
+                            coalesce_owner = None;
+                        }
 
-                        if sender_tx.send(Ok(chunk)).await.is_err() {
+                        if sender_tx.send(Ok(chunk.clone())).await.is_err() {
                             aborted = true;
                             break;
+                        }
+
+                        if let Some(ref mut f) = file {
+                            if f.write_all(&chunk).await.is_err() {
+                                file = None;
+                                disk_write_success = false;
+                                let _ = fs::remove_file(&temp_path).await;
+                            }
                         }
                     }
                     Err(_) => {

@@ -75,6 +75,8 @@ enum SyncError {
     Corrupt,
     Busy,
     Conflict,
+    RevisionConflict,
+    Sealed,
     Internal,
 }
 
@@ -90,7 +92,8 @@ impl SyncError {
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::Missing => StatusCode::NOT_FOUND,
             Self::Busy => StatusCode::SERVICE_UNAVAILABLE,
-            Self::Conflict => StatusCode::CONFLICT,
+            Self::Conflict | Self::RevisionConflict => StatusCode::CONFLICT,
+            Self::Sealed => StatusCode::LOCKED,
             Self::Corrupt | Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -108,6 +111,8 @@ impl SyncError {
             Self::Corrupt => "sync_data_unavailable",
             Self::Busy => "sync_service_busy",
             Self::Conflict => "sync_transfer_changed",
+            Self::RevisionConflict => "sync_revision_conflict",
+            Self::Sealed => "sync_data_sealed",
             Self::Internal => "sync_service_unavailable",
         }
     }
@@ -125,6 +130,8 @@ impl SyncError {
             Self::Corrupt => "synced data is unavailable",
             Self::Busy => "sync service is busy",
             Self::Conflict => "sync changed; try again",
+            Self::RevisionConflict => "sync changed on another device",
+            Self::Sealed => "synced data is end-to-end encrypted",
             Self::Internal => "sync service is unavailable",
         };
         format!("{message}{NEGATIVE}")
@@ -1148,7 +1155,12 @@ fn store_payload_for_user<T: Serialize>(
     let compressed = compress_payload(&payload)?;
     let blob = encrypt_blob(cipher, user_id, &compressed)?;
     let mut connection = pool.get().map_err(|_| SyncError::Internal)?;
-    let transaction = connection.transaction().map_err(|_| SyncError::Internal)?;
+    let transaction = connection
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(|_| SyncError::Internal)?;
+    if transfer::active_is_sealed(&transaction, user_id)? {
+        return Err(SyncError::Sealed);
+    }
     transaction
             .execute(
                 "INSERT INTO sync_data (user_id, data_blob, updated_at)

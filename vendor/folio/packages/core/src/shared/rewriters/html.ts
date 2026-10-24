@@ -30,15 +30,10 @@ import {
 export type ForeignContext = "svg" | "math" | "html";
 
 export type HtmlContext = {
-	// should we inject folio scripts at the top of the document?
 	loadScripts: boolean;
-	// did the document come from the service worker, or from document.write/innerHTML?
 	inline: boolean;
-	// for worker originating documents, the source URL, otherwise the url of the page that triggered the rewrite
 	source: string;
-	// for api originating documents, the name of the api that triggered the rewrite
 	apisource?: string;
-	// response headers for worker originating documents
 	headers?: RawHeaders;
 	foreignContext?: ForeignContext;
 	history?: TrackedHistoryState[];
@@ -85,7 +80,6 @@ export class IncrementalHtmlRewriter {
 		private readonly meta: URLMeta,
 		private readonly htmlcontext: HtmlContext
 	) {
-		// Whole-document hooks must still see the complete original document.
 		this.buffered = [context.hooks.rewriter.html.pre, context.hooks.rewriter.html.post]
 			.some((hook) => Tap.getTappers(hook).length > 0) ? [] : null;
 		this.injected = !htmlcontext.loadScripts;
@@ -155,7 +149,6 @@ export class IncrementalHtmlRewriter {
 		for (const node of parent.children) {
 			if (this.handler.isPendingComment(node)) break;
 			if (isElementNode(node)) {
-				// Keep raw text and foreign subtrees intact for their existing rewriters.
 				if (["script", "style", "svg", "math"].includes(node.name)) {
 					if (!this.completedElements.has(node)) break;
 					output += this.before(node);
@@ -235,12 +228,11 @@ function rewriteHtmlInner(
 			if (child.type === ElementType.Tag && child.name === "html") {
 				htmlRoot = child as Element;
 			} else {
-				// there's a child of the root that isn't an html element or a doctype/comment/text
 				return true;
 			}
 		}
 
-		if (!htmlRoot) return true; // no html tag or it's somewhere else other than first child
+		if (!htmlRoot) return true;
 
 		for (const child of htmlRoot.childNodes) {
 			if (
@@ -253,15 +245,12 @@ function rewriteHtmlInner(
 
 			if (child.type === ElementType.Tag && child.name === "head") {
 				if (bodyElement) {
-					// head comes after body
 					return true;
 				}
 				headElement = child as Element;
 			} else if (child.type === ElementType.Tag && child.name === "body") {
 				bodyElement = child as Element;
 			} else {
-				// there's a child of html that isn't head or body
-				// fine if head already exists, bad if it doesn't
 				if (!headElement) {
 					return true;
 				}
@@ -289,8 +278,6 @@ function rewriteHtmlInner(
 					`detected quirky document structure parsing @ ${meta.origin.href}!`
 				);
 			}
-			// there's weird stuff going on with the document that could result in page scripts being loaded before our inject scripts
-			// so inject them at position 0
 			handler.root.children.unshift(...injectScripts);
 		} else {
 			if (!headElement) {
@@ -336,11 +323,6 @@ export function rewriteHtml(
 	return ret;
 }
 
-// type ParseState = {
-// 	base: string;
-// 	origin?: URL;
-// };
-
 export function unrewriteHtml(html: string, foreignContext?: ForeignContext) {
 	const handler = new DomHandler((err, dom) => dom);
 	const parser = new Parser(handler, {
@@ -380,8 +362,6 @@ export function unrewriteHtml(html: string, foreignContext?: ForeignContext) {
 	});
 }
 
-// i need to add the attributes in during rewriting
-
 function traverseParsedHtml(
 	node: any,
 	context: FolioContext,
@@ -413,7 +393,7 @@ function traverseParsedHtml(
 			}
 		}
 		for (const [attr, value] of Object_entries(node.attribs)) {
-			if (attr.startsWith("on") && eventAttributes.includes(attr)) {
+			if (attr.startsWith("on") && eventAttributes.has(attr)) {
 				node.attribs[`folio-attr-${attr}`] = value;
 				node.attribs[attr] = rewriteJs(
 					value as string,
@@ -484,7 +464,6 @@ function traverseParsedHtml(
 		if (
 			node.attribs["http-equiv"].toLowerCase() === "content-security-policy"
 		) {
-			// just delete it. this needs to be emulated eventually but like
 			node = new Comment(node.attribs.content);
 		} else if (node.attribs["http-equiv"].toLowerCase() === "refresh") {
 			const refresh = parseDeclarativeRefresh(node.attribs.content || "");
@@ -518,11 +497,8 @@ export function rewriteSrcset(
 ) {
 	const sources = srcset.split(/ .*,/).map((src) => src.trim());
 	const rewrittenSources = sources.map((source) => {
-		// Split into URLs and descriptors (if any)
-		// e.g. url0, url1 1.5x, url2 2x
 		const [url, ...descriptors] = source.split(/\s+/);
 
-		// Rewrite the URLs and keep the descriptors (if any)
 		const rewrittenUrl = rewriteUrl(url.trim(), context, meta);
 
 		return descriptors.length > 0
@@ -533,13 +509,7 @@ export function rewriteSrcset(
 	return rewrittenSources.join(", ");
 }
 
-// function base64ToBytes(base64) {
-// 	const binString = atob(base64);
-
-// 	return Uint8Array.from(binString, (m) => m.codePointAt(0));
-// }
-
-const eventAttributes = [
+const eventAttributes = new Set([
 	"onbeforexrselect",
 	"onabort",
 	"onbeforeinput",
@@ -640,4 +610,4 @@ const eventAttributes = [
 	"onscrollend",
 	"onscrollsnapchange",
 	"onscrollsnapchanging",
-];
+]);

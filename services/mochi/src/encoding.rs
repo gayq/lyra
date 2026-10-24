@@ -24,25 +24,9 @@ pub fn decode_mochi_url(encoded: &str) -> Option<String> {
 }
 
 pub fn encode_mochi_url(url: &str) -> String {
-    let encoded = urlencoding::encode(url);
-    let encoded_bytes = encoded.as_bytes();
-    let xored: Vec<u8> = encoded_bytes
-        .iter()
-        .enumerate()
-        .map(|(i, &b)| b ^ MOCHI_XOR_KEY[i % MOCHI_XOR_KEY.len()])
-        .collect();
-    let mut out = base64::engine::general_purpose::STANDARD
-        .encode(&xored)
-        .into_bytes();
-    for b in out.iter_mut() {
-        match *b {
-            b'+' => *b = b'-',
-            b'/' => *b = b'_',
-            _ => {}
-        }
+    let mut xored = urlencoding::encode(url).into_owned().into_bytes();
+    for (i, b) in xored.iter_mut().enumerate() {
+        *b ^= MOCHI_XOR_KEY[i % MOCHI_XOR_KEY.len()];
     }
-    while out.last() == Some(&b'=') {
-        out.pop();
-    }
-    String::from_utf8(out).unwrap_or_default()
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&xored)
 }

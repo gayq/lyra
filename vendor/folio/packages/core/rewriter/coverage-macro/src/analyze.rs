@@ -363,15 +363,10 @@ fn walk_if(
 	}
 }
 
-/// Extract the variant name from an if-let pattern. Returns None for
-/// non-variant patterns (Some(_), generic Or-patterns, etc.).
 fn pattern_variant_name(pat: &Pat, ctx: &Ctx) -> Option<String> {
 	match pat {
 		Pat::TupleStruct(ts) => {
 			let last = ts.path.segments.last()?.ident.to_string();
-			// Only return a variant name we know to be an AST type — that
-			// way `Some(...)` (where `Some` isn't in our table) doesn't
-			// trigger enum-aware coverage.
 			if ctx.graph.nodes.contains_key(last.as_str()) {
 				Some(last)
 			} else {
@@ -399,17 +394,12 @@ fn if_let_variant_covered(
 	scrut_expr: &Expr,
 	ctx: &Ctx,
 ) -> bool {
-	// If the then-block's coverage of the outer it includes this variant
-	// name (credited by a helper that fully covers the variant's type) OR
-	// cov.all is set, the variant is covered.
 	if then_cov.all {
 		return true;
 	}
 	if then_cov.fields.iter().any(|n| n == variant) {
 		return true;
 	}
-	// Fallback: scan for a helper call on the scrutinee that covers this
-	// variant (handles `if let V(_) = scrut { self.h(scrut) }` patterns).
 	if scan_block_for_helper_on(then_block, scrut_expr, variant, ctx) {
 		return true;
 	}
@@ -434,11 +424,9 @@ fn else_covers_other_variants(
 		return false;
 	};
 
-	// Run the else-branch analysis to gather its coverage / variant credits.
 	let else_block = match else_expr {
 		Expr::Block(b) => b.block.clone(),
 		Expr::If(inner) => {
-			// chained `else if let ...` — wrap as a block stmt and recurse.
 			syn::Block {
 				brace_token: syn::token::Brace::default(),
 				stmts: vec![Stmt::Expr(Expr::If(inner.clone()), None)],
@@ -451,13 +439,6 @@ fn else_covers_other_variants(
 	};
 	let else_cov = walk_block(&else_block, cov, origins.clone(), completed, ctx);
 
-	// For each other R-variant of the enum, check whether it's covered by
-	// the else branch — either:
-	//   - else_cov.all
-	//   - else_cov.fields contains the variant name (variant-level credit
-	//     bubbled up from an inner match's enum-aware analysis)
-	//   - the else body has a helper call on scrut_expr whose covered_set
-	//     contains the variant.
 	for v in def.variants {
 		if !ctx.graph.in_r(v) {
 			continue;
@@ -518,13 +499,6 @@ fn walk_match(
 	completed: &mut Vec<Witness>,
 	ctx: &Ctx,
 ) -> Covered {
-	// Enum-aware coverage. The scrutinee can be:
-	//   - `&it.<field>` → if field's type is an enum, full match coverage
-	//     credits the field name in `base`.
-	//   - `it` itself (Origin::It) → if `it`'s type is an enum, full match
-	//     coverage promotes `base.all = true`.
-	//   - any local with a known enum AST type (via Binding's `ast_type`)
-	//     → same as Origin::It case at that local's level.
 	let scrut_origin = resolve_origin(&em.expr, origins, ctx.it_name);
 	let scrut_field = match &scrut_origin {
 		Origin::Field(name) => Some(name.clone()),
@@ -556,7 +530,6 @@ fn walk_match(
 		it.fold(first, |acc, c| Covered::intersect(&acc, &c))
 	};
 
-	// Enum-aware promotion using the scrutinee's actual AST type.
 	if let Some(t) = scrut_type.as_deref()
 		&& let Some(def) = ctx.graph.nodes.get(t)
 		&& !def.variants.is_empty()
@@ -594,7 +567,6 @@ fn check_match_covers_enum(
 ) -> bool {
 	use crate::ast_table::NodeDef;
 
-	// Build the set of R-variants we need to cover.
 	let mut needed: Vec<&str> = Vec::new();
 	for v in enum_def.variants {
 		if ctx.graph.in_r(v) {
@@ -602,7 +574,6 @@ fn check_match_covers_enum(
 		}
 	}
 
-	// For each variant, find an arm that matches it and check its body covers V.
 	for variant in &needed {
 		let arm = find_arm_for_variant(em, variant);
 		let Some(arm) = arm else {
@@ -616,8 +587,6 @@ fn check_match_covers_enum(
 	true
 }
 
-/// Find the first arm whose pattern matches `variant`. A wildcard arm
-/// matches everything.
 fn find_arm_for_variant<'a>(em: &'a ExprMatch, variant: &str) -> Option<&'a syn::Arm> {
 	em.arms
 		.iter()
@@ -630,7 +599,6 @@ fn arm_matches_variant(pat: &Pat, variant: &str) -> bool {
 		Pat::Wild(_) => true,
 		Pat::Ident(p) if p.ident == "_" => true,
 		Pat::TupleStruct(ts) => {
-			// Path like `T::Variant(_)` or `Variant(_)`.
 			ts.path.segments.last().is_some_and(|s| s.ident == variant)
 		}
 		Pat::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == variant),
@@ -646,11 +614,6 @@ fn arm_covers_variant(arm: &syn::Arm, variant: &str, scrut_expr: &Expr, ctx: &Ct
 	let v_def = ctx.graph.nodes.get(variant);
 	let binding = extract_arm_binding(&arm.pat);
 
-	// Wildcard / multi-variant arm with no specific binding: the body might
-	// still cover the variant if it (a) is trivially-covered by virtue of
-	// having no R-content, (b) calls a helper on the original scrutinee that
-	// covers this variant, or (c) contains `audit_skip!("...")` documenting
-	// a runtime-safe cull.
 	if binding.is_none() {
 		if let Some(d) = v_def {
 			let has_r_field = d.fields.iter().any(|f| ctx.graph.field_in_r(f));
@@ -659,8 +622,6 @@ fn arm_covers_variant(arm: &syn::Arm, variant: &str, scrut_expr: &Expr, ctx: &Ct
 				return true;
 			}
 		}
-		// Run a mini analyze on the arm body so audit_skip!/walks on the
-		// outer scope (rare) are picked up. cov.all suffices.
 		let body_block = match arm.body.as_ref() {
 			Expr::Block(b) => b.block.clone(),
 			other => syn::Block {
@@ -679,15 +640,12 @@ fn arm_covers_variant(arm: &syn::Arm, variant: &str, scrut_expr: &Expr, ctx: &Ct
 		if paths.iter().all(|p| p.covered.all) {
 			return true;
 		}
-		// Otherwise fall back to the helper-on-scrutinee check.
 		return body_covers_variant_via_helper(arm, scrut_expr, variant, ctx);
 	}
 
 	let bname = binding.unwrap();
 	let Some(v_def) = v_def else { return false };
 
-	// Run a mini analyze on the arm body, with `bname` as the new "it" and
-	// v_def as the target type. This credits walks/helpers on `bname`.
 	let body_block = match arm.body.as_ref() {
 		Expr::Block(b) => b.block.clone(),
 		other => syn::Block {
@@ -724,22 +682,16 @@ fn arm_covers_variant(arm: &syn::Arm, variant: &str, scrut_expr: &Expr, ctx: &Ct
 	true
 }
 
-/// Scan an arm's body for a `self.helper(scrut_expr)` call where the helper's
-/// `covered_set` contains `variant`. This is what makes
-///   `StaticMember`(_) | `ComputedMember`(_) => `self.handle_assignment_target_member(target)`
-/// cover those variants when `target` IS the match scrutinee.
 fn body_covers_variant_via_helper(
 	arm: &syn::Arm,
 	scrut_expr: &Expr,
 	variant: &str,
 	ctx: &Ctx,
 ) -> bool {
-	// Compare expressions structurally for "same as scrut_expr."
 	let scrut_repr = expr_canonical(scrut_expr);
 	let body = arm.body.as_ref();
 	let mut hit = false;
 	scan_helper_calls(body, &mut |mc| {
-		// Receiver must be `self`.
 		let Expr::Path(p) = mc.receiver.as_ref() else {
 			return;
 		};
@@ -750,11 +702,9 @@ fn body_covers_variant_via_helper(
 		let Some(info) = ctx.helpers.get(&name) else {
 			return;
 		};
-		// The helper must cover the variant.
 		if !info.covered_set.contains(variant) && !info.covered_all {
 			return;
 		}
-		// First arg must be the scrutinee (or an &-ref to it).
 		let Some(arg0) = mc.args.first() else { return };
 		if expr_canonical(arg0) == scrut_repr || ref_canonical(arg0) == scrut_repr {
 			hit = true;
@@ -853,7 +803,6 @@ fn walk_for_loop(
 	completed: &mut Vec<Witness>,
 	ctx: &Ctx,
 ) -> Covered {
-	// Bind loop var → origin & element-type of iter.
 	if let Pat::Ident(pid) = efl.pat.as_ref() {
 		let name = pid.ident.to_string();
 		let origin = origin_from_iter(&efl.expr, &origins, ctx.it_name);
@@ -872,14 +821,7 @@ fn walk_for_loop(
 			},
 		);
 	}
-	// The loop body runs over EVERY element. If the body fully covers each
-	// element, the parent field IS covered. We detect this by running the
-	// body and observing whether any field credits from `it.<field>` appear
-	// via the loop variable's origin propagating to walks/helpers inside.
 	let body_cov = walk_block(&efl.body, Covered::empty(), origins.clone(), completed, ctx);
-	// Promote body covers up: anything credited in the body during this loop
-	// applies to the outer cov as well (since the iteration covers ALL items
-	// when the loop iterates over an `it.<field>` collection).
 	if body_cov.all {
 		cov.all = true;
 	} else {
@@ -890,9 +832,6 @@ fn walk_for_loop(
 	cov
 }
 
-/// Bind locals from a pattern matched against a scrutinee expression. Used
-/// for `if let`, `match`, and similar. Handles common pattern shapes and
-/// derives variant types from `EnumPath::Variant(binding)` shapes.
 fn bind_pattern_origins(pat: &Pat, scrut: &Expr, origins: &mut OriginMap, ctx: &Ctx) {
 	let scrut_origin = resolve_origin(scrut, origins, ctx.it_name);
 	let scrut_type = resolve_type(scrut, origins, ctx.it_name, ctx.it_node_type, ctx.graph);
@@ -921,8 +860,6 @@ fn bind_pat_with(
 		}
 		Pat::Reference(r) => bind_pat_with(&r.pat, origin, scrut_ty, origins, ctx),
 		Pat::TupleStruct(ts) => {
-			// Variant pattern: the binding(s) inside the tuple-struct carry
-			// the variant's type, not the enum's type.
 			let variant_name = ts.path.segments.last().map(|s| s.ident.to_string());
 			let variant_ty = variant_name
 				.as_deref()
@@ -965,7 +902,6 @@ fn bind_pat_with(
 }
 
 fn handle_call(call: &syn::ExprCall, mut cov: Covered, origins: &OriginMap, ctx: &Ctx) -> Covered {
-	// Recognize `walk::walk_*(self, target)` patterns.
 	let Expr::Path(p) = call.func.as_ref() else {
 		return cov;
 	};
@@ -1000,7 +936,6 @@ fn handle_method_call(
 	origins: &OriginMap,
 	ctx: &Ctx,
 ) -> Covered {
-	// self.helper(args) — receiver must be `self`.
 	let Expr::Path(p) = mc.receiver.as_ref() else {
 		return cov;
 	};
@@ -1011,8 +946,6 @@ fn handle_method_call(
 	let Some(info) = ctx.helpers.get(&name) else {
 		return cov;
 	};
-	// For each AST-typed arg the helper tracks, look up the positional call
-	// arg by its `call_pos` and credit if the helper fully covers it.
 	let call_args: Vec<&Expr> = mc.args.iter().collect();
 	for ha in &info.args {
 		if !ha.fully_covers {
@@ -1044,12 +977,6 @@ fn apply_origin_to_cov(
 	apply_origin_to_cov_typed(e, origins, it_name, None, None, cov, all_if_root);
 }
 
-/// Type-aware variant. When the expression has `Origin::It` but its AST type
-/// differs from the caller's `it_node_type`, we know we're walking a
-/// *variant* of the caller's it (typical pattern: an `if let
-/// EnumPath::Variant(v) = it` extracts a v of variant type — calling a
-/// helper that fully covers v doesn't cover ALL variants of the outer it,
-/// just the one we destructured).
 fn apply_origin_to_cov_typed(
 	e: &Expr,
 	origins: &OriginMap,
@@ -1065,26 +992,18 @@ fn apply_origin_to_cov_typed(
 			if !all_if_root {
 				return;
 			}
-			// Try to figure out the arg's type. If it's the same as the
-			// outer `it`'s type, credit cov.all. If it's a R-variant of the
-			// outer `it`'s enum type, credit that variant name.
 			let arg_ty = graph.and_then(|g| {
 				crate::helper_index::resolve_type(e, origins, it_name, it_node_type, g)
 			});
 			match (arg_ty.as_deref(), it_node_type) {
 				(Some(at), Some(ot)) if at == ot => cov.all = true,
 				(Some(at), Some(ot)) => {
-					// If `at` is listed as a variant of `ot` in our table,
-					// we covered just that variant.
 					let is_variant = graph
 						.and_then(|g| g.nodes.get(ot))
 						.is_some_and(|d| d.variants.contains(&at));
 					if is_variant {
 						cov.add_field(at);
 					} else {
-						// Mismatched type but not a known variant — be
-						// conservative and credit cov.all (preserves the
-						// earlier behavior).
 						cov.all = true;
 					}
 				}
@@ -1125,12 +1044,6 @@ fn handle_macro_invocation(mac: &syn::Macro, mut cov: Covered) -> Covered {
 			}
 		}
 		"audit_skip" => {
-			// Two forms:
-			//   audit_skip!(it.<field>, "reason")  — credits a specific field
-			//   audit_skip!("reason")              — credits the entire current
-			//                                        scope (use inside the
-			//                                        match arm / branch where
-			//                                        the cull actually happens)
 			if let Some(f) = extract_field_name(&mac.tokens) {
 				cov.add_field(&f);
 			} else {

@@ -1,6 +1,7 @@
 import { render } from "preact";
 import Player from "../components/player/Player.tsx";
 import { resolveTheme } from "../core/config/settingsOptions.ts";
+import { applyTheme } from "../core/ui/theme.ts";
 import {
   applyMotionPreference,
   readMotionPreference,
@@ -18,12 +19,7 @@ if (recoveryUrl.searchParams.has("lyra-recovery")) {
   history.replaceState(history.state, "", recoveryUrl.href);
 }
 
-const savedTheme = resolveTheme(localStorage.getItem("theme"));
-if (savedTheme !== "default") {
-  document.documentElement.setAttribute("data-theme", savedTheme);
-} else {
-  document.documentElement.removeAttribute("data-theme");
-}
+applyTheme(resolveTheme(localStorage.getItem("theme")));
 
 applyMotionPreference(readMotionPreference());
 

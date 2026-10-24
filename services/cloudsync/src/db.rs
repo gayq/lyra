@@ -25,6 +25,7 @@ pub fn init_pool(
              PRAGMA cache_size = -{};
              PRAGMA mmap_size = {};
              PRAGMA temp_store = MEMORY;
+             PRAGMA secure_delete = ON;
              PRAGMA wal_autocheckpoint = 2000;",
             cache_size_kb, mmap_size
         ))
@@ -48,28 +49,14 @@ pub fn init_pool(
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             token_version INTEGER DEFAULT 1,
+            sync_salt BLOB,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
         [],
     )?;
 
-    {
-        let mut stmt = conn.prepare("PRAGMA table_info(users)")?;
-        let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-        let mut has_token_version = false;
-        for name in rows.flatten() {
-            if name == "token_version" {
-                has_token_version = true;
-                break;
-            }
-        }
-        if !has_token_version {
-            let _ = conn.execute(
-                "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1",
-                [],
-            );
-        }
-    }
+    ensure_column(&conn, "users", "token_version", "INTEGER DEFAULT 1")?;
+    ensure_column(&conn, "users", "sync_salt", "BLOB")?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_data (
@@ -93,6 +80,26 @@ pub fn init_pool(
     Ok(pool)
 }
 
+fn ensure_column(
+    conn: &rusqlite::Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> rusqlite::Result<()> {
+    let exists = conn
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .flatten()
+        .any(|name| name == column);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+            [],
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sync_uploads (
@@ -100,7 +107,9 @@ pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Resu
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             parts INTEGER NOT NULL,
             committed INTEGER NOT NULL DEFAULT 0,
-            touched INTEGER NOT NULL DEFAULT (unixepoch())
+            touched INTEGER NOT NULL DEFAULT (unixepoch()),
+            sealed INTEGER NOT NULL DEFAULT 0,
+            seal TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_sync_uploads_user ON sync_uploads(user_id);
         CREATE TABLE IF NOT EXISTS sync_chunks (
@@ -114,7 +123,14 @@ pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Resu
             digest TEXT NOT NULL,
             raw_bytes INTEGER NOT NULL CHECK(raw_bytes > 0 AND raw_bytes <= 1048576),
             data_blob BLOB NOT NULL,
+            sealed INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (user_id, digest)
+        );
+        CREATE TABLE IF NOT EXISTS sync_upload_digests (
+            upload_id TEXT NOT NULL REFERENCES sync_uploads(id) ON DELETE CASCADE,
+            part INTEGER NOT NULL,
+            digest TEXT NOT NULL,
+            PRIMARY KEY (upload_id, part)
         );
         CREATE TABLE IF NOT EXISTS sync_chunk_refs (
             upload_id TEXT NOT NULL REFERENCES sync_uploads(id) ON DELETE CASCADE,
@@ -125,5 +141,9 @@ pub(crate) fn init_sync_transfers(conn: &rusqlite::Connection) -> rusqlite::Resu
             FOREIGN KEY (user_id, digest) REFERENCES sync_objects(user_id, digest)
         );
         CREATE INDEX IF NOT EXISTS idx_sync_chunk_refs_object ON sync_chunk_refs(user_id, digest);",
-    )
+    )?;
+    ensure_column(conn, "sync_uploads", "sealed", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(conn, "sync_uploads", "seal", "TEXT")?;
+    ensure_column(conn, "sync_objects", "sealed", "INTEGER NOT NULL DEFAULT 0")
 }
+

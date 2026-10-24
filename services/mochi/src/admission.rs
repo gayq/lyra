@@ -1,15 +1,16 @@
 use axum::{
-    body::Body,
+    body::{Body, Bytes, HttpBody},
     extract::{ConnectInfo, Request, State},
     http::{HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use futures_util::StreamExt;
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
@@ -225,10 +226,35 @@ pub async fn admit(
     let (parts, body) = response.into_parts();
     Response::from_parts(
         parts,
-        Body::from_stream(body.into_data_stream().map(move |chunk| {
-            let _permit = &permit;
-            chunk
-        })),
+        Body::new(PermitBody {
+            body,
+            _permit: permit,
+        }),
     )
+}
+
+struct PermitBody {
+    body: Body,
+    _permit: Arc<ClientPermit>,
+}
+
+impl HttpBody for PermitBody {
+    type Data = Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Bytes>, axum::Error>>> {
+        Pin::new(&mut self.body).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.body.size_hint()
+    }
 }
 

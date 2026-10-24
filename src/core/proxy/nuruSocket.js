@@ -1,4 +1,3 @@
-
 export function nuruSocketClass(NativeWebSocket, wispPath) {
   if (NativeWebSocket[Symbol.for("lyra.nuruSocket")]) return NativeWebSocket;
 

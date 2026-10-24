@@ -22,15 +22,10 @@ export default function (client: FolioClient, self: Self) {
 				return true;
 			},
 			ports() {
-				// don't know why i have to do this?
 				return this.ports;
 			},
 			source() {
 				if (this.source === null) return null;
-
-				// const scram: FolioClient = this.source[FOLIOCLIENT];
-
-				// if (scram) return scram.globalProxy;
 
 				return this.source;
 			},
@@ -74,7 +69,6 @@ export default function (client: FolioClient, self: Self) {
 			apply(target, that, args) {
 				const realEvent: Event = args[0];
 
-				// we only need to handle events dispatched from the browser
 				if (realEvent.isTrusted) {
 					const type = realEvent.type;
 
@@ -82,7 +76,6 @@ export default function (client: FolioClient, self: Self) {
 						const handler = handlers[type];
 
 						if (handler._init) {
-							// if _init returns false, we skip the event, and it never dispatches to listeners
 							if (handler._init.call(realEvent) === false) return;
 						}
 
@@ -194,7 +187,6 @@ export default function (client: FolioClient, self: Self) {
 				if (!descriptor.get || !descriptor.set || !descriptor.configurable)
 					continue;
 
-				// these are the `onmessage`, `onclick`, etc. properties
 				client.RawTrap(target, key, {
 					get(ctx) {
 						if (this[realOnEvent]) return this[realOnEvent];

@@ -1,6 +1,3 @@
-//! Find a shortest path from a starting (node, field) to an
-//! `IdentifierReference`, and compose a minimal JS snippet that exhibits it.
-
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use crate::ast_table::{Cardinality, Field};
@@ -10,19 +7,16 @@ use crate::templates;
 
 #[derive(Clone, Debug)]
 pub enum Step {
-	/// We're inside this node type, descending via this field.
 	Field {
 		node: &'static str,
 		field: &'static str,
 		child_ty: &'static str,
 		card: Cardinality,
 	},
-	/// We're inside this enum type, picking this variant.
 	Variant {
 		node: &'static str,
 		variant: &'static str,
 	},
-	/// Terminal: we landed on the rewriteable leaf.
 	Leaf,
 }
 
@@ -36,10 +30,6 @@ impl Step {
 	}
 }
 
-/// Build a per-node-type "uncovered set" hint: for each AST type T, the set
-/// of fields/variants of T that some helper is known to NOT cover. Used to
-/// steer the BFS toward truly-buggy paths instead of paths that happen to be
-/// handled by the helper.
 pub fn build_uncovered_hints(
 	helpers: &HashMap<String, HelperInfo>,
 	graph: &AstGraph,
@@ -56,7 +46,6 @@ pub fn build_uncovered_hints(
 			continue;
 		}
 
-		// Direct: R-fields/variants of node_type that the helper doesn't cover.
 		let mut uncov_top: BTreeSet<String> = BTreeSet::new();
 		for f in def.fields {
 			if !graph.field_in_r(f) {
@@ -81,9 +70,6 @@ pub fn build_uncovered_hints(
 			}
 		}
 
-		// Propagate variant-level coverage from `covered_set` (which the
-		// walk_match analyzer populates with the names of *individually
-		// covered* enum variants) to the corresponding enum field-types.
 		for f in def.fields {
 			if !graph.field_in_r(f) {
 				continue;
@@ -94,7 +80,6 @@ pub fn build_uncovered_hints(
 			if field_def.variants.is_empty() {
 				continue;
 			}
-			// For each R-variant of f.ty, check if it's in covered_set.
 			let mut uncov_v = BTreeSet::new();
 			for v in field_def.variants {
 				if !graph.in_r(v) {
@@ -115,7 +100,6 @@ pub fn build_uncovered_hints(
 	hints
 }
 
-/// BFS from a given (`parent_node`, field) to `IdentifierReference`.
 pub fn find_witness(
 	graph: &AstGraph,
 	start_node: &'static str,
@@ -130,18 +114,11 @@ pub fn find_witness_with_hints(
 	start_field: &Field,
 	hints: &HashMap<&'static str, BTreeSet<String>>,
 ) -> Option<Vec<Step>> {
-	// Pivot-style search: walk down from start until we reach a hinted node,
-	// take an uncovered child as the "pivot," then BFS from there to
-	// IdentifierReference with a fresh visited set. This produces snippets
-	// like `function f([x=location]){}` where the outer ArrayPattern is the
-	// uncovered pivot and the inner AssignmentPattern.right reaches the
-	// IdentifierReference.
 	if !hints.is_empty()
 		&& let Some(path) = pivot_witness(graph, hints, start_node, start_field)
 	{
 		return Some(path);
 	}
-	// fall through to the original BFS
 	let first = Step::Field {
 		node: start_node,
 		field: start_field.name,
@@ -176,7 +153,6 @@ pub fn find_witness_with_hints(
 			continue;
 		};
 
-		// Split children into "preferred" (hinted uncovered) and "other".
 		let cur_hints = hints.get(cur);
 		let is_uncovered = |name: &str| cur_hints.is_some_and(|s| s.contains(name));
 
@@ -244,9 +220,6 @@ pub fn find_witness_with_hints(
 	None
 }
 
-/// Walk down from `start` through hinted fields/variants until we reach a
-/// node where the hint includes a VARIANT — that's the pivot. Then BFS from
-/// the pivoted variant to `IdentifierReference`.
 fn pivot_witness(
 	graph: &AstGraph,
 	hints: &HashMap<&'static str, BTreeSet<String>>,
@@ -261,12 +234,8 @@ fn pivot_witness(
 	};
 	let start_ty = start_field.ty;
 
-	// 1. BFS to find the nearest hinted node from start_ty.
 	let pivot_chain = bfs_to_hint(graph, hints, start_ty)?;
 
-	// pivot_chain ends at some hinted type. Walk further through hint
-	// fields until we land on a node whose hint includes a *variant*. That
-	// variant becomes the pivot.
 	let mut path: Vec<Step> = Vec::new();
 	path.push(first);
 	path.extend(pivot_chain.steps);
@@ -276,25 +245,21 @@ fn pivot_witness(
 		let cur_def = graph.nodes.get(cur_ty)?;
 		let cur_hints = hints.get(cur_ty)?;
 
-		// Look for a hinted *variant* of cur_ty first.
 		let variant_hint = cur_def
 			.variants
 			.iter()
 			.find(|v| cur_hints.contains(**v) && graph.in_r(v));
 		if let Some(v) = variant_hint {
-			// Pivot here.
 			path.push(Step::Variant {
 				node: cur_ty,
 				variant: v,
 			});
-			// Hint-aware BFS so deeper levels also prefer uncovered.
 			let inner = bfs_to_ident_with_hints(graph, v, hints)?;
 			path.extend(inner);
 			path.push(Step::Leaf);
 			return Some(path);
 		}
 
-		// No variant hint at this level — descend through a hinted field.
 		let field_hint = cur_def
 			.fields
 			.iter()
@@ -310,7 +275,6 @@ fn pivot_witness(
 			continue;
 		}
 
-		// Hint present but nothing actionable. Bail.
 		return None;
 	}
 }
@@ -337,7 +301,6 @@ fn bfs_to_hint(
 
 	while let Some(cur) = queue.pop_front() {
 		if cur != start_ty && hints.contains_key(cur) {
-			// reconstruct
 			let mut steps = Vec::new();
 			let mut t = cur;
 			while t != start_ty {
@@ -395,8 +358,6 @@ fn bfs_to_hint(
 	None
 }
 
-/// BFS to `IdentifierReference` that prefers hinted (uncovered) children at
-/// every step, so deep witnesses also follow uncovered paths.
 fn bfs_to_ident_with_hints(
 	graph: &AstGraph,
 	start_ty: &'static str,
@@ -489,8 +450,6 @@ fn bfs_to_ident_with_hints(
 	None
 }
 
-/// BFS from `start_ty` to `IdentifierReference`, returning the chain of Steps
-/// (excluding the terminal Leaf). Fresh visited set.
 fn bfs_to_ident(graph: &AstGraph, start_ty: &'static str) -> Option<Vec<Step>> {
 	if start_ty == "IdentifierReference" {
 		return Some(Vec::new());
@@ -498,7 +457,7 @@ fn bfs_to_ident(graph: &AstGraph, start_ty: &'static str) -> Option<Vec<Step>> {
 	let mut parent: HashMap<&'static str, (&'static str, Step)> = HashMap::new();
 	let mut queue: VecDeque<&'static str> = VecDeque::new();
 	queue.push_back(start_ty);
-	parent.insert(start_ty, ("__root__", Step::Leaf)); // placeholder, never used
+	parent.insert(start_ty, ("__root__", Step::Leaf));
 
 	while let Some(cur) = queue.pop_front() {
 		if cur == "IdentifierReference" {
@@ -559,9 +518,6 @@ fn bfs_to_ident(graph: &AstGraph, start_ty: &'static str) -> Option<Vec<Step>> {
 	None
 }
 
-/// DFS through the AST type graph that prefers hinted-uncovered children
-/// and is willing to revisit types (up to a small per-type cap) so that we
-/// can construct paths like `outer Foo → uncovered Variant → inner Foo → …`.
 fn dfs_witness_through_hints(
 	graph: &AstGraph,
 	hints: &HashMap<&'static str, BTreeSet<String>>,
@@ -591,7 +547,6 @@ fn dfs_witness_through_hints(
 	let cur_hints = hints.get(cur);
 	let is_pref = |name: &str| cur_hints.is_some_and(|s| s.contains(name));
 
-	// Try preferred variants first, then preferred fields, then the rest.
 	let mut variants_pref: Vec<&&str> = Vec::new();
 	let mut variants_other: Vec<&&str> = Vec::new();
 	for v in def.variants {
@@ -646,7 +601,6 @@ fn dfs_witness_through_hints(
 	false
 }
 
-/// Render the full JS snippet starting from the outermost parent (path[0]).
 pub fn render_snippet(graph: &AstGraph, path: &[Step]) -> String {
 	render_at(graph, path, 0)
 }
@@ -660,21 +614,12 @@ fn render_at(graph: &AstGraph, path: &[Step], idx: usize) -> String {
 		}
 		Step::Variant { node, variant } => {
 			let inner = render_at(graph, path, idx + 1);
-			// The parent node is an enum. Its template is usually just
-			// "{variant}", in which case we substitute. The variant's own
-			// node template (if non-trivial) is applied by the *next* step
-			// recursively. We need to NOT double-fill.
 			let parent_tmpl = templates::template(node);
 			if parent_tmpl == "{variant}" || parent_tmpl.is_empty() {
-				// Plain enum — pass through the inner, but if the variant has
-				// its own template, fill that one here.
 				let next_step = path.get(idx + 1);
 				if matches!(next_step, Some(Step::Field { node: vn, .. }) if vn == variant) {
-					// The next Field step's `node` is the variant — fill_template
-					// for that variant will be invoked at idx+1. Just return inner.
 					inner
 				} else if matches!(next_step, Some(Step::Leaf)) {
-					// Variant is itself the leaf type (e.g. IdentifierReference).
 					inner
 				} else {
 					inner

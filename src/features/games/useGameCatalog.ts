@@ -6,7 +6,6 @@ import {
   type GameEntry,
 } from "./games.ts";
 
-/** Each view owns its presentation state; only games.ts writes the catalog/cache. */
 export function useGameCatalog(active: boolean) {
   const [games, setGames] = useState<GameEntry[]>([]);
   const [loaded, setLoaded] = useState(false);

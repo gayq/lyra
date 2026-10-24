@@ -12,10 +12,6 @@ export type EventHandlerPluginOptions = {
 	events?: string[];
 };
 
-/**
- * Allows you to register an event listener on an element, such that it will only run after the page's own listeners (including after stopPropagation).
- * This allows you to fake "native" browser behavior with ease
- */
 export class EventHandlerPlugin extends ManagedPlugin {
 	private addAlwaysLastEventListeners: Map<Window, AddAlwaysLastEventListener> =
 		new Map();
@@ -43,7 +39,6 @@ export class EventHandlerPlugin extends ManagedPlugin {
 
 	private getWindow(target: EventTarget): Window | null {
 		if (!target) return null;
-		// TODO: object safety
 		// @ts-expect-error
 		if ("ownerDocument" in target && target.ownerDocument.defaultView) {
 			// @ts-expect-error

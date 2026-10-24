@@ -30,6 +30,7 @@ import "../../assets/styles/anime/episode-selector.css";
 import "../../assets/styles/anime/episode-picker-modal.css";
 
 const SVG_XMARK = svgIcon("IconCrossMedium");
+const NO_EPISODES: AnimeEpisodeMapping[] = [];
 
 interface EpisodePickerModalProps {
   visible: boolean;
@@ -107,21 +108,30 @@ function getEpisodeNumbersForPicker(
   hasMultipleParts: boolean,
   maxEpisode: number,
   initialEpisode = 0,
-  episodeDataKey?: string | null,
-  activeEpisodeKey?: string,
 ): number[] {
-  const hasCurrentEpisodeData =
-    activeEpisodeKey === undefined || episodeDataKey === activeEpisodeKey;
-  const currentEpisodes = hasCurrentEpisodeData ? anikotoEpisodes : [];
-  const currentMaxEpisode = hasCurrentEpisodeData ? maxEpisode : 0;
-  const hasEpisodeData = currentEpisodes.length > 0 || currentMaxEpisode > 0;
+  const hasEpisodeData = anikotoEpisodes.length > 0 || maxEpisode > 0;
   if (loadingEpisodes && !hasEpisodeData) return [];
-  if (currentEpisodes.length > 0 && !hasMultipleParts) {
-    return [...new Set(currentEpisodes.map((episode) => episode.number))].sort(
+  if (anikotoEpisodes.length > 0 && !hasMultipleParts) {
+    return [...new Set(anikotoEpisodes.map((episode) => episode.number))].sort(
       (a, b) => a - b,
     );
   }
-  return episodeNumbersForCount(currentMaxEpisode, initialEpisode);
+  return episodeNumbersForCount(maxEpisode, initialEpisode);
+}
+
+function getKnownEpisodeCount(
+  format: string | undefined,
+  episodeCount: number | undefined,
+  parts: NonNullable<AnimeSeason["parts"]>,
+): number {
+  if (isAnimeMovieFormat(format)) return 1;
+  if (parts.length > 1) {
+    return playableAnimeParts(parts).reduce(
+      (total, part) => total + part.episodeCount!,
+      0,
+    );
+  }
+  return episodeCount || 0;
 }
 
 const EpisodePickerModal = memo(function EpisodePickerModal({
@@ -169,6 +179,9 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
   );
   const [maxEpisode, setMaxEpisode] = useState(0);
   const [episodeDataKey, setEpisodeDataKey] = useState<string | null>(null);
+  const [fetchedEpisodeKey, setFetchedEpisodeKey] = useState<string | null>(
+    null,
+  );
   const [resolvedParts, setResolvedParts] = useState<
     NonNullable<AnimeSeason["parts"]>
   >([]);
@@ -213,22 +226,35 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
     activeTitle,
     partsKey,
   ]);
+  const knownEpisodeCount = getKnownEpisodeCount(
+    activeFormat,
+    activeEpisodeCount,
+    sourceParts,
+  );
   const hasCurrentEpisodeData = episodeDataKey === activeEntryKey;
   const activeParts =
     hasCurrentEpisodeData && resolvedParts.length > 1
       ? resolvedParts
       : sourceParts;
-  const currentAnikotoEpisodes = hasCurrentEpisodeData ? anikotoEpisodes : [];
-  const currentMaxEpisode = hasCurrentEpisodeData ? maxEpisode : 0;
+  const currentAnikotoEpisodes = hasCurrentEpisodeData
+    ? anikotoEpisodes
+    : NO_EPISODES;
+  const currentMaxEpisode = hasCurrentEpisodeData
+    ? maxEpisode
+    : knownEpisodeCount;
   const currentLoadingEpisodes = hasCurrentEpisodeData
     ? loadingEpisodes
     : hasAnimeIdentity(activeIds);
+  const awaitingFirstFetch =
+    currentLoadingEpisodes && fetchedEpisodeKey !== activeEntryKey;
 
+  const requestClose = useCallback(() => setIsClosing(true), []);
+  const finishClose = useCallback(() => onCloseRef.current(), []);
   const { modalStateClass, onAnimationEnd } = useManagedModal({
     visible: visible && !embedded,
     isClosing,
-    onRequestClose: () => setIsClosing(true),
-    onCloseComplete: () => onCloseRef.current(),
+    onRequestClose: requestClose,
+    onCloseComplete: finishClose,
   });
 
   useEffect(() => {
@@ -239,6 +265,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
       setAnikotoEpisodes([]);
       setMaxEpisode(0);
       setEpisodeDataKey(null);
+      setFetchedEpisodeKey(null);
       setResolvedParts([]);
       setSelectedSeasonId(initialSeasonId ?? null);
       autoPlayedRef.current = 0;
@@ -270,7 +297,6 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
       };
     }
 
-    const knownEpisodeCount = activeEpisodeCount || 0;
     const hasDirectSeries = Boolean(activeIds.anikoto);
     const hasIdentity = hasAnimeIdentity(activeIds);
     const hasUsableEpisodeData =
@@ -278,7 +304,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
     if (!hasUsableEpisodeData) {
       setAnikotoEpisodes([]);
       setResolvedParts(sourceParts);
-      setMaxEpisode(0);
+      setMaxEpisode(knownEpisodeCount);
       setEpisodeDataKey(activeEntryKey);
     }
     if (!hasIdentity) {
@@ -315,6 +341,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
           ),
         );
         setEpisodeDataKey(activeEntryKey);
+        setFetchedEpisodeKey(activeEntryKey);
         setLoadingEpisodes(false);
         return;
       }
@@ -332,6 +359,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
             ),
           );
           setEpisodeDataKey(activeEntryKey);
+          setFetchedEpisodeKey(activeEntryKey);
           setLoadingEpisodes(false);
           return;
         }
@@ -344,6 +372,7 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
       if (directEpisodes.length === 0) setAnikotoEpisodes([]);
       setMaxEpisode(chooseEpisodeCount(knownEpisodeCount, resolvedCount));
       setEpisodeDataKey(activeEntryKey);
+      setFetchedEpisodeKey(activeEntryKey);
       setLoadingEpisodes(false);
     };
     void load();
@@ -419,11 +448,18 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
     ],
   );
 
+  const needsEpisodeMapping = Boolean(activeIds.anikoto) || hasMultipleParts;
+  const canAutoPlay =
+    !currentLoadingEpisodes ||
+    (!needsEpisodeMapping &&
+      !!initialEpisode &&
+      currentMaxEpisode >= initialEpisode);
+
   useEffect(() => {
     if (
       !visible ||
       seasonsLoading ||
-      currentLoadingEpisodes ||
+      !canAutoPlay ||
       !hasCurrentEpisodeData ||
       !initialEpisode ||
       autoPlayedRef.current === initialEpisode
@@ -437,13 +473,13 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
     initialEpisode,
     playEpisode,
     seasonsLoading,
-    currentLoadingEpisodes,
+    canAutoPlay,
     hasCurrentEpisodeData,
   ]);
 
   const episodeNumbers = useMemo(
     () =>
-      seasonsLoading && seasonOptions.length === 0
+      (seasonsLoading && seasonOptions.length === 0) || awaitingFirstFetch
         ? []
         : getEpisodeNumbersForPicker(
             currentLoadingEpisodes,
@@ -451,15 +487,12 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
             hasMultipleParts,
             currentMaxEpisode,
             initialEpisode,
-            episodeDataKey,
-            activeEntryKey,
           ),
     [
-      activeEntryKey,
+      awaitingFirstFetch,
       currentAnikotoEpisodes,
       currentLoadingEpisodes,
       currentMaxEpisode,
-      episodeDataKey,
       seasonOptions.length,
       hasMultipleParts,
       initialEpisode,

@@ -108,9 +108,6 @@ impl<'a> TransformLL<'a> {
 		len
 	}
 
-	/// # Panics
-	///
-	/// Panics if a transform emits bytes that are not valid utf-8.
 	pub fn to_string(&self, itoa: &mut itoa::Buffer, alloc: &Allocator) -> String {
 		let mut vec = Vec::new_in(alloc);
 		self.apply(itoa, &mut vec);

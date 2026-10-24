@@ -23,7 +23,7 @@ import {
 } from "./cache.mjs";
 
 let shuttingDown = false;
-const connectPresence = createPresence();
+const connectPresence = createPresence({ maxStreamsPerSource: 1_000 });
 
 const ROOT = process.cwd();
 const adcash = createAdcash({ root: ROOT });
@@ -609,15 +609,15 @@ async function appFetch(req, server, url) {
     return healthResponse((await probeEturnal()) ? 200 : 503);
   }
 
-  if (pathname.startsWith("/api/")) {
-    const limited = rateLimitApi(req, server);
-    if (limited) return limited;
-  }
-
   if (isMochiPath(pathname) || hasMochiReferer(req)) return proxyToMochi(req);
-  if (pathname === "/api/dns") return dnsService.handle(req);
+  if (pathname === "/api/dns") {
+    return rateLimitApi(req, server) || dnsService.handle(req);
+  }
   if (pathname === "/api/presence" && method === "GET") {
-    return connectPresence(req.signal);
+    const stream = connectPresence(req.signal, url.searchParams.get("id"), getClientIp(req, server));
+    if (stream) return stream;
+    const failure = httpError(429, "RATE_LIMITED", "too many requests, please try again later");
+    return jsonResponse(failure.body, failure.status);
   }
 
   if (method === "OPTIONS") {
@@ -644,6 +644,8 @@ async function appFetch(req, server, url) {
   }
 
   if (pathname === "/api/search/suggestions" && method === "GET") {
+    const limited = rateLimitApi(req, server);
+    if (limited) return limited;
     const result = await searchSuggestionService(url.searchParams.get("q"));
     return jsonResponse(result.body, result.status);
   }

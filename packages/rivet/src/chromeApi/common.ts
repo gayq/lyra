@@ -319,13 +319,33 @@ export function originOf(url: string | undefined): string | undefined {
   }
 }
 
+const messageTasks: (() => void)[] = [];
+let messageChannel: MessageChannel | null | undefined;
+
+function scheduleMessageTask(task: () => void): void {
+  if (messageChannel === undefined) {
+    messageChannel =
+      typeof MessageChannel === "function" ? new MessageChannel() : null;
+    if (messageChannel) {
+      messageChannel.port1.onmessage = () => messageTasks.shift()?.();
+      (messageChannel.port1 as { unref?: () => void }).unref?.();
+    }
+  }
+  if (!messageChannel) {
+    setTimeout(task, 0);
+    return;
+  }
+  messageTasks.push(task);
+  messageChannel.port2.postMessage(null);
+}
+
 export function dispatchMessage(
   hubs: EventHub[],
   message: unknown,
   sender: unknown,
 ): Promise<unknown> {
   return new Promise((resolve) => {
-    setTimeout(() => {
+    scheduleMessageTask(() => {
       try {
         dispatchMessageNow(hubs, message, sender, resolve);
       } catch (error) {
@@ -336,7 +356,7 @@ export function dispatchMessage(
         );
         resolve(undefined);
       }
-    }, 0);
+    });
   });
 }
 

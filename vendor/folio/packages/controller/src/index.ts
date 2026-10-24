@@ -322,14 +322,7 @@ export class Controller {
 					if (!this.wasmPayload) {
 						const resp = await fetch(this.config.wasmPath);
 						const buf = await resp.arrayBuffer();
-						const b64 = btoa(
-							new Uint8Array(buf)
-								.reduce(
-									(data, byte) => (data.push(String.fromCharCode(byte)), data),
-									[] as any
-								)
-								.join("")
-						);
+						const b64 = bytesToBase64(new Uint8Array(buf));
 
 						this.wasmPayload = `self.WASM = '${b64}';`;
 					}
@@ -730,16 +723,19 @@ export class Controller {
 	}
 }
 
+function bytesToBase64(bytes: Uint8Array) {
+	let binary = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) {
+		binary += String.fromCharCode.apply(
+			null,
+			bytes.subarray(i, i + 0x8000) as unknown as number[]
+		);
+	}
+	return btoa(binary);
+}
+
 function base64Encode(text: string) {
-	return btoa(
-		new TextEncoder()
-			.encode(text)
-			.reduce(
-				(data, byte) => (data.push(String.fromCharCode(byte)), data),
-				[] as any
-			)
-			.join("")
-	);
+	return bytesToBase64(new TextEncoder().encode(text));
 }
 
 function yieldGetInjectScripts(
@@ -756,16 +752,17 @@ function yieldGetInjectScripts(
 		htmlcontext,
 		script
 	) => {
+		// serialized into injected pages, so it cannot use module helpers.
 		function base64Encode(text: string) {
-			return btoa(
-				new TextEncoder()
-					.encode(text)
-					.reduce(
-						(data, byte) => (data.push(String.fromCharCode(byte)), data),
-						[] as any
-					)
-					.join("")
-			);
+			const bytes = new TextEncoder().encode(text);
+			let binary = "";
+			for (let i = 0; i < bytes.length; i += 0x8000) {
+				binary += String.fromCharCode.apply(
+					null,
+					bytes.subarray(i, i + 0x8000) as unknown as number[]
+				);
+			}
+			return btoa(binary);
 		}
 		return [
 			script(config.folioPath),
@@ -829,7 +826,7 @@ export class Frame {
 					(()=>{
 						const { FolioClient, CookieJar, setWasm } = $folio;
 
-						setWasm(Uint8Array.from(atob(self.WASM), (c) => c.charCodeAt(0)));
+						setWasm(Uint8Array.fromBase64 ? Uint8Array.fromBase64(self.WASM) : Uint8Array.from(atob(self.WASM), (c) => c.charCodeAt(0)));
 						delete self.WASM;
 
 						const flconfig = ${JSON.stringify(this.controller.folioConfig)};

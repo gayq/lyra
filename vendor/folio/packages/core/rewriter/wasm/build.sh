@@ -89,20 +89,6 @@ wasm-snip rewriter/wasm/out/wasm_bg.wasm -o rewriter/wasm/out/wasm_snipped.wasm 
 	'oxc_parser::jsx::<impl oxc_parser::ParserImpl>::parse_jsx_fragment' \
 	'oxc_parser::jsx::<impl oxc_parser::ParserImpl>::parse_jsx_expression_container' \
 	'oxc_parser::jsx::<impl oxc_parser::ParserImpl>::parse_jsx_expression'
-#
-#	these are confirmed to break oxc
-#   'oxc_parser::ts::statement::<impl oxc_parser::ParserImpl>::parse_declaration' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::parse_ts_type' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::parse_type_arguments_in_expression' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::parse_ts_type_parameters' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::parse_class_element_modifiers' \
-#	'oxc_parser::ts::statement::<impl oxc_parser::ParserImpl>::eat_decorators' \
-#	'oxc_parser::ts::statement::<impl oxc_parser::ParserImpl>::is_nth_at_modifier' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::try_parse_type_arguments' \
-#	'oxc_parser::ts::statement::<impl oxc_parser::ParserImpl>::is_at_ts_index_signature_member' \
-#	'oxc_parser::ts::types::<impl oxc_parser::ParserImpl>::parse_ts_return_type_annotation' \
-#	'oxc_parser::ts::statement::<impl oxc_parser::ParserImpl>::parse_ts_type_annotation' \
-
 
 if [ "${RELEASE:-0}" = "1" ]; then
 	(

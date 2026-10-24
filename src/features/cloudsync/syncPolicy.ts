@@ -2,7 +2,13 @@ export const FOLIO_DB = "__folio_controller";
 
 export const IDB_REGISTRY_KEY = "lyra-sync-idb-names";
 const LOCAL_ONLY_RIVET_STORES = new Set(["extensions", "extension_files"]);
-export const LOCAL_ONLY_DATABASES = new Set(["uBlock0CacheStorage"]);
+export const SYNC_LOCAL_DATABASE = "lyra-sync-local";
+export const LOCAL_ONLY_DATABASES = new Set([
+  "uBlock0CacheStorage",
+  SYNC_LOCAL_DATABASE,
+]);
+const GAME_FILE_FIELDS = new Set(["timestamp", "mode", "contents"]);
+const MAX_GAME_FILE_BYTES = 8 * 1024 * 1024;
 const LOCAL_STORAGE_PREFIXES = [
   "lyra-game-cache-",
   "lyra-anime-feed-entries-",
@@ -14,6 +20,10 @@ const LOCAL_STORAGE_KEYS = new Set([
   "lyraVersionStamp",
   "lyraUpdateTarget",
   "lyraUpdateAttempt",
+  "lyraPresenceId",
+  "lyra-title-peak-index",
+  "lyra-search-placeholder-index",
+  "bare-mux-path",
 ]);
 
 export function isLocalOnlySyncStorageKey(name: string): boolean {
@@ -105,6 +115,27 @@ export function canSyncIndexedDBStore(
     !LOCAL_ONLY_DATABASES.has(databaseName) &&
     (databaseName !== "rivet_extensions" ||
       !LOCAL_ONLY_RIVET_STORES.has(storeName))
+  );
+}
+
+export function isGameFileRecord(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const entry = value as Record<string, unknown>;
+  const keys = Object.keys(entry);
+  if (
+    !keys.every((key) => GAME_FILE_FIELDS.has(key)) ||
+    typeof entry.mode !== "number" ||
+    !(entry.timestamp instanceof Date || typeof entry.timestamp === "number")
+  ) {
+    return false;
+  }
+  if (!("contents" in entry)) return true;
+  const contents = entry.contents;
+  return (
+    (ArrayBuffer.isView(contents) || contents instanceof ArrayBuffer) &&
+    contents.byteLength <= MAX_GAME_FILE_BYTES
   );
 }
 

@@ -6,6 +6,7 @@ import { scheduleIdleTask } from "../core/runtime/scheduler.ts";
 import { initCloaking } from "../features/cloaking.ts";
 import "../features/cloudsync/syncBoundary.ts";
 import { resolveTheme } from "../core/config/settingsOptions.ts";
+import { applyTheme } from "../core/ui/theme.ts";
 import {
   applyMotionPreference,
   readAdvancedToggle,
@@ -27,12 +28,7 @@ if (recoveryUrl.searchParams.has("lyra-recovery")) {
   history.replaceState(history.state, "", recoveryUrl.href);
 }
 
-const savedTheme = resolveTheme(localStorage.getItem("theme"));
-if (savedTheme === "default") {
-  document.documentElement.removeAttribute("data-theme");
-} else {
-  document.documentElement.setAttribute("data-theme", savedTheme);
-}
+applyTheme(resolveTheme(localStorage.getItem("theme")));
 
 applyMotionPreference(readMotionPreference());
 

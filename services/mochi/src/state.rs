@@ -66,6 +66,13 @@ pub enum StreamFillState {
     Interrupted,
 }
 
+#[derive(Default)]
+pub struct StreamFill {
+    pub state: Arc<Mutex<Option<StreamFillState>>>,
+    pub live: std::sync::Mutex<Option<Arc<crate::stream::LiveSegment>>>,
+    pub ready: tokio::sync::Notify,
+}
+
 pub struct AppState {
     pub websocket_permit: Arc<tokio::sync::Semaphore>,
     pub memory_pressure: Arc<crate::memory::MemoryPressure>,
@@ -74,7 +81,7 @@ pub struct AppState {
     pub raw_client: Client,
     pub cache: Cache<String, Arc<CachedResponse>>,
     pub stream_cache: Cache<String, Arc<CachedResponse>>,
-    pub stream_fills: Cache<String, Arc<Mutex<Option<StreamFillState>>>>,
+    pub stream_fills: Cache<String, Arc<StreamFill>>,
     pub folio_cache: Cache<String, Arc<FolioCachedResponse>>,
     pub effective_bases: Cache<String, url::Url>,
     pub folio_cache_generation: AtomicU64,
@@ -92,4 +99,5 @@ pub struct AppState {
     pub stream_max_entry_size: usize,
     pub ram_cache_limit: usize,
     pub channel_buffer: usize,
+    pub stream_prefetch_segments: usize,
 }

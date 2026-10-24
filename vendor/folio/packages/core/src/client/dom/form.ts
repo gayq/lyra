@@ -34,7 +34,6 @@ export default function (client: FolioClient, self: Self) {
 		carrier.method = "get";
 		carrier.target = (submitter?.hasAttribute("formtarget") ? submitter.formTarget : form.target) || self.document.querySelector("base[target]")?.getAttribute("target") || "_self";
 		carrier.rel = form.rel;
-		// Use the native setter so this local action isn't rewritten again.
 		client.descriptors.set("HTMLFormElement.prototype.action", carrier, route.href);
 		const input = self.document.createElement("input");
 		input.type = "hidden";

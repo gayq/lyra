@@ -27,7 +27,6 @@ export function rewriteWorkers(
 	}
 
 	if (flagEnabled("encapsulateWorkers", context, meta.origin)) {
-		// TODO: check if there's already a sourceURL/sourcemap before appending another?
 		rewritten += `//# sourceURL=${url}`;
 		str += script(b64(rewritten as string));
 	} else {

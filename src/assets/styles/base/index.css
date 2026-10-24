@@ -1385,7 +1385,6 @@ html.theme-transitioning::view-transition-old(root) {
 
 html.theme-transitioning::view-transition-new(root) {
   z-index: 9999;
-  animation: circle-reveal var(--motion-reveal) var(--motion-ease);
 }
 
 html.theme-transitioning::view-transition-group(theme-iframe-active),
@@ -1406,15 +1405,6 @@ html.theme-transitioning::view-transition-new(theme-iframe-left),
 html.theme-transitioning::view-transition-new(theme-iframe-right) {
   animation: none;
   mix-blend-mode: normal;
-}
-
-@keyframes circle-reveal {
-  from {
-    clip-path: circle(0px at top left);
-  }
-  to {
-    clip-path: circle(150vmax at top left);
-  }
 }
 
 @media (max-width: 760px) {

@@ -5,7 +5,6 @@ import {
   dbDeleteEntries,
   dbGet,
   dbGetAll,
-  dbGetAllKeys,
   dbPut,
   dbPutEntries,
   EXT_FILES_STORE,
@@ -40,6 +39,10 @@ export interface InstalledExtensionSummary {
   badgeText: string;
   badgeColor: string | null;
   hasPopup: boolean;
+}
+
+function keysWithPrefix(prefix: string): IDBKeyRange {
+  return IDBKeyRange.bound(prefix, `${prefix.slice(0, -1)}0`, false, true);
 }
 
 async function loadMessages(
@@ -177,6 +180,13 @@ export async function loadStoredExtensions(
   backgroundRoot: HTMLElement,
 ): Promise<number> {
   const stored = await dbGetAll<ExtensionMeta>(EXT_STORE);
+  const cleared = await Promise.allSettled(
+    stored.map((meta) =>
+      dbDeleteEntries(EXT_STORAGE_STORE, keysWithPrefix(`${meta.id}/session/`)),
+    ),
+  );
+  if (cleared.some((result) => result.status === "rejected"))
+    console.warn("[rivet] session storage reset failed", NEGATIVE);
   for (let offset = 0; offset < stored.length; offset += 2) {
     await Promise.all(
       stored.slice(offset, offset + 2).map(async (meta) => {
@@ -232,10 +242,7 @@ export async function installExtension(
       }
       await dbPut(EXT_STORE, null, meta);
     } catch (error) {
-      await dbDeleteEntries(
-        EXT_FILES_STORE,
-        IDBKeyRange.bound(`${extId}/`, `${extId}0`, false, true),
-      );
+      await dbDeleteEntries(EXT_FILES_STORE, keysWithPrefix(`${extId}/`));
       throw error;
     }
   } finally {
@@ -259,18 +266,10 @@ export async function uninstallExtension(
   registry.remove(extId);
 
   await dbDelete(EXT_STORE, extId);
-  const fileKeys = await dbGetAllKeys(EXT_FILES_STORE);
-  for (const k of fileKeys.filter(
-    (key) => typeof key === "string" && key.startsWith(`${extId}/`),
-  )) {
-    await dbDelete(EXT_FILES_STORE, k);
-  }
-  const storageKeys = await dbGetAllKeys(EXT_STORAGE_STORE);
-  for (const k of storageKeys.filter(
-    (key) => typeof key === "string" && key.startsWith(`${extId}/`),
-  )) {
-    await dbDelete(EXT_STORAGE_STORE, k);
-  }
+  await Promise.all([
+    dbDeleteEntries(EXT_FILES_STORE, keysWithPrefix(`${extId}/`)),
+    dbDeleteEntries(EXT_STORAGE_STORE, keysWithPrefix(`${extId}/`)),
+  ]);
   registry.notifyChange();
 }
 

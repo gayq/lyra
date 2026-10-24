@@ -1,7 +1,6 @@
 import { iswindow } from "@client/entry";
 import { FOLIOCLIENT } from "@/symbols";
 import { FolioClient } from "@client/index";
-// import { argdbg } from "@client/shared/err";
 import { indirectEval } from "@client/shared/eval";
 import { Object_defineProperty } from "@/shared/snapshot";
 
@@ -11,30 +10,23 @@ export function createWrapFn(client: FolioClient, self: GlobalThis) {
 	if (iswindow) {
 		try {
 			if (FOLIOCLIENT in self.parent) {
-				// ... then we're in a subframe, and the parent frame is also in a proxy context, so we should return its proxy
 				wrappedParent = self.parent;
 			} else {
-				// ... then we should pretend we aren't nested and return the current window
 				wrappedParent = self;
 			}
 		} catch {
-			// accessing self.parent can throw if it's cross-origin, in which case we should also pretend we aren't nested
 			wrappedParent = self;
 		}
-		// instead of returning top, we need to return the uppermost parent that's inside a folio context
 		let current: GlobalThis | Window = self;
 		for (;;) {
 			const test = current.parent.self;
-			if (test === current) break; // there is no parent, actual or emulated.
+			if (test === current) break;
 
 			try {
-				// ... then `test` represents a window outside of the proxy context, and therefore `current` is the topmost window in the proxy context
 				if (!(FOLIOCLIENT in test)) break;
 			} catch {
-				// accessing test can throw if it's cross-origin, in which case we should also break
 				break;
 			}
-			// test is also insde a proxy, so we should continue up the chain
 			current = test;
 		}
 		wrappedTop = current;
@@ -43,7 +35,6 @@ export function createWrapFn(client: FolioClient, self: GlobalThis) {
 	return function (identifier: any, strict: boolean) {
 		if (identifier === self.location) return client.locationProxy;
 		if (identifier === self.eval) {
-			// TODO: make this per-client, don't regen every time
 			const bound = indirectEval.bind(client, strict);
 			client.box.unproxy.set(bound, self.eval);
 			return bound;
@@ -97,8 +88,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 		client.config.globals.wrappropertybase + "location",
 		{
 			get: function () {
-				// if (this.location.constructor.toString().includes("Location")) {
-
 				if (this === self || this === self.document) {
 					return client.locationProxy;
 				}
@@ -125,7 +114,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 				return client.wrapfn(this.parent, false);
 			},
 			set(value: any) {
-				// i guess??
 				this.parent = value;
 			},
 			configurable: false,
@@ -166,7 +154,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 		if (t === "object" && v !== null) {
 			if (v === location) debugger;
 			if (iswindow) {
-				// if (v === self.parent) debugger;
 				if (v === self.top) debugger;
 			}
 		} else if (t === "string") {
@@ -178,10 +165,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 		return v;
 	};
 
-	// location = "..." can't be rewritten as wrapfn(location) = ..., so instead it will actually be rewritten as
-	// ((t)=>$folio$tryset(location,"+=",t)||location+=t)(...);
-	// it has to be a discrete function because there's always the possibility that "location" is a local variable
-	// we have to use an IIFE to avoid duplicating side-effects in the getter
 	Object_defineProperty(self, client.config.globals.trysetfn, {
 		value: function (lhs: any, op: string, rhs: any) {
 			if (client.box.locations.has(lhs)) {

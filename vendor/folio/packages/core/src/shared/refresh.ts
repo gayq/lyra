@@ -1,7 +1,3 @@
-/**
- * this is vibe slop for parsing the content of a meta refresh element, which is a bit of a mess
- * @see https://html.spec.whatwg.org/multipage/semantics.html#the-meta-element:the-declarative-refresh-syntax
- */
 import { Number_parseInt } from "./snapshot";
 export type ParsedDeclarativeRefresh = {
 	time: number;

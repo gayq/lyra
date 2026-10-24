@@ -1,6 +1,3 @@
-// this is a place for storing stateless globals that will be used by shared/
-// this is NOT a place for putting dom apis
-
 export const String = globalThis.String;
 export const String_fromCodePoint = globalThis.String.fromCodePoint;
 export const String_fromCharCode = globalThis.String.fromCharCode;
@@ -216,8 +213,6 @@ export const _TextEncoder = makeWrap(globalThis.TextEncoder);
 export type _TextEncoder = Wrapped<TextEncoder>;
 
 export function makeWrap<T extends object>(source: T): Wrapped<T> {
-	// Constructable builtins like Set/Map/URL need to retain their [[Construct]]
-	// behavior; cloning them into plain objects breaks `new _Set(...)`.
 	if (typeof source === "function") {
 		return new Proxy(source, {}) as Wrapped<T>;
 	}
@@ -234,18 +229,14 @@ export function makeWrap<T extends object>(source: T): Wrapped<T> {
 		return descriptors;
 	}
 
-	// Recursively clone prototype chain
 	function clonePrototypeChain(obj: object | null): object | null {
 		if (obj === null) return null;
 		const proto = Object.getPrototypeOf(obj);
-		// The chain ends at null (root), otherwise recursively clone up the chain
 		const clonedProto = clonePrototypeChain(proto);
-		// Clone current object's own props and set prototype to cloned parent
 		const clone = Object.create(clonedProto, getAllPropertyDescriptors(obj));
 		return clone;
 	}
 
-	// Actually clone the source itself (including own properties)
 	const wrapped = Object.create(
 		clonePrototypeChain(Object.getPrototypeOf(source)),
 		getAllPropertyDescriptors(source)

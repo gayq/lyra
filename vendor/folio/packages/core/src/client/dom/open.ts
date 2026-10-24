@@ -5,12 +5,9 @@ import { String } from "@/shared/snapshot";
 export default function (client: FolioClient) {
 	client.Proxy("window.open", {
 		apply(ctx) {
-			// undefined opens an about:blank window, pass through
 			if (typeof ctx.args[0] !== "undefined") {
 				const url = String(ctx.args[0]);
-				// blank also opens an about:blank window
 				if (url !== "") {
-					// note that null or anything else will *not* open an about:blank window
 					ctx.args[0] = client.rewriteUrl(url);
 				}
 			}
@@ -33,7 +30,6 @@ export default function (client: FolioClient) {
 			if (!realwin) return ctx.return(realwin);
 
 			if (!(FOLIOCLIENT in realwin)) {
-				// i don't believe it's possible for a just-opened window to already have folio loaded but just in case
 				client.init.hookSubcontext(realwin as Self);
 			}
 
@@ -48,10 +44,8 @@ export default function (client: FolioClient) {
 
 			const win = f.ownerDocument.defaultView;
 			if (win[FOLIOCLIENT]) {
-				// then this is a subframe in a folio context, and it's safe to pass back the real iframe
 				return f;
 			} else {
-				// no, the top frame is outside the sandbox
 				return null;
 			}
 		},

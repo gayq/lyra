@@ -25,32 +25,36 @@ export function createStateApis(context: ChromeApiContext) {
       const periodMs = alarmInfo?.periodInMinutes
         ? alarmInfo.periodInMinutes * 60000
         : null;
-      const scheduledTime = Date.now() + delayMs;
-      const fire = () =>
-        registry.broadcast(extId, (eventSet) => eventSet.alarmsOnAlarm, [
-          {
-            name,
-            scheduledTime,
-            periodInMinutes: alarmInfo?.periodInMinutes,
-          },
-        ]);
-      const record = (timer: ReturnType<typeof setTimeout>) => ({
+      const fire = () => {
+        const info = {
+          name,
+          scheduledTime: alarm.scheduledTime,
+          periodInMinutes: alarmInfo?.periodInMinutes,
+        };
+        if (periodMs) alarm.scheduledTime += periodMs;
+        else if (ext.alarms.get(name) === alarm) ext.alarms.delete(name);
+        registry.broadcast(extId, (eventSet) => eventSet.alarmsOnAlarm, [info]);
+      };
+      const alarm = {
         name,
-        scheduledTime,
+        scheduledTime: Date.now() + delayMs,
         ...(alarmInfo?.periodInMinutes === undefined
           ? {}
           : { periodInMinutes: alarmInfo.periodInMinutes }),
-        timer,
-      });
-      const timer = periodMs
-        ? setTimeout(() => {
-            fire();
-            ext.alarms.set(name, record(setInterval(fire, periodMs)));
-          }, delayMs)
-        : setTimeout(fire, delayMs);
-      ext.alarms.set(name, record(timer));
+        timer: setTimeout(() => {
+          fire();
+          if (periodMs && ext.alarms.get(name) === alarm)
+            alarm.timer = setInterval(fire, periodMs);
+        }, delayMs),
+      };
+      ext.alarms.set(name, alarm);
     },
-    get: (name: string, cb?: (alarm: unknown) => void) => {
+    get: (nameOrCb?: unknown, maybeCb?: (alarm: unknown) => void) => {
+      const name = typeof nameOrCb === "string" ? nameOrCb : "";
+      const cb =
+        typeof nameOrCb === "function"
+          ? (nameOrCb as (alarm: unknown) => void)
+          : maybeCb;
       const alarm = ext.alarms.get(name);
       const result = alarm
         ? {
@@ -71,16 +75,24 @@ export function createStateApis(context: ChromeApiContext) {
       cb?.(result);
       return Promise.resolve(result);
     },
-    clear: (name: string, cb?: (wasCleared: boolean) => void) => {
+    clear: (nameOrCb?: unknown, maybeCb?: (wasCleared: boolean) => void) => {
+      const name = typeof nameOrCb === "string" ? nameOrCb : "";
+      const cb =
+        typeof nameOrCb === "function"
+          ? (nameOrCb as (wasCleared: boolean) => void)
+          : maybeCb;
       const alarm = ext.alarms.get(name);
       if (alarm) clearTimeout(alarm.timer);
       const existed = ext.alarms.delete(name);
       cb?.(existed);
+      return Promise.resolve(existed);
     },
     clearAll: (cb?: (wasCleared: boolean) => void) => {
+      const existed = ext.alarms.size > 0;
       for (const alarm of ext.alarms.values()) clearTimeout(alarm.timer);
       ext.alarms.clear();
-      cb?.(true);
+      cb?.(existed);
+      return Promise.resolve(existed);
     },
     onAlarm: events.alarmsOnAlarm.toApi(),
   };

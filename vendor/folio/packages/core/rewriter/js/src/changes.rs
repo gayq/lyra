@@ -75,11 +75,9 @@ mod tests {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum JsChangeType<'alloc: 'data, 'data> {
-	/// insert `${cfg.wrapfn}(`
 	WrapFnLeft {
 		enclose: bool,
 	},
-	/// insert `)`
 	WrapFnRight {
 		enclose: bool,
 	},
@@ -100,29 +98,20 @@ pub enum JsChangeType<'alloc: 'data, 'data> {
 		location_assigned: bool,
 	},
 
-	/// insert `$wrapPostMessage(`
 	WrapPostMessageLeft,
 
-	/// insert the configured error hook call
 	ScramErrFn {
 		ident: Atom<'data>,
 	},
-	/// insert `$scramitize(`
 	ScramitizeFn,
-	/// insert `eval(${cfg.rewritefn}(`
 	EvalRewriteFn,
-	/// insert `: ${cfg.wrapfn}(ident)`
 	ShorthandObj {
 		ident: Atom<'data>,
 	},
-	/// insert scramtag
 	SourceTag,
 
-	/// replace span with `${cfg.importfn}`
 	ImportFn,
-	/// replace span with `${cfg.metafn}("${cfg.base}")`
 	MetaFn,
-	/// replace span with `((t)=>$folio$tryset(${name},"${op}",t)||(${name}${op}t))(`
 	AssignmentLeft {
 		name: Atom<'data>,
 		op: AssignmentOperator,
@@ -130,26 +119,19 @@ pub enum JsChangeType<'alloc: 'data, 'data> {
 
 	SetRealmFn,
 	OpeningParen,
-	/// insert `)`
 	ClosingParen {
 		semi: bool,
 		replace: bool,
 	},
-	/// insert `}`
 	ClosingBrace {
 		semi: bool,
 		replace: bool,
 	},
 
-	/// replace span with text
 	Replace {
 		text: &'alloc str,
 	},
-	/// replace span with ""
 	Delete,
-	// ;cfg.cleanrestfn(restids[0]); cfg.cleanrestfn(restids[1]);
-	// or
-	// (cfg.cleanrestfn(restids[0]), cfg.cleanrestfn(restids[1]),
 	CleanFunction {
 		restids: Vec<Atom<'data>>,
 		expression: bool,

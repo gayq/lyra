@@ -1,23 +1,36 @@
 import { EventHub } from "../eventHub";
+import { findMessage, formatMessage } from "../manifest";
 import type { ChromeApiContext } from "./context";
 
 export function createPlatformApis(context: ChromeApiContext) {
   const { realm, extId, registry, ext, events } = context;
 
   const i18n = {
-    getMessage: (messageName: string, substitutions?: string | string[]) => {
-      const message = ext.messages[messageName];
-      if (!message) return "";
-      let text = message.message ?? "";
-      if (substitutions) {
-        const values = Array.isArray(substitutions)
-          ? substitutions
-          : [substitutions];
-        values.forEach((value, index) => {
-          text = text.replace(new RegExp(`\\$${index + 1}`, "g"), value);
-        });
+    getMessage: (messageName: string, substitutions?: unknown) => {
+      const name = String(messageName);
+      switch (name.toLowerCase()) {
+        case "@@extension_id":
+          return extId;
+        case "@@ui_locale":
+          return (realm.navigator.language || "en").replace(/-/g, "_");
+        case "@@bidi_dir":
+          return "ltr";
+        case "@@bidi_reversed_dir":
+          return "rtl";
+        case "@@bidi_start_edge":
+          return "left";
+        case "@@bidi_end_edge":
+          return "right";
       }
-      return text;
+      const message = findMessage(ext.messages, name);
+      if (!message) return "";
+      const values =
+        substitutions == null
+          ? []
+          : (Array.isArray(substitutions) ? substitutions : [substitutions]).map(
+              String,
+            );
+      return formatMessage(message, values);
     },
     getUILanguage: () => realm.navigator.language || "en",
     detectLanguage: (_text: string, cb?: (result: unknown) => void) => {

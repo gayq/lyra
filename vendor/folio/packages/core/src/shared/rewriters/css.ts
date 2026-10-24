@@ -20,7 +20,6 @@ function handleCss(
 	context: FolioContext,
 	meta?: URLMeta
 ) {
-	// regex from vk6 (https://github.com/ading2210)
 	const urlRegex =
 		/(?i:url)\((?:\s*"((?:\\.|[^"])+)"\s*|\s*'((?:\\.|[^'])+)'\s*|((?!\s*['"])(?!\s*\))(?:\\.|[^)])+?))\)/gm;
 	const Atruleregex =

@@ -1,16 +1,9 @@
-/**
- * Version information for the current Folio build.
- * Contains both the semantic version string and the git commit hash for build identification.
- */
 export interface FolioVersionInfo {
 	version: string;
 	build: string;
 	date: string;
 }
 
-/**
- * Folio Feature Flags, configured at build time
- */
 export type FolioFlags = {
 	syncxhr: boolean;
 	disableComputedWrap: boolean;
@@ -49,9 +42,6 @@ export interface FolioConfig {
 	maskedfiles: string[];
 }
 
-/**
- * The config for Folio initialization.
- */
 export interface FolioInitConfig
 	extends Omit<FolioConfig, "codec" | "flags"> {
 	flags: Partial<FolioFlags>;

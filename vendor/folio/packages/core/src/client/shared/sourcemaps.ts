@@ -2,7 +2,9 @@ import {
 	Object_defineProperty,
 	Number_isSafeInteger,
 	Error,
+	Array_isArray,
 } from "@/shared/snapshot";
+import { base64ToBytes } from "@/shared/util";
 import { ProxyCtx, FolioClient } from "@client/index";
 
 enum RewriteType {
@@ -24,7 +26,10 @@ type Rewrite = {
 	  }
 );
 
-export type SourceMaps = Record<string, Rewrite[]>;
+// rewritten scripts push their maps as base64; they are only decoded when
+// Function.prototype.toString first needs that tag.
+type SourceMapPayload = string | Uint8Array;
+export type SourceMaps = Record<string, Rewrite[] | SourceMapPayload>;
 
 function getEnd(rewrite: Rewrite): number {
 	if (rewrite.type === RewriteType.Insert) {
@@ -35,13 +40,22 @@ function getEnd(rewrite: Rewrite): number {
 	throw "unreachable";
 }
 
-function registerRewrites(
-	client: FolioClient,
-	buf: Array<number>,
-	tag: string
-) {
-	const sourcemap = Uint8Array.from(buf);
-	const view = new DataView(sourcemap.buffer);
+function getRewrites(client: FolioClient, tag: string): Rewrite[] | undefined {
+	const entry = client.box.sourcemaps[tag];
+	if (entry === undefined || Array_isArray(entry)) return entry as Rewrite[] | undefined;
+	const rewrites = parseRewrites(
+		typeof entry === "string" ? base64ToBytes(entry) : entry
+	);
+	client.box.sourcemaps[tag] = rewrites;
+	return rewrites;
+}
+
+function parseRewrites(sourcemap: Uint8Array): Rewrite[] {
+	const view = new DataView(
+		sourcemap.buffer,
+		sourcemap.byteOffset,
+		sourcemap.byteLength
+	);
 	const decoder = new TextDecoder("utf-8");
 
 	const rewrites: Rewrite[] = [];
@@ -74,18 +88,13 @@ function registerRewrites(
 		}
 	}
 
-	client.box.sourcemaps[tag] = rewrites;
+	return rewrites;
 }
 
 const SCRAMTAG = "/*scramtag ";
 
 function extractTag(fn: string): [string, number, number] | null {
-	// every function rewritten will have a scramtag comment
-	// it will look like this:
-	// function name()[possible whitespace]/*scramtag [index] [tag]*/[possible whitespace]{ ... }
-
 	const start = fn.indexOf(SCRAMTAG);
-	// no scramtag, probably native function or stolen from folio
 	if (start === -1) return null;
 
 	const end = fn.indexOf("*/", start);
@@ -120,7 +129,7 @@ function doUnrewrite(
 
 	const fnStart = tagStart - tagOffset;
 	const fnEnd = fnStart + stringified.length;
-	const rewrites = client.box.sourcemaps[tag];
+	const rewrites = getRewrites(client, tag);
 
 	if (!rewrites) {
 		dbg.warn("failed to get rewrites for tag", tag);
@@ -129,7 +138,6 @@ function doUnrewrite(
 	}
 
 	let i = 0;
-	// skip all rewrites in the file before the fn
 	while (i < rewrites.length) {
 		if (rewrites[i].start < fnStart) i++;
 		else break;
@@ -168,11 +176,10 @@ export const enabled = (client: FolioClient) =>
 	client.flagEnabled("sourcemaps");
 
 export default function (client: FolioClient, self: Self) {
-	// every script will push a sourcemap
 	Object_defineProperty(self, client.config.globals.pushsourcemapfn, {
-		value: (buf: Array<number>, tag: string) => {
-			// const before = performance.now();
-			registerRewrites(client, buf, tag);
+		value: (buf: string | ArrayLike<number>, tag: string) => {
+			client.box.sourcemaps[tag] =
+				typeof buf === "string" ? buf : Uint8Array.from(buf);
 			// if (client.flagEnabled("rewriterLogs")) {
 			// 	dbg.time(client.meta, before, `scramtag parse for ${tag}`);
 			// }
@@ -182,19 +189,12 @@ export default function (client: FolioClient, self: Self) {
 		configurable: false,
 	});
 
-	// when we rewrite javascript it will make function.toString leak internals
-	// this can lead to double rewrites which is bad
 	client.Proxy("Function.prototype.toString", {
 		apply(ctx) {
 			if (client.box.unproxy.has(ctx.this)) {
-				// toString is being called on a proxy of a native function
-				// `this` will then be the proxy, which has the wrong [[SourceText]]
-				// unproxy so it passes through
 				ctx.this = client.box.unproxy.get(ctx.this)!;
-				// since we know it's a native function, no need to unrewrite
 				return;
 			}
-			// const before = performance.now();
 			doUnrewrite(client, ctx);
 			// dbg.time(client.meta, before, `scramtag unrewrite for ${ctx.fn.name}`);
 		},

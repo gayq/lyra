@@ -34,13 +34,23 @@ function sameAnime(
   );
 }
 
+let progressCache: { raw: string; records: AnimeProgress[] } | null = null;
+
 export function readAnimeProgress(): AnimeProgress[] {
   try {
-    const records: unknown = JSON.parse(
-      localStorage.getItem(ANIME_PROGRESS_KEY) || "[]",
-    );
-    if (!Array.isArray(records)) return [];
-    return records.filter((record): record is AnimeProgress => {
+    const raw = localStorage.getItem(ANIME_PROGRESS_KEY) || "[]";
+    if (progressCache?.raw === raw) return progressCache.records;
+    const records = validAnimeProgress(JSON.parse(raw));
+    progressCache = { raw, records };
+    return records;
+  } catch {
+    return [];
+  }
+}
+
+function validAnimeProgress(records: unknown): AnimeProgress[] {
+  if (!Array.isArray(records)) return [];
+  return records.filter((record): record is AnimeProgress => {
       if (!record || typeof record !== "object") return false;
       const progress = record as AnimeProgress;
       return (
@@ -63,9 +73,6 @@ export function readAnimeProgress(): AnimeProgress[] {
         )))
       );
     }).sort((left, right) => right.updatedAt - left.updatedAt);
-  } catch {
-    return [];
-  }
 }
 
 export function saveAnimeProgress(
@@ -89,10 +96,13 @@ export function saveAnimeProgress(
       previous.currentTime === progress.currentTime &&
       previous.completed === progress.completed
     ) return;
-    localStorage.setItem(ANIME_PROGRESS_KEY, JSON.stringify([
+    const next = [
       progress,
       ...records.filter((record) => !sameAnime(record.ids, progress.ids)),
-    ]));
+    ];
+    const raw = JSON.stringify(next);
+    localStorage.setItem(ANIME_PROGRESS_KEY, raw);
+    progressCache = { raw, records: validAnimeProgress(next) };
     window.dispatchEvent(new Event(ANIME_PROGRESS_EVENT));
   } catch {}
 }

@@ -4,7 +4,6 @@ import { String } from "@/shared/snapshot";
 export default function (client: FolioClient, _self: Self) {
 	client.Trap("PerformanceEntry.prototype.name", {
 		get(ctx) {
-			// name is going to be a url typically
 			const name = String(ctx.get());
 
 			if (name) {

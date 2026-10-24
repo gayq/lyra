@@ -6,7 +6,6 @@ export default function (client: FolioClient) {
 
 	client.Proxy("console.clear", {
 		apply(ctx) {
-			// fuck you
 			ctx.return(undefined);
 		},
 	});

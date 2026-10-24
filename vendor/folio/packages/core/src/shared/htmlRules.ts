@@ -17,7 +17,6 @@ export const htmlRules: {
 		fn: (value, context, meta) =>
 			rewriteUrl(value, context, meta, { navigateType: "location" }),
 
-		// url rewrites
 		src: ["embed", "img", "frame", "input", "track"],
 		href: ["a", "area", "image"],
 		data: ["object"],
@@ -53,7 +52,6 @@ export const htmlRules: {
 		src: ["iframe"],
 	},
 	{
-		// is this a good idea?
 		fn: (_value, _context, _meta) => {
 			return null;
 		},
@@ -62,8 +60,6 @@ export const htmlRules: {
 	{
 		fn: (value, context, meta) => {
 			if (value.startsWith("blob:")) {
-				// for media elements specifically they must take the original blob
-				// because they can't be fetch'd
 				return unrewriteBlob(value, context, meta);
 			}
 
@@ -79,7 +75,6 @@ export const htmlRules: {
 	{
 		fn: () => null,
 
-		// csp stuff that must be deleted
 		nonce: "*",
 		csp: ["iframe"],
 		credentialless: ["iframe"],
@@ -87,7 +82,6 @@ export const htmlRules: {
 	{
 		fn: (value, context, meta) => rewriteSrcset(value, context, meta),
 
-		// srcset
 		srcset: ["img", "source"],
 		imagesrcset: ["link"],
 	},
@@ -97,7 +91,6 @@ export const htmlRules: {
 				value,
 				context,
 				{
-					// for srcdoc origin is the origin of the page that the iframe is on. base and path get dropped
 					origin: new _URL(meta.origin.origin),
 					base: new _URL(meta.origin.origin),
 					topFrameName: meta.topFrameName,
@@ -112,7 +105,6 @@ export const htmlRules: {
 				}
 			),
 
-		// srcdoc
 		srcdoc: ["iframe"],
 	},
 	{
@@ -129,9 +121,7 @@ export const htmlRules: {
 		target: ["a", "base"],
 	},
 	{
-		// svg elements with an href property
 		fn: (value, context, meta) => {
-			// #id values are not rewritten
 			if (value.startsWith("#")) return value;
 			return rewriteUrl(value, context, meta);
 		},

@@ -9,16 +9,10 @@ declare global {
 		WASM: string;
 		REAL_WASM: Uint8Array;
 
-		/**
-		 * The folio client belonging to a window.
-		 */
 		[FOLIOCLIENT]: FolioClient;
 	}
 
 	interface Document {
-		/**
-		 * Should be the same as window.
-		 */
 		[FOLIOCLIENT]: FolioClient;
 	}
 

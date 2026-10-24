@@ -1,9 +1,18 @@
-import { dbGet, dbGetAllKeys, EXT_FILES_STORE } from "../db";
+import { dbGet, EXT_FILES_STORE } from "../db";
 import { guessMime } from "../crx";
 import { decodeRivetPath, RIVET_APP_BASE, RIVET_PREFIX } from "../urlScheme";
 import { negativeMessage } from "../messages";
 
+const MAX_TRACKED_CLIENTS = 256;
+const BOOTSTRAP_SUFFIX = "/__bootstrap__";
 const clientToExtId = new Map<string, string>();
+
+function rememberClient(clientId: string, extId: string): void {
+  clientToExtId.delete(clientId);
+  clientToExtId.set(clientId, extId);
+  if (clientToExtId.size > MAX_TRACKED_CLIENTS)
+    clientToExtId.delete(clientToExtId.keys().next().value!);
+}
 
 function extensionIdFromUrl(input: string): string | null {
   try {
@@ -26,7 +35,7 @@ function extensionIdForEvent(event: FetchEvent): string | null {
   if (known) return known;
   const fromReferrer = extensionIdFromUrl(event.request.referrer);
   if (fromReferrer && event.clientId)
-    clientToExtId.set(event.clientId, fromReferrer);
+    rememberClient(event.clientId, fromReferrer);
   return fromReferrer;
 }
 
@@ -39,12 +48,14 @@ function responseHeaders(contentType: string): HeadersInit {
   };
 }
 
-function isBootstrapUrl(pathname: string): string | null {
-  const escapedPrefix = RIVET_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = pathname.match(
-    new RegExp(`^${escapedPrefix}([^/]+)/__bootstrap__$`),
-  );
-  return match ? match[1] : null;
+function bootstrapExtensionId(pathname: string): string | null {
+  if (
+    !pathname.startsWith(RIVET_PREFIX) ||
+    !pathname.endsWith(BOOTSTRAP_SUFFIX)
+  )
+    return null;
+  const extId = pathname.slice(RIVET_PREFIX.length, -BOOTSTRAP_SUFFIX.length);
+  return extId && !extId.includes("/") ? extId : null;
 }
 
 export function shouldRoute(event: FetchEvent): boolean {
@@ -96,11 +107,11 @@ export async function route(event: FetchEvent): Promise<Response> {
     );
   }
 
-  const bootstrapExtId = isBootstrapUrl(url.pathname);
+  const bootstrapExtId = bootstrapExtensionId(url.pathname);
   if (bootstrapExtId) {
     const clientId = (event as unknown as { resultingClientId?: string })
       .resultingClientId;
-    if (clientId) clientToExtId.set(clientId, bootstrapExtId);
+    if (clientId) rememberClient(clientId, bootstrapExtId);
     return new Response(
       "<!DOCTYPE html><html><head></head><body></body></html>",
       {
@@ -113,23 +124,18 @@ export async function route(event: FetchEvent): Promise<Response> {
   if (url.pathname.startsWith(RIVET_PREFIX)) {
     const decoded = decodeRivetPath(url.pathname);
     if (!decoded)
-      return new Response("rivet: malformed extension resource URL", {
-        status: 400,
-      });
-    if (event.clientId) clientToExtId.set(event.clientId, decoded.extId);
+      return new Response(
+        negativeMessage("extension resource address is malformed"),
+        { status: 400, headers: responseHeaders("text/plain") },
+      );
+    if (event.clientId) rememberClient(event.clientId, decoded.extId);
 
     const response = await serveExtensionFile(decoded.extId, decoded.path);
     if (response) return response;
-
-    const allKeys = await dbGetAllKeys(EXT_FILES_STORE);
-    const prefix = `${decoded.extId}/`;
-    const storedForExt = allKeys
-      .filter((k) => typeof k === "string" && k.startsWith(prefix))
-      .map((k) => (k as string).slice(prefix.length));
-    return new Response(
-      `rivet: no such extension file: "${decoded.path}"\n\nFiles actually stored for this extension:\n${storedForExt.join("\n") || "(none)"}`,
-      { status: 404, headers: responseHeaders("text/plain") },
-    );
+    return new Response(negativeMessage("extension file was not found"), {
+      status: 404,
+      headers: responseHeaders("text/plain"),
+    });
   }
 
   const extId = extensionIdForEvent(event) ?? undefined;

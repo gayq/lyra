@@ -274,8 +274,8 @@ pub async fn request_handler(
         return response_with_meta(Body::empty(), &meta);
     }
 
-    let can_buffer = upstream
-        .content_length()
+    let content_length = upstream.content_length();
+    let can_buffer = content_length
         .map(|length| length as usize <= state.folio_cache_max_entry_size)
         .unwrap_or(true);
     let (sender, receiver) = tokio::sync::mpsc::channel(state.channel_buffer.max(1));
@@ -285,7 +285,8 @@ pub async fn request_handler(
         let _permit = permit;
         let _active = active;
         let mut stream = upstream.bytes_stream();
-        let mut buffered = (can_buffer && cache_key.is_some()).then(BytesMut::new);
+        let mut buffered = (can_buffer && cache_key.is_some())
+            .then(|| BytesMut::with_capacity(content_length.unwrap_or(0) as usize));
 
         loop {
             let next = tokio::select! {
@@ -373,7 +374,11 @@ async fn publish_cache(
 }
 
 fn finish_cached_body(buffer: BytesMut) -> Bytes {
-    Bytes::copy_from_slice(&buffer)
+    if buffer.len() == buffer.capacity() {
+        buffer.freeze()
+    } else {
+        Bytes::copy_from_slice(&buffer)
+    }
 }
 
 fn target_from_uri(uri: &Uri) -> Option<String> {

@@ -5,7 +5,6 @@ export const enabled = (client: FolioClient) =>
 	client.flagEnabled("cleanErrors");
 
 export default function (client: FolioClient, _self: Self) {
-	// v8 only. all we need to do is clean the folio urls from stack traces
 	const closure = (error, stack) => {
 		let newstack = error.stack;
 
@@ -14,7 +13,6 @@ export default function (client: FolioClient, _self: Self) {
 
 			try {
 				if (client.config.maskedfiles.some((f) => url.endsWith(f))) {
-					// strip stack frames including folio handlers from the trace
 					const lines = newstack.split("\n");
 					const line = lines.find((l) => l.includes(url));
 					lines.splice(line, 1);
@@ -32,7 +30,6 @@ export default function (client: FolioClient, _self: Self) {
 	};
 	client.Trap("Error.prepareStackTrace", {
 		get(_ctx) {
-			// this is a funny js quirk. the getter is ran every time you type something in console
 			return closure;
 		},
 		set(_value) {

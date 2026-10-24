@@ -348,7 +348,7 @@ export function createStaticGateway({ backend = "",
       });
       upstream.addEventListener("error", () => connection.close(1011));
       upstream.addEventListener("close", () => connection.close(1000));
-      const selected = upstream.protocol;
+      const selected = upstream.protocol.startsWith("lyra-nuru.") ? "" : upstream.protocol;
       phase = "upgrade";
       if (selected && !actual.includes(selected)) { connection.close(); return error(502, origin); }
       const responseHeaders = new Headers({ "sec-websocket-protocol": selected || "lyra-relay-v1" });

@@ -7,22 +7,89 @@ export type StuffResponse = {
   build?: string;
 };
 
-const UPDATE_PARAM = "lyra-update";
-export const UPDATE_RETRY_MS = 5 * 60 * 1000;
+export type UpdateAttempt = {
+  target: string;
+  at: number;
+  count: number;
+};
 
-export function isUpdateRetryDue(
-  target: string,
-  attemptedTarget: string | null,
-  attemptedAt: string | null,
-  now = Date.now(),
-): boolean {
-  if (attemptedTarget !== target || !attemptedAt) return true;
-  const timestamp = Number(attemptedAt);
-  return (
-    !Number.isFinite(timestamp) ||
-    timestamp > now ||
-    now - timestamp >= UPDATE_RETRY_MS
+export type UpdateState = {
+  pending: string | null;
+  attempt: UpdateAttempt | null;
+  marker: string | null;
+};
+
+export type UpdateDecision =
+  | { action: "none"; applied: boolean }
+  | { action: "reload"; target: string; attempt: UpdateAttempt }
+  | { action: "wait"; failed: boolean };
+
+const UPDATE_PARAM = "lyra-update";
+export const UPDATE_POLL_MS = 5 * 60 * 1000;
+export const UPDATE_CHECK_THROTTLE_MS = 30 * 1000;
+export const UPDATE_RETRY_MS = 5 * 60 * 1000;
+export const UPDATE_RETRY_MAX_MS = 60 * 60 * 1000;
+
+export function updateRetryDelay(count: number): number {
+  return Math.min(
+    UPDATE_RETRY_MS * 2 ** Math.max(0, count - 1),
+    UPDATE_RETRY_MAX_MS,
   );
+}
+
+export function decideUpdate(
+  metadata: StuffResponse,
+  runningBuild: string,
+  state: UpdateState,
+  now = Date.now(),
+): UpdateDecision {
+  const target = metadata.build;
+  if (!target || !runningBuild) return { action: "none", applied: false };
+  if (target === runningBuild) {
+    return {
+      action: "none",
+      applied: state.pending !== null || state.marker !== null,
+    };
+  }
+
+  const previous = state.attempt?.target === target ? state.attempt : null;
+  if (!previous) {
+    if (state.marker === target) return { action: "wait", failed: true };
+  } else if (
+    previous.at <= now &&
+    now - previous.at < updateRetryDelay(previous.count)
+  ) {
+    return { action: "wait", failed: state.marker === target };
+  }
+
+  return {
+    action: "reload",
+    target,
+    attempt: { target, at: now, count: (previous?.count ?? 0) + 1 },
+  };
+}
+
+export function parseUpdateAttempt(raw: string | null): UpdateAttempt | null {
+  if (!raw) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object") return null;
+    const { target, at, count } = value as Record<string, unknown>;
+    if (
+      typeof target !== "string" ||
+      !target ||
+      typeof at !== "number" ||
+      !Number.isFinite(at) ||
+      typeof count !== "number" ||
+      !Number.isInteger(count) ||
+      count < 1
+    ) {
+      return null;
+    }
+    return { target, at, count };
+  } catch {
+    return null;
+  }
 }
 
 export function parseStuffResponse(input: unknown): StuffResponse {
@@ -52,44 +119,14 @@ export function parseStuffResponse(input: unknown): StuffResponse {
   return parsed;
 }
 
-export function buildStamp(metadata: StuffResponse): string {
-  return `${metadata.version}:${metadata.build || ""}`;
-}
-
-export function isUpdateNeeded(
-  metadata: StuffResponse,
-  runningBuild: string,
-  previousStamp: string | null,
-  previousVersion: string | null,
-): boolean {
-  if (metadata.build && runningBuild) {
-    return metadata.build !== runningBuild;
-  }
-
-  const currentStamp = buildStamp(metadata);
-  if (previousStamp) return previousStamp !== currentStamp;
-  return Boolean(previousVersion && previousVersion !== metadata.version);
-}
-
-export function isUpdateApplied(
-  metadata: StuffResponse,
-  runningBuild: string,
-  pendingTarget: string | null,
-): boolean {
-  if (!pendingTarget || pendingTarget !== buildStamp(metadata)) return false;
-  return Boolean(
-    metadata.build && runningBuild && metadata.build === runningBuild,
-  );
-}
-
 export function addUpdateMarker(href: string, target: string): string {
   const url = new URL(href);
   url.searchParams.set(UPDATE_PARAM, target);
   return url.href;
 }
 
-export function hasUpdateMarker(href: string, target: string): boolean {
-  return new URL(href).searchParams.get(UPDATE_PARAM) === target;
+export function readUpdateMarker(href: string): string | null {
+  return new URL(href).searchParams.get(UPDATE_PARAM);
 }
 
 export function removeUpdateMarker(href: string): string {

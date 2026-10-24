@@ -1,5 +1,5 @@
 import { EventHub } from "./eventHub";
-import { matchPattern } from "./manifest";
+import { matchPattern, type ExtensionMessage } from "./manifest";
 import { NEGATIVE } from "./messages";
 import type {
   ChromeManifest,
@@ -208,7 +208,7 @@ export interface ExtensionState {
   enabled: boolean;
   installedAt: number;
   filename: string;
-  messages: Record<string, { message: string }>;
+  messages: Record<string, ExtensionMessage>;
   dynamicRules: DNRRule[];
   sessionRules: DNRRule[];
   staticRules: DNRRule[];
@@ -490,6 +490,19 @@ export class RivetRegistry {
     let merged: WebRequestResult | null = null;
     const listeners = this.webRequestListeners.get(event);
     if (!listeners?.length) return null;
+    let parsedFrom: string | undefined;
+    let parsed: URL | null = null;
+    const target = (): URL | null => {
+      if (parsedFrom !== details.url) {
+        parsedFrom = details.url;
+        try {
+          parsed = new URL(details.url);
+        } catch {
+          parsed = null;
+        }
+      }
+      return parsed;
+    };
     for (const entry of [...listeners]) {
       if (!this.extensions.get(entry.extId)?.enabled) continue;
       const { filter } = entry;
@@ -499,11 +512,11 @@ export class RivetRegistry {
         continue;
       if (filter.types?.length && !filter.types.includes(details.type))
         continue;
-      if (
-        filter.urls?.length &&
-        !filter.urls.some((pattern) => matchPattern(pattern, details.url))
-      )
-        continue;
+      if (filter.urls?.length) {
+        const url = target();
+        if (!url || !filter.urls.some((pattern) => matchPattern(pattern, url)))
+          continue;
+      }
       try {
         let result = entry.listener(details);
         if (

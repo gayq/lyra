@@ -1,9 +1,3 @@
-/* Shared geometry for the app and standalone player, independent of theme.
- * item: compact actions, menu rows, media cards and nested content.
- * control: form controls and navigation; panel: cards, menus and notifications.
- * dialog: outer modal surfaces; bar: search shells and the player toolbar.
- * Circles, slider tracks and directional pointers keep their shape-specific radii.
- */
 :root {
   --radius-detail: 4px;
   --radius-frame: 6px;
@@ -59,16 +53,16 @@
   --color-link: #b3b3b3;
   --color-link-hover: #fff;
   --color-label: #a5a5a5;
-  --color-sublabel: #616161;
+  --color-sublabel: #707070;
   --color-info: #727272;
   --color-footer: #777;
-  --color-version: #5a5a5a;
+  --color-version: #636363;
   --color-result: #b1b1b1;
   --color-result-icon: #afafaf;
   --color-close-btn: #c2c2c2;
   --color-loading-text: #ffffff;
   --status-error-text: var(--toast-danger-text);
-  --status-success-text: #55ff55;
+  --status-success-text: #4ade80;
 
   --btn-primary-bg: #c4c4c4;
   --btn-primary-bg-hover: #fff;
@@ -116,9 +110,9 @@
   --split-focus-border: #fff;
   --split-indicator: #ffffffe5;
 
-  --notif-dot-feature: #2bff00;
-  --notif-dot-update: #ffc107;
-  --notif-badge-bg: #df0000;
+  --notif-dot-feature: #4ade80;
+  --notif-dot-update: #fbbf24;
+  --notif-badge-bg: #dc2626;
   --notif-badge-text: #ffffff;
 
   --toast-bg: #000000a9;
@@ -163,36 +157,37 @@
   --bg-surface-active: #585b70;
 
   --border-transparent: #ffffff00;
-  --border-faint: #45475a66;
+  --border-faint: #6c708680;
   --border-medium: #45475a;
-  --border-dashed: #45475a66;
-  --border-dashed-hover: #45475aaa;
+  --border-dashed: #6c708655;
+  --border-dashed-hover: #7f849c88;
   --border-focus: #cba6f7;
   --accent-color: #cba6f7;
 
-  --hover-bg: #45475a44;
-  --hover-bg-light: #45475a33;
-  --hover-bg-toast: #45475a55;
-  --active-bg: #45475a66;
-  --active-bg-subtle: #45475a11;
+  --hover-bg: #7f849c1f;
+  --hover-bg-light: #7f849c17;
+  --hover-bg-toast: #7f849c29;
+  --active-bg: #7f849c33;
+  --active-bg-subtle: #7f849c0d;
 
   --color-icon: #bac2de;
-  --color-icon-muted: #7f849c;
-  --color-icon-dim: #6c7086;
+  --color-icon-muted: #9399b2;
+  --color-icon-dim: #7f849c;
   --color-disabled: #585b70;
   --color-tab: #a6adc8;
   --color-tab-active: #cdd6f4;
   --color-link: #bac2de;
   --color-link-hover: #cdd6f4;
   --color-label: #a6adc8;
-  --color-sublabel: #6c7086;
-  --color-info: #7f849c;
-  --color-footer: #6c7086;
-  --color-version: #585b70;
+  --color-sublabel: #7f849c;
+  --color-info: #9399b2;
+  --color-footer: #7f849c;
+  --color-version: #6c7086;
   --color-result: #bac2de;
   --color-result-icon: #a6adc8;
   --color-close-btn: #a6adc8;
   --color-loading-text: #cdd6f4;
+  --status-success-text: #a6e3a1;
 
   --btn-primary-bg: #cba6f7;
   --btn-primary-bg-hover: #dbc1f9;
@@ -204,8 +199,8 @@
   --input-bg: #313244;
   --input-text: #cdd6f4;
   --input-text-light: #cdd6f4;
-  --input-placeholder: #6c7086;
-  --input-placeholder-light: #7f849c;
+  --input-placeholder: #7f849c;
+  --input-placeholder-light: #9399b2;
   --input-placeholder-search: #6c708699;
   --input-focus-search: #a6adc8bb;
   --input-border: transparent;
@@ -272,7 +267,7 @@
   --bg-body-grid: #44475a;
   --text-primary: #f1f1e4;
   --text-secondary: #bdb9df;
-  --text-muted: #6e7dab;
+  --text-muted: #7d8ab8;
   --text-dimmed: #929bba;
   --text-white: #fbfbf8;
   --text-black: #282a36;
@@ -287,36 +282,37 @@
   --bg-surface-active: #6272a4;
 
   --border-transparent: #ffffff00;
-  --border-faint: #4e516666;
+  --border-faint: #6272a477;
   --border-medium: #44475a;
-  --border-dashed: #44475a66;
-  --border-dashed-hover: #44475aaa;
+  --border-dashed: #6272a455;
+  --border-dashed-hover: #6272a499;
   --border-focus: #bd93f9;
   --accent-color: #bd93f9;
 
-  --hover-bg: #44475a55;
-  --hover-bg-light: #44475a44;
-  --hover-bg-toast: #44475a55;
-  --active-bg: #44475a77;
-  --active-bg-subtle: #44475a11;
+  --hover-bg: #6272a42e;
+  --hover-bg-light: #6272a422;
+  --hover-bg-toast: #6272a438;
+  --active-bg: #6272a447;
+  --active-bg-subtle: #6272a412;
 
   --color-icon: #f8f8f2;
   --color-icon-muted: #8892b4;
-  --color-icon-dim: #6272a4;
+  --color-icon-dim: #7280b0;
   --color-disabled: #565a70;
   --color-tab: #c0c0d0;
   --color-tab-active: #f8f8f2;
   --color-link: #f8f8f2;
   --color-link-hover: #bd93f9;
   --color-label: #f8f8f2;
-  --color-sublabel: #6272a4;
+  --color-sublabel: #7d8ab8;
   --color-info: #8892b4;
-  --color-footer: #6272a4;
-  --color-version: #565a70;
+  --color-footer: #7280b0;
+  --color-version: #63698a;
   --color-result: #f8f8f2;
   --color-result-icon: #c0c0d0;
   --color-close-btn: #c0c0d0;
   --color-loading-text: #f8f8f2;
+  --status-success-text: #50fa7b;
 
   --btn-primary-bg: #bd93f9;
   --btn-primary-bg-hover: #cfa9ff;
@@ -328,8 +324,8 @@
   --input-bg: #44475a;
   --input-text: #f8f8f2;
   --input-text-light: #f8f8f2;
-  --input-placeholder: #6272a4;
-  --input-placeholder-light: #8892b4;
+  --input-placeholder: #8a94b8;
+  --input-placeholder-light: #a3abcc;
   --input-placeholder-search: #6272a499;
   --input-focus-search: #8892b4bb;
   --input-border: transparent;
@@ -367,7 +363,7 @@
   --notif-dot-feature: #50fa7b;
   --notif-dot-update: #f1fa8c;
   --notif-badge-bg: #ff5555;
-  --notif-badge-text: #f8f8f2;
+  --notif-badge-text: #282a36;
 
   --toast-bg: #21222ccc;
   --toast-text: #f8f8f2;
@@ -411,10 +407,10 @@
   --bg-surface-active: #563f75;
 
   --border-transparent: #ffffff00;
-  --border-faint: #3f315966;
+  --border-faint: #5a4a7a88;
   --border-medium: #3f3159;
-  --border-dashed: #3f315966;
-  --border-dashed-hover: #3f3159aa;
+  --border-dashed: #5a4a7a66;
+  --border-dashed-hover: #5a4a7aaa;
   --border-focus: #ff7edb;
   --accent-color: #ff7edb;
 
@@ -426,21 +422,22 @@
 
   --color-icon: #d0b8e0;
   --color-icon-muted: #8a7a9a;
-  --color-icon-dim: #6b5a7a;
+  --color-icon-dim: #7d6c8e;
   --color-disabled: #5a4a6a;
   --color-tab: #b8a0cc;
   --color-tab-active: #f0e0ff;
   --color-link: #d0b8e0;
   --color-link-hover: #ff7edb;
   --color-label: #d0b8e0;
-  --color-sublabel: #6b5a7a;
+  --color-sublabel: #857593;
   --color-info: #8a7a9a;
-  --color-footer: #6b5a7a;
-  --color-version: #5a4a6a;
+  --color-footer: #7d6c8e;
+  --color-version: #6b5a7a;
   --color-result: #d0b8e0;
   --color-result-icon: #b8a0cc;
   --color-close-btn: #b8a0cc;
   --color-loading-text: #e8d5f5;
+  --status-success-text: #72f1b8;
 
   --btn-primary-bg: #ff7edb;
   --btn-primary-bg-hover: #ff9de5;
@@ -452,7 +449,7 @@
   --input-bg: #241b2f;
   --input-text: #e8d5f5;
   --input-text-light: #f0e0ff;
-  --input-placeholder: #6b5a7a;
+  --input-placeholder: #7d6c8e;
   --input-placeholder-light: #8a7a9a;
   --input-placeholder-search: #6b5a7a99;
   --input-focus-search: #b8a0ccbb;
@@ -464,7 +461,7 @@
   --checkbox-knob-hover: #ffffff;
 
   --scrollbar-track: #110f1a;
-  --scrollbar-thumb: #4a3a66;
+  --scrollbar-thumb: #57467a;
   --scrollbar-thumb-hover: #6b5a7a;
 
   --selection-bg: #ff7edb;
@@ -491,7 +488,7 @@
   --notif-dot-feature: #72f1b8;
   --notif-dot-update: #fede5d;
   --notif-badge-bg: #fe4450;
-  --notif-badge-text: #f0e0ff;
+  --notif-badge-text: #13111c;
 
   --toast-bg: #13111ccc;
   --toast-text: #e8d5f5;
@@ -535,10 +532,10 @@
   --bg-surface-active: #565f89;
 
   --border-transparent: #ffffff00;
-  --border-faint: #3b426166;
+  --border-faint: #545c7e77;
   --border-medium: #3b4261;
-  --border-dashed: #3b426166;
-  --border-dashed-hover: #3b4261aa;
+  --border-dashed: #545c7e55;
+  --border-dashed-hover: #545c7e99;
   --border-focus: #7aa2f7;
   --accent-color: #7aa2f7;
 
@@ -550,24 +547,25 @@
 
   --color-icon: #a9b1d6;
   --color-icon-muted: #737aa2;
-  --color-icon-dim: #565f89;
+  --color-icon-dim: #646c96;
   --color-disabled: #414868;
   --color-tab: #a9b1d6;
   --color-tab-active: #c0caf5;
   --color-link: #a9b1d6;
   --color-link-hover: #7aa2f7;
   --color-label: #a9b1d6;
-  --color-sublabel: #565f89;
+  --color-sublabel: #737aa2;
   --color-info: #737aa2;
-  --color-footer: #565f89;
-  --color-version: #414868;
+  --color-footer: #6a729c;
+  --color-version: #545c7e;
   --color-result: #a9b1d6;
   --color-result-icon: #a9b1d6;
   --color-close-btn: #a9b1d6;
   --color-loading-text: #c0caf5;
+  --status-success-text: #9ece6a;
 
   --btn-primary-bg: #7aa2f7;
-  --btn-primary-bg-hover: #89b4fa;
+  --btn-primary-bg-hover: #8fb2f9;
   --btn-primary-text: #1a1b26;
   --btn-secondary-bg: #292e42;
   --btn-secondary-bg-hover: #3b4261;
@@ -576,8 +574,8 @@
   --input-bg: #292e42;
   --input-text: #c0caf5;
   --input-text-light: #c0caf5;
-  --input-placeholder: #565f89;
-  --input-placeholder-light: #737aa2;
+  --input-placeholder: #737aa2;
+  --input-placeholder-light: #8a91b8;
   --input-placeholder-search: #565f8999;
   --input-focus-search: #a9b1d6bb;
   --input-border: transparent;
@@ -644,7 +642,7 @@
   --bg-body-grid: #374145;
   --text-primary: #f1ede4;
   --text-secondary: #dad2be;
-  --text-muted: #878d92;
+  --text-muted: #859289;
   --text-dimmed: #a0aca3;
   --text-white: #fcfaf8;
   --text-black: #272e33;
@@ -659,10 +657,10 @@
   --bg-surface-active: #5d6b72;
 
   --border-transparent: #ffffff00;
-  --border-faint: #4a555b66;
+  --border-faint: #7a847866;
   --border-medium: #4a555b;
-  --border-dashed: #4a555b66;
-  --border-dashed-hover: #4a555baa;
+  --border-dashed: #7a847855;
+  --border-dashed-hover: #7a847899;
   --border-focus: #a7c080;
   --accent-color: #a7c080;
 
@@ -674,21 +672,22 @@
 
   --color-icon: #c5b899;
   --color-icon-muted: #9da9a0;
-  --color-icon-dim: #7a8478;
+  --color-icon-dim: #859289;
   --color-disabled: #626e67;
   --color-tab: #c5b899;
   --color-tab-active: #d3c6aa;
   --color-link: #c5b899;
   --color-link-hover: #a7c080;
   --color-label: #c5b899;
-  --color-sublabel: #7a8478;
+  --color-sublabel: #859289;
   --color-info: #9da9a0;
   --color-footer: #7a8478;
-  --color-version: #626e67;
+  --color-version: #6c7870;
   --color-result: #c5b899;
   --color-result-icon: #c5b899;
   --color-close-btn: #c5b899;
   --color-loading-text: #d3c6aa;
+  --status-success-text: #a7c080;
 
   --btn-primary-bg: #a7c080;
   --btn-primary-bg-hover: #b5cc8e;
@@ -700,7 +699,7 @@
   --input-bg: #374145;
   --input-text: #d3c6aa;
   --input-text-light: #d3c6aa;
-  --input-placeholder: #7a8478;
+  --input-placeholder: #859289;
   --input-placeholder-light: #9da9a0;
   --input-placeholder-search: #7a847899;
   --input-focus-search: #c5b899bb;
@@ -783,10 +782,10 @@
   --bg-surface-active: #625e7e;
 
   --border-transparent: #ffffff00;
-  --border-faint: #45455a66;
+  --border-faint: #54546d88;
   --border-medium: #45455a;
-  --border-dashed: #45455a66;
-  --border-dashed-hover: #45455aaa;
+  --border-dashed: #54546d66;
+  --border-dashed-hover: #54546daa;
   --border-focus: #7e9cd8;
   --accent-color: #7e9cd8;
 
@@ -798,21 +797,22 @@
 
   --color-icon: #c8c093;
   --color-icon-muted: #9a9a82;
-  --color-icon-dim: #727169;
+  --color-icon-dim: #7f7e75;
   --color-disabled: #54546d;
   --color-tab: #c8c093;
   --color-tab-active: #dcd7ba;
   --color-link: #c8c093;
   --color-link-hover: #7fb4ca;
   --color-label: #c8c093;
-  --color-sublabel: #727169;
+  --color-sublabel: #87867c;
   --color-info: #9a9a82;
-  --color-footer: #727169;
-  --color-version: #54546d;
+  --color-footer: #7f7e75;
+  --color-version: #636278;
   --color-result: #c8c093;
   --color-result-icon: #c8c093;
   --color-close-btn: #c8c093;
   --color-loading-text: #dcd7ba;
+  --status-success-text: #98bb6c;
 
   --btn-primary-bg: #7e9cd8;
   --btn-primary-bg-hover: #8eade0;
@@ -824,7 +824,7 @@
   --input-bg: #363646;
   --input-text: #dcd7ba;
   --input-text-light: #dcd7ba;
-  --input-placeholder: #727169;
+  --input-placeholder: #8a897f;
   --input-placeholder-light: #9a9a82;
   --input-placeholder-search: #72716999;
   --input-focus-search: #c8c093bb;
@@ -907,56 +907,57 @@
   --bg-surface-active: #35778a;
 
   --border-transparent: #ffffff00;
-  --border-faint: #1a556666;
+  --border-faint: #586e7577;
   --border-medium: #1a5566;
-  --border-dashed: #1a556666;
-  --border-dashed-hover: #1a5566aa;
+  --border-dashed: #586e7555;
+  --border-dashed-hover: #586e7599;
   --border-focus: #268bd2;
   --accent-color: #268bd2;
 
-  --hover-bg: #268bd218;
-  --hover-bg-light: #268bd212;
-  --hover-bg-toast: #268bd222;
-  --active-bg: #268bd228;
-  --active-bg-subtle: #268bd208;
+  --hover-bg: #268bd222;
+  --hover-bg-light: #268bd218;
+  --hover-bg-toast: #268bd22a;
+  --active-bg: #268bd236;
+  --active-bg-subtle: #268bd20c;
 
-  --color-icon: #839496;
-  --color-icon-muted: #657b83;
-  --color-icon-dim: #586e75;
+  --color-icon: #93a1a1;
+  --color-icon-muted: #839496;
+  --color-icon-dim: #6f878e;
   --color-disabled: #475b62;
-  --color-tab: #839496;
-  --color-tab-active: #93a1a1;
-  --color-link: #839496;
-  --color-link-hover: #268bd2;
-  --color-label: #93a1a1;
-  --color-sublabel: #586e75;
-  --color-info: #657b83;
-  --color-footer: #586e75;
-  --color-version: #475b62;
-  --color-result: #839496;
-  --color-result-icon: #839496;
-  --color-close-btn: #839496;
-  --color-loading-text: #93a1a1;
+  --color-tab: #93a1a1;
+  --color-tab-active: #eee8d5;
+  --color-link: #93a1a1;
+  --color-link-hover: #4ba3e3;
+  --color-label: #b4bfbf;
+  --color-sublabel: #7c939a;
+  --color-info: #7c939a;
+  --color-footer: #6f878e;
+  --color-version: #5a7179;
+  --color-result: #93a1a1;
+  --color-result-icon: #93a1a1;
+  --color-close-btn: #93a1a1;
+  --color-loading-text: #eee8d5;
+  --status-success-text: #9db31f;
 
   --btn-primary-bg: #268bd2;
   --btn-primary-bg-hover: #3a9de0;
-  --btn-primary-text: #fdf6e3;
+  --btn-primary-text: #002b36;
   --btn-secondary-bg: #0a4050;
   --btn-secondary-bg-hover: #1a5566;
-  --btn-secondary-text: #93a1a1;
+  --btn-secondary-text: #b4bfbf;
 
   --input-bg: #0a4050;
-  --input-text: #93a1a1;
+  --input-text: #b4bfbf;
   --input-text-light: #fdf6e3;
-  --input-placeholder: #586e75;
-  --input-placeholder-light: #657b83;
+  --input-placeholder: #7c939a;
+  --input-placeholder-light: #8ea2a8;
   --input-placeholder-search: #586e7599;
   --input-focus-search: #839496bb;
   --input-border: transparent;
 
   --checkbox-bg: #1a5566;
   --checkbox-bg-checked: #268bd2;
-  --checkbox-knob: #93a1a1;
+  --checkbox-knob: #b4bfbf;
   --checkbox-knob-hover: #fdf6e3;
 
   --scrollbar-track: #00242e;
@@ -964,7 +965,7 @@
   --scrollbar-thumb-hover: #2a6678;
 
   --selection-bg: #268bd2;
-  --selection-text: #fdf6e3;
+  --selection-text: #002b36;
 
   --overlay-bg: #00242ede;
 
@@ -990,25 +991,25 @@
   --notif-badge-text: #fdf6e3;
 
   --toast-bg: #002b36cc;
-  --toast-text: #93a1a1;
+  --toast-text: #b4bfbf;
   --toast-border: #1a556655;
   --toast-btn-bg: rgba(147, 161, 161, 0.1);
   --toast-btn-border: rgba(147, 161, 161, 0.2);
   --toast-btn-hover-bg: rgba(147, 161, 161, 0.2);
   --toast-danger-bg: rgba(220, 50, 47, 0.2);
   --toast-danger-border: rgba(220, 50, 47, 0.4);
-  --toast-danger-text: #dc322f;
+  --toast-danger-text: #f2615e;
   --toast-danger-hover-bg: rgba(220, 50, 47, 0.3);
 
   --game-card-bg: #002b36;
   --game-card-overlay: #00242ecc;
-  --game-info-text: #93a1a1;
+  --game-info-text: #b4bfbf;
   --game-cover-brightness: 0.75;
   --game-no-cover-line: #475b62;
   --game-search-icon: #586e7599;
   --game-search-icon-focus: #839496bb;
 
-  --brand-color: #93a1a1;
+  --brand-color: #eee8d5;
 }
 
 [data-theme="sakura"] {
@@ -1053,14 +1054,15 @@
   --color-link: #d8c0d0;
   --color-link-hover: #ff69b4;
   --color-label: #c0a8b8;
-  --color-sublabel: #7a6078;
+  --color-sublabel: #8a7088;
   --color-info: #8a7088;
   --color-footer: #8a7088;
-  --color-version: #6a5068;
+  --color-version: #725a70;
   --color-result: #d0b8c8;
   --color-result-icon: #c0a8b8;
   --color-close-btn: #c0a8b8;
   --color-loading-text: #f0e0ea;
+  --status-success-text: #8fdcaa;
 
   --btn-primary-bg: #ff69b4;
   --btn-primary-bg-hover: #ff85c4;
@@ -1072,7 +1074,7 @@
   --input-bg: #261a26;
   --input-text: #f0e0ea;
   --input-text-light: #fff0f6;
-  --input-placeholder: #7a6078;
+  --input-placeholder: #8a7088;
   --input-placeholder-light: #a088a0;
   --input-placeholder-search: #8a708899;
   --input-focus-search: #d0b8c8bb;
@@ -1108,10 +1110,10 @@
   --split-focus-border: #ff69b4;
   --split-indicator: #ff69b4e5;
 
-  --notif-dot-feature: #ff99cc;
-  --notif-dot-update: #ffb3d9;
+  --notif-dot-feature: #9fe0b0;
+  --notif-dot-update: #ffd1a3;
   --notif-badge-bg: #ff3388;
-  --notif-badge-text: #fff0f6;
+  --notif-badge-text: #120a10;
 
   --toast-bg: #120a10cc;
   --toast-text: #f0e0ea;
@@ -1119,10 +1121,10 @@
   --toast-btn-bg: rgba(255, 105, 180, 0.12);
   --toast-btn-border: rgba(255, 105, 180, 0.25);
   --toast-btn-hover-bg: rgba(255, 105, 180, 0.2);
-  --toast-danger-bg: rgba(255, 51, 136, 0.2);
-  --toast-danger-border: rgba(255, 51, 136, 0.4);
-  --toast-danger-text: #ff3388;
-  --toast-danger-hover-bg: rgba(255, 51, 136, 0.3);
+  --toast-danger-bg: rgba(255, 77, 109, 0.2);
+  --toast-danger-border: rgba(255, 77, 109, 0.4);
+  --toast-danger-text: #ff4d6d;
+  --toast-danger-hover-bg: rgba(255, 77, 109, 0.3);
 
   --game-card-bg: #160c14;
   --game-card-overlay: #0e080ccc;

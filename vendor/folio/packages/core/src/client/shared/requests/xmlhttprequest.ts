@@ -4,9 +4,6 @@ import { FolioClient } from "@client/index";
 
 export default function (client: FolioClient, self: Self) {
 	let worker;
-	// if (self.Worker && flagEnabled("syncxhr", client.url)) {
-	// 	worker = client.natives.construct("Worker", config.files.sync);
-	// }
 	const ARGS = Symbol("xhr original args");
 	const HEADERS = Symbol("xhr headers");
 
@@ -55,10 +52,6 @@ export default function (client: FolioClient, self: Self) {
 				return ctx.return(undefined);
 			}
 
-			// it's a sync request
-			// sync xhr to service worker is not supported
-			// there's a nice way of polyfilling this though, we can spin on an atomic using sharedarraybuffer. this will maintain the sync behavior
-
 			const sab = new SharedArrayBuffer(1024, { maxByteLength: 2147483647 });
 			const view = new DataView(sab);
 
@@ -93,7 +86,6 @@ export default function (client: FolioClient, self: Self) {
 			);
 			const body = new TextDecoder().decode(bodyab);
 
-			// these should be using proxies to not leak scram strings but who cares
 			client.RawTrap(ctx.this, "status", {
 				get() {
 					return status;

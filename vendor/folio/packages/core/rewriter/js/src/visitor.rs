@@ -23,7 +23,6 @@ use crate::{
 	rewrite::rewrite,
 };
 
-// required stub markers
 macro_rules! audit_skip {
 	($($t:tt)*) => {};
 }
@@ -32,9 +31,6 @@ macro_rules! skip_field {
 	($($t:tt)*) => {};
 }
 
-// js MUST not be able to get a reference to any of these because sbx
-//
-// maybe move this out of this lib?
 const UNSAFE_GLOBALS: &[&str] = &["parent", "top", "location", "eval"];
 
 pub struct Visitor<'alloc, 'data, E>
@@ -101,7 +97,6 @@ where
 		location_assigned: &mut bool,
 	) {
 		if let Some(r) = &s.rest {
-			// { ...rest } = self;
 			match &r.target {
 				AssignmentTarget::AssignmentTargetIdentifier(i) => {
 					if i.name == "location" {
@@ -118,9 +113,6 @@ where
 		for prop in &s.properties {
 			match prop {
 				AssignmentTargetProperty::AssignmentTargetPropertyIdentifier(p) => {
-					// { location } = self;
-					// correct thing to do here is to change it into an AsignmentTargetPropertyProperty
-					// { $sj_location: location } = self;
 					if UNSAFE_GLOBALS.contains(&p.binding.name.to_string().as_str()) {
 						let mut tempvar = false;
 						if p.binding.name == "location" {
@@ -137,21 +129,12 @@ where
 					}
 
 					if let Some(d) = &p.init {
-						// { location = parent } = {};
-						// we still need to rewrite whatever stuff might be in the default expression
 						walk::walk_expression(self, d);
 					}
 				}
 				AssignmentTargetProperty::AssignmentTargetPropertyProperty(p) => {
-					// { location: x } = self;
-					// { location: x = "..."} = self;
-					// { location: { href } } = self;
-					// { location: { href: x } } = self;
-					// { ["location"]: x } = self;
-
 					match &p.name {
 						PropertyKey::StaticIdentifier(id) => {
-							// { location: x } = self;
 							if UNSAFE_GLOBALS.contains(&id.name.to_string().as_str()) {
 								self.jschanges.add(rewrite!(
 									p.name.span(),
@@ -166,15 +149,12 @@ where
 							}
 						}
 
-						// this is really annoying, we have to list out all the things that *aren't* expressions, you can't just check if it is one
-						// otherwise { 0:location } rewrites to { folio$prop(0):location } which is obviously invalid syntax
 						PropertyKey::NumericLiteral(_)
 						| PropertyKey::RegExpLiteral(_)
 						| PropertyKey::BigIntLiteral(_)
 						| PropertyKey::PrivateIdentifier(_) => {}
 
 						_ => {
-							// { ["location"]: x } = self;
 							self.jschanges.add(rewrite!(p.name.span(), WrapProperty));
 						}
 					}
@@ -187,8 +167,6 @@ where
 						match &p.binding {
 							AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(d) => {
 								target = &d.binding;
-								// { location: x = parent } = {};
-								// we still need to rewrite whatever stuff might be in the default expression
 								walk::walk_expression(self, &d.init);
 							}
 							_ => unreachable!(),
@@ -220,7 +198,6 @@ where
 		restids: &mut Vec<Atom<'data>>,
 		location_assigned: &mut bool,
 	) {
-		// note that i don't actually have to care about the rest param here since it wont have dangerous props. i still need to keep track of the object destructure rests though
 		for elem in (&s.elements).into_iter().flatten() {
 			match elem {
 				AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(p) => {
@@ -258,14 +235,12 @@ where
 	) {
 		match &it.kind {
 			BindingPatternKind::BindingIdentifier(p) => {
-				// let a = 0;
 				if no_shadow && p.name == "location" {
 					self.jschanges.add(rewrite!(p.span, TempVar));
 					*location_assigned = true;
 				}
 			}
 			BindingPatternKind::AssignmentPattern(p) => {
-				// const {a = 1} = 1;
 				walk::walk_binding_pattern(self, &p.left);
 				walk::walk_expression(self, &p.right);
 			}
@@ -275,7 +250,6 @@ where
 						PropertyKey::StaticIdentifier(id) => {
 							if UNSAFE_GLOBALS.contains(&id.name.to_string().as_str()) {
 								if prop.shorthand {
-									// const { location } = self;
 									let mut tempvar = false;
 									if no_shadow && id.name == "location" {
 										tempvar = true;
@@ -289,10 +263,8 @@ where
 										}
 									));
 
-									// don't recurse into the value because the value is the same and it would double rewrite the prop
 									continue;
 								}
-								// const { location: a } = self;
 								if no_shadow && id.name == "location" {
 									self.jschanges.add(rewrite!(
 										id.span(),
@@ -313,8 +285,6 @@ where
 							}
 						}
 						PropertyKey::StringLiteral(id) => {
-							// const { "location": x } = self;
-							// this cannot be shorthand, so we can use the easy path
 							if UNSAFE_GLOBALS.contains(&id.value.to_string().as_str()) {
 								self.jschanges.add(rewrite!(
 									id.span.shrink(1),
@@ -323,14 +293,12 @@ where
 							}
 						}
 
-						// see comment in recurse_object_assignment_target
 						PropertyKey::NumericLiteral(_)
 						| PropertyKey::RegExpLiteral(_)
 						| PropertyKey::BigIntLiteral(_)
 						| PropertyKey::PrivateIdentifier(_) => {}
 
 						_ => {
-							// const { ["location"]: x } = self;
 							self.jschanges.add(rewrite!(prop.key.span(), WrapProperty));
 						}
 					}
@@ -367,8 +335,6 @@ where
 		restids: &mut Vec<Atom<'data>>,
 		location_assigned: &mut bool,
 	) {
-		// (const/let) location = ... is perfectly fine, no matter the scope
-		// var location = ... is dangerous, it will assign to the real global if called in scope
 		let no_shadow = matches!(v.kind, VariableDeclarationKind::Var);
 		for dec in &v.declarations {
 			if let Some(ini) = &dec.init {
@@ -381,7 +347,6 @@ where
 	fn handle_assignment_target_member(&mut self, target: &AssignmentTarget<'data>) {
 		match target {
 			AssignmentTarget::StaticMemberExpression(s) => {
-				// window.location = ...
 				if UNSAFE_GLOBALS.contains(&s.property.name.as_str()) {
 					self.jschanges.add(rewrite!(
 						s.property.span(),
@@ -391,15 +356,11 @@ where
 					));
 				}
 
-				// walk the left hand side of the member expression (`window` for the `window.location = ...` case)
 				walk::walk_expression(self, &s.object);
 			}
 			AssignmentTarget::ComputedMemberExpression(s) => {
-				// window["location"] = ...
 				self.handle_computed_member_expression(s);
-				// `window`
 				walk::walk_expression(self, &s.object);
-				// `"location"`
 				walk::walk_expression(self, &s.expression);
 			}
 			_ => {}
@@ -417,11 +378,6 @@ where
 		let declare_local_location: bool;
 		if let ForStatementLeft::VariableDeclaration(v) = &left {
 			self.handle_var_declarator(v, &mut restids, &mut location_assigned);
-			// var { location } = ... is special because it will rewrite both the member access to $sj_location
-			// and the actual name of the variable to $folio$temploc so we can set it back later
-			// but this means that the variable location never actually gets assigned
-			// so if it was actually meant to be a local, it won't exist in scope
-			// we flag this here so it will be appended tos the variable declarations in cleanup
 			declare_local_location = location_assigned;
 		} else {
 			let target = left.as_assignment_target().unwrap();
@@ -444,7 +400,6 @@ where
 					self.recurse_array_assignment_target(a, &mut restids, &mut location_assigned);
 				}
 				AssignmentTarget::PrivateFieldExpression(_) => {
-					// `for (location.#p of ...)`
 					audit_skip!("private field can never contain anything unsafe");
 				}
 				_ => {}
@@ -509,10 +464,6 @@ where
 	fn visit_new_expression(&mut self, it: &NewExpression<'data>) {
 		match &it.callee {
 			Expression::StaticMemberExpression(_) | Expression::Identifier(_) => {
-				// new top(), new location.top(), etc
-				// rewriting to new $wrap(location).top() WILL change semantics
-				// so it has to be wrapped to new ($wrap(location).top)()
-				// TODO: skip paren wrap if it's determined to be safe
 				self.jschanges.add(rewrite!(it.callee.span(), WrapNew));
 				walk::walk_expression(self, &it.callee);
 			}
@@ -520,8 +471,6 @@ where
 				walk::walk_expression(self, &c.expression);
 			}
 			_ => {
-				// any other kind of expression
-				// new (f(location))()
 				walk::walk_expression(self, &it.callee);
 			}
 		}
@@ -532,16 +481,12 @@ where
 	fn visit_member_expression(&mut self, it: &MemberExpression<'data>) {
 		match &it {
 			MemberExpression::StaticMemberExpression(s) => {
-				// TODO
-				// you could break this with ["postMessage"] etc
-				// however this code only exists because of recaptcha whatever
-				// and it would slow down js execution a lot
 				if s.property.name == "postMessage" && !matches!(&s.object, Expression::Super(_)) {
 					self.jschanges
 						.add(rewrite!(s.object.span(), WrapPostMessage));
 
 					walk::walk_expression(self, &s.object);
-					return; // unwise to walk the rest of the tree
+					return;
 				}
 
 				if UNSAFE_GLOBALS.contains(&s.property.name.as_str()) {
@@ -564,12 +509,9 @@ where
 
 	#[coverage_checked(DebuggerStatement)]
 	fn visit_debugger_statement(&mut self, it: &DebuggerStatement) {
-		// delete debugger statements entirely. some sites will spam debugger as an anti-debugging measure, and we don't want that!
 		self.jschanges.add(rewrite!(it.span, Delete));
 	}
 
-	// we can't overwrite window.eval in the normal way because that would make everything an
-	// indirect eval, which could break things. we handle that edge case here
 	#[coverage_checked(CallExpression)]
 	fn visit_call_expression(&mut self, it: &CallExpression<'data>) {
 		audit_skip!(
@@ -577,7 +519,6 @@ where
 			"top(0): none of the unsafe globals can be called as functions, other than eval which we handle above"
 		);
 		if let Expression::Identifier(s) = &it.callee {
-			// if it's optional that actually makes it an indirect eval which is handled separately
 			if s.name == "eval" && !it.optional {
 				self.jschanges.add(rewrite!(
 					it.span,
@@ -586,8 +527,6 @@ where
 					}
 				));
 
-				// then we walk the arguments, but not the callee, since we want it to resolve to
-				// the real eval
 				walk::walk_arguments(self, &it.arguments);
 				return;
 			}
@@ -640,8 +579,6 @@ where
 
 	#[coverage_checked(TryStatement)]
 	fn visit_try_statement(&mut self, it: &oxc::ast::ast::TryStatement<'data>) {
-		// for debugging we need to know what the error was
-
 		if self.flags.capture_errors
 			&& let Some(h) = &it.handler
 			&& let Some(name) = &h.param
@@ -662,7 +599,6 @@ where
 				let mut restids: Vec<Atom<'data>> = Vec::new();
 				let mut location_assigned: bool = false;
 
-				// variables defined in catch shadow the global, don't rewrite location to the temploc here
 				self.recurse_binding_pattern(
 					&p.pattern,
 					&mut restids,
@@ -726,7 +662,6 @@ where
 		let mut restids: Vec<Atom<'data>> = Vec::new();
 		let mut location_assigned: bool = false;
 		for param in &it.params.items {
-			// function params shadow global, don't rewrite temploc
 			self.recurse_binding_pattern(
 				&param.pattern,
 				&mut restids,
@@ -740,7 +675,6 @@ where
 		);
 
 		if let Some(b) = &it.body {
-			// calling the actual visit method is neccesary here, walking isn't enough for some reason
 			self.visit_function_body(b);
 			if restids.len() > 0 || location_assigned {
 				if let Some(stmt) = b.statements.get(0) {
@@ -825,7 +759,6 @@ where
 					));
 				}
 			} else {
-				// we've narrowed the for specific stuff so it's just a regular expression now
 				walk::walk_for_statement_init(self, i);
 			}
 		}
@@ -860,8 +793,6 @@ where
 
 	#[coverage_checked(FunctionBody)]
 	fn visit_function_body(&mut self, it: &FunctionBody<'data>) {
-		// tag function for use in sourcemaps
-
 		if self.flags.do_sourcemaps {
 			self.jschanges
 				.add(rewrite!(Span::new(it.span.start, it.span.start), SourceTag));
@@ -875,9 +806,6 @@ where
 		if matches!(it.operator, UnaryOperator::Typeof) {
 			match it.argument {
 				Expression::Identifier(_) => {
-					// `typeof location` -> `typeof $wrap(location)` seems like a sane rewrite but it's incorrect
-					// typeof has the special property of not caring whether the identifier is undefined
-					// and this won't escape anyway, so don't rewrite
 					audit_skip!(
 						it.argument,
 						"safe, identifier tree cannot expand into an escape"
@@ -885,8 +813,6 @@ where
 					return;
 				}
 				_ => {
-					// `typeof (location)` / `typeof location.href` / `typeof function()`
-					// this is safe to rewrite
 				}
 			}
 		}
@@ -895,15 +821,8 @@ where
 
 	#[coverage_checked(UpdateExpression)]
 	fn visit_update_expression(&mut self, it: &UpdateExpression<'data>) {
-		// this is like a ++ or -- operator
 		match it.argument {
 			SimpleAssignmentTarget::AssignmentTargetIdentifier(_) => {
-				// if it's an identifier we cannot rewrite it
-				// $wrap(location)++ is invalid syntax
-
-				// so it's safer to assume that this "location" is a local
-				// even if it's real location you can't escape with it anyway
-				// unless you consider navigating to "https://proxy.com/NaN" escaping
 				audit_skip!(
 					it.argument,
 					"ident++ would need $wrap(ident)++ which is invalid syntax; arithmetic on location coerces to NaN and assigns the string back, which navigates only to a non-attacker-controlled URL"
@@ -913,7 +832,6 @@ where
 			_ => {}
 		}
 
-		// if it's not a simple identifier it's probably a member expression which is safe
 		walk::walk_update_expression(self, it);
 	}
 
@@ -958,8 +876,6 @@ where
 		);
 		match &it.left {
 			AssignmentTarget::AssignmentTargetIdentifier(s) => {
-				// location = ...
-				// location is the only unsafe global that has a setter
 				if &s.name == "location" {
 					self.jschanges.add(rewrite!(
 						it.span,
@@ -1009,9 +925,6 @@ where
 				}
 			}
 			AssignmentTarget::PrivateFieldExpression(_) => {
-				// `location.#p = x` — the private-field brand check throws
-				// TypeError before the identifier value is exposed to the
-				// program, so the bare `location` here cannot escape.
 				audit_skip!("PrivateField LHS: brand check throws TypeError before exposure");
 			}
 			_ => {}

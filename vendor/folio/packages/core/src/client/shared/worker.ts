@@ -26,7 +26,6 @@ export default function (client: FolioClient, _self: GlobalThis) {
 		},
 	});
 
-	// sharedworkers can only be constructed from window
 	client.Proxy("SharedWorker", {
 		construct(ctx) {
 			const isModule =

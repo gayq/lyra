@@ -220,9 +220,9 @@ where
                 error!("failed to serve client: {:?}{}", err, NEGATIVE);
             }
         });
-        if has_ws_protocol {
+        if let Some(selected) = protocols.first().or(tickets.first()) {
             resp.headers_mut()
-                .append(SEC_WEBSOCKET_PROTOCOL, protocols.join(", ").parse()?);
+                .append(SEC_WEBSOCKET_PROTOCOL, selected.parse()?);
         }
     } else if CONFIG.wisp.allow_wsproxy {
         let udp = req.uri().query().unwrap_or_default() == "udp";

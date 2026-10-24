@@ -3,7 +3,6 @@ import { FolioClient } from "@client/index";
 import { ForeignContext } from "@/shared/rewriters/html";
 import { String } from "@/shared/snapshot";
 
-// TODO: this function is untested / llm slop
 function foreignContextForRange(
 	client: FolioClient,
 	range: Range

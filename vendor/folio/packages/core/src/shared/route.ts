@@ -9,18 +9,25 @@ const decodeText = new TextDecoder("utf-8", { fatal: true }).decode.bind(new Tex
 const random = crypto.getRandomValues.bind(crypto);
 const encodeBase64 = globalThis.btoa.bind(globalThis);
 const decodeBase64 = globalThis.atob.bind(globalThis);
-const cache = new Map<string, string>();
-const MAX_CACHE = 2048;
+// tokens are opened on every routed request and proxied url getter, so both
+// directions are cached; oversized data routes stay uncached.
+const sealedTokens = new Map<string, string>();
+const openedTokens = new Map<string, string>();
+const MAX_CACHE = 4096;
+const MAX_CACHED_PLAIN = 16 * 1024;
 const MAX_TOKEN = 2 * 1024 * 1024;
 
 function remember(plain: string, token: string): string {
-	if (cache.size >= MAX_CACHE) cache.delete(cache.keys().next().value!);
-	cache.set(plain, token);
+	if (plain.length > MAX_CACHED_PLAIN) return token;
+	if (sealedTokens.size >= MAX_CACHE) sealedTokens.delete(sealedTokens.keys().next().value!);
+	if (openedTokens.size >= MAX_CACHE) openedTokens.delete(openedTokens.keys().next().value!);
+	sealedTokens.set(plain, token);
+	openedTokens.set(token, plain);
 	return token;
 }
 
 export function encodeRouteToken(plain: string): string {
-	const cached = cache.get(plain);
+	const cached = sealedTokens.get(plain);
 	if (cached) return cached;
 	const nonce = random(new Uint8Array(24));
 	const encrypted = xchacha20poly1305(key, nonce).encrypt(encodeText(plain));
@@ -35,10 +42,13 @@ export function encodeRouteToken(plain: string): string {
 }
 
 export function decodeRouteToken(token: string): string {
+	const cached = openedTokens.get(token);
+	if (cached !== undefined) return cached;
 	try {
 		if (token.length < 54 || token.length > MAX_TOKEN || !/^[\w-]+$/.test(token)) throw 0;
 		const binary: string = decodeBase64(token.replace(/-/g, "+").replace(/_/g, "/"));
-		const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+		const bytes = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 		const plain = decodeText(xchacha20poly1305(key, bytes.subarray(0, 24)).decrypt(bytes.subarray(24)));
 		remember(plain, token);
 		return plain;
@@ -47,8 +57,6 @@ export function decodeRouteToken(token: string): string {
 	}
 }
 
-// The internal frame address never goes on the wire. Keeping it inside the
-// authenticated payload lets the existing frame and cookie isolation work.
 export function sealRoute(input: string | URL): string {
 	const url = new NativeURL(String(input));
 	const route = url.pathname.match(/^(.*\/f)\/[a-z0-9]+\/[a-z0-9]+\//);

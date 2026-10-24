@@ -360,7 +360,6 @@ fi
 configure_adcash
 export DEBIAN_FRONTEND=noninteractive
 
-# Package and runtime failures must occur before shutting down the live site.
 retry 3 sudo apt-get update -y
 retry 3 sudo apt-get install -y --no-install-recommends unzip libcap2-bin jq dnsutils binaryen build-essential pkg-config libssl-dev git debian-keyring debian-archive-keyring apt-transport-https docker.io docker-cli libjemalloc2 ca-certificates curl gnupg lsb-release openssl psmisc
 
@@ -422,7 +421,6 @@ stop_pm2() {
     local runner=("$pm2_bin")
     local bun_bin
     bun_bin="$(PATH="$HOME/.bun/bin:$PATH" command -v bun || true)"
-    # An old Node-only installation may need its original CLI for cleanup.
     [ -z "$bun_bin" ] || runner=("$bun_bin" "$pm2_bin")
     "${runner[@]}" stop all >/dev/null 2>&1 || true
     "${runner[@]}" delete all >/dev/null 2>&1 || true
@@ -1107,7 +1105,6 @@ if [[ ! "$CACHE_AVAILABLE_KB" =~ ^[1-9][0-9]*$ ]]; then
   fail "available cache disk space could not be determined"
   exit 1
 fi
-# Keep collector credentials stable across reruns and outside the repository.
 sudo install -d -m 755 /etc/lyra
 if ! sudo test -s /etc/lyra/metrics.token; then
   openssl rand -hex 32 | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.token'
@@ -1120,8 +1117,6 @@ fi
 printf 'MOCHI_METRICS_TOKEN=%s\nNURU_METRICS_TOKEN=%s\n' "$METRICS_TOKEN" "$METRICS_TOKEN" \
   | sudo sh -c 'umask 077; cat > /etc/lyra/metrics.env'
 sudo chmod 600 /etc/lyra/metrics.token /etc/lyra/metrics.env
-# nuru tickets are signed with hourly keys derived from this secret; the edge token
-# lets caddy trust cloudfront's viewer address header.
 for secret in nuru-ticket edge; do
   if ! sudo test -s "/etc/lyra/$secret.token"; then
     openssl rand -hex 32 | sudo sh -c "umask 077; cat > /etc/lyra/$secret.token"
@@ -1283,12 +1278,9 @@ if [ -f /etc/caddy/Caddyfile ]; then
 fi
 
 sudo install -d -m 750 -o caddy -g caddy /var/log/caddy
-# Root validation used to create this file as root:root 0640, preventing startup.
-# Preserve existing log contents while repairing older installations.
 sudo touch /var/log/caddy/access.json
 sudo chown caddy:caddy /var/log/caddy/access.json
 sudo chmod 640 /var/log/caddy/access.json
-# the caddyfile carries the edge token, so keep it unreadable to others and out of the terminal
 sudo install -m 640 -o root -g caddy /dev/null /etc/caddy/Caddyfile
 sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
 {
@@ -1331,7 +1323,7 @@ http://127.0.0.1:4000 {
     bind 127.0.0.1
     import mochi_stream {http.request.header.X-Real-IP}
     reverse_proxy $MOCHI_UPSTREAMS {
-        lb_policy least_conn
+        lb_policy uri_hash
         unhealthy_request_count $MOCHI_REQUESTS
         health_uri /health
         health_interval 10s
@@ -1397,7 +1389,6 @@ http://127.0.0.1:4001 {
     log_append route {lyra_route}
     log_append request_id {http.request.uuid}
 
-    # cloudfront mirrors send X-Lyra-Edge (an origin custom header) with the viewer address
     map "{http.request.header.X-Lyra-Edge} {http.request.header.CloudFront-Viewer-Address}" {lyra_client_ip} {
         "~^$EDGE_TOKEN ([0-9A-Fa-f:.]+):[0-9]+\$" "\${1}"
         default {http.request.remote.host}
@@ -1515,7 +1506,7 @@ http://127.0.0.1:4001 {
         path /!!raw/* /!!/* /!!folio/* /!cover!/*
     }
     reverse_proxy @mochi_routes $MOCHI_UPSTREAMS {
-        lb_policy least_conn
+        lb_policy uri_hash
         unhealthy_request_count $MOCHI_REQUESTS
         health_uri /health
         health_interval 10s

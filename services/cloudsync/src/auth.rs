@@ -9,6 +9,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use dashmap::DashMap;
 use jsonwebtoken::{
     decode, encode, Algorithm as JwtAlgorithm, DecodingKey, EncodingKey, Header, Validation,
@@ -173,6 +174,29 @@ pub struct LoginRequest {
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
+    pub sync_salt: String,
+}
+
+const SYNC_SALT_BYTES: usize = 16;
+
+fn new_sync_salt() -> Vec<u8> {
+    use argon2::password_hash::rand_core::RngCore;
+    let mut salt = vec![0; SYNC_SALT_BYTES];
+    OsRng.fill_bytes(&mut salt);
+    salt
+}
+
+fn sync_salt(connection: &rusqlite::Connection, user_id: i64) -> rusqlite::Result<String> {
+    connection.execute(
+        "UPDATE users SET sync_salt = ? WHERE id = ? AND sync_salt IS NULL",
+        params![new_sync_salt(), user_id],
+    )?;
+    let salt: Vec<u8> = connection.query_row(
+        "SELECT sync_salt FROM users WHERE id = ?",
+        params![user_id],
+        |row| row.get(0),
+    )?;
+    Ok(STANDARD.encode(salt))
 }
 
 #[derive(Serialize)]
@@ -294,27 +318,29 @@ pub async fn register(
         let hashed = hash_password(&password)?;
         let conn = pool.get().map_err(|_| AuthFailure::Internal)?;
 
+        let salt = new_sync_salt();
         conn.execute(
-            "INSERT INTO users (username, password_hash, token_version) VALUES (?, ?, 1)",
-            params![stored_username, hashed],
+            "INSERT INTO users (username, password_hash, token_version, sync_salt) VALUES (?, ?, 1, ?)",
+            params![stored_username, hashed, salt],
         )
         .map_err(|_| AuthFailure::Internal)?;
 
-        Ok(conn.last_insert_rowid())
+        Ok((conn.last_insert_rowid(), STANDARD.encode(salt)))
     })
     .await
     .unwrap_or(Err(AuthFailure::Internal))
-    .and_then(|user_id| {
+    .and_then(|(user_id, sync_salt)| {
         start_session(&state, &cookies, user_id, &username, 1)?;
-        Ok(user_id)
+        Ok((user_id, sync_salt))
     });
 
     match result {
-        Ok(user_id) => auth_success(
+        Ok((user_id, sync_salt)) => auth_success(
             StatusCode::CREATED,
             Some(UserResponse {
                 id: user_id,
                 username,
+                sync_salt,
             }),
         ),
         Err(failure) => {
@@ -386,24 +412,32 @@ pub async fn login(
         if !check.valid {
             return Err(AuthFailure::InvalidCredentials);
         }
+        let conn = pool.get().map_err(|_| AuthFailure::Internal)?;
         if check.needs_upgrade {
             let upgraded = hash_password(&password)?;
-            let conn = pool.get().map_err(|_| AuthFailure::Internal)?;
             conn.execute(
                 "UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?",
                 params![upgraded, id, password_hash],
             )
             .map_err(|_| AuthFailure::Internal)?;
         }
+        let sync_salt = sync_salt(&conn, id).map_err(|_| AuthFailure::Internal)?;
 
-        Ok((id, token_version))
+        Ok((id, token_version, sync_salt))
     })
     .await;
 
     match result {
-        Ok(Ok((id, token_version))) => {
+        Ok(Ok((id, token_version, sync_salt))) => {
             match start_session(&state, &cookies, id, &username, token_version) {
-                Ok(()) => auth_success(StatusCode::OK, Some(UserResponse { id, username })),
+                Ok(()) => auth_success(
+                    StatusCode::OK,
+                    Some(UserResponse {
+                        id,
+                        username,
+                        sync_salt,
+                    }),
+                ),
                 Err(failure) => {
                     auth_error(StatusCode::INTERNAL_SERVER_ERROR, failure_message(failure))
                 }
@@ -444,9 +478,28 @@ pub async fn logout(State(state): State<Arc<AppState>>, cookies: Cookies) -> imp
 }
 
 pub async fn me(State(state): State<Arc<AppState>>, cookies: Cookies) -> impl IntoResponse {
-    match get_current_user(&state, &cookies).await {
-        Ok((id, username)) => auth_success(StatusCode::OK, Some(UserResponse { id, username })),
-        Err(()) => auth_error(StatusCode::UNAUTHORIZED, negative("unauthorized")),
+    let Ok((id, username)) = get_current_user(&state, &cookies).await else {
+        return auth_error(StatusCode::UNAUTHORIZED, negative("unauthorized"));
+    };
+    let pool = state.pool.clone();
+    let salt = tokio::task::spawn_blocking(move || {
+        let connection = pool.get().map_err(|_| AuthFailure::Internal)?;
+        sync_salt(&connection, id).map_err(|_| AuthFailure::Internal)
+    })
+    .await;
+    match salt {
+        Ok(Ok(sync_salt)) => auth_success(
+            StatusCode::OK,
+            Some(UserResponse {
+                id,
+                username,
+                sync_salt,
+            }),
+        ),
+        _ => auth_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            failure_message(AuthFailure::Internal),
+        ),
     }
 }
 
@@ -484,6 +537,14 @@ pub async fn delete_account(
         connection
             .execute("DELETE FROM users WHERE id = ?", params![user_id])
             .map_err(|_| AuthFailure::Internal)?;
+        if connection
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .is_ok_and(|busy| busy != 0)
+        {
+            tracing::debug!("deleted account pages wait for the next checkpoint");
+        }
         Ok::<(), AuthFailure>(())
     })
     .await;

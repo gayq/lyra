@@ -48,6 +48,10 @@ impl MemoryPressure {
         )
     }
 
+    pub fn shedding(&self) -> bool {
+        self.shedding.load(Ordering::Relaxed)
+    }
+
     pub fn snapshot(&self) -> serde_json::Value {
         serde_json::json!({
             "budget_bytes": self.budget.load(Ordering::Relaxed),

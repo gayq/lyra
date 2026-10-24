@@ -236,16 +236,25 @@ export async function injectContentScripts(
   }
 }
 
+const globPatterns = new Map<string, RegExp | null>();
+
 function urlMatchesGlob(url: string, glob: string): boolean {
-  try {
-    const escaped = glob
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".");
-    return new RegExp(`^${escaped}$`).test(url);
-  } catch {
-    return false;
+  let pattern = globPatterns.get(glob);
+  if (pattern === undefined) {
+    try {
+      const escaped = glob
+        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, ".*")
+        .replace(/\?/g, ".");
+      pattern = new RegExp(`^${escaped}$`);
+    } catch {
+      pattern = null;
+    }
+    if (globPatterns.size >= 512)
+      globPatterns.delete(globPatterns.keys().next().value!);
+    globPatterns.set(glob, pattern);
   }
+  return pattern?.test(url) ?? false;
 }
 
 async function readContentScriptAsset(

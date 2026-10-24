@@ -9,6 +9,7 @@ import { createSourceBuildId } from "./build-id.mjs";
 const { obfuscate } = JavaScriptObfuscator;
 const brotliCompressAsync = promisify(brotliCompress);
 const gzipAsync = promisify(gzip);
+
 const SENSITIVE_TERM = /(games?|anime|proxy|rivet|folio|lyra)/i;
 const SENSITIVE_STRING_PATTERN =
   "[Gg]ames?|[Aa]nime|[Pp]roxy|[Rr]ivet|[Ff]olio|[Ll]yra";

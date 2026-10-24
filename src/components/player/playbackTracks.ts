@@ -26,7 +26,6 @@ function nativeSubtitle(track: TextTrack, index: number): SubtitleTrack {
   };
 }
 
-/** Owns discovery/listener lifetimes; preferences and user choices stay in Player. */
 export function attachPlaybackTracks({
   video,
   hls,

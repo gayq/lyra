@@ -24,6 +24,7 @@ pub struct MochiTuning {
     pub disk_max_age_secs: u64,
     pub disk_cleanup_interval_secs: u64,
     pub channel_buffer: usize,
+    pub stream_prefetch_segments: usize,
 }
 
 pub fn detect() -> MochiTuning {
@@ -84,6 +85,12 @@ pub fn detect() -> MochiTuning {
         tuning.stream_upstream_permits = tuning
             .stream_upstream_permits
             .min(tuning.stream_upstream_permits_max);
+    }
+    if let Some(segments) = std::env::var("MOCHI_STREAM_PREFETCH")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        tuning.stream_prefetch_segments = segments.min(8);
     }
     tuning
 }
@@ -174,5 +181,6 @@ fn compute(ram_mb: u64, cores: usize, disk_mb: u64) -> MochiTuning {
         disk_max_age_secs,
         disk_cleanup_interval_secs,
         channel_buffer,
+        stream_prefetch_segments: 2,
     }
 }

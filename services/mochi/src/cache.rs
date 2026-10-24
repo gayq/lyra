@@ -1,9 +1,11 @@
 use crate::helpers::fix_game_content_type;
+use crate::state::CachedResponse;
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::fs::{self, File};
 use tokio::io::{
@@ -14,6 +16,11 @@ use tokio_util::io::ReaderStream;
 const MAX_CACHED_HEADERS: u16 = 256;
 const MAX_HEADER_NAME_LEN: usize = 128;
 const MAX_HEADER_VALUE_LEN: usize = 32 * 1024;
+const DISK_CHUNK_BYTES: usize = 256 * 1024;
+
+pub fn disk_writer(file: File) -> BufWriter<File> {
+    BufWriter::with_capacity(DISK_CHUNK_BYTES, file)
+}
 
 pub(crate) fn freshness_lifetime(headers: &HeaderMap, shared: bool, limit: u64) -> Option<u64> {
     let mut max_age = None;
@@ -174,11 +181,18 @@ where
     Some((status_code, headers))
 }
 
+fn cache_header_len(headers: &HeaderMap) -> u64 {
+    headers.iter().fold(4, |len, (name, value)| {
+        len + 6 + name.as_str().len() as u64 + value.len() as u64
+    })
+}
+
 pub async fn load_from_disk(
     url: &str,
     max_entry_size: usize,
     max_age_secs: u64,
-) -> Option<(Response, bool)> {
+    buffer_limit: usize,
+) -> Option<(Response, Option<Arc<CachedResponse>>)> {
     let path = get_cache_path(url);
     let file = File::open(&path).await.ok()?;
     let metadata = file.metadata().await.ok()?;
@@ -187,20 +201,36 @@ pub async fn load_from_disk(
     {
         return None;
     }
-    let mut reader = tokio::io::BufReader::new(file);
+    let mut reader = BufReader::new(file);
 
     let (status_code, mut headers) = read_cache_header(&mut reader).await?;
     if !stream_cache_fresh(&headers) || !crate::proxy::response_allows_shared_cache(&headers) {
         return None;
     }
+    let body_len = metadata.len().checked_sub(cache_header_len(&headers))?;
+    fix_game_content_type(url, &mut headers);
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
+
+    if body_len <= buffer_limit as u64 {
+        let mut body = Vec::with_capacity(body_len as usize);
+        reader.read_to_end(&mut body).await.ok()?;
+        if body.len() as u64 != body_len {
+            return None;
+        }
+        let cached = Arc::new(CachedResponse {
+            status: status_code,
+            headers: headers.clone(),
+            body: Bytes::from(body),
+        });
+        headers.insert("X-Cache", HeaderValue::from_static("DISK"));
+        let response = (status, headers, cached.body.clone()).into_response();
+        return Some((response, Some(cached)));
+    }
 
     headers.insert("X-Cache", HeaderValue::from_static("DISK"));
-    fix_game_content_type(url, &mut headers);
-
-    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::OK);
-    let stream = ReaderStream::new(reader);
+    let stream = ReaderStream::with_capacity(reader, DISK_CHUNK_BYTES);
     let body = Body::from_stream(stream);
-    Some(((status, headers, body).into_response(), false))
+    Some(((status, headers, body).into_response(), None))
 }
 
 pub struct StreamDiskEntry {
@@ -309,7 +339,7 @@ async fn write_to_disk_path(cache_path: String, status: u16, headers: &HeaderMap
     let Ok(f) = File::create(&temp_path).await else {
         return;
     };
-    let mut f = BufWriter::new(f);
+    let mut f = disk_writer(f);
 
     if write_cache_header(&mut f, status, headers).await.is_err() {
         let _ = fs::remove_file(&temp_path).await;
@@ -344,7 +374,7 @@ impl StreamCacheWriter {
         let cache_path = get_stream_cache_path(cache_key);
         let temp_path = format!("{}.{}.tmp", cache_path, uuid::Uuid::new_v4());
         let file = File::create(&temp_path).await?;
-        let mut writer = BufWriter::new(file);
+        let mut writer = disk_writer(file);
         if let Err(error) = write_cache_header(&mut writer, status, headers).await {
             drop(writer);
             let _ = fs::remove_file(&temp_path).await;

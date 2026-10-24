@@ -14,7 +14,6 @@ export function argdbg(arg, recurse = []) {
 				typeof arg[Symbol.iterator] === "function"
 			)
 				for (const prop in arg) {
-					// make sure it's not a getter
 					const desc = Object.getOwnPropertyDescriptor(arg, prop);
 					if (desc && desc.get) continue;
 
@@ -47,7 +46,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 			if (ctx.args[0])
 				ctx.args[0] = new Proxy(ctx.args[0], {
 					apply(target, that, args) {
-						// console.warn("CAUGHT PROMISE REJECTION", args);
 						return Reflect_apply(target, that, args);
 					},
 				});

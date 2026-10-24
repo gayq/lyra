@@ -44,7 +44,12 @@ export function decodeRivetPath(
   const slash = rest.indexOf("/");
   if (slash === -1) return null;
   const extId = rest.slice(0, slash);
-  const path = decodeURIComponent(rest.slice(slash + 1));
+  let path: string;
+  try {
+    path = decodeURIComponent(rest.slice(slash + 1));
+  } catch {
+    return null;
+  }
   if (!extId || !path) return null;
   return { extId, path };
 }

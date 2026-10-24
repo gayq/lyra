@@ -1,6 +1,17 @@
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::{Arc, LazyLock};
+use std::time::Duration;
+
+type LookupError = (io::ErrorKind, &'static str);
+
+static RESOLVED: LazyLock<moka::future::Cache<String, Arc<[SocketAddr]>>> = LazyLock::new(|| {
+    moka::future::Cache::builder()
+        .max_capacity(4096)
+        .time_to_live(Duration::from_secs(30))
+        .build()
+});
 
 pub fn redirect_policy() -> reqwest::redirect::Policy {
     reqwest::redirect::Policy::custom(|attempt| {
@@ -23,25 +34,33 @@ impl Resolve for PublicDnsResolver {
         let host = name.as_str().to_owned();
         Box::pin(async move {
             validate_hostname(&host)?;
-            let addresses = tokio::net::lookup_host((host.as_str(), 0)).await?;
-            let addresses = addresses.collect::<Vec<_>>();
-            if addresses.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "host has no addresses... /ᐠ - ˕ -マ",
-                )
-                .into());
-            }
-            if !addresses_are_public(&addresses) {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "host resolves to a non-public address... /ᐠ - ˕ -マ",
-                )
-                .into());
-            }
-            Ok(Box::new(addresses.into_iter()) as Addrs)
+            let addresses = RESOLVED
+                .try_get_with(host.clone(), lookup_public(host))
+                .await
+                .map_err(|error| io::Error::new(error.0, error.1))?;
+            Ok(Box::new((0..addresses.len()).map(move |index| addresses[index])) as Addrs)
         })
     }
+}
+
+async fn lookup_public(host: String) -> Result<Arc<[SocketAddr]>, LookupError> {
+    let addresses = tokio::net::lookup_host((host.as_str(), 0))
+        .await
+        .map_err(|error| (error.kind(), "host lookup failed... /ᐠ - ˕ -マ"))?
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return Err((
+            io::ErrorKind::NotFound,
+            "host has no addresses... /ᐠ - ˕ -マ",
+        ));
+    }
+    if !addresses_are_public(&addresses) {
+        return Err((
+            io::ErrorKind::PermissionDenied,
+            "host resolves to a non-public address... /ᐠ - ˕ -マ",
+        ));
+    }
+    Ok(addresses.into())
 }
 
 pub fn validate_public_target(url: &url::Url) -> Result<(), &'static str> {

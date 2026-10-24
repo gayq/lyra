@@ -262,6 +262,41 @@ async function reviveFolioRoutes() {
   } catch {}
 }
 
+function isUnreadableFolioRoute(url) {
+  if (url.pathname !== FOLIO_PATH || !url.searchParams.has("s")) return false;
+  try {
+    folio.routeDestination(url.href);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function staleFolioRouteResponse(isNavigate) {
+  const message = swNegativeMessage(
+    "this link expired after an update, open the site again",
+  );
+  const headers = {
+    "Cache-Control": "no-store",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+  };
+  if (!isNavigate) {
+    return new Response(message, {
+      status: 410,
+      headers: { ...headers, "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+  return new Response(
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>link expired</title></head><body style="margin:0;min-height:100vh;display:grid;place-items:center;font:14px/1.5 system-ui,sans-serif;padding:16px;box-sizing:border-box;text-align:center"><p>${message}</p></body></html>`,
+    {
+      status: 410,
+      headers: { ...headers, "Content-Type": "text/html; charset=utf-8" },
+    },
+  );
+}
+
 async function folioRouteMissFallback(request, url, realUrl, isNavigate) {
   notifyTransportError();
   if (realUrl && realUrl.startsWith("http")) {

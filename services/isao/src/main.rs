@@ -15,6 +15,7 @@ use axum::{
 use mimalloc::MiMalloc;
 use moka::future::Cache;
 use serde::Deserialize;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -180,6 +181,29 @@ struct EpisodeQuery {
     count_only: bool,
 }
 
+const ANILIST_HEDGE_DELAY: Duration = Duration::from_millis(1500);
+
+async fn hedged_count<Fallback, FallbackFuture>(
+    primary: impl Future<Output = i32>,
+    fallback: Fallback,
+    head_start: Duration,
+) -> i32
+where
+    Fallback: FnOnce() -> FallbackFuture,
+    FallbackFuture: Future<Output = i32>,
+{
+    tokio::pin!(primary);
+    if let Ok(count) = tokio::time::timeout(head_start, &mut primary).await {
+        return if count > 0 { count } else { fallback().await };
+    }
+    let fallback = fallback();
+    tokio::pin!(fallback);
+    tokio::select! {
+        count = &mut primary => if count > 0 { count } else { fallback.await },
+        count = &mut fallback => if count > 0 { count } else { primary.await },
+    }
+}
+
 async fn cached_episode_count(state: &AppState, mal_id: i64) -> i32 {
     if let Some(count) = state.episode_counts.get(&mal_id).await {
         return count;
@@ -207,23 +231,26 @@ async fn cached_episode_count(state: &AppState, mal_id: i64) -> i32 {
                 .acquire_timeout(Duration::from_secs(2))
                 .await
                 .ok_or(())?;
-            let count = tokio::time::timeout(
-                Duration::from_secs(5),
-                jikan::fetch_episode_count(&state.client, mal_id),
-            )
-            .await
-            .unwrap_or(0);
+            let jikan_count = async {
+                tokio::time::timeout(
+                    Duration::from_secs(5),
+                    jikan::fetch_episode_count(&state.client, mal_id),
+                )
+                .await
+                .unwrap_or(0)
+            };
+            let anilist_count = || async {
+                tokio::time::timeout(
+                    Duration::from_secs(6),
+                    anilist::fetch_episode_count(&state.client, mal_id),
+                )
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+            };
+            let count = hedged_count(jikan_count, anilist_count, ANILIST_HEDGE_DELAY).await;
             if count > 0 {
-                return Ok(count);
-            }
-            if let Some(count) = tokio::time::timeout(
-                Duration::from_secs(6),
-                anilist::fetch_episode_count(&state.client, mal_id),
-            )
-            .await
-            .ok()
-            .flatten()
-            {
                 return Ok(count);
             }
             let episodes = tokio::time::timeout(

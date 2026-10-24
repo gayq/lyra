@@ -68,7 +68,6 @@ export default function (client: FolioClient, self: GlobalThis) {
 			Object_setPrototypeOf(fakeWebSocket, ctx.fn.prototype);
 			fakeWebSocket.constructor = ctx.fn;
 
-			// websockets can take relative URLs
 			const url = normalizeWebSocketUrl(ctx.args[0], client.url.href);
 
 			const trustEvent = (ev: Event) =>
@@ -118,14 +117,12 @@ export default function (client: FolioClient, self: GlobalThis) {
 				if (typeof payload === "string") {
 					// DO NOTHING
 				} else if ("byteLength" in payload) {
-					// arraybuffer, convert to blob if needed or set the proper prototype
 					if (state.binaryType === "blob") {
 						payload = new Blob([payload]);
 					} else {
 						Object_setPrototypeOf(payload, ArrayBuffer.prototype);
 					}
 				} else if ("arrayBuffer" in payload) {
-					// blob, convert to arraybuffer if neccesary.
 					if (state.binaryType === "arraybuffer") {
 						payload = await payload.arrayBuffer();
 						Object_setPrototypeOf(payload, ArrayBuffer.prototype);
@@ -339,15 +336,11 @@ export default function (client: FolioClient, self: GlobalThis) {
 					start(controller) {
 						barews.addEventListener("message", async (ev: MessageEvent) => {
 							let payload = ev.data;
-							// TODO: this needs to be changed to uint8array later
-							// chrome isnt following spec though so we are just going to do this
 							if (typeof payload === "string") {
 								// DO NOTHING
 							} else if ("byteLength" in payload) {
-								// arraybuffer, set the realms prototype so its recognized
 								Object.setPrototypeOf(payload, ArrayBuffer.prototype);
 							} else if ("arrayBuffer" in payload) {
-								// blob, convert to arraybuffer
 								payload = await payload.arrayBuffer();
 								Object.setPrototypeOf(payload, ArrayBuffer.prototype);
 							}

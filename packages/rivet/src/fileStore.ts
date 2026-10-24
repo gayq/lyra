@@ -1,6 +1,8 @@
 import { dbGet, EXT_FILES_STORE } from "./db";
 import { guessMime } from "./crx";
 
+const textDecoder = new TextDecoder();
+
 async function readExtFile(
   extId: string,
   path: string,
@@ -16,7 +18,7 @@ export async function readExtFileText(
 ): Promise<string | null> {
   const ab = await readExtFile(extId, path);
   if (!ab) return null;
-  return new TextDecoder().decode(ab);
+  return textDecoder.decode(ab);
 }
 
 export async function readExtFileURL(

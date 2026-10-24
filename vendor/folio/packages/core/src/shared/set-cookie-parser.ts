@@ -1,5 +1,4 @@
 // adapted from https://www.npmjs.com/package/set-cookie-parser, licensed MIT
-// we'll be forever in the shadow of node-unblocker or something
 
 type ParsedCookie = {
 	name: string;
@@ -32,7 +31,6 @@ function hasCtlCharacters(value: string): boolean {
 }
 
 function cookiePairByteLength(name: string, value: string): number {
-	// RFC length checks ignore the '=' separator.
 	return textEncoder.encode(`${name}${value}`).length;
 }
 

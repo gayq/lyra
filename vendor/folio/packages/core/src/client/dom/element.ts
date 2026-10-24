@@ -30,7 +30,6 @@ export function foreignContextForElement(
 	return "html";
 }
 
-// NOTE: NOT INCLUSIVE OF THE CURRENT ELEMENT
 export function insideForeignContext(
 	client: FolioClient,
 	element: Element | null
@@ -40,7 +39,6 @@ export function insideForeignContext(
 	while (current) {
 		const context = foreignContextForElement(client, current);
 		if (context !== "html") return context;
-		// EXPLICITLY an html context, don't go up further
 		if (client.box.instanceof(current, "SVGForeignObjectElement"))
 			return "html";
 		current = current.parentElement;
@@ -80,7 +78,6 @@ function scriptBlockTypeForElement(
 	return getScriptBlockTypeString(type, language, hasType, hasLanguage);
 }
 
-// TODO: this is pretty bad. really this whole file sucks
 function collectAttributeMap(
 	client: FolioClient,
 	element: Element,
@@ -169,21 +166,12 @@ export default function (client: FolioClient, self: typeof window) {
 				},
 
 				set(value) {
-					// if (
-					// 	this.tagName === "IFRAME" &&
-					// 	attr === "src" &&
-					// 	value === "about:blank"
-					// ) {
-					// 	this.setAttribute("srcdoc", "");
-					// 	return;
-					// }
 					return this.setAttribute(attr, value);
 				},
 			});
 		}
 	}
 
-	// note that href is not here
 	const urlprops = [
 		"protocol",
 		"hash",
@@ -291,7 +279,7 @@ export default function (client: FolioClient, self: typeof window) {
 				const r = rule[name.toLowerCase()];
 				if (!r) return false;
 				if (r === "*") return true;
-				if (typeof r === "function") return false; // this can't happen but ts
+				if (typeof r === "function") return false;
 
 				return r.includes(tagName);
 			});
@@ -320,14 +308,12 @@ export default function (client: FolioClient, self: typeof window) {
 		},
 	});
 
-	// i actually need to do something with this
 	client.Proxy("Element.prototype.setAttributeNode", {
 		apply(_ctx) {},
 	});
 
 	client.Proxy("Element.prototype.setAttributeNS", {
 		apply(ctx) {
-			// TODO: this could leak by like calling stringify twice or some dumb shit lol
 			const name = String(ctx.args[1]);
 			const value = String(ctx.args[2]);
 
@@ -335,7 +321,7 @@ export default function (client: FolioClient, self: typeof window) {
 				const r = rule[String(name).toLowerCase()];
 				if (!r) return false;
 				if (r === "*") return true;
-				if (typeof r === "function") return false; // this can't happen but ts
+				if (typeof r === "function") return false;
 
 				return r.includes(ctx.this.tagName.toLowerCase());
 			});
@@ -357,7 +343,6 @@ export default function (client: FolioClient, self: typeof window) {
 		},
 	});
 
-	// this is separate from the regular href handlers because it returns an SVGAnimatedString
 	client.Trap("SVGAnimatedString.prototype.baseVal", {
 		get(ctx) {
 			const href = ctx.get() as string;
@@ -405,7 +390,6 @@ export default function (client: FolioClient, self: typeof window) {
 
 	client.Trap("Element.prototype.innerHTML", {
 		set(ctx, value: string) {
-			// null specifically becomes "" and not "null". undefined does not
 			if (value === null) return;
 			const html = String(value);
 			let newval;
@@ -593,41 +577,6 @@ export default function (client: FolioClient, self: typeof window) {
 		},
 	});
 
-	// TODO: this needs to be done for all insert methods
-	// client.Proxy(["Element.prototype.appendChild", "Element.prototype.append"], {
-	// 	apply(ctx) {
-	// 		if (ctx.this instanceof self.HTMLStyleElement) {
-	// 			for (const node of ctx.args) {
-	// 				if (node instanceof self.Text) {
-	// 					node.data = rewriteCss(
-	// 						ctx.args[0].data,
-	// 						client.context,
-	// 						client.meta
-	// 					);
-	// 				}
-	// 			}
-	// 		} else if (ctx.this instanceof self.HTMLScriptElement) {
-	// 			for (const node of ctx.args) {
-	// 				if (node instanceof self.Text) {
-	// 					const newval: string = rewriteJs(
-	// 						node.data,
-	// 						"(anonymous script element)",
-	// 						client.context,
-	// 						client.meta
-	// 					) as string;
-	// 					client.natives.call(
-	// 						"Element.prototype.setAttribute",
-	// 						ctx.this,
-	// 						"folio-attr-script-source-src",
-	// 						bytesToBase64(encoder.encode(newval))
-	// 					);
-	// 					node.data = newval;
-	// 				}
-	// 			}
-	// 		}
-	// 	},
-	// });
-
 	client.Proxy("Audio", {
 		construct(ctx) {
 			if (ctx.args[0]) ctx.args[0] = client.rewriteUrl(ctx.args[0]);
@@ -706,11 +655,9 @@ export default function (client: FolioClient, self: typeof window) {
 
 				try {
 					if (!(FOLIOCLIENT in realwin)) {
-						// hook the iframe before the client can start to steal globals out of it
 						client.init.hookSubcontext(realwin as Self, ctx.this);
 					}
 				} catch {
-					// cross-origin iframe, can't do anything here
 					return realwin;
 				}
 
@@ -753,7 +700,6 @@ export default function (client: FolioClient, self: typeof window) {
 			apply(ctx) {
 				const doc = ctx.call();
 				if (doc) {
-					// we trap the contentDocument, this is really the folio version
 					return ctx.return(
 						"contentDocument" in ctx.this ? ctx.this.contentDocument : doc
 					);
@@ -766,7 +712,6 @@ export default function (client: FolioClient, self: typeof window) {
 		apply(ctx) {
 			const html = String(ctx.args[0]);
 			const mime = String(ctx.args[1]);
-			// TODO: what do we do if it's xml/svg?
 			if (!isHtmlMimeType(mime)) return;
 			ctx.args[0] = rewriteHtml(html, client.context, client.meta, {
 				loadScripts: false,

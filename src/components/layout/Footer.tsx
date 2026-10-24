@@ -1,25 +1,55 @@
 import { useEffect, useState } from "preact/hooks";
 import { appPath } from "../../core/runtime/hosting";
 
+const PRESENCE_ID_KEY = "lyraPresenceId";
+const PRESENCE_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+function presenceId(): string {
+  try {
+    const saved = localStorage.getItem(PRESENCE_ID_KEY);
+    if (saved && PRESENCE_ID.test(saved)) return saved;
+    const created = crypto.randomUUID();
+    localStorage.setItem(PRESENCE_ID_KEY, created);
+    return created;
+  } catch {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return "";
+    }
+  }
+}
+
 export default function Footer() {
   const [clients, setClients] = useState<number | null>(null);
 
   useEffect(() => {
+    const id = presenceId();
+    const url = appPath("/api/presence") + (id ? `?id=${id}` : "");
     let events: EventSource | undefined;
     let stale: ReturnType<typeof setTimeout> | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let retryDelay = 1_000;
     let paused = false;
-    const disconnect = () => {
+    const close = () => {
       if (events) {
         events.onmessage = null;
         events.onerror = null;
+        events.removeEventListener("renew", renew);
         events.close();
       }
       events = undefined;
       clearTimeout(stale);
       clearTimeout(retry);
+    };
+    const disconnect = () => {
+      close();
       setClients(null);
+    };
+    const renew = () => {
+      close();
+      connect();
+      if (!events) setClients(null);
     };
     const reconnect = () => {
       disconnect();
@@ -30,8 +60,9 @@ export default function Footer() {
     const connect = () => {
       if (events || paused || !navigator.onLine) return;
       clearTimeout(retry);
-      events = new EventSource(appPath("/api/presence"));
+      events = new EventSource(url);
       stale = setTimeout(reconnect, 35_000);
+      events.addEventListener("renew", renew);
       events.onmessage = (event) => {
         const count = Number(event.data);
         if (!Number.isSafeInteger(count) || count < 1) return;

@@ -11,6 +11,13 @@ use tokio::sync::Semaphore;
 
 const QUEUE_LIMIT: usize = 32;
 const WAIT_LIMIT: Duration = Duration::from_secs(2);
+pub const ACCOUNT_CHUNK_LIMIT: u8 = 4;
+
+#[derive(Default)]
+struct AccountSlots {
+    snapshot: bool,
+    chunks: u8,
+}
 
 #[derive(Clone, Copy)]
 pub enum Operation {
@@ -40,15 +47,15 @@ pub struct Admission {
     pub chunks: Arc<AdaptiveGate>,
     writers: Arc<AdaptiveGate>,
     queue: Arc<Semaphore>,
-    users: DashMap<i64, ()>,
+    users: DashMap<i64, AccountSlots>,
     counters: [Counters; 3],
 }
 
 impl Admission {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            chunks: AdaptiveGate::new(1, 4, 4),
-            writers: AdaptiveGate::new(1, 1, 1),
+            chunks: AdaptiveGate::new(1, 8, 16),
+            writers: AdaptiveGate::new(1, 2, 4),
             queue: Arc::new(Semaphore::new(QUEUE_LIMIT)),
             users: DashMap::new(),
             counters: Default::default(),
@@ -69,14 +76,27 @@ impl Admission {
                 return None;
             }
         };
-        match self.users.entry(user_id) {
-            Entry::Occupied(_) => {
-                counters.rejected.fetch_add(1, Ordering::Relaxed);
-                return None;
+        let exclusive = matches!(operation, Operation::Snapshot);
+        let reserved = match self.users.entry(user_id) {
+            Entry::Occupied(mut entry) => {
+                let slots = entry.get_mut();
+                let available = !exclusive && !slots.snapshot && slots.chunks < ACCOUNT_CHUNK_LIMIT;
+                if available {
+                    slots.chunks += 1;
+                }
+                available
             }
             Entry::Vacant(entry) => {
-                entry.insert(());
+                entry.insert(AccountSlots {
+                    snapshot: exclusive,
+                    chunks: u8::from(!exclusive),
+                });
+                true
             }
+        };
+        if !reserved {
+            counters.rejected.fetch_add(1, Ordering::Relaxed);
+            return None;
         }
         let mut permit = Permit {
             admission: self.clone(),
@@ -124,7 +144,16 @@ pub struct Permit {
 }
 impl Drop for Permit {
     fn drop(&mut self) {
-        self.admission.users.remove(&self.user_id);
+        self.admission
+            .users
+            .remove_if_mut(&self.user_id, |_, slots| {
+                if matches!(self.operation, Operation::Snapshot) {
+                    slots.snapshot = false;
+                } else {
+                    slots.chunks = slots.chunks.saturating_sub(1);
+                }
+                !slots.snapshot && slots.chunks == 0
+            });
         if self.gate.is_some() {
             let elapsed = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
             let counter = &self.admission.counters[self.operation.index()];

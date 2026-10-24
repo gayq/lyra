@@ -76,9 +76,9 @@ function compilePattern(pattern: string): CompiledPattern | null {
   };
 }
 
-export function matchPattern(pattern: string, url: string): boolean {
+export function matchPattern(pattern: string, url: string | URL): boolean {
   try {
-    const parsed = new URL(url);
+    const parsed = typeof url === "string" ? new URL(url) : url;
     if (pattern === "<all_urls>")
       return /^(https?|file|ftp):$/.test(parsed.protocol);
     let compiled = patternCache.get(pattern);
@@ -118,19 +118,68 @@ export function urlMatchesPatterns(
   matches: string[],
   excludeMatches: string[] = [],
 ): boolean {
-  if (excludeMatches.some((p) => matchPattern(p, url))) return false;
-  return matches.some((p) => matchPattern(p, url));
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (excludeMatches.some((p) => matchPattern(p, parsed))) return false;
+  return matches.some((p) => matchPattern(p, parsed));
+}
+
+export interface ExtensionMessage {
+  message: string;
+  placeholders?: Record<string, { content?: string } | undefined>;
+}
+
+const foldedMessages = new WeakMap<object, Map<string, ExtensionMessage>>();
+
+export function findMessage(
+  messages: Record<string, ExtensionMessage>,
+  name: string,
+): ExtensionMessage | undefined {
+  if (Object.hasOwn(messages, name)) return messages[name];
+  let folded = foldedMessages.get(messages);
+  if (!folded) {
+    folded = new Map(
+      Object.entries(messages).map(([key, value]) => [key.toLowerCase(), value]),
+    );
+    foldedMessages.set(messages, folded);
+  }
+  return folded.get(name.toLowerCase());
+}
+
+export function formatMessage(
+  entry: ExtensionMessage,
+  substitutions: readonly string[] = [],
+): string {
+  const placeholders = new Map(
+    Object.entries(entry.placeholders ?? {}).map(([name, placeholder]) => [
+      name.toLowerCase(),
+      String(placeholder?.content ?? ""),
+    ]),
+  );
+  return String(entry.message ?? "")
+    .replace(
+      /\$([a-z0-9_@]+)\$/gi,
+      (token, name: string) => placeholders.get(name.toLowerCase()) ?? token,
+    )
+    .replace(/\$(\$|[1-9])/g, (_token, key: string) =>
+      key === "$" ? "$" : (substitutions[Number(key) - 1] ?? ""),
+    );
 }
 
 export function resolveManifestI18n(
   manifest: ChromeManifest,
-  messages: Record<string, { message: string }>,
+  messages: Record<string, ExtensionMessage>,
 ): ChromeManifest {
   const resolve = (s: string | undefined): string | undefined => {
     if (!s) return s;
     const key = s.match(/^__MSG_(.+)__$/)?.[1];
     if (!key) return s;
-    return messages[key]?.message ?? s;
+    const entry = findMessage(messages, key);
+    return typeof entry?.message === "string" ? formatMessage(entry) : s;
   };
   manifest.name = resolve(manifest.name) ?? manifest.name;
   const shortName = resolve(manifest.short_name);

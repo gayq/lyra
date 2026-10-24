@@ -15,35 +15,27 @@ pub(crate) use rewrite;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RewriteType<'alloc: 'data, 'data> {
-	/// `(cfg.wrapfn(ident))` | `cfg.wrapfn(ident)`
 	WrapFn {
 		enclose: bool,
 	},
-	/// `wrapPostMessage(object)`
 	WrapPostMessage,
 
-	// `new Foo()` -> `new (Foo)()`
 	WrapNew,
 
-	/// `(cfg.importfn("cfg.base"))`
 	ImportFn,
-	/// `cfg.metafn("cfg.base")`
 	MetaFn,
 
 	#[allow(dead_code)]
 	SetRealmFn,
 
-	/// `location` -> `$sj_location`
 	RewriteProperty {
 		ident: Atom<'data>,
 	},
 
-	/// `location` -> `$sj_location: location`
 	RebindProperty {
 		ident: Atom<'data>,
 		tempvar: bool,
 	},
-	// `location` -> `cfg.templocid`
 	TempVar,
 
 	WrapObjectAssignment {
@@ -51,35 +43,27 @@ pub(crate) enum RewriteType<'alloc: 'data, 'data> {
 		location_assigned: bool,
 	},
 
-	/// `cfg.wrapprop({})`
 	WrapProperty,
 
-	// dead code only if debug is disabled
 	#[allow(dead_code)]
-	/// a call to the configured error hook
 	ScramErr {
 		ident: Atom<'data>,
 	},
-	/// `$scramitize(span)`
 	Scramitize,
 
-	/// `eval(cfg.rewritefn(inner))`
 	Eval {
 		inner: Span,
 	},
-	/// `((t)=>$folio$tryset(name,"op",t)||(name op t))(rhs)`
 	Assignment {
 		name: Atom<'data>,
 		rhs: Span,
 		op: AssignmentOperator,
 	},
-	/// `ident,` -> `ident: cfg.wrapfn(ident),`
 	ShorthandObj {
 		name: Atom<'data>,
 	},
 	SourceTag,
 
-	// ;cfg.cleanrestfn(restids[0]); cfg.cleanrestfn(restid[1]);
 	CleanFunction {
 		restids: Vec<Atom<'data>>,
 		expression: bool,
@@ -87,14 +71,12 @@ pub(crate) enum RewriteType<'alloc: 'data, 'data> {
 		wrap: bool,
 		declare_local_location: bool,
 	},
-	/// `var location = ...` -> `var cfg.temploc = ..., cfg.tempunused = (cfg.cleanrestfn(restids[0]),cfg.trysetfn(location,"=",cfg.temploc)||location=cfg.temploc)`
 	CleanVariableDeclaration {
 		restids: Vec<Atom<'data>>,
 		location_assigned: bool,
 		declare_local_location: bool,
 	},
 
-	// don't use for anything static, only use for stuff like rewriteurl
 	Replace {
 		text: &'alloc str,
 	},

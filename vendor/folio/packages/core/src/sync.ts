@@ -16,7 +16,6 @@ addEventListener(
 		const xhr = new XMLHttpRequest();
 		xhr.responseType = "arraybuffer";
 
-		// force async since we need it to resolve to the sw
 		xhr.open(method, url, true, username, password);
 
 		if (headers)
@@ -27,12 +26,11 @@ addEventListener(
 		xhr.send(body);
 
 		xhr.onload = () => {
-			let cursor = 1; // first byte is the lock
+			let cursor = 1;
 
 			view.setUint16(cursor, xhr.status);
 			cursor += 2;
 
-			// next write the header string
 			const headers = xhr.getAllResponseHeaders();
 			view.setUint32(cursor, headers.length);
 			cursor += 4;
@@ -49,7 +47,6 @@ addEventListener(
 				sab.grow(cursor + xhr.response.byteLength);
 			u8view.set(new Uint8Array(xhr.response), cursor);
 
-			// release the lock, main thread will stop spinning now
 			view.setUint8(0, 1);
 		};
 		xhr.ontimeout =

@@ -144,7 +144,6 @@ function htmlRewriteContext(
 		inline: true,
 		source: parsed.url.href,
 		headers: response.rawHeaders,
-		// reasonably confident that a document fetch is impossible without a client
 		history: parsed.trackedClient!.history,
 	};
 }
@@ -278,10 +277,8 @@ export async function rewriteBody(
 				return response.body;
 			}
 		case "script": {
-			// do not attempt to rewrite a 404 response
 			if (response.ok) {
 				const ct = response.headers.get("content-type");
-				// don't rewrite invalid module scripts when the server declares a non-JS type
 				if (parsed.isModule && ct && !isJavascriptMimeType(ct)) {
 					return response.body;
 				}

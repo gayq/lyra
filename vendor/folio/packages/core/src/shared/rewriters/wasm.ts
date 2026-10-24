@@ -1,4 +1,3 @@
-// i am a cat. i like to be petted. i like to be fed. i like to be
 import {
 	initSync,
 	Rewriter as WasmRewriter,

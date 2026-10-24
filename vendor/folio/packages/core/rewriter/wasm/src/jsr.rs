@@ -14,7 +14,6 @@ use crate::{
 	set_obj,
 };
 
-// slightly modified https://github.com/ungap/random-uuid/blob/main/index.js
 #[wasm_bindgen(inline_js = r#"
 export function scramtag() {
     return (""+1e10).replace(/[018]/g,

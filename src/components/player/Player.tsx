@@ -236,6 +236,48 @@ function cleanDuration(seconds: number): number {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
 }
 
+function sameRenderedMediaState(left: MediaState, right: MediaState): boolean {
+  return (
+    left.status === right.status &&
+    left.sourceReady === right.sourceReady &&
+    left.buffering === right.buffering &&
+    left.bufferingReason === right.bufferingReason &&
+    left.paused === right.paused &&
+    left.ended === right.ended &&
+    left.seeking === right.seeking &&
+    left.duration === right.duration &&
+    left.volume === right.volume &&
+    left.muted === right.muted &&
+    left.playbackRate === right.playbackRate &&
+    left.error === right.error &&
+    left.readyState >= 2 === right.readyState >= 2
+  );
+}
+
+interface SkipRange {
+  start: number;
+  end: number;
+}
+
+interface SkipMarker {
+  label: "skip intro" | "skip outro";
+  end: number;
+}
+
+function activeSkipMarker(
+  state: MediaState,
+  intro: SkipRange | null,
+  outro: SkipRange | null,
+): SkipMarker | null {
+  const time = state.currentTime;
+  if (state.seeking || time === null) return null;
+  if (intro && time >= intro.start && time < intro.end)
+    return { label: "skip intro", end: intro.end };
+  if (outro && time >= outro.start && time < outro.end)
+    return { label: "skip outro", end: outro.end };
+  return null;
+}
+
 function buildNextEpisodeStreamUrl(
   episode: number,
   episodeParts: PlaybackEpisodePartRange[],
@@ -371,15 +413,18 @@ export default function Player() {
   );
   const initialEpisodeCount = parseInt(params.get("episode_count") || "0", 10);
   const format = params.get("format") || "";
-  const currentSeason: AnimeSeason = {
-    id: animeIdentityCacheKey({ ids: identityIds }),
-    title,
-    ids: identityIds,
-    format,
-    number: Number(params.get("season")) || 1,
-    episodeCount: initialEpisodeCount,
-    year: Number(params.get("year")) || undefined,
-  };
+  const currentSeason = useMemo<AnimeSeason>(
+    () => ({
+      id: animeIdentityCacheKey({ ids: identityIds }),
+      title,
+      ids: identityIds,
+      format,
+      number: Number(params.get("season")) || 1,
+      episodeCount: initialEpisodeCount,
+      year: Number(params.get("year")) || undefined,
+    }),
+    [identityIds, title, format, params, initialEpisodeCount],
+  );
   const [episodeNumber, setEpisodeNumber] = useState(
     hasEpisodeParam ? Math.max(0, initialEpisode) : anikotoEpisodeId ? 1 : 0,
   );
@@ -418,6 +463,8 @@ export default function Player() {
       ? `/stream/anikoto?${fallbackQuery}`
       : "";
   const resumeKey = `lyra-resume-anikoto-${animeIdentityCacheKey({ ids: playbackIds })}-${episodeNumber}-${language}`;
+  const episodeCountRef = useRef(episodeCount);
+  episodeCountRef.current = episodeCount;
   const persistProgress = useCallback(
     (currentTime: number, duration: number, completed = false) => {
       saveAnimeProgress(
@@ -431,7 +478,7 @@ export default function Player() {
           episode: episodeNumber,
           sourceEpisode: sourceEpisodeNumber,
           season: Number(params.get("season")) || 1,
-          episodeCount,
+          episodeCount: episodeCountRef.current,
           year: Number(params.get("year")) || undefined,
           format,
           language,
@@ -457,7 +504,6 @@ export default function Player() {
       episodeNumber,
       sourceEpisodeNumber,
       params,
-      episodeCount,
       format,
       language,
       episodeParts,
@@ -557,18 +603,18 @@ export default function Player() {
   });
   const manifestDurationRef = useRef<number | null>(null);
   const sourceGenerationRef = useRef(0);
-  const [introMarker, setIntroMarker] = useState<{
-    start: number;
-    end: number;
-  } | null>(null);
-  const [outroMarker, setOutroMarker] = useState<{
-    start: number;
-    end: number;
-  } | null>(null);
+  const [introMarker, setIntroMarker] = useState<SkipRange | null>(null);
+  const [outroMarker, setOutroMarker] = useState<SkipRange | null>(null);
+  const skipRangesRef = useRef({ intro: introMarker, outro: outroMarker });
+  skipRangesRef.current = { intro: introMarker, outro: outroMarker };
+  const [activeSkip, setActiveSkip] = useState<SkipMarker | null>(null);
+  const bufferedRef = useRef<HTMLDivElement | null>(null);
+  const paintedBufferedRef = useRef("");
   const [isFullscreen, setIsFullscreen] = useState(() =>
     Boolean(document.fullscreenElement),
   );
   const [showControls, setShowControls] = useState(true);
+  const [playbackStarted, setPlaybackStarted] = useState(false);
   const [externalSubtitles, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [embeddedSubtitles, setEmbeddedSubtitles] = useState<SubtitleTrack[]>(
     [],
@@ -738,37 +784,57 @@ export default function Player() {
   displayDurationRef.current = displayDuration;
   durationLabelRef.current = durationLabel;
 
+  const renderBuffered = useCallback(
+    (ranges: MediaState["buffered"], duration: number) => {
+      const container = bufferedRef.current;
+      if (!container) return;
+      const segments =
+        duration > 0
+          ? ranges.map((range) => {
+              const left = Math.max(0, Math.min(100, (range.start / duration) * 100));
+              const right = Math.max(0, Math.min(100, (range.end / duration) * 100));
+              return [left.toFixed(2), Math.max(0, right - left).toFixed(2)];
+            })
+          : [];
+      const painted = segments.join("|");
+      if (painted === paintedBufferedRef.current) return;
+      paintedBufferedRef.current = painted;
+      while (container.childElementCount > segments.length)
+        container.lastElementChild!.remove();
+      segments.forEach(([left, width], index) => {
+        let bar = container.children[index] as HTMLElement | undefined;
+        if (!bar) {
+          bar = document.createElement("div");
+          bar.className = "seek-bar-buffered";
+          container.append(bar);
+        }
+        bar.style.left = `${left}%`;
+        bar.style.width = `${width}%`;
+      });
+    },
+    [],
+  );
+
   const syncMediaState = useCallback((patch: MediaStateHints = {}) => {
     mediaHintsRef.current = { ...mediaHintsRef.current, ...patch };
     const video = videoRef.current;
     if (!video) return;
     const next = readMediaState(video, mediaHintsRef.current);
     mediaStateRef.current = next;
-    setMediaState((previous) => {
-      const sameTime =
-        Math.floor(previous.currentTime ?? -1) ===
-        Math.floor(next.currentTime ?? -1);
-      const sameBuffer =
-        previous.buffered.length === next.buffered.length &&
-        previous.buffered.every(
-          (range, index) =>
-            range.start === next.buffered[index]!.start &&
-            range.end === next.buffered[index]!.end,
-        );
-      return sameTime &&
-        sameBuffer &&
-        (Object.keys(next) as (keyof MediaState)[]).every(
-          (key) =>
-            key === "currentTime" ||
-            key === "progress" ||
-            key === "buffered" ||
-            previous[key] === next[key],
-        )
+    renderBuffered(next.buffered, next.duration ?? 0);
+    const { intro, outro } = skipRangesRef.current;
+    const skip = activeSkipMarker(next, intro, outro);
+    setActiveSkip((previous) =>
+      previous?.label === skip?.label && previous?.end === skip?.end
         ? previous
-        : next;
-    });
-  }, []);
+        : skip,
+    );
+    setMediaState((previous) =>
+      sameRenderedMediaState(previous, next) ? previous : next,
+    );
+  }, [renderBuffered]);
 
+  const paintedTimeRef = useRef({ pct: "", label: "", now: "" });
   const renderPlaybackTime = useCallback(
     (value: number | null, preview = false) => {
       const time =
@@ -780,19 +846,24 @@ export default function Player() {
           : 0;
       if (!preview) currentTimeRef.current = time;
       if (scrubbingRef.current && !preview) return;
-      if (progressFillRef.current) {
-        progressFillRef.current.style.width = `${pct}%`;
+      const painted = paintedTimeRef.current;
+      const pctValue = `${pct.toFixed(3)}%`;
+      if (painted.pct !== pctValue) {
+        painted.pct = pctValue;
+        if (progressFillRef.current) progressFillRef.current.style.width = pctValue;
+        if (progressThumbRef.current) progressThumbRef.current.style.left = pctValue;
       }
-      if (progressThumbRef.current) {
-        progressThumbRef.current.style.left = `${pct}%`;
-      }
-      if (timeDisplayRef.current) {
-        const label = `${time === null ? "--:--" : formatTime(time)} / ${durationLabelRef.current}`;
-        if (timeDisplayRef.current.textContent !== label)
-          timeDisplayRef.current.textContent = label;
+      const label = `${time === null ? "--:--" : formatTime(time)} / ${durationLabelRef.current}`;
+      if (painted.label !== label) {
+        painted.label = label;
+        if (timeDisplayRef.current) timeDisplayRef.current.textContent = label;
         seekBarRef.current?.setAttribute("aria-valuetext", label);
       }
-      seekBarRef.current?.setAttribute("aria-valuenow", String(time ?? 0));
+      const now = String(Math.floor(time ?? 0));
+      if (painted.now !== now) {
+        painted.now = now;
+        seekBarRef.current?.setAttribute("aria-valuenow", now);
+      }
     },
     [],
   );
@@ -816,10 +887,23 @@ export default function Player() {
     [],
   );
 
-  const resetTimer = useCallback(() => {
+  const clearHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+
+  const lastActivityRef = useRef(0);
+  const resetTimer = useCallback(() => {
+    lastActivityRef.current = performance.now();
     setShowControls(true);
-    hideTimerRef.current = setTimeout(() => {
+    if (hideTimerRef.current) return;
+    const hideIfIdle = () => {
+      const idleFor = performance.now() - lastActivityRef.current;
+      if (idleFor < 3000) {
+        hideTimerRef.current = setTimeout(hideIfIdle, 3000 - idleFor);
+        return;
+      }
+      hideTimerRef.current = null;
       const video = videoRef.current;
       const focused = containerRef.current?.querySelector(
         ".player-controls :focus-visible",
@@ -834,16 +918,17 @@ export default function Player() {
         !focused
       )
         setShowControls(false);
-    }, 3000);
+    };
+    hideTimerRef.current = setTimeout(hideIfIdle, 3000);
   }, []);
 
   useEffect(() => {
     selectorOpenRef.current = openSelector !== null;
     if (openSelector) {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      clearHideTimer();
       setShowControls(true);
     } else resetTimer();
-  }, [openSelector, resetTimer]);
+  }, [openSelector, resetTimer, clearHideTimer]);
 
   useEffect(() => {
     if (episodeSelectorOpen) setEpisodeSelectorMounted(true);
@@ -931,7 +1016,8 @@ export default function Player() {
     (seconds: number) => {
       const video = videoRef.current;
       if (!video || !Number.isFinite(seconds)) return;
-      const durationLimit = displayDuration || cleanDuration(video.duration);
+      const durationLimit =
+        displayDurationRef.current || cleanDuration(video.duration);
       const target =
         durationLimit > 0
           ? Math.max(0, Math.min(durationLimit, seconds))
@@ -943,7 +1029,7 @@ export default function Player() {
         video.currentTime = target;
       } catch {}
     },
-    [displayDuration],
+    [],
   );
 
   useEffect(() => {
@@ -972,13 +1058,25 @@ export default function Player() {
       video.volume = Math.max(0, Math.min(1, volume / 100));
       video.muted = false;
       if (video.volume > 0) lastVolumeRef.current = video.volume;
-      try {
-        localStorage.setItem("lyra-anime-volume", String(volume));
-      } catch {}
       syncMediaState();
     },
     [syncMediaState],
   );
+
+  const volumeSliderRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const slider = volumeSliderRef.current;
+    if (!slider) return;
+    const persistVolume = () => {
+      const volume = Number(slider.value);
+      if (!Number.isFinite(volume)) return;
+      try {
+        localStorage.setItem("lyra-anime-volume", String(volume));
+      } catch {}
+    };
+    slider.addEventListener("change", persistVolume);
+    return () => slider.removeEventListener("change", persistVolume);
+  }, []);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
@@ -1231,6 +1329,7 @@ export default function Player() {
     const video = videoRef.current;
     if (video) applySubtitleTrack(video, undefined, hlsRef.current);
     setConfirmedEpisodeNumber(null);
+    setPlaybackStarted(false);
     manifestDurationRef.current = null;
     sourceContextGenerationRef.current += 1;
     const switchTime = sourceSwitchTimeRef.current;
@@ -1315,6 +1414,7 @@ export default function Player() {
       let recoveryTimer: number | null = null;
       const hls = new Hls({
         enableWorker: true,
+        startFragPrefetch: true,
         backBufferLength: 30,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
@@ -1561,7 +1661,6 @@ export default function Player() {
   useEffect(() => {
     if (
       preloadSource !== videoSrc ||
-      mediaState.status !== "playing" ||
       episodeNumber < 1 ||
       episodeCount <= episodeNumber ||
       isAnimeMovieFormat(format)
@@ -1607,7 +1706,6 @@ export default function Player() {
     };
   }, [
     preloadSource,
-    mediaState.status,
     videoSrc,
     episodeCount,
     episodeNumber,
@@ -2253,8 +2351,10 @@ export default function Player() {
         bufferingReason: null,
         error: null,
       });
+      setPlaybackStarted(true);
       if (!firstFrameRecordedRef.current) {
         firstFrameRecordedRef.current = true;
+        resetTimer();
         recordStreamDiagnostic("first_playable_frame", {
           elapsedMs: Math.round(
             performance.now() - sessionStartedAtRef.current,
@@ -2300,7 +2400,7 @@ export default function Player() {
           ? { buffering: false, bufferingReason: null }
           : {},
       );
-      if (Date.now() - lastSavedAt >= 5_000) saveResume();
+      if (Date.now() - lastSavedAt >= 15_000) saveResume();
       const remaining = video.duration - video.currentTime;
       if (remaining > 60 || remaining <= 0) setPreloadSource("");
       if (!video.paused && !video.seeking && remaining > 0 && remaining <= 60) {
@@ -2547,6 +2647,7 @@ export default function Player() {
     persistProgress,
     notify4kFallback,
     fallbackFrom4k,
+    resetTimer,
   ]);
 
   useEffect(() => {
@@ -2582,9 +2683,10 @@ export default function Player() {
         !event.altKey &&
         /^[0-9]$/.test(event.key)
       ) {
-        if (!displayDuration) return;
+        const duration = displayDurationRef.current;
+        if (!duration) return;
         event.preventDefault();
-        seekTo(displayDuration * (Number(event.key) / 10));
+        seekTo(duration * (Number(event.key) / 10));
         return;
       }
       resetTimer();
@@ -2659,7 +2761,6 @@ export default function Player() {
     toggleMute,
     toggleFullscreen,
     toggleCaptions,
-    displayDuration,
     seekTo,
     syncMediaState,
     setSpeed,
@@ -2691,7 +2792,7 @@ export default function Player() {
         cancelAnimationFrame(controlsFrameRef.current);
         controlsFrameRef.current = null;
       }
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      clearHideTimer();
       if (
         !selectorOpenRef.current &&
         !scrubbingRef.current &&
@@ -2728,7 +2829,7 @@ export default function Player() {
         controlsFrameRef.current = null;
       }
     };
-  }, [resetTimer]);
+  }, [resetTimer, clearHideTimer]);
 
   useEffect(() => {
     const status = resolvePlayerStatus(
@@ -2780,13 +2881,13 @@ export default function Player() {
     }
   }, [title, poster]);
 
-  const bufferedRanges = mediaState.buffered;
   const controlsVisible =
     showControls ||
     mediaState.paused ||
     mediaState.ended ||
     Boolean(loadError) ||
-    openSelector !== null;
+    openSelector !== null ||
+    !playbackStarted;
   useLayoutEffect(() => {
     const video = videoRef.current;
     const controls =
@@ -2811,26 +2912,37 @@ export default function Player() {
     autoQualityName,
     selectedQuality >= 0 && selectedQuality !== activeQuality,
   );
-  const audioMenuLabels = audioLabels(audioTracks, streamProvider === "framex");
+  const audioMenuLabels = useMemo(
+    () => audioLabels(audioTracks, streamProvider === "framex"),
+    [audioTracks, streamProvider],
+  );
   const selectedAudioTrack = audioTracks[activeAudioTrack]
     ? activeAudioTrack
     : selectTrack(audioTracks, audioPreferenceRef.current, "audio", language);
   const activeAudioLabel = streamProvider === null
     ? "audio"
     : audioMenuLabels[selectedAudioTrack] || "audio";
-  const currentPlaybackTime = mediaState.currentTime;
-  const activeSkip =
-    !mediaState.seeking && currentPlaybackTime !== null
-      ? introMarker &&
-        currentPlaybackTime >= introMarker.start &&
-        currentPlaybackTime < introMarker.end
-        ? { label: "skip intro", end: introMarker.end }
-        : outroMarker &&
-            currentPlaybackTime >= outroMarker.start &&
-            currentPlaybackTime < outroMarker.end
-          ? { label: "skip outro", end: outroMarker.end }
-          : null
-      : null;
+  useEffect(() => {
+    syncMediaState();
+  }, [introMarker, outroMarker, syncMediaState]);
+  const pickerSeasons = useMemo(
+    () => [
+      { ...currentSeason, episodeCount: Math.max(episodeCount, episodeNumber) },
+    ],
+    [currentSeason, episodeCount, episodeNumber],
+  );
+  const closeSelector = useCallback(() => setOpenSelector(null), []);
+  const playPickedEpisode = useCallback(
+    (playerUrl: string) => {
+      const next = new URL(playerUrl, window.location.origin);
+      if (Number(next.searchParams.get("season")) === currentSeason.number) {
+        changeEpisode(Number(next.searchParams.get("episode")));
+      } else {
+        window.location.assign(playerUrl);
+      }
+    },
+    [currentSeason.number, changeEpisode],
+  );
   const activeSkipKey = activeSkip
     ? `${activeSkip.label}:${activeSkip.end}`
     : null;
@@ -2947,27 +3059,7 @@ export default function Player() {
             aria-disabled={!displayDuration}
           >
             <div ref={seekPreviewRef} class="seek-preview" hidden />
-            {bufferedRanges.map((range, index) => {
-              if (!displayDuration) return null;
-              const left = Math.max(
-                0,
-                Math.min(100, (range.start / displayDuration) * 100),
-              );
-              const right = Math.max(
-                0,
-                Math.min(100, (range.end / displayDuration) * 100),
-              );
-              return (
-                <div
-                  class="seek-bar-buffered"
-                  key={`${range.start}-${range.end}-${index}`}
-                  style={{
-                    left: `${left}%`,
-                    width: `${Math.max(0, right - left)}%`,
-                  }}
-                />
-              );
-            })}
+            <div ref={bufferedRef} />
             <div ref={progressFillRef} class="seek-bar-fill" />
             <div ref={progressThumbRef} class="seek-bar-thumb" />
           </div>
@@ -3024,6 +3116,7 @@ export default function Player() {
                   min="0"
                   max="100"
                   value={muted ? 0 : volume}
+                  ref={volumeSliderRef}
                   onInput={handleVolume}
                   onPointerDown={() => {
                     volumeDraggingRef.current = true;
@@ -3096,35 +3189,14 @@ export default function Player() {
                       ids={identityIds}
                       posterUrl={poster}
                       format={format}
-                      year={Number(params.get("year")) || undefined}
-                      episodeCount={Math.max(episodeCount, episodeNumber)}
-                      seasons={[
-                        {
-                          ...currentSeason,
-                          episodeCount: Math.max(episodeCount, episodeNumber),
-                        },
-                      ]}
-                      initialSeasonId={currentSeason?.id}
+                      year={currentSeason.year}
+                      episodeCount={pickerSeasons[0]!.episodeCount}
+                      seasons={pickerSeasons}
+                      initialSeasonId={currentSeason.id}
                       currentEpisode={confirmedEpisodeNumber ?? undefined}
                       initialLanguage={language}
-                      onClose={() => setOpenSelector(null)}
-                      onPlay={(playerUrl) => {
-                        const next = new URL(playerUrl, window.location.origin);
-                        const seasonNumber =
-                          currentSeason?.number ||
-                          Number(params.get("season")) ||
-                          1;
-                        if (
-                          Number(next.searchParams.get("season")) ===
-                          seasonNumber
-                        ) {
-                          changeEpisode(
-                            Number(next.searchParams.get("episode")),
-                          );
-                        } else {
-                          window.location.assign(playerUrl);
-                        }
-                      }}
+                      onClose={closeSelector}
+                      onPlay={playPickedEpisode}
                     />
                   )}
                 </div>
@@ -3255,23 +3327,17 @@ export default function Player() {
                     4k
                   </PlayerOption>
                 )}
-                {[...qualityOptions]
-                  .sort(
-                    (left, right) =>
-                      right.height - left.height ||
-                      right.bitrate - left.bitrate,
-                  )
-                  .map((option) => (
-                    <PlayerOption
-                      key={`${option.index}-${option.label}`}
-                      open={openSelector === "quality"}
-                      selected={selectedQuality === option.index}
-                      solid
-                      onSelect={() => chooseQuality(option.index)}
-                    >
-                      {option.label}
-                    </PlayerOption>
-                  ))}
+                {qualityOptions.map((option) => (
+                  <PlayerOption
+                    key={`${option.index}-${option.label}`}
+                    open={openSelector === "quality"}
+                    selected={selectedQuality === option.index}
+                    solid
+                    onSelect={() => chooseQuality(option.index)}
+                  >
+                    {option.label}
+                  </PlayerOption>
+                ))}
               </PlayerMenu>
             )}
             <button

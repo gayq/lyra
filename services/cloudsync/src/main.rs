@@ -250,8 +250,8 @@ async fn main() {
     );
     let sync_chunk_conf = Box::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(50)
-            .burst_size(40)
+            .per_millisecond(25)
+            .burst_size(64)
             .error_handler(governor_response)
             .key_extractor(SmartIpKeyExtractor)
             .finish()

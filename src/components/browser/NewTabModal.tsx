@@ -49,12 +49,17 @@ export default function NewTabModal({
   const activeTabId = useStore((s) => s.activeTabId);
   const splitPair = useStore((s) => s.splitPair) || { left: null, right: null };
   const isPickingSplitTab = useStore((s) => s.isPickingSplitTab);
+  const parsedSearch = useMemo(() => parseNewTabQuery(query), [query]);
   const {
     games,
     loaded: gamesLoaded,
     loading: gamesLoading,
-  } = useGameCatalog(visible && !isClosing && !isPickingSplitTab);
-  const parsedSearch = useMemo(() => parseNewTabQuery(query), [query]);
+  } = useGameCatalog(
+    visible &&
+      !isClosing &&
+      !isPickingSplitTab &&
+      parsedSearch.mode === "games",
+  );
   const debouncedAnimeQuery = useDebouncedValue(
     parsedSearch.mode === "anime" ? parsedSearch.query.trim() : "",
     120,

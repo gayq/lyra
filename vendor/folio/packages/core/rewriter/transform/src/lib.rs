@@ -144,8 +144,6 @@ impl<'alloc, 'data, T: Transform<'data>> Transformer<'alloc, 'data, T> {
 			}};
 		}
 
-		// insert has a 9 byte size, replace has a 13 byte minimum and usually it's like 5 bytes
-		// for the old str added on so use 16 as a really rough estimate
 		let mut map = if build_map {
 			let mut map = Vec::with_capacity_in((self.inner.len() * 16) + 4, alloc);
 			map.extend_from_slice(&(self.inner.len() as u32).to_le_bytes());
@@ -190,9 +188,7 @@ impl<'alloc, 'data, T: Transform<'data>> Transformer<'alloc, 'data, T> {
 
 			let len = transform.apply(&mut itoa, &mut buffer);
 			if build_map {
-				// pos
 				map.extend_from_slice(&start.wrapping_add_signed(offset).to_le_bytes());
-				// size
 				map.extend_from_slice(&len.to_le_bytes());
 			}
 
@@ -203,7 +199,6 @@ impl<'alloc, 'data, T: Transform<'data>> Transformer<'alloc, 'data, T> {
 					);
 
 					if build_map {
-						// INSERT op
 						map.push(0);
 					}
 
@@ -211,11 +206,8 @@ impl<'alloc, 'data, T: Transform<'data>> Transformer<'alloc, 'data, T> {
 				}
 				TransformType::Replace => {
 					if build_map {
-						// REPLACE op
 						map.push(1);
-						// len
 						map.extend_from_slice(&(end - start).to_le_bytes());
-						// oldstr
 						map.extend_from_slice(
 							tryget!("replace: start -> end", start..end, span).as_bytes(),
 						);

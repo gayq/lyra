@@ -71,7 +71,6 @@ export default function (client: FolioClient, self: Self) {
 		},
 
 		getOwnPropertyDescriptor(target, property) {
-			// TODO: probably not right
 			if (
 				target.getItem(client.url.host + "@" + (property as string)) === null
 			) {

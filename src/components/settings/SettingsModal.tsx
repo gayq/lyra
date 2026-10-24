@@ -21,6 +21,7 @@ import {
 import type { IconProps } from "../icons/IconBase";
 import { useManagedModal } from "../../core/ui/modal.ts";
 import { toast } from "../../core/ui/toast.ts";
+import { switchTheme } from "../../core/ui/theme.ts";
 import { SEARCH_ENGINE_OPTIONS } from "../../core/config/config.ts";
 import {
   ADVANCED_SETTING_KEYS,
@@ -190,7 +191,6 @@ export default function SettingsModal({
   const [activeTab, setActiveTab] = useState("preferences");
   const [openSelector, setOpenSelector] = useState<string | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
-  const themeTransitionVersion = useRef(0);
 
   const [transport, setTransport] = useState(
     () => localStorage.getItem("transport") || DEFAULT_SETTINGS.transport,
@@ -352,27 +352,7 @@ export default function SettingsModal({
     save(key, value);
 
     if (key === "theme") {
-      const applyTheme = () => {
-        if (value === "default")
-          document.documentElement.removeAttribute("data-theme");
-        else document.documentElement.setAttribute("data-theme", value);
-      };
-
-      if (!document.startViewTransition) {
-        applyTheme();
-      } else {
-        const transitionVersion = ++themeTransitionVersion.current;
-        document.documentElement.classList.add("theme-transitioning");
-        const transition = document.startViewTransition(() => {
-          applyTheme();
-        });
-        const cleanup = () => {
-          if (themeTransitionVersion.current === transitionVersion) {
-            document.documentElement.classList.remove("theme-transitioning");
-          }
-        };
-        transition.finished.then(cleanup, cleanup);
-      }
+      switchTheme(resolveTheme(value));
     } else if (key === "gameSource") {
       document.dispatchEvent(
         new CustomEvent("gameSourceUpdated", { detail: value }),

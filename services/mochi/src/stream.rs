@@ -1,5 +1,5 @@
 use crate::cache::{load_stream_from_disk, StreamCacheWriter, StreamDiskEntry};
-use crate::state::{AppState, CachedResponse, StreamFillState};
+use crate::state::{AppState, CachedResponse, StreamFill, StreamFillState};
 use crate::{negative_message, NEGATIVE};
 use axum::body::Body;
 use axum::extract::State;
@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 use url::Url;
@@ -36,6 +36,8 @@ const UPSTREAM_REQUEST_BUDGET: Duration = Duration::from_secs(12);
 const UPSTREAM_BODY_TIMEOUT: Duration = Duration::from_secs(30);
 const SOURCE_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(21);
 const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+const MEDIA_ACCEPT: &str = "video/mp2t,video/mp4,application/octet-stream,*/*";
+const DISK_READ_CHUNK_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum StreamProvider {
@@ -114,6 +116,8 @@ struct StreamMetrics {
     segment_disk_hits: AtomicU64,
     segment_cache_misses: AtomicU64,
     segment_coalesced: AtomicU64,
+    segment_live_joins: AtomicU64,
+    segment_prefetches: AtomicU64,
     upstream_attempts: AtomicU64,
     upstream_retries: AtomicU64,
     upstream_errors: AtomicU64,
@@ -403,6 +407,28 @@ static PLAYLIST_CACHE: LazyLock<Cache<String, Arc<String>>> = LazyLock::new(|| {
             u32::try_from(key.len().saturating_add(playlist.len()).saturating_add(128))
                 .unwrap_or(u32::MAX)
         })
+        .build()
+});
+
+type PlaylistReferences = (Arc<String>, Arc<Vec<String>>);
+
+static PLAYLIST_REFERENCES: LazyLock<Cache<String, PlaylistReferences>> = LazyLock::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(5 * 60))
+        .max_capacity(64 * 1024 * 1024)
+        .weigher(
+            |key: &String, (playlist, references): &PlaylistReferences| {
+                let urls = references.iter().map(String::len).sum::<usize>();
+                u32::try_from(
+                    key.len()
+                        .saturating_add(playlist.len())
+                        .saturating_add(urls)
+                        .saturating_add(references.len() * std::mem::size_of::<String>())
+                        .saturating_add(128),
+                )
+                .unwrap_or(u32::MAX)
+            },
+        )
         .build()
 });
 
@@ -1769,6 +1795,22 @@ fn hls_references(base_url: &str, playlist: &str) -> Vec<String> {
     references
 }
 
+async fn playlist_references(playlist_url: &str, playlist: &Arc<String>) -> Arc<Vec<String>> {
+    if let Some((cached, references)) = PLAYLIST_REFERENCES.get(playlist_url).await {
+        if Arc::ptr_eq(&cached, playlist) {
+            return references;
+        }
+    }
+    let references = Arc::new(hls_references(playlist_url, playlist));
+    PLAYLIST_REFERENCES
+        .insert(
+            playlist_url.to_string(),
+            (playlist.clone(), references.clone()),
+        )
+        .await;
+    references
+}
+
 fn hls_variant_references(base_url: &str, playlist: &str) -> Vec<String> {
     let lines: Vec<_> = playlist.lines().map(str::trim).collect();
     let mut references = Vec::new();
@@ -2488,7 +2530,7 @@ async fn disk_cached_response(
             yielded: 0,
             failed: false,
         };
-        let stream = ReaderStream::new(reader).map(move |item| {
+        let stream = ReaderStream::with_capacity(reader, DISK_READ_CHUNK_BYTES).map(move |item| {
             metrics.observe(&item);
             item
         });
@@ -2500,6 +2542,124 @@ async fn disk_cached_response(
     Ok(response)
 }
 
+struct SegmentProgress {
+    chunks: Vec<Bytes>,
+    end: Option<bool>,
+}
+
+pub(crate) struct LiveSegment {
+    headers: HeaderMap,
+    len: usize,
+    progress: watch::Sender<SegmentProgress>,
+    joinable: std::sync::Mutex<bool>,
+}
+
+impl LiveSegment {
+    fn new(headers: HeaderMap, len: usize) -> Self {
+        Self {
+            headers,
+            len,
+            progress: watch::Sender::new(SegmentProgress {
+                chunks: Vec::new(),
+                end: None,
+            }),
+            joinable: std::sync::Mutex::new(true),
+        }
+    }
+
+    fn subscribe(&self) -> Option<watch::Receiver<SegmentProgress>> {
+        let joinable = self
+            .joinable
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (*joinable && self.progress.borrow().end != Some(false)).then(|| self.progress.subscribe())
+    }
+
+    fn close_if_unread(&self) -> bool {
+        let mut joinable = self
+            .joinable
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.progress.receiver_count() == 0 {
+            *joinable = false;
+        }
+        !*joinable
+    }
+
+    fn body(&self, receiver: watch::Receiver<SegmentProgress>) -> Body {
+        let len = self.len;
+        let metrics = DownstreamBodyMetrics {
+            expected: len as u64,
+            yielded: 0,
+            failed: false,
+        };
+        let stream = futures_util::stream::unfold(
+            Some((receiver, 0usize, metrics)),
+            move |reader| async move {
+                let (mut receiver, mut index, mut metrics) = reader?;
+                loop {
+                    if metrics.yielded >= len as u64 {
+                        return None;
+                    }
+                    let next = {
+                        let progress = receiver.borrow_and_update();
+                        match progress.chunks.get(index) {
+                            Some(chunk) => Some(Some(chunk.clone())),
+                            None if progress.end.is_some() => Some(None),
+                            None => None,
+                        }
+                    };
+                    let item = match next {
+                        Some(Some(chunk)) => Ok(chunk),
+                        None => {
+                            if receiver.changed().await.is_ok() {
+                                continue;
+                            }
+                            Err(())
+                        }
+                        Some(None) => Err(()),
+                    }
+                    .map_err(|()| {
+                        std::io::Error::other("upstream media stream failed... /ᐠ - ˕ -マ")
+                    });
+                    metrics.observe(&item);
+                    index += 1;
+                    let failed = item.is_err();
+                    return Some((item, (!failed).then_some((receiver, index, metrics))));
+                }
+            },
+        );
+        Body::from_stream(stream)
+    }
+
+    fn contents(&self) -> Bytes {
+        let progress = self.progress.borrow();
+        if let [chunk] = progress.chunks.as_slice() {
+            return chunk.clone();
+        }
+        let mut body = BytesMut::with_capacity(self.len);
+        for chunk in &progress.chunks {
+            body.extend_from_slice(chunk);
+        }
+        body.freeze()
+    }
+}
+
+fn join_live_segment(slot: &StreamFill) -> Option<Response> {
+    let live = slot
+        .live
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()?;
+    let receiver = live.subscribe()?;
+    let mut headers = live.headers.clone();
+    headers.insert("X-Cache", CacheStatus::Coalesced.header());
+    headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    let mut response = Response::new(live.body(receiver));
+    *response.headers_mut() = headers;
+    Some(response)
+}
+
 struct SegmentFill {
     cacheable: bool,
     cache_key: String,
@@ -2509,6 +2669,8 @@ struct SegmentFill {
     max_entry_size: usize,
     ram_limit: usize,
     ram: Option<BytesMut>,
+    live: Option<Arc<LiveSegment>>,
+    detached: bool,
     disk: Option<StreamCacheWriter>,
     disk_failed: bool,
     sender: Option<mpsc::Sender<std::io::Result<Bytes>>>,
@@ -2538,6 +2700,13 @@ impl SegmentFill {
                     .fetch_add(chunk.len() as u64, Ordering::Relaxed);
             }
         }
+        if let Some(live) = self.live.as_ref() {
+            if next_len > live.len {
+                return Err(ResolveError::Upstream);
+            }
+            live.progress
+                .send_modify(|progress| progress.chunks.push(chunk.clone()));
+        }
 
         if let Some(writer) = self.disk.as_mut() {
             if writer.write(&chunk).await.is_err() {
@@ -2558,9 +2727,21 @@ impl SegmentFill {
     fn record_downstream_cancellation(&mut self) {
         if !self.downstream_cancelled {
             self.downstream_cancelled = true;
-            STREAM_METRICS
-                .downstream_cancellations
-                .fetch_add(1, Ordering::Relaxed);
+            if self.live.is_none() {
+                STREAM_METRICS
+                    .downstream_cancellations
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    async fn downstream_closed(&self) {
+        match (&self.sender, &self.live) {
+            (Some(sender), _) => sender.closed().await,
+            (None, Some(live)) if !self.detached && self.bytes < live.len => {
+                live.progress.closed().await
+            }
+            _ => std::future::pending().await,
         }
     }
 
@@ -2602,11 +2783,16 @@ impl SegmentFill {
                 .segment_disk_write_failures
                 .fetch_add(1, Ordering::Relaxed);
         }
-        if let Some(body) = self.ram.take() {
+        let body = match (self.ram.take(), self.live.as_ref()) {
+            (Some(ram), _) => Some(ram.freeze()),
+            (None, Some(live)) => Some(live.contents()),
+            (None, None) => None,
+        };
+        if let Some(body) = body {
             let cached = Arc::new(CachedResponse {
                 status: StatusCode::OK.as_u16(),
                 headers: self.headers.clone(),
-                body: body.freeze(),
+                body,
             });
             self.cache.insert(self.cache_key.clone(), cached).await;
             published = true;
@@ -2625,12 +2811,10 @@ async fn fill_from_stream(
     loop {
         let chunk = tokio::select! {
             biased;
-            _ = async {
-                match fill.sender.as_ref() {
-                    Some(sender) => sender.closed().await,
-                    None => std::future::pending().await,
+            _ = fill.downstream_closed() => {
+                if fill.live.as_ref().is_some_and(|live| !live.close_if_unread()) {
+                    continue;
                 }
-            } => {
                 fill.record_downstream_cancellation();
                 return Err(ResolveError::Upstream);
             }
@@ -2655,6 +2839,7 @@ async fn run_segment_fill(
     initial_chunks: Vec<Bytes>,
     response: reqwest::Response,
     started_at: Instant,
+    slot: Arc<StreamFill>,
     mut fill_guard: tokio::sync::OwnedMutexGuard<Option<StreamFillState>>,
     _permit: adaptive_capacity::AdaptivePermit,
 ) {
@@ -2662,12 +2847,22 @@ async fn run_segment_fill(
         .chain(response.bytes_stream());
     let read_result = fill_from_stream(&mut fill, chunks).await;
     let complete = read_result.is_ok()
-        && fill.expected_len.is_none_or(|expected| expected == fill.bytes);
+        && fill
+            .expected_len
+            .is_none_or(|expected| expected == fill.bytes);
 
     let result = match read_result {
         Ok(()) => fill.finish().await,
         Err(error) => Err(error),
     };
+    if let Some(live) = fill.live.as_ref() {
+        live.progress
+            .send_modify(|progress| progress.end = Some(result.is_ok()));
+    }
+    slot.live
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
     STREAM_METRICS
         .segment_upstream_downloads
         .fetch_add(1, Ordering::Relaxed);
@@ -2682,19 +2877,22 @@ async fn run_segment_fill(
         *fill_guard = None;
         return;
     }
-    *fill_guard = Some(if result.is_ok() {
-        StreamFillState::Complete
+    *fill_guard = if result.is_ok() {
+        Some(StreamFillState::Complete)
+    } else if fill.detached {
+        None
     } else if !complete {
-        StreamFillState::Interrupted
+        Some(StreamFillState::Interrupted)
     } else {
-        StreamFillState::Failed
-    });
+        Some(StreamFillState::Failed)
+    };
     if let Err(error) = &result {
         tracing::warn!(
             ?error,
             bytes = fill.bytes,
             expected_bytes = fill.expected_len,
             limit_bytes = fill.max_entry_size,
+            prefetch = fill.detached,
             "anime media transfer failed... /ᐠ - ˕ -マ"
         );
         STREAM_METRICS
@@ -2709,6 +2907,28 @@ async fn run_segment_fill(
     }
 }
 
+fn segment_cache_key(
+    provider: StreamProvider,
+    upstream_url: &str,
+    inspect_media_prefix: bool,
+) -> String {
+    format!(
+        "anikoto:v2:{}:{}:{upstream_url}",
+        provider.id(),
+        if inspect_media_prefix {
+            "stripped"
+        } else {
+            "raw"
+        }
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FillMode {
+    Request,
+    Prefetch,
+}
+
 async fn get_cached_upstream_resource(
     state: &AppState,
     upstream_url: &str,
@@ -2718,15 +2938,7 @@ async fn get_cached_upstream_resource(
     method: &Method,
     request_headers: &HeaderMap,
 ) -> Result<Response, ResolveError> {
-    let cache_key = format!(
-        "anikoto:v2:{}:{}:{upstream_url}",
-        provider.id(),
-        if inspect_media_prefix {
-            "stripped"
-        } else {
-            "raw"
-        }
-    );
+    let cache_key = segment_cache_key(provider, upstream_url, inspect_media_prefix);
     let max_entry_size = state.stream_max_entry_size;
     let mut coalesced = false;
 
@@ -2798,22 +3010,34 @@ async fn get_cached_upstream_resource(
 
         let slot = state
             .stream_fills
-            .get_with(cache_key.clone(), async {
-                Arc::new(tokio::sync::Mutex::new(None))
-            })
+            .get_with(cache_key.clone(), async { Arc::default() })
             .await;
-        let mut fill_guard = match slot.clone().try_lock_owned() {
+        let mut fill_guard = match slot.state.clone().try_lock_owned() {
             Ok(fill_guard) => fill_guard,
             Err(_) => {
-                let fill_guard = slot.lock_owned().await;
+                STREAM_METRICS
+                    .segment_coalesced
+                    .fetch_add(1, Ordering::Relaxed);
+                let fill_guard = loop {
+                    let ready = slot.ready.notified();
+                    tokio::pin!(ready);
+                    ready.as_mut().enable();
+                    if let Some(response) = join_live_segment(&slot) {
+                        STREAM_METRICS
+                            .segment_live_joins
+                            .fetch_add(1, Ordering::Relaxed);
+                        return Ok(response);
+                    }
+                    tokio::select! {
+                        fill_guard = slot.state.lock() => break fill_guard,
+                        _ = ready => {}
+                    }
+                };
                 let failed = matches!(
                     *fill_guard,
                     Some(StreamFillState::Failed | StreamFillState::Interrupted)
                 );
                 drop(fill_guard);
-                STREAM_METRICS
-                    .segment_coalesced
-                    .fetch_add(1, Ordering::Relaxed);
                 if failed {
                     return Err(ResolveError::Upstream);
                 }
@@ -2858,7 +3082,6 @@ async fn get_cached_upstream_resource(
         STREAM_METRICS
             .segment_cache_misses
             .fetch_add(1, Ordering::Relaxed);
-        let mut fill_attempt = SegmentFillAttempt::start();
         let permit = match state
             .stream_upstream_permit
             .acquire_timeout(Duration::from_secs(10))
@@ -2866,196 +3089,375 @@ async fn get_cached_upstream_resource(
         {
             Some(permit) => permit,
             None => {
+                STREAM_METRICS
+                    .segment_failed_fills
+                    .fetch_add(1, Ordering::Relaxed);
                 *fill_guard = Some(StreamFillState::Failed);
                 return Err(ResolveError::Busy);
             }
         };
-
-        let started_at = Instant::now();
-        let mut response = match send_with_retry(|| {
-            state
-                .asset_client
-                .get(upstream_url)
-                .header(ACCEPT, accept)
-                .headers(provider.headers())
-        })
-        .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                *fill_guard = Some(StreamFillState::Failed);
-                return Err(error);
-            }
-        };
-        if response.status() != StatusCode::OK || response.headers().contains_key(CONTENT_RANGE) {
-            *fill_guard = Some(StreamFillState::Failed);
-            let status = response.status();
-            let headers = crate::proxy::build_safe_response_headers(response.headers(), true);
-            return Ok(range::stream_response(
-                response, permit, status, headers, 0, None,
-            ));
-        }
-
-        let received_at = std::time::SystemTime::now();
-        let ttl = crate::cache::freshness_lifetime(
-            response.headers(),
-            true,
-            state.disk_cache_max_age_secs,
-        )
-        .zip(crate::cache::response_age(
-            response.headers(),
-            received_at,
-            started_at.elapsed(),
-        ))
-        .map(|(lifetime, age)| Duration::from_secs(lifetime).saturating_sub(age).as_secs())
-        .unwrap_or(0);
-        let cacheable = ttl > 0 && crate::proxy::response_allows_shared_cache(response.headers());
-
-        let raw_len = response.content_length();
-        let max_prefix_len = if inspect_media_prefix {
-            SEGMENT_PREFIX_BYTES
-        } else {
-            0
-        };
-        if raw_len
-            .is_some_and(|length| length > max_entry_size.saturating_add(max_prefix_len) as u64)
-        {
-            *fill_guard = Some(StreamFillState::Failed);
-            return Err(ResolveError::TooLarge);
-        }
-        let content_type = response.headers().get(CONTENT_TYPE).cloned();
-        let detection_bytes = SEGMENT_PREFIX_BYTES + 189;
-        let mut initial = BytesMut::with_capacity(detection_bytes);
-        let mut ttfb_recorded = false;
-        loop {
-            let next = match tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, response.chunk()).await {
-                Ok(Ok(next)) => next,
-                _ => {
-                    *fill_guard = Some(StreamFillState::Failed);
-                    return Err(ResolveError::Upstream);
-                }
-            };
-            let Some(chunk) = next else {
-                break;
-            };
-            if !ttfb_recorded && !chunk.is_empty() {
-                ttfb_recorded = true;
-                STREAM_METRICS.segment_upstream_ttfb_ms.fetch_add(
-                    started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
-                    Ordering::Relaxed,
-                );
-                STREAM_METRICS
-                    .segment_upstream_ttfb_samples
-                    .fetch_add(1, Ordering::Relaxed);
-            }
-            if initial.len().saturating_add(chunk.len())
-                > max_entry_size.saturating_add(max_prefix_len)
-            {
-                *fill_guard = Some(StreamFillState::Failed);
-                return Err(ResolveError::TooLarge);
-            }
-            initial.extend_from_slice(&chunk);
-            if !inspect_media_prefix || initial.len() >= detection_bytes {
-                break;
-            }
-        }
-        if initial.is_empty() {
-            *fill_guard = Some(StreamFillState::Failed);
-            return Err(ResolveError::Upstream);
-        }
-        let prefix_len = if inspect_media_prefix {
-            media_prefix_len(&initial)
-        } else {
-            0
-        };
-        if raw_len.is_some_and(|length| length <= prefix_len as u64) {
-            *fill_guard = Some(StreamFillState::Failed);
-            return Err(ResolveError::Upstream);
-        }
-        let expected_len = raw_len.map(|length| length as usize - prefix_len);
-        let first_output = initial.freeze().slice(prefix_len..);
-        let initial_chunks = vec![first_output.clone()];
-
-        let mut cache_headers = HeaderMap::new();
-        cache_headers.insert(
-            CONTENT_TYPE,
-            normalized_content_type(&first_output, content_type),
-        );
-        if let Some(length) = expected_len {
-            cache_headers.insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(&length.to_string()).map_err(|_| ResolveError::Upstream)?,
-            );
-        }
-        cache_headers.insert(
-            "date",
-            HeaderValue::from_str(&httpdate::fmt_http_date(received_at))
-                .map_err(|_| ResolveError::Upstream)?,
-        );
-        cache_headers.insert(
-            "cache-control",
-            if cacheable {
-                HeaderValue::from_str(&format!(
-                    "public, max-age={ttl}, must-revalidate, no-transform"
-                ))
-                .map_err(|_| ResolveError::Upstream)?
-            } else {
-                HeaderValue::from_static("no-store")
-            },
-        );
-
-        let (disk, disk_failed) = if !cacheable {
-            (None, false)
-        } else {
-            match StreamCacheWriter::create(&cache_key, StatusCode::OK.as_u16(), &cache_headers)
-                .await
-            {
-                Ok(writer) => (Some(writer), false),
-                Err(_) => (None, true),
-            }
-        };
-        let (sender, receiver) = mpsc::channel(state.channel_buffer.max(1));
-        let ram_limit = state.ram_cache_limit.min(max_entry_size);
-        let ram_capacity = expected_len.unwrap_or_default().min(ram_limit);
-        let ram =
-            (cacheable && ram_limit > 0 && expected_len.is_none_or(|length| length <= ram_limit))
-                .then(|| BytesMut::with_capacity(ram_capacity));
-        let fill = SegmentFill {
-            cacheable,
-            cache_key: cache_key.clone(),
-            cache: state.stream_cache.clone(),
-            headers: cache_headers.clone(),
-            expected_len,
-            max_entry_size,
-            ram_limit,
-            ram,
-            disk,
-            disk_failed,
-            sender: Some(sender),
-            downstream_cancelled: false,
-            bytes: 0,
-        };
-        fill_attempt.hand_off();
-        tokio::spawn(run_segment_fill(
-            fill,
-            initial_chunks,
-            response,
-            started_at,
+        return start_segment_fill(
+            state,
+            slot,
             fill_guard,
             permit,
-        ));
-
-        cache_headers.insert("X-Cache", CacheStatus::Miss.header());
-        cache_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-        let mut downstream = Response::new(Body::from_stream(ReceiverStream::new(receiver)));
-        *downstream.status_mut() = StatusCode::OK;
-        *downstream.headers_mut() = cache_headers;
-        return Ok(downstream);
+            cache_key,
+            upstream_url,
+            provider,
+            inspect_media_prefix,
+            accept,
+            FillMode::Request,
+        )
+        .await?
+        .ok_or(ResolveError::Upstream);
     }
 }
 
-async fn resource_handler(
+#[allow(clippy::too_many_arguments)]
+async fn start_segment_fill(
     state: &AppState,
+    slot: Arc<StreamFill>,
+    mut fill_guard: tokio::sync::OwnedMutexGuard<Option<StreamFillState>>,
+    permit: adaptive_capacity::AdaptivePermit,
+    cache_key: String,
+    upstream_url: &str,
+    provider: StreamProvider,
+    inspect_media_prefix: bool,
+    accept: &'static str,
+    mode: FillMode,
+) -> Result<Option<Response>, ResolveError> {
+    let failed = match mode {
+        FillMode::Request => Some(StreamFillState::Failed),
+        FillMode::Prefetch => None,
+    };
+    let max_entry_size = state.stream_max_entry_size;
+    let mut fill_attempt = SegmentFillAttempt::start();
+    let started_at = Instant::now();
+    let mut response = match send_with_retry(|| {
+        state
+            .asset_client
+            .get(upstream_url)
+            .header(ACCEPT, accept)
+            .headers(provider.headers())
+    })
+    .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            *fill_guard = failed;
+            return Err(error);
+        }
+    };
+    if response.status() != StatusCode::OK || response.headers().contains_key(CONTENT_RANGE) {
+        *fill_guard = failed;
+        if mode == FillMode::Prefetch {
+            return Ok(None);
+        }
+        let status = response.status();
+        let headers = crate::proxy::build_safe_response_headers(response.headers(), true);
+        return Ok(Some(range::stream_response(
+            response, permit, status, headers, 0, None,
+        )));
+    }
+
+    let received_at = std::time::SystemTime::now();
+    let ttl =
+        crate::cache::freshness_lifetime(response.headers(), true, state.disk_cache_max_age_secs)
+            .zip(crate::cache::response_age(
+                response.headers(),
+                received_at,
+                started_at.elapsed(),
+            ))
+            .map(|(lifetime, age)| Duration::from_secs(lifetime).saturating_sub(age).as_secs())
+            .unwrap_or(0);
+    let cacheable = ttl > 0 && crate::proxy::response_allows_shared_cache(response.headers());
+    if mode == FillMode::Prefetch && !cacheable {
+        fill_attempt.hand_off();
+        return Ok(None);
+    }
+
+    let raw_len = response.content_length();
+    let max_prefix_len = if inspect_media_prefix {
+        SEGMENT_PREFIX_BYTES
+    } else {
+        0
+    };
+    if raw_len.is_some_and(|length| length > max_entry_size.saturating_add(max_prefix_len) as u64) {
+        *fill_guard = failed;
+        return Err(ResolveError::TooLarge);
+    }
+    let content_type = response.headers().get(CONTENT_TYPE).cloned();
+    let detection_bytes = SEGMENT_PREFIX_BYTES + 189;
+    let mut initial = BytesMut::with_capacity(detection_bytes);
+    let mut ttfb_recorded = false;
+    loop {
+        let next = match tokio::time::timeout(UPSTREAM_BODY_TIMEOUT, response.chunk()).await {
+            Ok(Ok(next)) => next,
+            _ => {
+                *fill_guard = failed;
+                return Err(ResolveError::Upstream);
+            }
+        };
+        let Some(chunk) = next else {
+            break;
+        };
+        if !ttfb_recorded && !chunk.is_empty() {
+            ttfb_recorded = true;
+            STREAM_METRICS.segment_upstream_ttfb_ms.fetch_add(
+                started_at.elapsed().as_millis().min(u64::MAX as u128) as u64,
+                Ordering::Relaxed,
+            );
+            STREAM_METRICS
+                .segment_upstream_ttfb_samples
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        if initial.len().saturating_add(chunk.len()) > max_entry_size.saturating_add(max_prefix_len)
+        {
+            *fill_guard = failed;
+            return Err(ResolveError::TooLarge);
+        }
+        initial.extend_from_slice(&chunk);
+        if !inspect_media_prefix || initial.len() >= detection_bytes {
+            break;
+        }
+    }
+    if initial.is_empty() {
+        *fill_guard = failed;
+        return Err(ResolveError::Upstream);
+    }
+    let prefix_len = if inspect_media_prefix {
+        media_prefix_len(&initial)
+    } else {
+        0
+    };
+    if raw_len.is_some_and(|length| length <= prefix_len as u64) {
+        *fill_guard = failed;
+        return Err(ResolveError::Upstream);
+    }
+    let expected_len = raw_len.map(|length| length as usize - prefix_len);
+    let first_output = initial.freeze().slice(prefix_len..);
+    let initial_chunks = vec![first_output.clone()];
+
+    let mut cache_headers = HeaderMap::new();
+    cache_headers.insert(
+        CONTENT_TYPE,
+        normalized_content_type(&first_output, content_type),
+    );
+    if let Some(length) = expected_len {
+        cache_headers.insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&length.to_string()).map_err(|_| ResolveError::Upstream)?,
+        );
+    }
+    cache_headers.insert(
+        "date",
+        HeaderValue::from_str(&httpdate::fmt_http_date(received_at))
+            .map_err(|_| ResolveError::Upstream)?,
+    );
+    cache_headers.insert(
+        "cache-control",
+        if cacheable {
+            HeaderValue::from_str(&format!(
+                "public, max-age={ttl}, must-revalidate, no-transform"
+            ))
+            .map_err(|_| ResolveError::Upstream)?
+        } else {
+            HeaderValue::from_static("no-store")
+        },
+    );
+
+    let (disk, disk_failed) = if !cacheable {
+        (None, false)
+    } else {
+        match StreamCacheWriter::create(&cache_key, StatusCode::OK.as_u16(), &cache_headers).await {
+            Ok(writer) => (Some(writer), false),
+            Err(_) => (None, true),
+        }
+    };
+    let ram_limit = state.ram_cache_limit.min(max_entry_size);
+    let ram_capacity = expected_len.unwrap_or_default().min(ram_limit);
+    let ram_cacheable =
+        cacheable && ram_limit > 0 && expected_len.is_none_or(|length| length <= ram_limit);
+    let live = expected_len
+        .filter(|_| ram_cacheable)
+        .map(|len| Arc::new(LiveSegment::new(cache_headers.clone(), len)));
+    let ram = (ram_cacheable && live.is_none()).then(|| BytesMut::with_capacity(ram_capacity));
+    let (sender, body) = match (mode, &live) {
+        (FillMode::Prefetch, _) => (None, None),
+        (FillMode::Request, Some(live)) => (None, Some(live.body(live.progress.subscribe()))),
+        (FillMode::Request, None) => {
+            let (sender, receiver) = mpsc::channel(state.channel_buffer.max(1));
+            (
+                Some(sender),
+                Some(Body::from_stream(ReceiverStream::new(receiver))),
+            )
+        }
+    };
+    if live.is_some() {
+        *slot
+            .live
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = live.clone();
+        slot.ready.notify_waiters();
+    }
+    let fill = SegmentFill {
+        cacheable,
+        cache_key,
+        cache: state.stream_cache.clone(),
+        headers: cache_headers.clone(),
+        expected_len,
+        max_entry_size,
+        ram_limit,
+        ram,
+        live,
+        detached: mode == FillMode::Prefetch,
+        disk,
+        disk_failed,
+        sender,
+        downstream_cancelled: false,
+        bytes: 0,
+    };
+    fill_attempt.hand_off();
+    tokio::spawn(run_segment_fill(
+        fill,
+        initial_chunks,
+        response,
+        started_at,
+        slot,
+        fill_guard,
+        permit,
+    ));
+
+    Ok(body.map(|body| {
+        cache_headers.insert("X-Cache", CacheStatus::Miss.header());
+        cache_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+        let mut downstream = Response::new(body);
+        *downstream.status_mut() = StatusCode::OK;
+        *downstream.headers_mut() = cache_headers;
+        downstream
+    }))
+}
+
+fn prefetch_resources(
+    state: &Arc<AppState>,
+    provider: StreamProvider,
+    resources: &[String],
+    index: usize,
+    method: &Method,
+    request_headers: &HeaderMap,
+) {
+    if state.stream_prefetch_segments == 0
+        || method != Method::GET
+        || request_headers.contains_key(RANGE)
+        || crate::cache::request_bypasses_cache(request_headers)
+        || state.memory_pressure.shedding()
+    {
+        return;
+    }
+    for upstream_url in resources
+        .iter()
+        .skip(index + 1)
+        .take(state.stream_prefetch_segments)
+    {
+        let state = state.clone();
+        let upstream_url = upstream_url.clone();
+        tokio::spawn(async move { prefetch_resource(&state, provider, &upstream_url).await });
+    }
+}
+
+async fn prefetch_resource(state: &AppState, provider: StreamProvider, upstream_url: &str) {
+    let cache_key = segment_cache_key(provider, upstream_url, true);
+    let cached = || async {
+        state
+            .stream_cache
+            .get(&cache_key)
+            .await
+            .is_some_and(|entry| crate::cache::stream_cache_fresh(&entry.headers))
+    };
+    if cached().await {
+        return;
+    }
+    let slot = state
+        .stream_fills
+        .get_with(cache_key.clone(), async { Arc::default() })
+        .await;
+    let Ok(mut fill_guard) = slot.state.clone().try_lock_owned() else {
+        return;
+    };
+    if *fill_guard == Some(StreamFillState::Interrupted)
+        || cached().await
+        || load_stream_from_disk(
+            &cache_key,
+            state.stream_max_entry_size,
+            state.disk_cache_max_age_secs,
+        )
+        .await
+        .is_some()
+    {
+        return;
+    }
+    let capacity = state.stream_upstream_permit.snapshot();
+    if capacity.active.saturating_mul(2) >= capacity.limit {
+        return;
+    }
+    let Some(permit) = state.stream_upstream_permit.try_acquire() else {
+        return;
+    };
+    *fill_guard = None;
+    STREAM_METRICS
+        .segment_prefetches
+        .fetch_add(1, Ordering::Relaxed);
+    let _ = start_segment_fill(
+        state,
+        slot,
+        fill_guard,
+        permit,
+        cache_key,
+        upstream_url,
+        provider,
+        true,
+        MEDIA_ACCEPT,
+        FillMode::Prefetch,
+    )
+    .await;
+}
+
+async fn playlist_resource(
+    state: &Arc<AppState>,
+    source: &ResolvedSource,
+    playlist_url: &str,
+    playlist: &Arc<String>,
+    resource: usize,
+    method: &Method,
+    request_headers: &HeaderMap,
+) -> Result<Response, ResolveError> {
+    let resources = playlist_references(playlist_url, playlist).await;
+    let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
+    let response = get_cached_upstream_resource(
+        state,
+        upstream_url,
+        source.provider,
+        true,
+        MEDIA_ACCEPT,
+        method,
+        request_headers,
+    )
+    .await?;
+    if response.status().is_success() {
+        prefetch_resources(
+            state,
+            source.provider,
+            &resources,
+            resource,
+            method,
+            request_headers,
+        );
+    }
+    Ok(response)
+}
+
+async fn resource_handler(
+    state: &Arc<AppState>,
     key: &EpisodeKey,
     uri: &Uri,
     method: &Method,
@@ -3084,14 +3486,12 @@ async fn resource_handler(
         let resource = query_value(uri, "resource")
             .and_then(|value| value.parse::<usize>().ok())
             .ok_or(ResolveError::Invalid)?;
-        let resources = hls_references(&playlist_url, &playlist);
-        let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
-        let fetched = get_cached_upstream_resource(
+        let fetched = playlist_resource(
             state,
-            upstream_url,
-            source.provider,
-            true,
-            "video/mp2t,video/mp4,application/octet-stream,*/*",
+            &source,
+            &playlist_url,
+            &playlist,
+            resource,
             method,
             request_headers,
         )
@@ -3104,14 +3504,12 @@ async fn resource_handler(
                 let (source, playlist_url, playlist) =
                     master_resource_playlist(state, key, master_resource, requested_generation)
                         .await?;
-                let resources = hls_references(&playlist_url, &playlist);
-                let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
-                get_cached_upstream_resource(
+                playlist_resource(
                     state,
-                    upstream_url,
-                    source.provider,
-                    true,
-                    "video/mp2t,video/mp4,application/octet-stream,*/*",
+                    &source,
+                    &playlist_url,
+                    &playlist,
+                    resource,
                     method,
                     request_headers,
                 )
@@ -3128,14 +3526,12 @@ async fn resource_handler(
         .ok_or(ResolveError::Invalid)?;
     let (source, playlist_url, playlist) =
         media_playlist(state, key, variant, requested_generation).await?;
-    let resources = hls_references(&playlist_url, &playlist);
-    let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
-    let fetched = get_cached_upstream_resource(
+    let fetched = playlist_resource(
         state,
-        upstream_url,
-        source.provider,
-        true,
-        "video/mp2t,video/mp4,application/octet-stream,*/*",
+        &source,
+        &playlist_url,
+        &playlist,
+        resource,
         method,
         request_headers,
     )
@@ -3147,14 +3543,12 @@ async fn resource_handler(
             reject_source(key, &source, &[&source.playlist_url, &playlist_url]).await;
             let (source, playlist_url, playlist) =
                 media_playlist(state, key, variant, requested_generation).await?;
-            let resources = hls_references(&playlist_url, &playlist);
-            let upstream_url = resources.get(resource).ok_or(ResolveError::Invalid)?;
-            get_cached_upstream_resource(
+            playlist_resource(
                 state,
-                upstream_url,
-                source.provider,
-                true,
-                "video/mp2t,video/mp4,application/octet-stream,*/*",
+                &source,
+                &playlist_url,
+                &playlist,
+                resource,
                 method,
                 request_headers,
             )
@@ -3163,7 +3557,6 @@ async fn resource_handler(
         Err(error) => Err(error),
     }
 }
-
 fn media_response(response: Response) -> Result<Response, ResolveError> {
     match response.status() {
         StatusCode::FORBIDDEN | StatusCode::NOT_FOUND | StatusCode::GONE => {
@@ -3415,6 +3808,8 @@ pub async fn stream_metrics_handler(State(state): State<Arc<AppState>>) -> Respo
             "disk_hits": STREAM_METRICS.segment_disk_hits.load(Ordering::Relaxed),
             "misses": STREAM_METRICS.segment_cache_misses.load(Ordering::Relaxed),
             "coalesced": STREAM_METRICS.segment_coalesced.load(Ordering::Relaxed),
+            "live_joins": STREAM_METRICS.segment_live_joins.load(Ordering::Relaxed),
+            "prefetches": STREAM_METRICS.segment_prefetches.load(Ordering::Relaxed),
             "failed_fills": STREAM_METRICS.segment_failed_fills.load(Ordering::Relaxed),
             "partial_fills": STREAM_METRICS.segment_partial_fills.load(Ordering::Relaxed),
             "disk_write_failures": STREAM_METRICS.segment_disk_write_failures.load(Ordering::Relaxed),
@@ -3481,6 +3876,7 @@ pub async fn reclaim_caches() {
     PROVIDER_FAILURES.invalidate_all();
     QUALITY_DISCOVERY.invalidate_all();
     PLAYLIST_CACHE.invalidate_all();
+    PLAYLIST_REFERENCES.invalidate_all();
     FAILED_SOURCES.invalidate_all();
     RESOURCE_PROBES.invalidate_all();
     tokio::join!(
@@ -3490,8 +3886,10 @@ pub async fn reclaim_caches() {
         QUALITY_DISCOVERY.run_pending_tasks(),
         SESSION_SOURCES.run_pending_tasks(),
         PLAYLIST_CACHE.run_pending_tasks(),
+        PLAYLIST_REFERENCES.run_pending_tasks(),
         FAILED_SOURCES.run_pending_tasks(),
         RESOURCE_PROBES.run_pending_tasks()
     );
 }
+
 

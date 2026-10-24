@@ -532,6 +532,8 @@ self.addEventListener("fetch", (event) => {
         }
 
         if (isFolio) {
+          if (isUnreadableFolioRoute(url))
+            return staleFolioRouteResponse(isNavigate);
           await ensureFolioConfig();
           const isFolioRoute = url.pathname === FOLIO_PATH;
           let shouldRoute =

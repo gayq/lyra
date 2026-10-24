@@ -18,7 +18,6 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 function extractRuntimeExportNames(source: string): string[] {
 	const names = new Set<string>();
 
-	// ESM bundles end with `export { __webpack_exports__X as X, ... };`
 	const esmMatches = source.matchAll(/export\s*\{([^}]+)\}\s*;/g);
 	for (const m of esmMatches) {
 		for (const part of m[1].split(",")) {
@@ -33,10 +32,6 @@ function extractRuntimeExportNames(source: string): string[] {
 	}
 	if (names.size > 0) return [...names];
 
-	// Webpack IIFE bundles register entry exports via the last
-	// `__webpack_require__.d(__webpack_exports__, { ... })` call. In
-	// production builds those identifiers get minified, so match any
-	// `<ident>.d(<ident>, { ... })` shape.
 	const defMatches = [
 		...source.matchAll(
 			/\b[A-Za-z_$][\w$]*\.d\([A-Za-z_$][\w$]*,\s*\{([\s\S]*?)\}\)/g
@@ -132,7 +127,6 @@ export const tsloader = {
 };
 
 function deepmerge<T extends any>(target: T, source: Partial<T>): T {
-	// This mirrors the upstream config merge behavior without pulling in more tooling.
 	//@ts-ignore dynamic Rspack config merge
 	const output = { ...target };
 	if (isObject(target) && isObject(source)) {

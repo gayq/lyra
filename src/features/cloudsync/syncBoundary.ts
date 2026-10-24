@@ -6,7 +6,7 @@ declare global {
     lyraImportDataFromObject?: (
       data: unknown,
       callback?: (progressText: string) => void,
-    ) => Promise<void>;
+    ) => Promise<number>;
   }
 }
 

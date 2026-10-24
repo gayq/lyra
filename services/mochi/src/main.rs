@@ -71,7 +71,7 @@ fn main() -> AppResult<()> {
     let tuning = tuning::detect();
 
     tracing::info!(
-        "tuning: {} workers, {}mb cache cap, {}mb stream cache, {}mb max entry, {}mb stream max entry, {}mb ram limit, req permits {}/{}/{}, stream permits {}/{}/{}, rewrite permits {}/{}/{}, {}gb disk cache",
+        "tuning: {} workers, {}mb cache cap, {}mb stream cache, {}mb max entry, {}mb stream max entry, {}mb ram limit, req permits {}/{}/{}, stream permits {}/{}/{}, rewrite permits {}/{}/{}, {}gb disk cache, {} prefetch segments",
         tuning.worker_threads,
         tuning.cache_capacity_bytes / (1024 * 1024),
         tuning.stream_cache_capacity_bytes / (1024 * 1024),
@@ -88,6 +88,7 @@ fn main() -> AppResult<()> {
         tuning.html_rewrite_permits,
         tuning.html_rewrite_permits_max,
         tuning.disk_cache_bytes / (1024 * 1024 * 1024),
+        tuning.stream_prefetch_segments,
     );
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -245,6 +246,7 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         stream_max_entry_size: tuning.stream_max_entry_size,
         ram_cache_limit: tuning.ram_cache_limit,
         channel_buffer: tuning.channel_buffer,
+        stream_prefetch_segments: tuning.stream_prefetch_segments,
     });
 
     memory::spawn_monitor(state.clone());

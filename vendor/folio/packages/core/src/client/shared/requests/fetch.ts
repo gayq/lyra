@@ -2,20 +2,11 @@ import { FolioClient } from "@client/index";
 import { unrewriteLinkHeader } from "./xmlhttprequest";
 import { String } from "@/shared/snapshot";
 
-/**
- * Capture the page's intended `init.mode` / `init.credentials` and forward
- * them to `rewriteUrl` so they get stamped onto the proxy URL as `fl$mode` /
- * `fl$cred`. The service-side handler reads those back when computing
- * Sec-Fetch-Mode / Sec-Fetch-Storage-Access, since `event.request.mode` and
- * `event.request.credentials` from the SW are derived against the rewritten
- * same-origin URL and don't reflect the page's actual intent.
- */
 function rewriteUrlOptionsForFetch(
 	init: RequestInit | undefined,
 	request?: Request
 ) {
 	return {
-		// `fetch()` and `new Request()` both default mode to "cors" per spec.
 		mode: init?.mode ?? request?.mode ?? "cors",
 		credentials:
 			init?.credentials === "include" || request?.credentials === "include"
@@ -86,7 +77,6 @@ export default function (client: FolioClient) {
 		},
 	});
 
-	// TODO: this needs to be only for response objects created from a fetch
 	client.Trap("Response.prototype.headers", {
 		get(ctx) {
 			const headers = ctx.get() as Headers;

@@ -1,28 +1,13 @@
-//! Build a global index of every method in visitor.rs that takes a `&AstNode`
-//! as its first non-self argument. For each, recursively analyze the body to
-//! determine whether it fully covers all R-reaching fields of that node.
-//!
-//! Helpers (`recurse_*`, `handle_*`) get the same treatment as visit_* methods
-//! — if their body provably walks every R-field of their input, they're
-//! recorded as "fully covers". Callers can then credit the corresponding
-//! field at the call site.
-
 use std::{collections::HashMap, fmt::Write as _};
 
 use syn::{Expr, FnArg, ImplItem, Item, Pat, PatType, Type};
 
 use crate::reachability::AstGraph;
 
-/// Per-AST-typed-argument coverage data.
 #[derive(Clone, Debug)]
 pub struct HelperArg {
 	pub name: String,
 	pub ast_type: String,
-	/// 0-based index of this arg in the original `fn helper(&mut self, a,
-	/// b, c, ...)` signature (excluding `self`). Needed at call sites to
-	/// pair the helper's per-arg coverage with the right positional call
-	/// argument (since non-AST args are filtered out of `args` but appear in
-	/// the call expression's positional list).
 	pub call_pos: usize,
 	pub fully_covers: bool,
 	pub covered_set: std::collections::BTreeSet<String>,
@@ -34,9 +19,6 @@ pub struct HelperInfo {
 	pub name: String,
 	pub args: Vec<HelperArg>,
 
-	// Backward-compat: views over args[0]. These shadow the per-arg fields so
-	// existing call sites that read `info.node_type` / `info.fully_covers` /
-	// `info.covered_set` / `info.covered_all` keep working.
 	pub node_type: String,
 	pub it_param_name: String,
 	pub fully_covers: bool,
@@ -56,7 +38,6 @@ impl HelperInfo {
 	}
 }
 
-/// Working copy used only during `build_index` (carries the body for analysis).
 #[derive(Clone, Debug)]
 struct WorkingHelper {
 	info: HelperInfo,
@@ -77,13 +58,6 @@ impl HelperIndex {
 	}
 }
 
-/// Lazily parse visitor.rs and build the index. The result contains only
-/// owned `String` values and no `proc_macro2` tokens — safe to cache across
-/// macro invocations.
-///
-/// We cache the file's content hash + the resulting `HelperIndex` so we don't
-/// re-parse on every proc-macro invocation. (Tokens would be use-after-free
-/// across invocations, but Strings/bools are fine.)
 pub fn index() -> HelperIndex {
 	use std::sync::Mutex;
 	static CACHE: Mutex<Option<(u64, HelperIndex)>> = Mutex::new(None);
@@ -92,7 +66,6 @@ pub fn index() -> HelperIndex {
 	let Ok(src) = std::fs::read_to_string(&path) else {
 		return HelperIndex::default();
 	};
-	// Cheap content hash.
 	let mut hash: u64 = 1_469_598_103_934_665_603;
 	for b in src.bytes() {
 		hash ^= u64::from(b);
@@ -131,19 +104,16 @@ fn build_index_from(src: &str) -> HelperIndex {
 		}
 	}
 
-	// Fixpoint: re-check each helper's full-coverage until stable.
 	let graph = AstGraph::build();
 	loop {
 		let mut changed = false;
 		let names: Vec<String> = working.keys().cloned().collect();
-		// Snapshot infos for analyze_helper input.
 		let infos_snapshot: HashMap<String, HelperInfo> = working
 			.iter()
 			.map(|(k, v)| (k.clone(), v.info.clone()))
 			.collect();
 		for name in names {
 			let w = working.get(&name).unwrap().clone();
-			// Re-analyze each AST-typed arg independently.
 			let mut new_args = w.info.args.clone();
 			let mut any_changed = false;
 			for (arg_idx, a) in new_args.iter_mut().enumerate() {
@@ -176,7 +146,6 @@ fn locate_visitor_rs() -> String {
 	if let Ok(p) = std::env::var("COVERAGE_VISITOR_FILE") {
 		return p;
 	}
-	// Default: relative to coverage-macro's CARGO_MANIFEST_DIR.
 	let dir = env!("CARGO_MANIFEST_DIR");
 	format!("{dir}/../js/src/visitor.rs")
 }
@@ -185,7 +154,6 @@ fn extract_method(f: &syn::ImplItemFn) -> Option<WorkingHelper> {
 	let name = f.sig.ident.to_string();
 	let mut iter = f.sig.inputs.iter();
 	let _recv = iter.next()?;
-	// Collect every &T arg whose T resolves to a known AST type.
 	let mut args: Vec<HelperArg> = Vec::new();
 	let graph = AstGraph::build();
 	for (pos, arg) in iter.enumerate() {
@@ -199,7 +167,6 @@ fn extract_method(f: &syn::ImplItemFn) -> Option<WorkingHelper> {
 		let Some(ast_type) = extract_ref_type_name(ty) else {
 			continue;
 		};
-		// Only accept types we know are AST nodes (in our shape table).
 		if !graph.nodes.contains_key(ast_type.as_str()) {
 			continue;
 		}
@@ -231,8 +198,6 @@ fn extract_method(f: &syn::ImplItemFn) -> Option<WorkingHelper> {
 	})
 }
 
-/// Given a `&Foo<'a>` or `&Foo` type, return `"Foo"`. Handles fully-qualified
-/// paths like `oxc::ast::ast::Foo` by taking the last segment.
 fn extract_ref_type_name(ty: &Type) -> Option<String> {
 	let Type::Reference(r) = ty else { return None };
 	let Type::Path(tp) = r.elem.as_ref() else {
@@ -242,8 +207,6 @@ fn extract_ref_type_name(ty: &Type) -> Option<String> {
 	Some(last.ident.to_string())
 }
 
-/// Returns (`fully_covers`, `covered_set`, `covered_all`) for the helper's
-/// first AST arg. (Kept for the snippet-builder/fixpoint convenience.)
 #[allow(dead_code)]
 fn analyze_helper(
 	w: &WorkingHelper,
@@ -253,8 +216,6 @@ fn analyze_helper(
 	analyze_helper_arg(w, 0, helpers, graph)
 }
 
-/// Analyzes the helper's body treating arg #`arg_idx` as the "it" being
-/// covered. Returns its (`fully_covers`, `covered_set`, `covered_all`).
 fn analyze_helper_arg(
 	w: &WorkingHelper,
 	arg_idx: usize,
@@ -269,9 +230,6 @@ fn analyze_helper_arg(
 	};
 
 	let mut origins = OriginMap::new();
-	// Treat the analyzed arg as `it` for this pass. Other AST args get a
-	// best-effort Origin::Unknown so walks on them don't credit the wrong
-	// field.
 	origins.set_binding(&arg.name, Binding::it(Some(arg.ast_type.clone())));
 	for (i, other) in w.info.args.iter().enumerate() {
 		if i == arg_idx {
@@ -286,8 +244,6 @@ fn analyze_helper_arg(
 		);
 	}
 
-	// Optimistic self-coverage on every arg so recursive helpers don't
-	// pessimize themselves.
 	let mut optimistic_helpers = helpers.clone();
 	if let Some(self_info) = optimistic_helpers.get_mut(&w.info.name) {
 		for a in &mut self_info.args {
@@ -305,8 +261,6 @@ fn analyze_helper_arg(
 		origins,
 	);
 
-	// Compute intersection of covered across all paths (the conservative
-	// "always covered" set).
 	let mut combined: Option<crate::analyze::Covered> = None;
 	for p in &paths {
 		combined = Some(match combined {
@@ -316,7 +270,6 @@ fn analyze_helper_arg(
 	}
 	let combined = combined.unwrap_or(crate::analyze::Covered::empty());
 
-	// Verify fully_covers across all paths.
 	let mut fully = true;
 	for p in &paths {
 		let covered_all = p.covered.all;
@@ -329,8 +282,6 @@ fn analyze_helper_arg(
 				break;
 			}
 		}
-		// For enum node_types (no fields, only variants), fully_covers
-		// requires covered_all (the helper must walk the whole enum).
 		if def.fields.is_empty() && !def.variants.is_empty() && !covered_all {
 			fully = false;
 		}
@@ -342,13 +293,9 @@ fn analyze_helper_arg(
 	(fully, combined.fields, combined.all)
 }
 
-/// A local binding's tracked information: where in the AST it comes from
-/// (relative to `it`) and what AST type it holds.
 #[derive(Clone, Debug)]
 pub struct Binding {
 	pub origin: Origin,
-	/// AST node type (e.g. "`AssignmentTarget`", "`BindingPattern`"). None when
-	/// the type couldn't be inferred from the binding site.
 	pub ast_type: Option<String>,
 }
 
@@ -373,7 +320,6 @@ impl Binding {
 	}
 }
 
-/// Tracks per-local origin AND ast type within a method body.
 #[derive(Clone, Debug, Default)]
 pub struct OriginMap {
 	map: HashMap<String, Binding>,
@@ -383,7 +329,6 @@ impl OriginMap {
 	pub fn new() -> Self {
 		Self::default()
 	}
-	/// Backward-compat: set just the origin, leave type unknown.
 	pub fn set(&mut self, name: &str, origin: Origin) {
 		self.map
 			.insert(name.to_string(), Binding::with_origin(origin));
@@ -406,16 +351,11 @@ impl OriginMap {
 
 #[derive(Clone, Debug)]
 pub enum Origin {
-	/// Refers to the `it` arg itself.
 	It,
-	/// A field of `it`. Sub-accesses (`.bar`, `[i]`) on a Field still carry
-	/// the parent field name — we only care which top-level R-field of `it`
-	/// is being touched.
 	Field(String),
 	Unknown,
 }
 
-/// Resolve the origin of an expression: trace `&x`, `x.y`, `it.foo`, etc.
 pub fn resolve_origin(e: &Expr, origins: &OriginMap, it_name: &str) -> Origin {
 	let inner = match e {
 		Expr::Reference(r) => r.expr.as_ref(),
@@ -432,8 +372,6 @@ pub fn resolve_origin(e: &Expr, origins: &OriginMap, it_name: &str) -> Origin {
 			Origin::Unknown
 		}
 		Expr::Field(f) => {
-			// Could be `it.foo`, `it.foo.bar`, or `local.field`.
-			// Trace the base.
 			let base = resolve_origin(&f.base, origins, it_name);
 			match base {
 				Origin::It => {
@@ -447,22 +385,12 @@ pub fn resolve_origin(e: &Expr, origins: &OriginMap, it_name: &str) -> Origin {
 		}
 		Expr::Index(idx) => resolve_origin(&idx.expr, origins, it_name),
 		Expr::MethodCall(m) => {
-			// e.g. `.unwrap()`, `.as_assignment_target()`. Pass through.
 			resolve_origin(&m.receiver, origins, it_name)
 		}
 		_ => Origin::Unknown,
 	}
 }
 
-/// Resolve the AST type of an expression.
-///
-/// - `it` → `it_type`.
-/// - `it.foo` → look up `foo` in `it_type`'s fields → field's type.
-/// - `local` → from the `OriginMap`.
-/// - `local.foo` → look up `foo` in `local`'s type.
-/// - method calls → small hardcoded table for known oxc conversions
-///   (`as_assignment_target`, `unwrap`, etc.).
-/// - references / indexing → pass through.
 pub fn resolve_type(
 	e: &Expr,
 	origins: &OriginMap,
@@ -503,12 +431,7 @@ pub fn resolve_type(
 	}
 }
 
-/// Hardcoded table for method-call result types. Conservative — returns None
-/// for unknown methods so the type tracker degrades to "I don't know" rather
-/// than asserting a wrong type.
 fn method_result_type(recv: Option<&str>, method: &str) -> Option<String> {
-	// Pass-through methods on Option/Result/Box/&T — the inner value type is
-	// the same as the receiver's logical type for our purposes.
 	let pass_through = [
 		"unwrap",
 		"unwrap_or",
@@ -524,7 +447,6 @@ fn method_result_type(recv: Option<&str>, method: &str) -> Option<String> {
 	if pass_through.contains(&method) {
 		return recv.map(String::from);
 	}
-	// oxc-specific conversions.
 	let recv = recv?;
 	match (recv, method) {
 		("ForStatementLeft" | "AssignmentTargetMaybeDefault", "as_assignment_target") => {
@@ -538,16 +460,10 @@ fn method_result_type(recv: Option<&str>, method: &str) -> Option<String> {
 	}
 }
 
-/// For loops: `for v in &it.foo` → v's origin = Field("foo").
-/// `resolve_origin` already does the right thing by returning the top-level
-/// `Field(name)` regardless of how deeply we project, so we just delegate.
 pub fn origin_from_iter(iter: &Expr, origins: &OriginMap, it_name: &str) -> Origin {
 	resolve_origin(iter, origins, it_name)
 }
 
-/// For loops: element type of the iterator. `for v in &it.foo.items` where
-/// `items` is `Vec<X>` → v's type = X. We assume the iterator is a reference
-/// to a Vec/slice/Option whose element is itself an AST type.
 pub fn iter_element_type(
 	iter: &Expr,
 	origins: &OriginMap,
@@ -555,12 +471,6 @@ pub fn iter_element_type(
 	it_type: Option<&str>,
 	graph: &crate::reachability::AstGraph,
 ) -> Option<String> {
-	// The iter expression's type IS the collection field type (e.g.
-	// BindingProperty for ObjectPattern.properties: Vec<BindingProperty>).
-	// resolve_type peels references and field accesses to give us the inner
-	// type. For Vec/Option fields we registered the *element* type in
-	// ast_table.rs (Cardinality flags carry that). resolve_type already
-	// returns the element type because our table stores `ty` as the element.
 	resolve_type(iter, origins, it_name, it_type, graph)
 }
 

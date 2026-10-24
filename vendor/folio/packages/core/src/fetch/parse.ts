@@ -74,7 +74,6 @@ export function parseRequest(
 	const url = new _URL(unrewriteUrl(strippedUrl, handler.context));
 
 	if (url.origin === new _URL(request.rawUrl).origin) {
-		// uh oh!
 		throw new Error(
 			"attempted to fetch from same origin - this means the site has obtained a reference to the real origin, aborting"
 		);
@@ -142,7 +141,6 @@ export function parseRequest(
 		crossSiteRedirect: params.crossSiteRedirect === "1",
 		fetchSiteState,
 		fetchInitiatorOrigin: params.initiatorOrigin || undefined,
-		// TODO: should really just be a boolean
 		fetchCredentialsInclude: params.credentials === "include",
 		fetchMode,
 		destination,

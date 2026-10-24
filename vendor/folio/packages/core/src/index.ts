@@ -1,9 +1,5 @@
-// NOTE: this is the entrypoint for folio.bundle.js
-// as such it exports everything in folio
-// the entry point for folio.all.js (what most sites wil use) is entry.ts
-
 import "./global";
-import { atob } from "@/shared/snapshot";
+import { base64ToBytes } from "@/shared/util";
 import { setWasm } from "@rewriters/wasm";
 import { FolioVersionInfo, FolioConfig } from "./types";
 
@@ -66,9 +62,8 @@ export const defaultConfigDev: FolioConfig = {
 };
 
 declare const REWRITERWASM: string | undefined;
-// bundled build will have the wasm binary inlined as a base64 string
 if (REWRITERWASM) {
-	setWasm(Uint8Array.from(atob(REWRITERWASM), (c) => c.charCodeAt(0)));
+	setWasm(base64ToBytes(REWRITERWASM));
 }
 
 export * from "./symbols";

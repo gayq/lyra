@@ -1,4 +1,3 @@
-// thnank you node unblocker guy
 import { JSON_parse, JSON_stringify } from "@/shared/snapshot";
 import { _Date } from "./snapshot";
 import parse from "./set-cookie-parser";
@@ -14,12 +13,11 @@ export type Cookie = {
 	hostOnly?: boolean;
 	secure?: boolean;
 	httpOnly?: boolean;
-	sameSite?: string; // "strict"|"lax"|"none" or titlecase variants from parsers
+	sameSite?: string;
 };
 
 export class CookieJar {
 	private cookies: Record<string, Cookie> = {};
-	// Index by domain (without leading dot)
 	private byDomain: Map<string, Cookie[]> = new Map();
 
 	private defaultPath(url: URL): string {
@@ -128,10 +126,6 @@ export class CookieJar {
 		}
 	}
 
-	// SameSite enforcement context passed to getCookies.
-	// "strict"     – same-site request; all cookies allowed
-	// "lax"        – cross-site top-level GET/HEAD navigation; Strict blocked, Lax+None allowed
-	// "cross-site" – cross-site subresource or non-GET navigation; only None allowed
 	getCookies(
 		url: URL,
 		fromJs: boolean,
@@ -143,7 +137,6 @@ export class CookieJar {
 		const pathname = url.pathname;
 		const validCookies: Cookie[] = [];
 
-		// Walk the hostname's domain suffix chain
 		let key: string | undefined = hostname;
 		while (key !== undefined) {
 			const bucket = this.byDomain.get(key);
@@ -163,17 +156,12 @@ export class CookieJar {
 					if (httpOnlyOnly && !cookie.httpOnly) continue;
 					if (!this.pathMatches(pathname, cookie.path!)) continue;
 
-					// SameSite enforcement — compare case-insensitively since parsers may
-					// return "Strict"/"Lax"/"None" (titlecase) or "strict"/"lax"/"none".
 					const cs = (cookie.sameSite ?? "lax").toLowerCase();
 					if (sameSiteContext === "cross-site") {
-						// Only SameSite=None cookies are sent cross-site
 						if (cs !== "none") continue;
 					} else if (sameSiteContext === "lax") {
-						// Lax top-level navigation: block Strict, allow Lax and None
 						if (cs === "strict") continue;
 					}
-					// "strict" context: all cookies allowed (no filtering)
 
 					validCookies.push(cookie);
 				}

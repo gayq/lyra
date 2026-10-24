@@ -6,7 +6,6 @@ const KEY_PERIOD_SECONDS = 3600;
 
 const hmac = (key, message) => createHmac("sha256", key).update(message).digest();
 
-// signing keys rotate hourly; nuru also accepts the previous hour's key
 export function nuruTicketMinter(secret, now = Date.now) {
   if (!secret) return null;
   if (Buffer.byteLength(secret) < 32) throw new Error("invalid nuru ticket configuration... /ᐠ - ˕ -マ");

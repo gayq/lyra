@@ -29,7 +29,6 @@ export default function (client: FolioClient, _self: Self) {
 				if (url !== undefined) {
 					const parsedUrl = new _URL(url, relevantclient.url.href);
 					if (parsedUrl.origin !== relevantclient.url.origin) {
-						// TODO: we want to emulate the proper security error here. right now this will leak the origin in the error message
 						return ctx.return(undefined);
 					}
 				}

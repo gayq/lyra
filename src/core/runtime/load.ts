@@ -6,15 +6,15 @@ import { fetchServiceMetadata } from "./serviceMetadata.ts";
 import { appPath, appServiceWorkers, isStatic } from "./hosting.ts";
 import {
   addUpdateMarker,
-  buildStamp,
   clientBuildId,
-  hasUpdateMarker,
-  isUpdateApplied,
-  isUpdateNeeded,
-  isUpdateRetryDue,
+  decideUpdate,
   parseStuffResponse,
+  parseUpdateAttempt,
+  readUpdateMarker,
   removeUpdateMarker,
-  UPDATE_RETRY_MS,
+  UPDATE_CHECK_THROTTLE_MS,
+  UPDATE_POLL_MS,
+  type UpdateAttempt,
 } from "./updater.ts";
 
 declare global {
@@ -26,8 +26,8 @@ declare global {
       init(): void;
       showSuccess(): void;
       hideSuccess(calledByOther: boolean): void;
-      performUpdate(target?: string): Promise<void>;
-      checkVersion(): Promise<void>;
+      performUpdate(target: string, attempt: UpdateAttempt): Promise<void>;
+      checkVersion(force?: boolean): Promise<void>;
       updating: boolean;
     };
     toggleSettingsModal?: () => void;
@@ -39,6 +39,40 @@ declare global {
 let _loadInitialized = false;
 let _initialStuffDataUsed = false;
 let versionCheckRunning = false;
+let lastVersionCheckAt = 0;
+
+const UPDATE_TARGET_KEY = "lyraUpdateTarget";
+const UPDATE_ATTEMPT_KEY = "lyraUpdateAttempt";
+
+type StorageName = "localStorage" | "sessionStorage";
+
+function readStorage(storage: StorageName, key: string): string | null {
+  try {
+    return window[storage].getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorage(
+  storage: StorageName,
+  key: string,
+  value: string | null,
+): void {
+  try {
+    if (value === null) window[storage].removeItem(key);
+    else window[storage].setItem(key, value);
+  } catch {}
+}
+
+function clearUpdateState(): void {
+  writeStorage("localStorage", UPDATE_TARGET_KEY, null);
+  writeStorage("sessionStorage", UPDATE_ATTEMPT_KEY, null);
+  writeStorage("localStorage", "lyraUpdateAttempt", null);
+  writeStorage("localStorage", "lyraVersionStamp", null);
+  writeStorage("localStorage", "justUpdated", null);
+  writeStorage("sessionStorage", "lyraUpdateAttemptAt", null);
+}
 
 function clearUpdateMarker(): void {
   const cleanHref = removeUpdateMarker(window.location.href);
@@ -182,16 +216,11 @@ export function initializeLoad(): void {
         { once: true },
       );
     },
-    async performUpdate(
-      target = localStorage.getItem("lyraVersionStamp") || "",
-    ) {
+    async performUpdate(target, attempt) {
       if (this.updating) return;
-      if (target) {
-        localStorage.setItem("lyraUpdateTarget", target);
-        sessionStorage.setItem("lyraUpdateAttempt", target);
-        sessionStorage.setItem("lyraUpdateAttemptAt", String(Date.now()));
-      }
       this.updating = true;
+      writeStorage("localStorage", UPDATE_TARGET_KEY, target);
+      writeStorage("sessionStorage", UPDATE_ATTEMPT_KEY, JSON.stringify(attempt));
 
       try {
         if ("serviceWorker" in navigator) {
@@ -233,17 +262,22 @@ export function initializeLoad(): void {
         );
       }
 
-      const navigationTarget = target || String(Date.now());
       try {
-        location.replace(addUpdateMarker(location.href, navigationTarget));
+        location.replace(addUpdateMarker(location.href, target));
       } catch (error) {
         this.updating = false;
         throw error;
       }
+      window.setTimeout(() => {
+        this.updating = false;
+      }, 10_000);
     },
-    async checkVersion() {
-      if (versionCheckRunning) return;
+    async checkVersion(force = false) {
+      if (versionCheckRunning || this.updating) return;
+      const now = Date.now();
+      if (!force && now - lastVersionCheckAt < UPDATE_CHECK_THROTTLE_MS) return;
       versionCheckRunning = true;
+      lastVersionCheckAt = now;
       try {
         const initialStuffData = !_initialStuffDataUsed
           ? window.__lyraStuffData
@@ -257,46 +291,24 @@ export function initializeLoad(): void {
         }
         if (!serviceMetadata) return;
         const metadata = parseStuffResponse(serviceMetadata);
-        const currentStamp = buildStamp(metadata);
-        const prevStamp = localStorage.getItem("lyraVersionStamp");
-        const prev = localStorage.getItem("lyraVersion");
-        const pendingTarget = localStorage.getItem("lyraUpdateTarget");
-        const attemptedTarget = sessionStorage.getItem("lyraUpdateAttempt");
-        const attemptedAt = sessionStorage.getItem("lyraUpdateAttemptAt");
-        const legacyUpdate = localStorage.getItem("justUpdated") === "true";
-        const applied = isUpdateApplied(metadata, clientBuildId, pendingTarget);
+        writeStorage("localStorage", "lyraVersion", metadata.version);
 
-        localStorage.setItem("lyraVersion", metadata.version);
-        localStorage.setItem("lyraVersionStamp", currentStamp);
+        const marker = readUpdateMarker(location.href);
+        const decision = decideUpdate(metadata, clientBuildId, {
+          pending: readStorage("localStorage", UPDATE_TARGET_KEY),
+          attempt: parseUpdateAttempt(
+            readStorage("sessionStorage", UPDATE_ATTEMPT_KEY),
+          ),
+          marker,
+        });
+        if (marker !== null) clearUpdateMarker();
 
-        if (
-          applied ||
-          (legacyUpdate &&
-            Boolean(metadata.build && clientBuildId === metadata.build))
-        ) {
-          localStorage.removeItem("lyraUpdateTarget");
-          localStorage.removeItem("lyraUpdateAttempt");
-          sessionStorage.removeItem("lyraUpdateAttempt");
-          sessionStorage.removeItem("lyraUpdateAttemptAt");
-          localStorage.removeItem("justUpdated");
-          clearUpdateMarker();
-          this.showSuccess();
+        if (decision.action === "reload") {
+          await this.performUpdate(decision.target, decision.attempt);
           return;
         }
-
-        if (!isUpdateNeeded(metadata, clientBuildId, prevStamp, prev)) {
-          localStorage.removeItem("lyraUpdateTarget");
-          localStorage.removeItem("lyraUpdateAttempt");
-          sessionStorage.removeItem("lyraUpdateAttempt");
-          sessionStorage.removeItem("lyraUpdateAttemptAt");
-          localStorage.removeItem("justUpdated");
-          clearUpdateMarker();
-          return;
-        }
-
-        if (!isUpdateRetryDue(currentStamp, attemptedTarget, attemptedAt)) {
-          if (hasUpdateMarker(location.href, currentStamp)) {
-            clearUpdateMarker();
+        if (decision.action === "wait") {
+          if (decision.failed) {
             console.warn(
               negativeMessage(
                 "automatic update could not load the current build",
@@ -306,7 +318,8 @@ export function initializeLoad(): void {
           return;
         }
 
-        await this.performUpdate(currentStamp);
+        clearUpdateState();
+        if (decision.applied) this.showSuccess();
       } catch (error) {
         console.warn(negativeMessage("version check failed"), error);
       } finally {
@@ -315,21 +328,22 @@ export function initializeLoad(): void {
     },
   };
   window.lyraUpdater.init();
-  window.lyraUpdater.checkVersion();
+  void window.lyraUpdater.checkVersion(true);
   if (!window.__lyraUpdatePollerStarted) {
     window.__lyraUpdatePollerStarted = true;
-    window.setInterval(
-      () => {
-        if (document.visibilityState === "visible") {
-          void window.lyraUpdater.checkVersion();
-        }
-      },
-      UPDATE_RETRY_MS,
-    );
-    document.addEventListener("visibilitychange", () => {
+    const checkWhenVisible = () => {
       if (document.visibilityState === "visible") {
         void window.lyraUpdater.checkVersion();
       }
+    };
+    window.setInterval(checkWhenVisible, UPDATE_POLL_MS);
+    document.addEventListener("visibilitychange", checkWhenVisible);
+    window.addEventListener("online", checkWhenVisible);
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) void window.lyraUpdater.checkVersion(true);
+    });
+    window.addEventListener("vite:preloadError", () => {
+      void window.lyraUpdater.checkVersion(true);
     });
   }
 }

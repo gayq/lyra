@@ -1,7 +1,7 @@
 import { prefersReducedMotion } from "../config/advancedSettings.ts";
 
 export function motionDuration(
-  name: "control" | "enter" | "exit" | "shimmer",
+  name: "control" | "enter" | "exit" | "reveal" | "shimmer",
   element: Element = document.documentElement,
 ): number {
   if (prefersReducedMotion()) return 0;

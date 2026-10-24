@@ -305,7 +305,7 @@ app.use(setIsolationHeaders);
 app.get("/api/presence", (req, res) => {
   const abort = new AbortController();
   res.on("close", () => abort.abort());
-  const response = connectPresence(abort.signal);
+  const response = connectPresence(abort.signal, req.query.id);
   response.headers.forEach((value, name) => res.setHeader(name, value));
   res.flushHeaders();
   Readable.fromWeb(response.body)

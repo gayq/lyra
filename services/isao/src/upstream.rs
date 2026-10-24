@@ -12,7 +12,7 @@ pub enum Provider { Anilist, Jikan, Kitsu, Anikoto }
 impl Provider {
     fn settings(self) -> (&'static str, i64) {
         match self {
-            Self::Anilist => ("anilist", 3_000), // 20 min
+            Self::Anilist => ("anilist", 3_000),
             Self::Jikan => ("jikan", 1_100),
             Self::Kitsu => ("kitsu", 1_100),
             Self::Anikoto => ("anikoto", 1_100),

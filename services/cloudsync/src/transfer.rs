@@ -1,4 +1,5 @@
 use super::*;
+use crate::admission::ACCOUNT_CHUNK_LIMIT;
 use axum::body::{to_bytes, Body};
 use axum::extract::{rejection::PathRejection, Path, Request};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
@@ -9,6 +10,8 @@ use std::time::Duration;
 
 pub const CHUNK_SIZE: usize = 1024 * 1024;
 const MAX_PARTS: i64 = (MAX_RAW_SIZE / CHUNK_SIZE) as i64;
+const MAX_SEALED_PARTS: i64 = 4096;
+const MAX_SEAL_LENGTH: usize = 512;
 const MANIFEST_MAGIC: &[u8] = b"wcs2";
 static UPLOADED_BYTES: AtomicU64 = AtomicU64::new(0);
 static REUSED_BYTES: AtomicU64 = AtomicU64::new(0);
@@ -50,15 +53,42 @@ pub fn cleanup(connection: &Connection) -> rusqlite::Result<usize> {
     Ok(deleted)
 }
 
-fn upload_info(connection: &Connection, user_id: i64, id: &str) -> SyncResult<(i64, bool)> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Upload {
+    parts: i64,
+    committed: bool,
+    sealed: bool,
+}
+
+fn upload_info(connection: &Connection, user_id: i64, id: &str) -> SyncResult<Upload> {
     connection
         .query_row(
-            "SELECT parts, committed FROM sync_uploads WHERE id = ? AND user_id = ?",
+            "SELECT parts, committed, sealed FROM sync_uploads WHERE id = ? AND user_id = ?",
             params![id, user_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| {
+                Ok(Upload {
+                    parts: row.get(0)?,
+                    committed: row.get(1)?,
+                    sealed: row.get(2)?,
+                })
+            },
         )
         .optional()?
         .ok_or(SyncError::Conflict)
+}
+
+fn valid_digest(digest: &str) -> bool {
+    digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn valid_seal(seal: &str) -> bool {
+    (1..=MAX_SEAL_LENGTH).contains(&seal.len())
+        && seal.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=' | b'-' | b'_')
+        })
 }
 
 fn begin_with_hashes(
@@ -66,21 +96,16 @@ fn begin_with_hashes(
     user_id: i64,
     parts: i64,
     hashes: Option<&[String]>,
+    sealed: bool,
 ) -> SyncResult<(String, Vec<i64>)> {
-    if parts <= 0 {
+    if parts <= 0 || (sealed && hashes.is_none()) {
         return Err(SyncError::InvalidPayload);
     }
-    if parts > MAX_PARTS {
+    if parts > if sealed { MAX_SEALED_PARTS } else { MAX_PARTS } {
         return Err(SyncError::TooLarge);
     }
     if hashes.is_some_and(|hashes| {
-        hashes.len() != parts as usize
-            || hashes.iter().any(|hash| {
-                hash.len() != 64
-                    || !hash
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            })
+        hashes.len() != parts as usize || hashes.iter().any(|hash| !valid_digest(hash))
     }) {
         return Err(SyncError::InvalidPayload);
     }
@@ -89,7 +114,7 @@ fn begin_with_hashes(
         "DELETE FROM sync_uploads WHERE user_id = ? AND committed = 0",
         [user_id],
     )?;
-    let id: String = transaction.query_row("INSERT INTO sync_uploads (id, user_id, parts) VALUES (lower(hex(randomblob(16))), ?, ?) RETURNING id", params![user_id, parts], |row| row.get(0))?;
+    let id: String = transaction.query_row("INSERT INTO sync_uploads (id, user_id, parts, sealed) VALUES (lower(hex(randomblob(16))), ?, ?, ?) RETURNING id", params![user_id, parts, sealed], |row| row.get(0))?;
     let mut missing = Vec::new();
     let mut reused = 0;
     for part in 0..parts {
@@ -97,8 +122,8 @@ fn begin_with_hashes(
             let digest = &hashes[part as usize];
             let bytes: Option<u64> = transaction
                 .query_row(
-                    "SELECT raw_bytes FROM sync_objects WHERE user_id = ? AND digest = ?",
-                    params![user_id, digest],
+                    "SELECT raw_bytes FROM sync_objects WHERE user_id = ? AND digest = ? AND sealed = ?",
+                    params![user_id, digest, sealed],
                     |row| row.get(0),
                 )
                 .optional()?;
@@ -106,6 +131,11 @@ fn begin_with_hashes(
                 transaction.execute(
                     "INSERT INTO sync_chunk_refs VALUES (?, ?, ?, ?)",
                     params![id, part, user_id, digest],
+                )?;
+            } else if sealed {
+                transaction.execute(
+                    "INSERT INTO sync_upload_digests VALUES (?, ?, ?)",
+                    params![id, part, digest],
                 )?;
             }
             bytes
@@ -130,15 +160,34 @@ fn chunk_aad(user_id: i64, id: &str, part: i64) -> String {
 fn object_aad(user_id: i64, digest: &str) -> String {
     format!("wcs3:{user_id}:{digest}")
 }
+fn sealed_object_aad(user_id: i64, digest: &str) -> String {
+    format!("wcs4:{user_id}:{digest}")
+}
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn decode_chunk(cipher: &Aes256Gcm, blob: &[u8], aad: &str) -> SyncResult<Vec<u8>> {
+fn encrypt_chunk(cipher: &Aes256Gcm, bytes: &[u8], aad: &str) -> SyncResult<Vec<u8>> {
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let encrypted = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: bytes,
+                aad: aad.as_bytes(),
+            },
+        )
+        .map_err(|_| SyncError::Internal)?;
+    let mut blob = nonce.to_vec();
+    blob.extend_from_slice(&encrypted);
+    Ok(blob)
+}
+
+fn decrypt_chunk(cipher: &Aes256Gcm, blob: &[u8], aad: &str) -> SyncResult<Vec<u8>> {
     if blob.len() < IV_LENGTH {
         return Err(SyncError::Corrupt);
     }
-    let compressed = cipher
+    cipher
         .decrypt(
             Nonce::from_slice(&blob[..IV_LENGTH]),
             Payload {
@@ -146,7 +195,11 @@ fn decode_chunk(cipher: &Aes256Gcm, blob: &[u8], aad: &str) -> SyncResult<Vec<u8
                 aad: aad.as_bytes(),
             },
         )
-        .map_err(|_| SyncError::Corrupt)?;
+        .map_err(|_| SyncError::Corrupt)
+}
+
+fn decode_chunk(cipher: &Aes256Gcm, blob: &[u8], aad: &str) -> SyncResult<Vec<u8>> {
+    let compressed = decrypt_chunk(cipher, blob, aad)?;
     let mut bytes = Vec::new();
     brotli::Decompressor::new(compressed.as_slice(), 64 * 1024)
         .take((CHUNK_SIZE + 1) as u64)
@@ -165,8 +218,15 @@ fn read_chunk(
     id: &str,
     part: i64,
 ) -> SyncResult<Vec<u8>> {
-    let object: Option<(String, Vec<u8>)> = connection.query_row("SELECT r.digest, o.data_blob FROM sync_chunk_refs r JOIN sync_objects o ON o.user_id = r.user_id AND o.digest = r.digest WHERE r.upload_id = ? AND r.part = ? AND r.user_id = ?", params![id, part, user_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-    if let Some((hash, blob)) = object {
+    let object: Option<(String, Vec<u8>, bool)> = connection.query_row("SELECT r.digest, o.data_blob, o.sealed FROM sync_chunk_refs r JOIN sync_objects o ON o.user_id = r.user_id AND o.digest = r.digest WHERE r.upload_id = ? AND r.part = ? AND r.user_id = ?", params![id, part, user_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional()?;
+    if let Some((hash, blob, sealed)) = object {
+        if sealed {
+            let bytes = decrypt_chunk(cipher, &blob, &sealed_object_aad(user_id, &hash))?;
+            if bytes.is_empty() || bytes.len() > CHUNK_SIZE {
+                return Err(SyncError::Corrupt);
+            }
+            return Ok(bytes);
+        }
         let bytes = decode_chunk(cipher, &blob, &object_aad(user_id, &hash))?;
         if digest(&bytes) != hash {
             return Err(SyncError::Corrupt);
@@ -184,6 +244,57 @@ fn read_chunk(
     decode_chunk(cipher, &blob, &chunk_aad(user_id, id, part))
 }
 
+fn chunk_exists(connection: &Connection, id: &str, part: i64) -> SyncResult<bool> {
+    Ok(connection.query_row("SELECT EXISTS(SELECT 1 FROM sync_chunks WHERE upload_id = ?1 AND part = ?2 UNION ALL SELECT 1 FROM sync_chunk_refs WHERE upload_id = ?1 AND part = ?2)", params![id, part], |row| row.get(0))?)
+}
+
+fn write_sealed_chunk(
+    connection: &mut Connection,
+    cipher: &Aes256Gcm,
+    user_id: i64,
+    id: &str,
+    part: i64,
+    bytes: &[u8],
+) -> SyncResult<()> {
+    let declared: Option<String> = connection
+        .query_row(
+            "SELECT digest FROM sync_upload_digests WHERE upload_id = ? AND part = ?",
+            params![id, part],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(hash) = declared else {
+        return if chunk_exists(connection, id, part)? {
+            Ok(())
+        } else {
+            Err(SyncError::InvalidPayload)
+        };
+    };
+    let blob = encrypt_chunk(cipher, bytes, &sealed_object_aad(user_id, &hash))?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let upload = upload_info(&transaction, user_id, id)?;
+    if !chunk_exists(&transaction, id, part)? {
+        if upload.committed {
+            return Err(SyncError::Conflict);
+        }
+        transaction.execute(
+            "INSERT OR IGNORE INTO sync_objects (user_id, digest, raw_bytes, data_blob, sealed) VALUES (?, ?, ?, ?, 1)",
+            params![user_id, hash, bytes.len(), blob],
+        )?;
+        transaction.execute(
+            "INSERT INTO sync_chunk_refs VALUES (?, ?, ?, ?)",
+            params![id, part, user_id, hash],
+        )?;
+    }
+    transaction.execute(
+        "UPDATE sync_uploads SET touched = unixepoch() WHERE id = ?",
+        [id],
+    )?;
+    transaction.commit()?;
+    UPLOADED_BYTES.fetch_add(bytes.len() as u64, Ordering::Relaxed);
+    Ok(())
+}
+
 fn write_chunk(
     connection: &mut Connection,
     cipher: &Aes256Gcm,
@@ -195,44 +306,44 @@ fn write_chunk(
     if bytes.is_empty() || bytes.len() > CHUNK_SIZE {
         return Err(SyncError::TooLarge);
     }
-    let (parts, _) = upload_info(connection, user_id, id)?;
-    if parts > MAX_PARTS {
+    let upload = upload_info(connection, user_id, id)?;
+    if upload.parts
+        > if upload.sealed {
+            MAX_SEALED_PARTS
+        } else {
+            MAX_PARTS
+        }
+    {
         return Err(SyncError::TooLarge);
     }
-    if part < 0 || part >= parts {
+    if part < 0 || part >= upload.parts {
         return Err(SyncError::InvalidPayload);
+    }
+    if upload.sealed {
+        return write_sealed_chunk(connection, cipher, user_id, id, part, bytes);
     }
     let hash = digest(bytes);
     let mut compressor = brotli::CompressorWriter::new(Vec::new(), 64 * 1024, 3, 22);
     compressor
         .write_all(bytes)
         .map_err(|_| SyncError::Internal)?;
-    let compressed = compressor.into_inner();
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let encrypted = cipher
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: &compressed,
-                aad: object_aad(user_id, &hash).as_bytes(),
-            },
-        )
-        .map_err(|_| SyncError::Internal)?;
-    let mut blob = nonce.to_vec();
-    blob.extend_from_slice(&encrypted);
+    let blob = encrypt_chunk(
+        cipher,
+        &compressor.into_inner(),
+        &object_aad(user_id, &hash),
+    )?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let (_, committed) = upload_info(&transaction, user_id, id)?;
-    let exists: bool = transaction.query_row("SELECT EXISTS(SELECT 1 FROM sync_chunks WHERE upload_id = ?1 AND part = ?2 UNION ALL SELECT 1 FROM sync_chunk_refs WHERE upload_id = ?1 AND part = ?2)", params![id, part], |row| row.get(0))?;
-    if exists {
+    let upload = upload_info(&transaction, user_id, id)?;
+    if chunk_exists(&transaction, id, part)? {
         if read_chunk(&transaction, cipher, user_id, id, part)? != bytes {
             return Err(SyncError::Conflict);
         }
     } else {
-        if committed {
+        if upload.committed {
             return Err(SyncError::Conflict);
         }
         transaction.execute(
-            "INSERT OR IGNORE INTO sync_objects VALUES (?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO sync_objects (user_id, digest, raw_bytes, data_blob, sealed) VALUES (?, ?, ?, ?, 0)",
             params![user_id, hash, bytes.len(), blob],
         )?;
         transaction.execute(
@@ -281,18 +392,24 @@ impl Read for ChunkReader<'_> {
     }
 }
 
+fn stored_parts(connection: &Connection, id: &str) -> SyncResult<i64> {
+    Ok(connection.query_row("SELECT (SELECT count(*) FROM sync_chunks WHERE upload_id = ?1) + (SELECT count(*) FROM sync_chunk_refs WHERE upload_id = ?1)", [id], |row| row.get(0))?)
+}
+
 pub(super) fn load_snapshot(
     connection: &Connection,
     cipher: &Aes256Gcm,
     user_id: i64,
     id: &str,
 ) -> SyncResult<Snapshot> {
-    let (parts, _) = upload_info(connection, user_id, id)?;
-    if parts > MAX_PARTS {
+    let upload = upload_info(connection, user_id, id)?;
+    if upload.sealed {
+        return Err(SyncError::Sealed);
+    }
+    if upload.parts > MAX_PARTS {
         return Err(SyncError::TooLarge);
     }
-    let count: i64 = connection.query_row("SELECT (SELECT count(*) FROM sync_chunks WHERE upload_id = ?1) + (SELECT count(*) FROM sync_chunk_refs WHERE upload_id = ?1)", [id], |row| row.get(0))?;
-    if count != parts {
+    if stored_parts(connection, id)? != upload.parts {
         return Err(SyncError::Conflict);
     }
     let reader = ChunkReader {
@@ -301,7 +418,7 @@ pub(super) fn load_snapshot(
         user_id,
         id,
         next: 0,
-        parts,
+        parts: upload.parts,
         current: Cursor::new(Vec::new()),
     };
     let snapshot: Snapshot =
@@ -311,27 +428,89 @@ pub(super) fn load_snapshot(
     Ok(snapshot)
 }
 
+fn verify_sealed(connection: &Connection, id: &str, upload: Upload) -> SyncResult<()> {
+    if stored_parts(connection, id)? != upload.parts {
+        return Err(SyncError::Conflict);
+    }
+    let stored: i64 = connection.query_row(
+        "SELECT coalesce(sum(o.raw_bytes), 0) FROM sync_chunk_refs r JOIN sync_objects o ON o.user_id = r.user_id AND o.digest = r.digest WHERE r.upload_id = ?",
+        [id],
+        |row| row.get(0),
+    )?;
+    if stored as usize > MAX_RAW_SIZE {
+        return Err(SyncError::TooLarge);
+    }
+    Ok(())
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commit {
+    base: Option<String>,
+    seal: Option<String>,
+}
+
+pub(super) fn active_is_sealed(connection: &Connection, user_id: i64) -> SyncResult<bool> {
+    let blob: Option<Vec<u8>> = connection
+        .query_row(
+            "SELECT substr(data_blob, 1, 36) FROM sync_data WHERE user_id = ?",
+            [user_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(id) = blob.as_deref().and_then(manifest_id) else {
+        return Ok(false);
+    };
+    Ok(upload_info(connection, user_id, id).is_ok_and(|upload| upload.sealed))
+}
+
 fn commit_upload(
     connection: &mut Connection,
     cipher: &Aes256Gcm,
     user_id: i64,
     id: &str,
+    request: &Commit,
 ) -> SyncResult<String> {
-    let (_, committed) = upload_info(connection, user_id, id)?;
-    if !committed {
-        drop(load_snapshot(connection, cipher, user_id, id)?);
+    let upload = upload_info(connection, user_id, id)?;
+    if !upload.committed {
+        if upload.sealed {
+            if !request.seal.as_deref().is_some_and(valid_seal) {
+                return Err(SyncError::InvalidPayload);
+            }
+            verify_sealed(connection, id, upload)?;
+        } else {
+            drop(load_snapshot(connection, cipher, user_id, id)?);
+        }
     }
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let (_, committed) = upload_info(&transaction, user_id, id)?;
-    if !committed {
+    if !upload_info(&transaction, user_id, id)?.committed {
+        if !upload.sealed && active_is_sealed(&transaction, user_id)? {
+            return Err(SyncError::Sealed);
+        }
+        if let Some(base) = &request.base {
+            let current: Option<String> = transaction
+                .query_row(
+                    "SELECT updated_at FROM sync_data WHERE user_id = ?",
+                    [user_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if current.as_deref().unwrap_or("") != base {
+                return Err(SyncError::RevisionConflict);
+            }
+        }
         let mut manifest = MANIFEST_MAGIC.to_vec();
         manifest.extend_from_slice(id.as_bytes());
         transaction.execute("INSERT INTO sync_data (user_id, data_blob, updated_at) VALUES (?, ?, STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now') || '-' || LOWER(HEX(RANDOMBLOB(8)))) ON CONFLICT(user_id) DO UPDATE SET data_blob = excluded.data_blob, updated_at = excluded.updated_at", params![user_id, manifest])?;
-        transaction.execute("UPDATE sync_uploads SET committed = 1 WHERE id = ?", [id])?;
+        transaction.execute(
+            "UPDATE sync_uploads SET committed = 1, seal = ? WHERE id = ?",
+            params![request.seal.as_deref().filter(|_| upload.sealed), id],
+        )?;
         transaction.execute(
             "DELETE FROM sync_uploads WHERE user_id = ? AND id != ?",
             params![user_id, id],
         )?;
+        transaction.execute("DELETE FROM sync_upload_digests WHERE upload_id = ?", [id])?;
         collect_objects(&transaction, user_id)?;
     }
     let updated_at = transaction.query_row(
@@ -386,6 +565,8 @@ async fn run(
 pub struct Start {
     parts: i64,
     hashes: Option<Vec<String>>,
+    #[serde(default)]
+    sealed: bool,
 }
 
 pub async fn begin(
@@ -393,10 +574,11 @@ pub async fn begin(
     cookies: Cookies,
     request: Request,
 ) -> Response {
-    run(state, cookies, Operation::Write, Some((request.into_body(), 16 * 1024)), move |connection, _, user_id, bytes| {
+    run(state, cookies, Operation::Write, Some((request.into_body(), 512 * 1024)), move |connection, _, user_id, bytes| {
         let request: Start = serde_json::from_slice(&bytes).map_err(|_| SyncError::InvalidPayload)?;
-        let (id, missing) = begin_with_hashes(connection, user_id, request.parts, request.hashes.as_deref())?;
-        Ok(Json(serde_json::json!({"id": id, "chunk_size": CHUNK_SIZE, "missing": missing, "concurrency": 1, "max_bytes": MAX_RAW_SIZE})).into_response())
+        let (id, missing) = begin_with_hashes(connection, user_id, request.parts, request.hashes.as_deref(), request.sealed)?;
+        let max_parts = if request.sealed { MAX_SEALED_PARTS } else { MAX_PARTS };
+        Ok(Json(serde_json::json!({"id": id, "chunk_size": CHUNK_SIZE, "missing": missing, "concurrency": ACCOUNT_CHUNK_LIMIT, "max_bytes": MAX_RAW_SIZE, "max_parts": max_parts})).into_response())
     }).await
 }
 
@@ -445,15 +627,21 @@ pub async fn commit(
     State(state): State<Arc<AppState>>,
     cookies: Cookies,
     path: Result<Path<String>, PathRejection>,
+    request: Request,
 ) -> Response {
     run(
         state,
         cookies,
         Operation::Snapshot,
-        None,
-        move |connection, cipher, user_id, _| {
+        Some((request.into_body(), 4096)),
+        move |connection, cipher, user_id, bytes| {
             let Path(id) = path.map_err(|_| SyncError::InvalidPayload)?;
-            let updated_at = commit_upload(connection, cipher, user_id, &id)?;
+            let request = if bytes.is_empty() {
+                Commit::default()
+            } else {
+                serde_json::from_slice(&bytes).map_err(|_| SyncError::InvalidPayload)?
+            };
+            let updated_at = commit_upload(connection, cipher, user_id, &id, &request)?;
             cached_meta_set(user_id, updated_at.clone());
             Ok(response(true, None, Some(updated_at), None))
         },
@@ -465,10 +653,19 @@ pub async fn manifest(State(state): State<Arc<AppState>>, cookies: Cookies) -> R
     run(state, cookies, Operation::Read, None, |connection, _, user_id, _| {
         let row: Option<(Vec<u8>, String)> = connection.query_row("SELECT substr(data_blob, 1, 36), updated_at FROM sync_data WHERE user_id = ?", [user_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
         let (blob, updated_at) = row.ok_or(SyncError::Missing)?;
-        let Some(id) = manifest_id(&blob) else { return Ok(Json(serde_json::json!({"legacy": true})).into_response()); };
-        let (parts, committed) = upload_info(connection, user_id, id)?;
-        if !committed { return Err(SyncError::Corrupt); }
-        Ok(Json(serde_json::json!({"id": id, "parts": parts, "updated_at": updated_at, "concurrency": 1})).into_response())
+        let Some(id) = manifest_id(&blob) else { return Ok(Json(serde_json::json!({"legacy": true, "updated_at": updated_at})).into_response()); };
+        let upload = upload_info(connection, user_id, id)?;
+        if !upload.committed { return Err(SyncError::Corrupt); }
+        if !upload.sealed {
+            return Ok(Json(serde_json::json!({"id": id, "parts": upload.parts, "updated_at": updated_at, "concurrency": ACCOUNT_CHUNK_LIMIT, "sealed": false})).into_response());
+        }
+        let seal: Option<String> = connection.query_row("SELECT seal FROM sync_uploads WHERE id = ?", [id], |row| row.get(0))?;
+        let digests = connection
+            .prepare("SELECT digest FROM sync_chunk_refs WHERE upload_id = ? ORDER BY part")?
+            .query_map([id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if digests.len() as i64 != upload.parts { return Err(SyncError::Corrupt); }
+        Ok(Json(serde_json::json!({"id": id, "parts": upload.parts, "updated_at": updated_at, "concurrency": ACCOUNT_CHUNK_LIMIT, "sealed": true, "seal": seal.ok_or(SyncError::Corrupt)?, "digests": digests})).into_response())
     }).await
 }
 
@@ -484,8 +681,8 @@ pub async fn get(
         None,
         move |connection, cipher, user_id, _| {
             let Path((id, part)) = path.map_err(|_| SyncError::InvalidPayload)?;
-            let (parts, committed) = upload_info(connection, user_id, &id)?;
-            if !committed || part < 0 || part >= parts {
+            let upload = upload_info(connection, user_id, &id)?;
+            if !upload.committed || part < 0 || part >= upload.parts {
                 return Err(SyncError::Conflict);
             }
             Ok((
