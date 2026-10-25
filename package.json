@@ -19,6 +19,7 @@
     "dev": "bun run build-proxy && NODE_ENV=development bun server/dev.mjs",
     "dev:web": "bun run build-proxy && DEV_AUTOSTART=0 NODE_ENV=development bun server/dev.mjs",
     "sync:prod": "bash scripts/sync-prod.sh",
+    "notice": "bun scripts/notice.mjs",
     "test": "bun test --isolate scripts src",
     "test:sync-prod": "bun test --isolate scripts/sync-prod.test.mjs",
     "typecheck": "tsc --noEmit && bun run typecheck:rivet && bun run typecheck:folio",

@@ -28,7 +28,7 @@ export function staticRoute(pathname, method) {
     if (/^\/stream\/(?:info|anikoto(?:\/(?:variant|resource|track))?|s-2\/[^/]+)$/.test(pathname)) return true;
     if (pathname === "/!!folio/capabilities" || /^\/!cover!\/.+$/.test(pathname)) return true;
   }
-  if (method === "POST" && /^\/api\/(?:anime\/(?:identity\/resolve|resolve-stream))$/.test(pathname)) return true;
+  if (method === "POST" && /^\/api\/(?:notice|anime\/(?:identity\/resolve|resolve-stream))$/.test(pathname)) return true;
   return false;
 }
 

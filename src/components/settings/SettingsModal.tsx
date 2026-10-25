@@ -807,6 +807,7 @@ export default function SettingsModal({
       </div>
       <button
         id="close-settings-modal"
+        aria-label="close"
         class="modal-close-btn"
         onClick={toggleSettingsModal}
       >

@@ -1,7 +1,7 @@
 .popup .input-container input[type="password"],
 .popup .input-container input[type="text"] {
   background-color: var(--input-bg);
-  border: 2px solid #00000000;
+  border: 2px solid var(--border-transparent);
   box-sizing: border-box;
   color: var(--input-text);
   font-size: 14px;
@@ -34,11 +34,14 @@
   cursor: pointer;
   font-weight: 400;
   padding: 10px;
+  transition:
+    background-color var(--motion-control) var(--motion-ease),
+    transform var(--motion-control) var(--motion-ease);
   width: 100%;
 }
 
 .auth-action-btn:hover {
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
   background-color: var(--btn-primary-bg-hover);
 }
 
@@ -48,11 +51,8 @@
 
 .auth-secondary-btn {
   background: var(--btn-secondary-bg);
-  color: var(--text-white);
+  color: var(--btn-secondary-text);
   margin-top: 10px;
-  transition:
-    background-color var(--motion-control) var(--motion-ease),
-    transform var(--motion-control) var(--motion-ease);
   width: 60%;
 }
 
@@ -64,8 +64,24 @@
   transform: scale(1);
 }
 
-#auth-title,
 #auth-forms label,
 #auth-logged-in p {
   font-weight: 400;
+}
+
+.auth-field-hint {
+  color: var(--color-sublabel);
+  font-size: 12px;
+  margin-bottom: 5px;
+  margin-top: 3px;
+  min-height: 14px;
+  text-align: left;
+}
+
+.auth-field-hint[data-tone="error"] {
+  color: var(--status-error-text);
+}
+
+.auth-field-hint[data-tone="success"] {
+  color: var(--status-success-text);
 }

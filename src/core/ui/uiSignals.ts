@@ -5,7 +5,7 @@ export interface UiSignal<T> {
   subscribe(listener: () => void): () => void;
 }
 
-function uiSignal<T>(initial: T): UiSignal<T> {
+export function uiSignal<T>(initial: T): UiSignal<T> {
   let current = initial;
   const listeners = new Set<() => void>();
   return {

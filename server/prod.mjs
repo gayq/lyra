@@ -5,6 +5,7 @@ import { availableParallelism, totalmem } from "os";
 import { httpError } from "./errors.mjs";
 import { createDnsService } from "./dns.mjs";
 import { createPresence } from "./presence.mjs";
+import { createNoticeBoard, noticeSocketPath } from "./notice.mjs";
 import { turnConfig } from "./turn.mjs";
 import {
   negativeMessage,
@@ -23,9 +24,10 @@ import {
 } from "./cache.mjs";
 
 let shuttingDown = false;
-const connectPresence = createPresence({ maxStreamsPerSource: 1_000 });
-
 const ROOT = process.cwd();
+const notices = createNoticeBoard();
+const connectPresence = createPresence({ maxStreamsPerSource: 1_000, greet: notices.greet });
+const stopNotices = notices.serve({ presence: connectPresence, socketPath: noticeSocketPath(ROOT) });
 const adcash = createAdcash({ root: ROOT });
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
 const TURN_HEALTH_HOST = process.env.TURN_HEALTH_HOST || "127.0.0.1";
@@ -619,6 +621,10 @@ async function appFetch(req, server, url) {
     const failure = httpError(429, "RATE_LIMITED", "too many requests, please try again later");
     return jsonResponse(failure.body, failure.status);
   }
+  if (pathname === "/api/notice") {
+    const result = await notices.handle(req);
+    return jsonResponse(result.body, result.status);
+  }
 
   if (method === "OPTIONS") {
     return new Response(null, {
@@ -726,6 +732,7 @@ async function gracefulShutdown() {
   if (shuttingDown) process.exit(0);
   shuttingDown = true;
   metrics.close();
+  stopNotices();
   console.log("\nshutting down...");
   server.stop(true);
   console.log(positiveMessage(`port ${PORT} released`));

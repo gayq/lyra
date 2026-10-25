@@ -1,6 +1,6 @@
-const BROWSER_ID = /^[A-Za-z0-9_-]{16,64}$/;
+export const BROWSER_ID = /^[A-Za-z0-9_-]{16,64}$/;
 
-export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPerSource = Infinity } = {}) {
+export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPerSource = Infinity, greet } = {}) {
   const browsers = new Map();
   const sourceStreams = new Map();
   const encoder = new TextEncoder();
@@ -40,7 +40,7 @@ export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPe
     browser.expiry.unref?.();
   }
 
-  return function connect(signal, requestedId, source) {
+  function connect(signal, requestedId, source) {
     if (source !== undefined && (sourceStreams.get(source) || 0) >= maxStreamsPerSource) return null;
     const id = typeof requestedId === "string" && BROWSER_ID.test(requestedId)
       ? requestedId
@@ -88,6 +88,8 @@ export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPe
           heartbeat = setInterval(broadcast, 15_000);
           heartbeat.unref?.();
         }
+        const greeting = greet?.(id);
+        if (greeting) stream.send(greeting);
         if (joined) broadcast();
         else stream.send(countFrame());
       },
@@ -102,5 +104,14 @@ export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPe
         "X-Accel-Buffering": "no",
       },
     });
+  }
+
+  connect.publish = (frame) => {
+    for (const browser of browsers.values()) {
+      for (const stream of browser.streams) stream.send(frame);
+    }
   };
+  connect.has = (id) => browsers.has(id);
+
+  return connect;
 }

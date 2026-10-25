@@ -4,6 +4,7 @@ import { Agent, createServer, request } from "http";
 import express from "express";
 import { Readable } from "node:stream";
 import { createPresence } from "./presence.mjs";
+import { createNoticeBoard, noticeSocketPath } from "./notice.mjs";
 import { turnConfig } from "./turn.mjs";
 import { createDevRuntime } from "./dev-secrets.mjs";
 import { httpError } from "./errors.mjs";
@@ -299,7 +300,9 @@ function transpileTsFallback(req, res, next) {
 }
 
 const app = express();
-const connectPresence = createPresence();
+const notices = createNoticeBoard();
+const connectPresence = createPresence({ greet: notices.greet });
+const stopNotices = notices.serve({ presence: connectPresence, socketPath: noticeSocketPath(ROOT) });
 app.set("trust proxy", 1);
 app.use(setIsolationHeaders);
 app.get("/api/presence", (req, res) => {
@@ -333,6 +336,22 @@ app.all("/api/dns", async (req, res) => {
   );
   response.headers.forEach((value, name) => res.setHeader(name, value));
   res.status(response.status).send(await response.text());
+});
+app.post("/api/notice", async (req, res) => {
+  const result = await notices.handle(
+    new Request(new URL(req.originalUrl, "http://localhost"), {
+      method: req.method,
+      headers: {
+        "content-type": req.get("content-type") || "",
+        "content-length": req.get("content-length") || "",
+        "sec-fetch-site": req.get("sec-fetch-site") || "",
+      },
+      body: Readable.toWeb(req),
+      duplex: "half",
+    }),
+  );
+  res.setHeader("Cache-Control", NO_STORE_CACHE_CONTROL);
+  res.status(result.status).json(result.body);
 });
 app.use(proxyDevService);
 
@@ -740,6 +759,7 @@ async function gracefulShutdown() {
   if (shuttingDown) process.exit(0);
   shuttingDown = true;
   console.log("\nshutting down...");
+  stopNotices();
   killServices();
   proxyAgent.destroy();
   await vite.close().catch(() => {});

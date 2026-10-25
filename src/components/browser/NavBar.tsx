@@ -11,8 +11,7 @@ import { compactAnimePlaybackPath } from "../../core/media/animeMetadata.ts";
 import { toast } from "../../core/ui/toast.ts";
 import { NEGATIVE } from "../../core/runtime/messages.ts";
 import { appPath, isStatic } from "../../core/runtime/hosting.ts";
-import ExtensionMenu from "./ExtensionMenu.tsx";
-import EditableField from "../EditableField.tsx";
+import ExtensionMenu from "./ExtensionMenu.tsx";import EditableField from "../EditableField.tsx";
 import {
   IconSidebar,
   IconArrowLeft,

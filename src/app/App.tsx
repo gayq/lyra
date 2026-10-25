@@ -4,6 +4,7 @@ import NavBar from "../components/browser/NavBar.tsx";
 import SearchBar from "../components/browser/SearchBar.tsx";
 import Bookmarks from "../components/browser/Bookmarks.tsx";
 import Footer from "../components/layout/Footer.tsx";
+import LiveNotices from "../components/layout/LiveNotices.tsx";
 import TopBar from "../components/browser/TopBar.tsx";
 import Tutorial from "../components/layout/Tutorial.tsx";
 import hachiiUrl from "../assets/images/peaks/hachii.webp";
@@ -148,6 +149,7 @@ export default function App() {
       )}
       <div id="overlay" class="overlay" />
       <Tutorial />
+      <LiveNotices />
     </>
   );
 }

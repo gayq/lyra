@@ -1,24 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { appPath } from "../../core/runtime/hosting";
-
-const PRESENCE_ID_KEY = "lyraPresenceId";
-const PRESENCE_ID = /^[A-Za-z0-9_-]{16,64}$/;
-
-function presenceId(): string {
-  try {
-    const saved = localStorage.getItem(PRESENCE_ID_KEY);
-    if (saved && PRESENCE_ID.test(saved)) return saved;
-    const created = crypto.randomUUID();
-    localStorage.setItem(PRESENCE_ID_KEY, created);
-    return created;
-  } catch {
-    try {
-      return crypto.randomUUID();
-    } catch {
-      return "";
-    }
-  }
-}
+import { presenceId } from "../../core/runtime/presenceId.ts";
+import {
+  applyGlobalNotice,
+  applyGlobalNoticeTally,
+  clearGlobalNotice,
+} from "../../features/ui/globalNotice.ts";
 
 export default function Footer() {
   const [clients, setClients] = useState<number | null>(null);
@@ -31,11 +18,14 @@ export default function Footer() {
     let retry: ReturnType<typeof setTimeout> | undefined;
     let retryDelay = 1_000;
     let paused = false;
+    let greeted = false;
     const close = () => {
       if (events) {
         events.onmessage = null;
         events.onerror = null;
         events.removeEventListener("renew", renew);
+        events.removeEventListener("notice", notice);
+        events.removeEventListener("tally", tally);
         events.close();
       }
       events = undefined;
@@ -51,6 +41,11 @@ export default function Footer() {
       connect();
       if (!events) setClients(null);
     };
+    const notice = (event: MessageEvent<string>) => {
+      greeted = true;
+      applyGlobalNotice(event.data);
+    };
+    const tally = (event: MessageEvent<string>) => applyGlobalNoticeTally(event.data);
     const reconnect = () => {
       disconnect();
       if (paused || !navigator.onLine) return;
@@ -61,11 +56,18 @@ export default function Footer() {
       if (events || paused || !navigator.onLine) return;
       clearTimeout(retry);
       events = new EventSource(url);
+      greeted = false;
       stale = setTimeout(reconnect, 35_000);
       events.addEventListener("renew", renew);
+      events.addEventListener("notice", notice);
+      events.addEventListener("tally", tally);
       events.onmessage = (event) => {
         const count = Number(event.data);
         if (!Number.isSafeInteger(count) || count < 1) return;
+        if (!greeted) {
+          greeted = true;
+          clearGlobalNotice();
+        }
         setClients(count);
         retryDelay = 1_000;
         clearTimeout(stale);

@@ -110,7 +110,7 @@ body.anime-view .catalog-topbar {
 
 .anime-resume-card:hover .poster-cover img {
   filter: brightness(1);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .poster-cover.no-cover {

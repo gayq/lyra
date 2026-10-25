@@ -62,7 +62,7 @@ body.browser-view .main-nav::before {
   justify-content: center;
   box-sizing: border-box;
   padding: 0 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--notif-badge-bg);
   color: var(--notif-badge-text);
   font-size: 8px;
@@ -120,7 +120,7 @@ body.browser-view .main-nav::before {
   height: 16px;
   border-top: 1px solid var(--border-medium);
   border-left: 1px solid var(--border-medium);
-  border-radius: 4px 0 0;
+  border-radius: var(--radius-detail) 0 0;
   background: var(--bg-surface-7);
   content: "";
   transform: rotate(45deg);

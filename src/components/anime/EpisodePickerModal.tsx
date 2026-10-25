@@ -520,12 +520,13 @@ const EpisodePickerModal = memo(function EpisodePickerModal({
       {!embedded && (
         <button
           class="modal-close-btn episode-picker-modal-close"
+          aria-label="close"
           type="button"
           onClick={() => setIsClosing(true)}
           dangerouslySetInnerHTML={{ __html: SVG_XMARK }}
         />
       )}
-      {!embedded && <h2 class="episode-picker-modal-title">{title}</h2>}
+      {!embedded && <h2>{title}</h2>}
       <div class="episode-picker-modal-body">
         {resume && (
           <button

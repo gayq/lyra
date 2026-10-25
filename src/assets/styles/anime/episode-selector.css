@@ -29,7 +29,7 @@
   position: relative;
   z-index: 1;
   background: color-mix(in srgb, var(--accent-color) 8%, transparent);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .episode-selector-button:active {

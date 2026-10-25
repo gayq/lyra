@@ -8,6 +8,7 @@
   --radius-dialog: 20px;
   --radius-bar: 25px;
   --radius-pill: 999px;
+  --shadow-dialog: 0 8px 60px 24px color-mix(in srgb, var(--overlay-bg) 80%, transparent);
 }
 
 :root,

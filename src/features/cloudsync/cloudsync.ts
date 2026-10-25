@@ -3,6 +3,19 @@ import {
   uploadSealedSnapshot,
   downloadSnapshot,
 } from "./syncTransfer.ts";
+import {
+  PASSWORD_IDLE_TEXT,
+  USERNAME_AVAILABLE_TEXT,
+  USERNAME_CHECKING_TEXT,
+  USERNAME_IDLE_TEXT,
+  USERNAME_TAKEN_TEXT,
+  USERNAME_UNCHECKED_TEXT,
+  passwordHint,
+  passwordSubmitError,
+  setFieldHint,
+  usernameHint,
+  usernameSubmitError,
+} from "./accountFields.ts";
 import { prepareSnapshot } from "./prepareSnapshot.ts";
 import type { SnapshotPayload } from "./snapshotPayload.ts";
 import {
@@ -91,7 +104,7 @@ const SYNC_META_KEY = "lyra-sync-meta";
 const LOCKED_STATUS = "sync is locked; enter your password... /ᐠ - ˕ -マ";
 
 const LOADING_SCREEN = `
-    <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 99999; display: flex; justify-content: center; align-items: center; color: #858585; font-family: 'Lexend', sans-serif;">
+    <div id="loading-screen" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg-body); z-index: 99999; display: flex; justify-content: center; align-items: center; color: var(--text-muted); font-family: 'Lexend', sans-serif;">
         <h1 style="margin: 0; font-size: 1.2rem; font-weight: 300;">syncing data...</h1>
     </div>
 `;
@@ -164,6 +177,7 @@ export class CloudSync {
   isRestoring: boolean;
   keys: SyncKeys | null;
   locked: boolean;
+  usernameAvailability: Map<string, boolean> = new Map();
   _lastStatusText: string | undefined;
   _statusText: string | undefined;
   _lastStatusType: string | undefined;
@@ -956,7 +970,7 @@ export class CloudSync {
     modal.id = "cloudsync-modal";
     modal.className = "popup";
     modal.innerHTML = `
-                <h2 id="auth-title" style="text-align: center; margin-top: 0; margin-bottom: 15px;">login</h2>
+                <h2 id="auth-title">login</h2>
                 <div id="auth-forms" class="input-container">
                     <form id="login-form">
                         <label>username</label>
@@ -965,7 +979,7 @@ export class CloudSync {
                         <label style="margin-top: 15px;">password</label>
                         <div style="position: relative;">
                             <input type="password" id="login-password" placeholder="enter password" autocomplete="current-password" maxlength="128" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
-                            <span class="password-toggle" data-target="login-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 13px;">${svgIcon("IconEyeOpen")}</span>
+                            <span class="password-toggle" data-target="login-password" style="position: absolute; right: 10px; top: 0; bottom: 5px; display: flex; align-items: center; cursor: pointer; color: var(--text-muted); font-size: 13px;">${svgIcon("IconEyeOpen")}</span>
                         </div>
 
                         <div style="text-align: center;">
@@ -973,21 +987,21 @@ export class CloudSync {
                         </div>
                     </form>
 
-                    <form id="register-form" style="display: none;">
+                    <form id="register-form" style="display: none;" novalidate>
                         <label>username</label>
-                        <input type="text" id="reg-username" placeholder="create username" autocomplete="username" minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+">
-                        <div id="reg-username-feedback" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: left; min-height: 14px;">3-20 chars, letters/numbers</div>
+                        <input type="text" id="reg-username" placeholder="create username" autocomplete="username" maxlength="20" autocapitalize="none" spellcheck="false" aria-describedby="reg-username-feedback">
+                        <div id="reg-username-feedback" class="auth-field-hint" data-tone="neutral" aria-live="polite">${USERNAME_IDLE_TEXT}</div>
 
-                        <label style="margin-top: 15px;">password</label>
+                        <label style="margin-top: 20px;">password</label>
                         <div style="position: relative;">
-                            <input type="password" id="reg-password" placeholder="create password" autocomplete="new-password" minlength="15" maxlength="128" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
-                            <span class="password-toggle" data-target="reg-password" style="position: absolute; right: 10px; top: 59%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 13px;">${svgIcon("IconEyeOpen")}</span>
+                            <input type="password" id="reg-password" placeholder="create password" autocomplete="new-password" maxlength="128" aria-describedby="reg-password-feedback" style="width: 100%; padding-right: 35px; box-sizing: border-box;">
+                            <span class="password-toggle" data-target="reg-password" style="position: absolute; right: 10px; top: 0; bottom: 5px; display: flex; align-items: center; cursor: pointer; color: var(--text-muted); font-size: 13px;">${svgIcon("IconEyeOpen")}</span>
                         </div>
-                        <div id="reg-password-feedback" style="font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: left; min-height: 14px;">15+ characters</div>
+                        <div id="reg-password-feedback" class="auth-field-hint" data-tone="neutral" aria-live="polite">${PASSWORD_IDLE_TEXT}</div>
 
                         <div style="text-align: center;">
                             <button type="submit" class="auth-action-btn" style="width: 60%; margin-top: 15px;">create account</button>
-                            <p style="font-size: 11.5px; color: var(--status-error-text); margin-top: 10px; max-width: 80%; margin-left: auto; margin-right: auto;">
+                            <p style="font-size: 12px; color: var(--status-error-text); margin-top: 10px; max-width: 80%; margin-left: auto; margin-right: auto;">
               save your password somewhere safe; all data will be forever lost if you forget it... /ᐠ - ˕ -マ
                             </p>
                         </div>
@@ -1025,7 +1039,7 @@ export class CloudSync {
                         delete account
                     </button>
                 </div>
-            <button id="close-cloudsync-modal" class="modal-close-btn">
+            <button id="close-cloudsync-modal" class="modal-close-btn" aria-label="close">
                 ${svgIcon("IconCrossMedium")}
             </button>
         `;
@@ -1051,41 +1065,53 @@ export class CloudSync {
       "#reg-password-feedback",
     )!;
 
-    regUsername.addEventListener("input", () => {
-      const username = regUsername.value;
-      const length = username.length;
-      const hasValidCharacters = /^[a-zA-Z0-9_]+$/.test(username);
+    let usernameCheckTimer: ReturnType<typeof setTimeout> | undefined;
+    let usernameCheckAbort: AbortController | null = null;
 
-      if (length === 0) {
-        regUsernameFeedback.textContent = "3-20 chars, letters/numbers";
-        regUsernameFeedback.style.color = "var(--text-muted)";
-      } else if (length < 3 || length > 20) {
-        regUsernameFeedback.textContent = `${length}/20 chars; must be 3-20... /ᐠ - ˕ -マ`;
-        regUsernameFeedback.style.color = "var(--status-error-text)";
-      } else if (!hasValidCharacters) {
-        regUsernameFeedback.textContent =
-          "letters, numbers, and underscores only... /ᐠ - ˕ -マ";
-        regUsernameFeedback.style.color = "var(--status-error-text)";
+    const showUsernameAvailability = (available: boolean | null) => {
+      if (available === null) {
+        setFieldHint(regUsernameFeedback, "neutral", USERNAME_UNCHECKED_TEXT);
+      } else if (available) {
+        setFieldHint(regUsernameFeedback, "success", USERNAME_AVAILABLE_TEXT);
       } else {
-        regUsernameFeedback.textContent = `${length}/20 chars; looks good!! (˵◝ ⩊  ◜˵マ`;
-        regUsernameFeedback.style.color = "var(--status-success-text)";
+        setFieldHint(regUsernameFeedback, "error", USERNAME_TAKEN_TEXT);
       }
+    };
+
+    regUsername.addEventListener("input", () => {
+      clearTimeout(usernameCheckTimer);
+      usernameCheckAbort?.abort();
+      usernameCheckAbort = null;
+
+      const username = regUsername.value;
+      const hint = usernameHint(username);
+      if (!hint.valid) {
+        setFieldHint(regUsernameFeedback, hint.tone, hint.text);
+        return;
+      }
+
+      const known = this.usernameAvailability.get(username);
+      if (known !== undefined) {
+        showUsernameAvailability(known);
+        return;
+      }
+
+      setFieldHint(regUsernameFeedback, "neutral", USERNAME_CHECKING_TEXT);
+      usernameCheckTimer = setTimeout(async () => {
+        const controller = new AbortController();
+        usernameCheckAbort = controller;
+        const available = await this.fetchUsernameAvailability(
+          username,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        showUsernameAvailability(available);
+      }, 350);
     });
 
     regPassword.addEventListener("input", () => {
-      const password = regPassword.value;
-      const length = password.length;
-
-      if (length === 0) {
-        regPasswordFeedback.textContent = "15+ characters";
-        regPasswordFeedback.style.color = "var(--text-muted)";
-      } else if (length < 15) {
-        regPasswordFeedback.textContent = `${length}/15 characters... /ᐠ - ˕ -マ`;
-        regPasswordFeedback.style.color = "var(--status-error-text)";
-      } else {
-        regPasswordFeedback.textContent = "looks good!! (˵◝ ⩊  ◜˵マ";
-        regPasswordFeedback.style.color = "var(--status-success-text)";
-      }
+      const hint = passwordHint(regPassword.value);
+      setFieldHint(regPasswordFeedback, hint.tone, hint.text);
     });
 
     const promptText = modal.querySelector<HTMLElement>("#auth-prompt-text")!;
@@ -1102,11 +1128,14 @@ export class CloudSync {
       if (isLogin) {
         regUsername.value = loginUsername.value;
         regPassword.value = "";
+        regUsername.dispatchEvent(new Event("input"));
+        regPassword.dispatchEvent(new Event("input"));
         loginForm.style.display = "none";
         regForm.style.display = "block";
         authTitle.textContent = "create account";
         promptText.textContent = "already have an account?";
         actionText.textContent = "login!";
+        (regUsername.value ? regPassword : regUsername).focus();
       } else {
         loginUsername.value = regUsername.value;
         loginPassword.value = "";
@@ -1115,6 +1144,7 @@ export class CloudSync {
         authTitle.textContent = "login";
         promptText.textContent = "don't have an account?";
         actionText.textContent = "create one!";
+        (loginUsername.value ? loginPassword : loginUsername).focus();
       }
       this.showError("");
     });
@@ -1314,24 +1344,58 @@ export class CloudSync {
     }
   }
 
+  async fetchUsernameAvailability(
+    username: string,
+    signal: AbortSignal,
+  ): Promise<boolean | null> {
+    try {
+      const response = await fetch(
+        `/api/auth/username?name=${encodeURIComponent(username)}`,
+        { credentials: "same-origin", signal },
+      );
+      if (!response.ok) return null;
+      const payload = (await response.json().catch(() => null)) as {
+        available?: unknown;
+      } | null;
+      if (typeof payload?.available !== "boolean") return null;
+      if (this.usernameAvailability.size >= 50) this.usernameAvailability.clear();
+      this.usernameAvailability.set(username, payload.available);
+      return payload.available;
+    } catch {
+      return null;
+    }
+  }
+
   async handleRegister(e: Event): Promise<void> {
     e.preventDefault();
-    const username = (
-      document.getElementById("reg-username") as HTMLInputElement
-    ).value;
-    const password = (
-      document.getElementById("reg-password") as HTMLInputElement
-    ).value;
-    (document.getElementById("reg-password") as HTMLInputElement).value = "";
+    const usernameInput = document.getElementById(
+      "reg-username",
+    ) as HTMLInputElement;
+    const passwordInput = document.getElementById(
+      "reg-password",
+    ) as HTMLInputElement;
+    const usernameFeedback = document.getElementById("reg-username-feedback");
+    const passwordFeedback = document.getElementById("reg-password-feedback");
+    const username = usernameInput.value;
+    const password = passwordInput.value;
 
-    if (!username || !password) {
-      if (window.showToast)
-        window.showToast(
-          "error",
-          "fill in both username and password... /ᐠ - ˕ -マ",
-          "IconExclamationTriangle",
-        );
-      else this.showError("fill in both fields... /ᐠ - ˕ -マ");
+    const usernameError = usernameSubmitError(username);
+    if (usernameError) {
+      if (usernameFeedback) setFieldHint(usernameFeedback, "error", usernameError);
+      usernameInput.focus();
+      return;
+    }
+    if (this.usernameAvailability.get(username) === false) {
+      if (usernameFeedback) {
+        setFieldHint(usernameFeedback, "error", USERNAME_TAKEN_TEXT);
+      }
+      usernameInput.focus();
+      return;
+    }
+    const passwordError = passwordSubmitError(password);
+    if (passwordError) {
+      if (passwordFeedback) setFieldHint(passwordFeedback, "error", passwordError);
+      passwordInput.focus();
       return;
     }
 
@@ -1357,6 +1421,7 @@ export class CloudSync {
         .catch(() => null)) as Record<string, unknown> | null;
 
       if (response.ok && sessionPayload) {
+        passwordInput.value = "";
         this.setSession(sessionPayload as unknown as SessionData);
         await this.adoptKeys(password, this.user.sync_salt);
         if (toastController) toastController.hide();
@@ -1366,7 +1431,18 @@ export class CloudSync {
         await this.syncData(true);
       } else {
         if (toastController) toastController.hide();
-        const message = "account creation failed... /ᐠ - ˕ -マ";
+        if (response.status === 409) {
+          this.usernameAvailability.set(username, false);
+          if (usernameFeedback) {
+            setFieldHint(usernameFeedback, "error", USERNAME_TAKEN_TEXT);
+          }
+          usernameInput.focus();
+          return;
+        }
+        const message =
+          response.status === 429
+            ? "too many attempts; wait a moment and try again... /ᐠ - ˕ -マ"
+            : "account creation failed... /ᐠ - ˕ -マ";
         if (window.showToast)
           window.showToast("error", message, "IconExclamationTriangle");
         else this.showError(message);

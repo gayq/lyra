@@ -4,7 +4,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   background-color: var(--bg-body);
-  padding: 30px;
+  padding: 25px 30px;
   border-radius: var(--radius-dialog);
   box-sizing: border-box;
   width: 620px;
@@ -24,8 +24,9 @@
 #settings-modal h2 {
   color: var(--text-primary);
   margin-bottom: 20px;
-  margin-top: -6px;
+  margin-top: 0;
   margin-left: 0;
+  padding-right: 40px;
   text-align: left;
   font-size: 20px;
   font-weight: 400;
@@ -34,7 +35,7 @@
 
 #settings-modal label {
   display: block;
-  margin-bottom: 15px;
+  margin-bottom: 8px;
   text-align: left;
   font-size: 16px;
   font-weight: 400;
@@ -45,10 +46,10 @@
 #settings-modal p {
   font-size: 12px;
   color: var(--color-sublabel);
-  margin-top: -10px;
+  margin-top: 0;
   text-align: left;
   font-weight: 400;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   transition: color var(--motion-control) var(--motion-ease);
 }
 
@@ -156,7 +157,7 @@
   margin-left: 0;
   background-color: var(--checkbox-bg);
   margin-bottom: 5px;
-  border-radius: 30px;
+  border-radius: var(--radius-pill);
   position: relative;
   outline: none;
   cursor: pointer;
@@ -183,7 +184,7 @@
 }
 
 .settings-toggle:hover::before {
-  transform: scale(1.12);
+  transform: scale(var(--motion-hover-scale, 1.12));
   background-color: var(--checkbox-knob-hover);
 }
 
@@ -192,7 +193,7 @@
 }
 
 .settings-toggle:checked:hover::before {
-  transform: translateX(33px) scale(1.12);
+  transform: translateX(33px) scale(var(--motion-hover-scale, 1.12));
 }
 
 .settings-container {
@@ -319,7 +320,7 @@
 
 #settings-modal .rivet-action-primary:hover {
   background: var(--btn-primary-bg-hover);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .rivet-action-secondary {
@@ -329,7 +330,7 @@
 
 .rivet-action-secondary:hover {
   background: var(--btn-secondary-bg-hover);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .rivet-manager-actions button:active,
@@ -352,24 +353,25 @@
   align-items: stretch;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 8px;
 }
 
 .rivet-extension-copy {
   align-items: center;
   display: flex;
-  gap: 0.75rem;
+  gap: 12px;
   min-width: 0;
 }
 
 .rivet-extension-copy img {
   border-radius: var(--radius-detail);
-  height: 2.25rem;
+  height: 36px;
   object-fit: contain;
-  width: 2.25rem;
+  width: 36px;
 }
 
-.rivet-extension-copy p {
+#settings-modal .rivet-extension-copy p {
+  margin-bottom: 0;
   overflow-wrap: anywhere;
 }
 
@@ -411,6 +413,7 @@
 }
 
 .settings-item .settings-toggle {
+  display: block;
   margin-left: 0;
   margin-bottom: 0;
 }
@@ -423,7 +426,6 @@
   }
 
   #settings-modal h2 {
-    margin-top: -8px;
     margin-bottom: 12px;
   }
 

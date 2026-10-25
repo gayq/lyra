@@ -5,7 +5,10 @@ use argon2::{
     Algorithm, Argon2, Params, Version,
 };
 use axum::{
-    extract::{rejection::JsonRejection, Json, State},
+    extract::{
+        rejection::{JsonRejection, QueryRejection},
+        Json, Query, State,
+    },
     http::StatusCode,
     response::IntoResponse,
 };
@@ -26,7 +29,7 @@ use zeroize::Zeroizing;
 
 const COOKIE_NAME: &str = "token";
 const NEGATIVE: &str = "... /ᐠ - ˕ -マ";
-const MIN_PASSWORD_CHARS: usize = 15;
+const MIN_PASSWORD_CHARS: usize = 14;
 const MAX_PASSWORD_CHARS: usize = 128;
 const TOKEN_CACHE_TTL_SECS: u64 = 60;
 const TOKEN_CACHE_MAX_ENTRIES: usize = 10_000;
@@ -170,6 +173,16 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Deserialize)]
+pub struct UsernameQuery {
+    pub name: String,
+}
+
+#[derive(Serialize)]
+struct UsernameAvailability {
+    available: bool,
+}
+
 #[derive(Serialize)]
 pub struct UserResponse {
     pub id: i64,
@@ -283,7 +296,7 @@ pub async fn register(
     if password.chars().count() < MIN_PASSWORD_CHARS {
         return auth_error(
             StatusCode::BAD_REQUEST,
-            negative("password must be at least 15 characters"),
+            negative("password must be at least 14 characters"),
         );
     }
     if !valid_new_password(&password) {
@@ -350,6 +363,44 @@ pub async fn register(
                 StatusCode::INTERNAL_SERVER_ERROR
             };
             auth_error(status, failure_message(failure))
+        }
+    }
+}
+
+pub async fn username_available(
+    State(state): State<Arc<AppState>>,
+    query: Result<Query<UsernameQuery>, QueryRejection>,
+) -> axum::response::Response {
+    let name = match query {
+        Ok(Query(UsernameQuery { name })) if valid_username(&name) => name,
+        _ => {
+            return auth_error(
+                StatusCode::BAD_REQUEST,
+                failure_message(AuthFailure::InvalidRequest),
+            )
+            .into_response()
+        }
+    };
+    let pool = state.pool.clone();
+    let taken = tokio::task::spawn_blocking(move || {
+        let connection = pool.get().map_err(|_| AuthFailure::Internal)?;
+        connection
+            .query_row(
+                "SELECT 1 FROM users WHERE username = ?",
+                params![name],
+                |_row: &rusqlite::Row| Ok(true),
+            )
+            .or_else(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => Ok(false),
+                _ => Err(AuthFailure::Internal),
+            })
+    })
+    .await
+    .unwrap_or(Err(AuthFailure::Internal));
+    match taken {
+        Ok(taken) => Json(UsernameAvailability { available: !taken }).into_response(),
+        Err(failure) => {
+            auth_error(StatusCode::INTERNAL_SERVER_ERROR, failure_message(failure)).into_response()
         }
     }
 }

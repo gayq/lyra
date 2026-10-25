@@ -49,7 +49,7 @@
 #bookmarks-edit-toggle:hover {
   color: var(--text-white);
   background-color: var(--active-bg);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 #bookmarks-edit-toggle:active {
@@ -110,7 +110,7 @@
 
 .bookmark-link:hover {
   background-color: var(--bg-surface-5);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .bookmark-link:active {
@@ -179,7 +179,7 @@
 .bookmark-delete-trigger:hover,
 .bookmark-edit-trigger:hover {
   color: var(--text-white);
-  transform: scale(1.1);
+  transform: scale(var(--motion-hover-scale, 1.1));
 }
 
 .bookmarks-edit-mode .bookmark-delete-trigger,
@@ -199,7 +199,7 @@
   justify-content: center;
   width: 88px;
   height: 88px;
-  background-color: #0c0c0c00;
+  background-color: transparent;
   border: 1.5px dashed var(--border-dashed);
   border-radius: var(--radius-panel);
   color: var(--color-tab);
@@ -215,7 +215,7 @@
 #add-bookmark-btn:hover {
   border: 1.5px dashed var(--border-dashed-hover);
   color: var(--text-white);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .bookmark-icon.skeleton {
@@ -245,4 +245,15 @@
 
 .bookmark-icon:not(.skeleton) img {
   opacity: 1;
+}
+
+.bookmark-modal-url-label {
+  margin-top: 15px;
+}
+
+.bookmark-modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 15px;
 }

@@ -6,8 +6,7 @@ import {
 } from "../../core/ui/uiSignals.ts";
 import { IconCloud, IconSettingsGear4 } from "../icons";
 import { svgIcon } from "../../core/ui/svgIcon";
-import { invokeWindowAction } from "../../core/browser/windowActions.ts";
-import { isStatic } from "../../core/runtime/hosting.ts";
+import { invokeWindowAction } from "../../core/browser/windowActions.ts";import { isStatic } from "../../core/runtime/hosting.ts";
 import {
   preloadAnimeCatalog,
   loadCloudSync,

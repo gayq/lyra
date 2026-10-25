@@ -20,8 +20,8 @@
   font-weight: 400;
   border: 1px solid var(--toast-border);
   transition:
-    transform var(--motion-enter) var(--motion-ease),
-    opacity var(--motion-enter) var(--motion-ease);
+    transform var(--motion-enter) var(--motion-ease-enter),
+    opacity var(--motion-enter) var(--motion-ease-enter);
   display: flex;
   align-items: center;
   overflow: hidden;

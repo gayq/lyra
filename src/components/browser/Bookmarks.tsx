@@ -321,6 +321,7 @@ export default function Bookmarks() {
       {showPrompt &&
         createPortal(
           <BookmarkModal
+            isEditing={editIndex !== null}
             nameRef={nameRef}
             urlRef={urlRef}
             onSave={handleSave}
@@ -333,11 +334,13 @@ export default function Bookmarks() {
 }
 
 function BookmarkModal({
+  isEditing,
   nameRef,
   urlRef,
   onSave,
   onCancel,
 }: {
+  isEditing: boolean;
   nameRef: { current: HTMLInputElement | null };
   urlRef: { current: HTMLInputElement | null };
   onSave: (closeWithAnimation: () => void) => void;
@@ -372,6 +375,7 @@ function BookmarkModal({
       class={`popup ${modalStateClass}`}
       onAnimationEnd={onAnimationEnd}
     >
+      <h2>{isEditing ? "edit bookmark" : "add bookmark"}</h2>
       <div class="input-container">
         <label>bookmark name</label>
         <input
@@ -381,7 +385,7 @@ function BookmarkModal({
           placeholder="my cool site"
           autocomplete="off"
         />
-        <label style="margin-top:15px;">bookmark url</label>
+        <label class="bookmark-modal-url-label">bookmark url</label>
         <input
           type="text"
           id="bookmarkUrl"
@@ -389,7 +393,7 @@ function BookmarkModal({
           placeholder="https://example.com/"
           autocomplete="off"
         />
-        <div style="display:flex;justify-content:center;gap:10px;margin-top:20px;">
+        <div class="bookmark-modal-actions">
           <button id="saveBookmarkBtn" onClick={() => onSave(handleClose)}>
             save
           </button>
@@ -398,6 +402,14 @@ function BookmarkModal({
           </button>
         </div>
       </div>
+      <button
+        type="button"
+        class="modal-close-btn"
+        aria-label="close"
+        onClick={handleClose}
+      >
+        <IconCrossMedium />
+      </button>
     </div>
   );
 }

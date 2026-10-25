@@ -230,6 +230,15 @@ async fn main() {
             .finish()
             .unwrap(),
     );
+    let username_check_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_millisecond(250)
+            .burst_size(12)
+            .error_handler(governor_response)
+            .key_extractor(SmartIpKeyExtractor)
+            .finish()
+            .unwrap(),
+    );
     let sync_write_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_millisecond(500)
@@ -265,6 +274,12 @@ async fn main() {
         .layer(DefaultBodyLimit::max(2048))
         .layer(GovernorLayer {
             config: strict_conf.into(),
+        });
+
+    let auth_routes_username = Router::new()
+        .route("/username", axum::routing::get(auth::username_available))
+        .layer(GovernorLayer {
+            config: username_check_conf.into(),
         });
 
     let auth_routes_loose = Router::new()
@@ -305,7 +320,12 @@ async fn main() {
         });
 
     let api_routes = Router::new()
-        .nest("/auth", auth_routes_strict.merge(auth_routes_loose))
+        .nest(
+            "/auth",
+            auth_routes_strict
+                .merge(auth_routes_username)
+                .merge(auth_routes_loose),
+        )
         .nest(
             "/sync",
             sync_write_routes

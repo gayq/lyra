@@ -36,7 +36,7 @@
 #add-tab-btn:hover {
   background-color: var(--hover-bg);
   color: var(--text-white);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 #add-tab-btn:active {
@@ -77,7 +77,7 @@
 
 .tab:hover {
   background-color: var(--hover-bg);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .tab:active {
@@ -195,7 +195,7 @@
   opacity: 1;
   color: var(--text-white);
   background-color: var(--hover-bg);
-  transform: scale(1.05);
+  transform: scale(var(--motion-hover-scale, 1.05));
 }
 
 .tab-close:active {
