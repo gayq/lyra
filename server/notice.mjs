@@ -126,6 +126,8 @@ export function createNoticeBoard({ tallyDelayMs = 250, actionLimit = 20, action
     reacted: entry.reacted.map((set) => set.size),
   });
   const publishShowing = () => presence?.publish(frame("notice", showing().map((entry) => view(entry))));
+  const online = () => presence?.count() ?? 0;
+  const watchedSockets = new WeakSet();
 
   function finish(id) {
     const entry = live.get(id);
@@ -209,13 +211,34 @@ export function createNoticeBoard({ tallyDelayMs = 250, actionLimit = 20, action
     if (request?.type === "send") {
       try {
         const entry = send(request, (result) => reply({ type: "ended", ...result }));
-        reply({ type: "sent", id: entry.id, seconds: entry.seconds });
+        reply({ type: "sent", id: entry.id, seconds: entry.seconds, online: online() });
       } catch (error) {
         reply({ type: "error", message: error.message });
       }
     } else if (request?.type === "clear") {
       clear();
       reply({ type: "cleared" });
+    } else if (request?.type === "status") {
+      const listed = showing().map((entry) => ({ ...results(entry), seconds: Math.ceil((entry.expires - now()) / 1_000) }));
+      reply({ type: "status", online: online(), live: listed });
+    } else if (request?.type === "end") {
+      const entry = typeof request.id === "string" ? live.get(request.id) : undefined;
+      if (!entry || !showing().includes(entry)) {
+        reply({ type: "error", message: "that message already ended" });
+        return;
+      }
+      reply({ type: "stopped", id: entry.id });
+      finish(entry.id);
+      publishShowing();
+    } else if (request?.type === "watch") {
+      if (watchedSockets.has(socket) || !presence) return;
+      watchedSockets.add(socket);
+      let last;
+      const report = (count) => {
+        if (count !== last) reply({ type: "online", online: (last = count) });
+      };
+      report(online());
+      socket.once("close", presence.watch(report));
     } else {
       reply({ type: "error", message: "unknown command" });
     }

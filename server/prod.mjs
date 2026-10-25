@@ -26,7 +26,7 @@ import {
 let shuttingDown = false;
 const ROOT = process.cwd();
 const notices = createNoticeBoard();
-const connectPresence = createPresence({ maxStreamsPerSource: 1_000, greet: notices.greet });
+const connectPresence = createPresence({ maxStreamsPerSource: 1_000, broadcastMs: 1_000, greet: notices.greet });
 const stopNotices = notices.serve({ presence: connectPresence, socketPath: noticeSocketPath(ROOT) });
 const adcash = createAdcash({ root: ROOT });
 const PORT = Number.parseInt(process.env.PORT || "4444", 10);
@@ -79,7 +79,7 @@ const MOCHI_ORIGIN = (() => {
 const API_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const HOST_CORES = Math.max(1, availableParallelism());
 const HOST_MEMORY_BYTES = Math.max(256 * 1024 * 1024, totalmem());
-const API_LIMIT_MAX = HOST_CORES * 250;
+const API_LIMIT_MAX = Math.max(0, Number.parseInt(process.env.LYRA_API_LIMIT_MAX || "", 10) || 0) || HOST_CORES * 250;
 const API_LIMIT_MAX_CLIENTS = Math.max(
   2_000,
   Math.floor(HOST_MEMORY_BYTES / (1024 * 1024)) * 8,
@@ -741,5 +741,8 @@ async function gracefulShutdown() {
 
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
+process.on("unhandledRejection", (error) => {
+  console.error(negativeMessage("unhandled promise rejection"), error);
+});
 
 console.log(positiveMessage(`prod server listening on ${server.port}`));

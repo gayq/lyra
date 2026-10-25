@@ -141,7 +141,7 @@ export function initializeLoad(): void {
         this.successEl.innerHTML = `
             ${svgIcon("IconCheckCircle2", { size: 44, style: "margin-bottom:15px" })}
             <label>${positiveMessage("update applied")}</label>
-            <p>the current build is now running.</p>
+            <p>the correct build is now running!</p>
             <button class="prompt-close-btn" id="updateSuccessClose">okay!!</button>
           `;
       }

@@ -97,6 +97,9 @@ configure_proxy_limits() {
   [ "$NURU_REQUESTS" -ge 1 ] || NURU_REQUESTS=1
   [ "$MOCHI_REQUESTS" -le 256 ] || MOCHI_REQUESTS=256
   [ "$NURU_REQUESTS" -le 128 ] || NURU_REQUESTS=128
+  MOCHI_CLIENT_CONCURRENCY=$((MOCHI_REQUESTS * 3 / 4))
+  [ "$MOCHI_CLIENT_CONCURRENCY" -ge 64 ] || MOCHI_CLIENT_CONCURRENCY=64
+  [ "$MOCHI_CLIENT_CONCURRENCY" -le 256 ] || MOCHI_CLIENT_CONCURRENCY=256
 }
 configure_proxy_limits
 
@@ -795,7 +798,7 @@ fi
 if [ -d "$ROOT/services/nuru" ]; then
   (
     cd "$ROOT/services/nuru"
-    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release --locked
     sudo cp target/release/nuru /usr/local/bin/nuru
     sudo setcap cap_net_bind_service=+ep /usr/local/bin/nuru || true
   )
@@ -1083,21 +1086,21 @@ fi
 if [ -d "$ROOT/services/mochi" ]; then
   (
     cd "$ROOT/services/mochi"
-    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release --locked
   )
 fi
 
 if [ -d "$ROOT/services/cloudsync" ]; then
   (
     cd "$ROOT/services/cloudsync"
-    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release --locked
   )
 fi
 
 if [ -d "$ROOT/services/isao" ]; then
   (
     cd "$ROOT/services/isao"
-    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release
+    RUSTFLAGS="-C target-cpu=native" "$CARGO_BIN" build --release --locked
   )
 fi
 
@@ -1246,6 +1249,10 @@ TimeoutStopSec=15
 Environment=RUST_LOG=warn
 Environment=MOCHI_HOST=127.0.0.1
 Environment=MOCHI_TRUSTED_PROXIES=127.0.0.1,::1
+Environment=MOCHI_CLIENT_REQUESTS_PER_SECOND=400
+Environment=MOCHI_CLIENT_BURST=1600
+Environment=MOCHI_CLIENT_CONCURRENCY=$MOCHI_CLIENT_CONCURRENCY
+Environment=MOCHI_CLIENT_WEBSOCKETS=64
 Environment=MIMALLOC_ALLOW_THP=0
 Environment=MOCHI_INSTANCES=$MOCHI_INSTANCES
 Environment=MOCHI_STREAM_CACHE_GB=$ANIME_CACHE_GB
@@ -1315,6 +1322,7 @@ sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
         health_interval 10s
         header_up Host {upstream_hostport}
         header_up X-Real-IP {args[0]}
+        header_up X-Forwarded-For {args[0]}
         flush_interval 10ms
         transport http {
             keepalive 120s
@@ -1335,6 +1343,7 @@ http://127.0.0.1:4000 {
         health_uri /health
         health_interval 10s
         fail_duration 10s
+        header_up X-Forwarded-For {http.request.header.X-Real-IP}
         flush_interval 10ms
     }
 }
@@ -1521,6 +1530,7 @@ http://127.0.0.1:4001 {
         max_fails 4
         header_up Host {upstream_hostport}
         header_up X-Real-IP {lyra_client_ip}
+        header_up X-Forwarded-For {lyra_client_ip}
         flush_interval -1
         transport http {
             keepalive 120s
@@ -1541,12 +1551,14 @@ http://127.0.0.1:4001 {
     handle /api/auth/* {
         reverse_proxy 127.0.0.1:4005 {
             header_up X-Real-IP {lyra_client_ip}
+            header_up X-Forwarded-For {lyra_client_ip}
         }
     }
 
     handle /api/sync/* {
         reverse_proxy 127.0.0.1:4005 {
             header_up X-Real-IP {lyra_client_ip}
+            header_up X-Forwarded-For {lyra_client_ip}
         }
     }
 
@@ -1696,6 +1708,7 @@ module.exports = {
         LYRA_WISP_PATH: "$LYRA_WISP_PATH",
         NURU_TICKET_SECRET: "$NURU_TICKET_SECRET",
         LYRA_MEMORY_MB: "${LYRA_MEM%M}",
+        LYRA_API_LIMIT_MAX: "$((PROXY_CPUS * 1000))",
         WEBRTC_TURN_ENABLED: "1",
         WEBRTC_FORCE_RELAY: "1",
         TURN_HOST: "$TURN_HOST",

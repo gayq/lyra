@@ -194,7 +194,11 @@ export function createAdcash({
       const encoding = entry.br && accept.includes("br") ? "br" : entry.gzip && accept.includes("gzip") ? "gzip" : null;
       return new Response(req.method === "HEAD" ? null : encoding ? entry[encoding] : entry.raw, {
         status: 200,
-        headers: { ...JS_HEADERS, ...(encoding ? { "Content-Encoding": encoding } : {}) },
+        headers: {
+          ...JS_HEADERS,
+          "Cache-Control": "max-age=3600",
+          ...(encoding ? { "Content-Encoding": encoding } : {}),
+        },
       });
     },
   };

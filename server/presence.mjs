@@ -1,25 +1,39 @@
 export const BROWSER_ID = /^[A-Za-z0-9_-]{16,64}$/;
 
-export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPerSource = Infinity, greet } = {}) {
+export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPerSource = Infinity, broadcastMs = 0, greet } = {}) {
   const browsers = new Map();
   const sourceStreams = new Map();
+  const watchers = new Set();
   const encoder = new TextEncoder();
   const renewFrame = encoder.encode("event: renew\ndata:\n\n");
   let heartbeat;
   let pending = false;
+  let throttle;
+  let lastBroadcast = -Infinity;
 
   const countFrame = () => encoder.encode(`data: ${browsers.size}\n\n`);
+
+  function flush() {
+    pending = false;
+    throttle = undefined;
+    lastBroadcast = performance.now();
+    const frame = countFrame();
+    for (const browser of browsers.values()) {
+      for (const stream of browser.streams) stream.send(frame);
+    }
+    for (const watcher of watchers) watcher(browsers.size);
+  }
 
   function broadcast() {
     if (pending) return;
     pending = true;
-    queueMicrotask(() => {
-      pending = false;
-      const frame = countFrame();
-      for (const browser of browsers.values()) {
-        for (const stream of browser.streams) stream.send(frame);
-      }
-    });
+    const wait = lastBroadcast + broadcastMs - performance.now();
+    if (wait > 0) {
+      throttle = setTimeout(flush, wait);
+      throttle.unref?.();
+    } else {
+      queueMicrotask(flush);
+    }
   }
 
   function drop(id, browser) {
@@ -91,7 +105,7 @@ export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPe
         const greeting = greet?.(id);
         if (greeting) stream.send(greeting);
         if (joined) broadcast();
-        else stream.send(countFrame());
+        if (!joined || throttle) stream.send(countFrame());
       },
       cancel() {
         end(false);
@@ -112,6 +126,11 @@ export function createPresence({ leaseMs = 60_000, graceMs = 5_000, maxStreamsPe
     }
   };
   connect.has = (id) => browsers.has(id);
+  connect.count = () => browsers.size;
+  connect.watch = (listener) => {
+    watchers.add(listener);
+    return () => watchers.delete(listener);
+  };
 
   return connect;
 }
