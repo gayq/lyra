@@ -9,3 +9,8 @@ export function loadAdcash(origin = ""): void {
   library.src = origin + ADCASH_LIBRARY_PATH;
   document.head.appendChild(library);
 }
+
+export function adcashEmbedderPolicy(userAgent: string | null): "credentialless" | "require-corp" {
+  const browser = /\b(Chrome|Firefox)\/(\d+)/.exec(userAgent || "");
+  return browser && Number(browser[2]) >= (browser[1] === "Chrome" ? 96 : 119) ? "credentialless" : "require-corp";
+}

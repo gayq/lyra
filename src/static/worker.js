@@ -143,8 +143,12 @@ const fetch = (input, init) => {
 };
 
 async function staticDocument(request, file) {
-  const response = await staticNetworkFetch(new URL(STATIC_BASE + file, self.location.origin), { cache: "no-cache", signal: request.signal });
-  return staticIsolatedResponse(response);
+  const response = staticIsolatedResponse(await staticNetworkFetch(new URL(STATIC_BASE + file, self.location.origin), { cache: "no-cache", signal: request.signal }));
+  const browser = /\b(Chrome|Firefox)\/(\d+)/.exec(self.navigator?.userAgent || "");
+  if (browser && Number(browser[2]) >= (browser[1] === "Chrome" ? 96 : 119)) {
+    response.headers.set("cross-origin-embedder-policy", "credentialless");
+  }
+  return response;
 }
 
 function staticIsolatedResponse(response) {

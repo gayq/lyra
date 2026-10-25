@@ -3,10 +3,10 @@ import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import zlib from "node:zlib";
-import { ADCASH_LIBRARY_PATH } from "../src/core/runtime/adcash.ts";
+import { ADCASH_LIBRARY_PATH, adcashEmbedderPolicy } from "../src/core/runtime/adcash.ts";
 import { negativeMessage } from "../src/core/runtime/messages.ts";
 
-export { ADCASH_LIBRARY_PATH };
+export { ADCASH_LIBRARY_PATH, adcashEmbedderPolicy };
 const LIBRARY_URL = "https://adbpage.com/adblock?v=3&format=js";
 const REFRESH_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
@@ -196,7 +196,7 @@ export function createAdcash({
         status: 200,
         headers: {
           ...JS_HEADERS,
-          "Cache-Control": "max-age=3600",
+          "Cache-Control": "max-age=300",
           ...(encoding ? { "Content-Encoding": encoding } : {}),
         },
       });

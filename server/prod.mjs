@@ -15,7 +15,7 @@ import { createSearchSuggestionService } from "./search-suggestions.mjs";
 import { allowMetrics, createMetrics } from "./metrics.mjs";
 import { createSourceBuildId } from "../build-id.mjs";
 import { productionStaticGateway } from "./static-backend.mjs";
-import { ADCASH_LIBRARY_PATH, createAdcash } from "./adcash.mjs";
+import { ADCASH_LIBRARY_PATH, adcashEmbedderPolicy, createAdcash } from "./adcash.mjs";
 import {
   distCacheControl,
   IMMUTABLE_CACHE_CONTROL,
@@ -565,6 +565,7 @@ async function injectAdcashPage(req, response) {
   headers.delete("Content-Length");
   headers.delete("ETag");
   headers.delete("Last-Modified");
+  headers.set("Cross-Origin-Embedder-Policy", adcashEmbedderPolicy(req.headers.get("user-agent")));
   if (req.method === "HEAD") return new Response(null, { status: 200, headers });
   return new Response(adcash.injectHtml(await response.text()), { status: 200, headers });
 }
