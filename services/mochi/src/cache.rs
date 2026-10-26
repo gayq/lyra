@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use tokio::fs::{self, File};
 use tokio::io::{
@@ -17,6 +17,30 @@ const MAX_CACHED_HEADERS: u16 = 256;
 const MAX_HEADER_NAME_LEN: usize = 128;
 const MAX_HEADER_VALUE_LEN: usize = 32 * 1024;
 const DISK_CHUNK_BYTES: usize = 256 * 1024;
+const DISK_TOUCH_INTERVAL: Duration = Duration::from_secs(10 * 60);
+
+static DISK_TOUCHES: LazyLock<moka::future::Cache<String, ()>> = LazyLock::new(|| {
+    moka::future::Cache::builder()
+        .time_to_live(DISK_TOUCH_INTERVAL)
+        .max_capacity(50_000)
+        .build()
+});
+
+pub(crate) fn touch_cache_file(path: String) {
+    if DISK_TOUCHES.contains_key(&path) {
+        return;
+    }
+    tokio::spawn(async move {
+        DISK_TOUCHES.insert(path.clone(), ()).await;
+        let _ = tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)
+                .and_then(|file| file.set_modified(SystemTime::now()))
+        })
+        .await;
+    });
+}
 
 pub fn disk_writer(file: File) -> BufWriter<File> {
     BufWriter::with_capacity(DISK_CHUNK_BYTES, file)
@@ -196,8 +220,9 @@ pub async fn load_from_disk(
     let path = get_cache_path(url);
     let file = File::open(&path).await.ok()?;
     let metadata = file.metadata().await.ok()?;
+    let idle = metadata.modified().ok()?.elapsed().ok()?;
     if metadata.len() > max_entry_size.saturating_add(64 * 1024) as u64
-        || metadata.modified().ok()?.elapsed().ok()?.as_secs() > max_age_secs
+        || idle.as_secs() > max_age_secs
     {
         return None;
     }
@@ -206,6 +231,9 @@ pub async fn load_from_disk(
     let (status_code, mut headers) = read_cache_header(&mut reader).await?;
     if !stream_cache_fresh(&headers) || !crate::proxy::response_allows_shared_cache(&headers) {
         return None;
+    }
+    if idle >= DISK_TOUCH_INTERVAL {
+        touch_cache_file(path);
     }
     let body_len = metadata.len().checked_sub(cache_header_len(&headers))?;
     fix_game_content_type(url, &mut headers);
@@ -247,10 +275,11 @@ pub async fn load_stream_from_disk(
     max_age_secs: u64,
 ) -> Option<StreamDiskEntry> {
     let path = get_stream_cache_path(cache_key);
-    let file = File::open(path).await.ok()?;
+    let file = File::open(&path).await.ok()?;
     let metadata = file.metadata().await.ok()?;
+    let idle = metadata.modified().ok()?.elapsed().ok()?;
     if metadata.len() > max_entry_size.saturating_add(64 * 1024) as u64
-        || metadata.modified().ok()?.elapsed().ok()?.as_secs() > max_age_secs
+        || idle.as_secs() > max_age_secs
     {
         return None;
     }
@@ -258,6 +287,9 @@ pub async fn load_stream_from_disk(
     let (status, mut headers) = read_cache_header(&mut reader).await?;
     if !stream_cache_fresh(&headers) {
         return None;
+    }
+    if idle >= DISK_TOUCH_INTERVAL {
+        touch_cache_file(path);
     }
     let body_offset = reader.stream_position().await.ok()?;
     let body_len = metadata.len().checked_sub(body_offset)?;

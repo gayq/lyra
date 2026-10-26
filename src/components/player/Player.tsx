@@ -38,6 +38,7 @@ import {
   readAnimeLanguage,
   readAnimeQuality,
   readAnimeSetting,
+  type AnimeQuality,
 } from "../../core/media/animeSettings.ts";
 import {
   animeIdentityCacheKey,
@@ -283,6 +284,8 @@ function buildNextEpisodeStreamUrl(
   episodeParts: PlaybackEpisodePartRange[],
   identityIds: AnimeIds,
   language: "sub" | "dub",
+  session: string,
+  qualityRequest: string,
 ): string {
   const part = episodeParts.find(
     (candidate) => episode >= candidate.start && episode <= candidate.end,
@@ -296,9 +299,15 @@ function buildNextEpisodeStreamUrl(
   const query = new URLSearchParams({
     episode: String(sourceEpisode),
     language,
+    session,
   });
+  if (qualityRequest) query.set("preferred_quality", qualityRequest);
   appendMegaPlayParams(query, ids);
   return `/stream/anikoto?${query}`;
+}
+
+function startsIn4k(quality: AnimeQuality): boolean {
+  return quality === "auto" || quality === "2160p";
 }
 
 function qualityLabel(height: number, bitrate: number): string {
@@ -388,6 +397,7 @@ export default function Player() {
   );
   const [language, setLanguage] = useState<"sub" | "dub">(initialLanguage);
   const [prefer4k, setPrefer4k] = useState(() => readAnimeQuality() === "2160p");
+  const [auto4k, setAuto4k] = useState(() => startsIn4k(readAnimeQuality()));
   const [requested4kContext, setRequested4kContext] = useState("");
   const [available4kSource, setAvailable4kSource] = useState("");
   const [failed4kContext, setFailed4kContext] = useState("");
@@ -450,12 +460,14 @@ export default function Player() {
   ].join("|");
   const playbackContext = `${episodeContext}|${language}`;
   const request4k = requested4kContext === playbackContext && failed4kContext !== playbackContext;
+  const start4k = auto4k && failed4kContext !== playbackContext;
+  const qualityRequest = request4k ? "2160p" : start4k ? "auto" : "";
   const fallbackQuery = new URLSearchParams({
     episode: String(sourceEpisodeNumber),
     language,
     session: streamSessionRef.current,
   });
-  if (request4k) fallbackQuery.set("preferred_quality", "2160p");
+  if (qualityRequest) fallbackQuery.set("preferred_quality", qualityRequest);
   appendMegaPlayParams(fallbackQuery, playbackIds);
   const baseVideoSrc =
     (episodeNumber > 0 || Boolean(playbackIds.anikotoEpisode)) &&
@@ -517,7 +529,7 @@ export default function Player() {
     playbackIds.anilist || 0,
     playbackIds.mal || 0,
     playbackIds.anikotoEpisode || "",
-    request4k,
+    qualityRequest,
   ].join("|");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -754,7 +766,7 @@ export default function Player() {
   }, []);
   const videoSrc = baseVideoSrc;
   const fallbackFrom4k = useCallback(() => {
-    if (!request4k) return false;
+    if (!request4k && !start4k) return false;
     sourceSwitchTimeRef.current = Math.max(
       0, pendingSeekRef.current ?? videoRef.current?.currentTime ?? 0,
     );
@@ -762,7 +774,7 @@ export default function Player() {
     setFailed4kContext(`${episodeContext}|${nextLanguage}`);
     setLanguage(nextLanguage);
     return true;
-  }, [request4k, episodeContext, language]);
+  }, [request4k, start4k, episodeContext, language]);
 
   const unavailableMessage = useCallback((status?: number) => negativeMessage(
     status === 404
@@ -1167,11 +1179,14 @@ export default function Player() {
 
   useEffect(() => {
     const apply = () => {
-      const next = readAnimeQuality() === "2160p";
-      if (next === prefer4k) return;
+      const quality = readAnimeQuality();
+      const next = quality === "2160p";
+      const nextAuto4k = startsIn4k(quality);
+      if (next === prefer4k && nextAuto4k === auto4k) return;
       sourceSwitchTimeRef.current = Math.max(0, pendingSeekRef.current ?? videoRef.current?.currentTime ?? 0);
       setFailed4kContext("");
       setPrefer4k(next);
+      setAuto4k(nextAuto4k);
       setRequested4kContext(next ? playbackContext : "");
     };
     const onStorage = (event: StorageEvent) => {
@@ -1186,7 +1201,7 @@ export default function Player() {
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("animeSettingUpdated", onSetting);
     };
-  }, [prefer4k, playbackContext]);
+  }, [prefer4k, auto4k, playbackContext]);
 
   const changeEpisode = useCallback(
     (nextEpisode: number, autoplay = false) => {
@@ -1418,7 +1433,7 @@ export default function Player() {
         backBufferLength: 30,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
-        maxBufferSize: (prefer4k || request4k ? 64 : 24) * 1024 * 1024,
+        maxBufferSize: (prefer4k || request4k || start4k ? 64 : 24) * 1024 * 1024,
         ...PLAYER_SIZE_ABR_CONFIG,
         manifestLoadPolicy: hlsLoadPolicy(23_000, 25_000, 1, 1),
         playlistLoadPolicy: hlsLoadPolicy(8_000, 15_000, 2, 2),
@@ -1632,7 +1647,7 @@ export default function Player() {
       error: negativeMessage("hls playback is not supported in this browser"),
       buffering: false,
     });
-  }, [episodeNumber, language, videoSrc, syncMediaState, prefer4k, request4k, fallbackFrom4k, unavailableMessage]);
+  }, [episodeNumber, language, videoSrc, syncMediaState, prefer4k, request4k, start4k, fallbackFrom4k, unavailableMessage]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -1672,6 +1687,8 @@ export default function Player() {
       episodeParts,
       identityIds,
       language,
+      streamSessionRef.current,
+      auto4k ? "auto" : "",
     );
     if (!nextVideoSrc) return;
 
@@ -1714,6 +1731,7 @@ export default function Player() {
     identityIds.anilist,
     identityIds.mal,
     language,
+    auto4k,
   ]);
 
   const refreshAutoQuality = useCallback(() => {
@@ -1919,7 +1937,7 @@ export default function Player() {
       language,
       session: streamSessionRef.current,
     });
-    if (request4k) params.set("preferred_quality", "2160p");
+    if (qualityRequest) params.set("preferred_quality", qualityRequest);
     appendMegaPlayParams(params, playbackIds);
 
     const confirmed = languageStreamInfoRef.current;
@@ -2001,6 +2019,7 @@ export default function Player() {
     playbackIds.anikotoEpisode,
     language,
     request4k,
+    qualityRequest,
     prefer4k,
     requested4kContext,
     playbackContext,
@@ -2163,7 +2182,7 @@ export default function Player() {
         language: nextLanguage,
         session: streamSessionRef.current,
       });
-      if (prefer4k) params.set("preferred_quality", "2160p");
+      if (auto4k) params.set("preferred_quality", "auto");
       appendMegaPlayParams(params, playbackIds);
       const requestContext = sourceContextRef.current;
       const requestGeneration = sourceContextGenerationRef.current;
@@ -2248,7 +2267,7 @@ export default function Player() {
       persistProgress,
       sourceEpisodeNumber,
       playbackIds,
-      prefer4k,
+      auto4k,
     ],
   );
 

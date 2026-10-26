@@ -67,6 +67,7 @@ const API: &str = "https://api.framextv.tech";
 const API_FALLBACK: &str = "https://api.framextv.xyz";
 const ANIME_APIS: [&str; 3] = [API, API_FALLBACK, "https://api.framextv.cc"];
 static ANIME_API: AtomicUsize = AtomicUsize::new(0);
+const ANIME_API_HEDGE_DELAY: Duration = Duration::from_millis(1500);
 
 static ANIME_SOURCES: LazyLock<moka::future::Cache<(i64, i32), Arc<Vec<ResolvedSource>>>> =
     LazyLock::new(|| {
@@ -576,7 +577,7 @@ fn parse_sources(payload: &Value, key: &EpisodeKey) -> Result<Vec<ResolvedSource
     }
 }
 
-fn audio_url(master: &str, base: &str, language: &str) -> Option<String> {
+pub(super) fn audio_url(master: &str, base: &str, language: &str) -> Option<String> {
     let wanted = if language == "dub" { "en" } else { "ja" };
     master.lines().find_map(|line| {
         let attrs = hls_attribute_list(line.trim().strip_prefix("#EXT-X-MEDIA:")?);
@@ -599,7 +600,7 @@ async fn anime_api_sources(
     index: usize,
 ) -> Result<Arc<Vec<ResolvedSource>>, ResolveError> {
     let api = ANIME_APIS[index];
-    let result = tokio::time::timeout(Duration::from_secs(4), async {
+    let result = tokio::time::timeout(Duration::from_secs(8), async {
         let response = send_with_retry(|| {
             client
                 .get(format!("{api}/anime/api/stream"))
@@ -643,23 +644,37 @@ async fn anime_sources(
     ANIME_SOURCES
         .try_get_with((key.anilist_id, key.episode), async {
             let preferred = ANIME_API.load(Ordering::Relaxed);
-            let mut failure = match anime_api_sources(client, &discovery_key, preferred).await {
-                Ok(sources) => return Ok(sources),
-                Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
-                Err(error) => error,
-            };
-            let mut pending = futures_util::stream::iter((1..ANIME_APIS.len()).map(|offset| {
-                anime_api_sources(client, &discovery_key, (preferred + offset) % ANIME_APIS.len())
-            }))
-            .buffer_unordered(2);
-            while let Some(result) = pending.next().await {
-                match result {
-                    Ok(sources) => return Ok(sources),
-                    Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
-                    Err(error) => failure = error,
+            let mut pending = futures_util::stream::FuturesUnordered::new();
+            let mut started = 0;
+            let mut failure = ResolveError::Upstream;
+            loop {
+                if pending.is_empty() {
+                    if started == ANIME_APIS.len() {
+                        return Err(failure);
+                    }
+                    pending.push(anime_api_sources(
+                        client,
+                        &discovery_key,
+                        (preferred + started) % ANIME_APIS.len(),
+                    ));
+                    started += 1;
+                }
+                tokio::select! {
+                    Some(result) = pending.next() => match result {
+                        Ok(sources) => return Ok(sources),
+                        Err(ResolveError::NotFound) => return Err(ResolveError::NotFound),
+                        Err(error) => failure = error,
+                    },
+                    () = tokio::time::sleep(ANIME_API_HEDGE_DELAY), if started < ANIME_APIS.len() => {
+                        pending.push(anime_api_sources(
+                            client,
+                            &discovery_key,
+                            (preferred + started) % ANIME_APIS.len(),
+                        ));
+                        started += 1;
+                    }
                 }
             }
-            Err(failure)
         })
         .await
         .map_err(|error| *error)

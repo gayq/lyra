@@ -1315,8 +1315,10 @@ sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
         not path /stream/anime*
     }
     reverse_proxy @mochi_stream $MOCHI_UPSTREAMS {
-        lb_policy query session {
-            fallback least_conn
+        lb_policy query anilist_id {
+            fallback query session {
+                fallback least_conn
+            }
         }
         health_uri /health
         health_interval 10s

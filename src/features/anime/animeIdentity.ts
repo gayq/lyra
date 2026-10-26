@@ -53,6 +53,14 @@ function cleanId(value: unknown): string | undefined {
   return undefined;
 }
 
+function cleanAniListId(value: unknown): string | undefined {
+  const raw = typeof value === "number"
+    ? Number.isSafeInteger(value) ? String(value) : ""
+    : typeof value === "string" ? value.trim() : "";
+  const digits = /^\+?(\d+)$/.exec(raw)?.[1]?.replace(/^0+/, "");
+  return digits && Number.isSafeInteger(Number(digits)) ? digits : undefined;
+}
+
 export function normalizeAnimeIds(
   value?: Partial<Record<AnimeProvider, unknown>> & {
     anilistId?: number | string | undefined;
@@ -80,10 +88,12 @@ export function normalizeAnimeIds(
     "anikoto",
     "anikotoEpisode",
   ] as const) {
-    const id = cleanId(value[provider]);
+    const id = provider === "anilist"
+      ? cleanAniListId(value[provider])
+      : cleanId(value[provider]);
     if (id) normalized[provider] = id;
   }
-  const anilist = cleanId(value.anilistId);
+  const anilist = cleanAniListId(value.anilistId);
   const mal = cleanId(value.malId);
   if (anilist && !normalized.anilist) normalized.anilist = anilist;
   if (mal && !normalized.mal) normalized.mal = mal;

@@ -944,6 +944,7 @@ pub async fn proxy_handler(
             .filter(|entry| stream_cache_fresh(&entry.headers))
         {
             proxy_metrics().cache_hits.fetch_add(1, Ordering::Relaxed);
+            crate::cache::touch_cache_file(get_cache_path(target_url_str));
             let mut res_headers = cached.headers.clone();
             if res_headers
                 .get("content-type")
@@ -1370,6 +1371,7 @@ async fn fetch_and_cache(
             .filter(|entry| stream_cache_fresh(&entry.headers))
         {
             proxy_metrics().cache_hits.fetch_add(1, Ordering::Relaxed);
+            crate::cache::touch_cache_file(get_cache_path(target_url_str));
             let mut res_headers = cached.headers.clone();
             res_headers.insert("X-Cache", HeaderValue::from_static("HIT"));
             fix_game_content_type(target_url_string, &mut res_headers);

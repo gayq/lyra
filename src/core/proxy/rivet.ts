@@ -30,6 +30,8 @@ export type RivetFacade = Rivet;
 
 let instance: RivetFacade | null = null;
 let ready: Promise<RivetFacade> | null = null;
+let ublockFiltering: Promise<void> | null = null;
+const UBLOCK_FILTERING_TIMEOUT_MS = 10_000;
 let commandListenerInstalled = false;
 let contextMenuElement: HTMLDivElement | null = null;
 const extensionPageMountVersions = new WeakMap<HTMLIFrameElement, number>();
@@ -437,6 +439,36 @@ async function mountNewTabOverride(
   }
 }
 
+function waitForUblockFiltering(rivet: Rivet): Promise<void> {
+  const filtering = (async () => {
+    try {
+      const extId = await ensureUblockOrigin(rivet);
+      const listening = await rivet.registry.waitForWebRequestListener(
+        extId,
+        "onHeadersReceived",
+        UBLOCK_FILTERING_TIMEOUT_MS,
+      );
+      if (!listening)
+        console.warn(
+          "[rivet] ublock origin filtering startup timed out",
+          NEGATIVE,
+        );
+    } catch (error) {
+      console.error(
+        "[rivet] failed to install ublock origin:",
+        error,
+        NEGATIVE,
+      );
+    }
+  })();
+  return Promise.race([
+    filtering,
+    new Promise<void>((resolve) =>
+      setTimeout(resolve, UBLOCK_FILTERING_TIMEOUT_MS),
+    ),
+  ]);
+}
+
 export async function initializeRivet(): Promise<RivetFacade> {
   if (ready) return ready;
   let created: RivetFacade | null = null;
@@ -448,15 +480,7 @@ export async function initializeRivet(): Promise<RivetFacade> {
     created = rivet;
     instance = rivet;
     await rivet.init();
-    try {
-      await ensureUblockOrigin(rivet);
-    } catch (error) {
-      console.error(
-        "[rivet] failed to install ublock origin:",
-        error,
-        NEGATIVE,
-      );
-    }
+    ublockFiltering = waitForUblockFiltering(rivet);
     installCommandListener(rivet);
     registerRivetBridge(rivet, (tab) =>
       mountRivetNewTabOverride(tab as LyraTab),
@@ -551,6 +575,7 @@ function createDnrPlugin(
   ManagedPlugin: FolioManagedPluginConstructor,
   rivet: Rivet,
   tabId: number,
+  filteringReady?: Promise<void> | null,
 ): InstanceType<FolioManagedPluginConstructor> {
   const folio = (
     window as typeof window & {
@@ -613,6 +638,7 @@ function createDnrPlugin(
       this.tap(frame.hooks.fetch.request, async (context: any, props: any) => {
         let requestUrl = props.url?.href;
         if (!requestUrl) return;
+        if (filteringReady) await filteringReady;
         const beforeRequestListeners =
           rivet.registry.hasWebRequestListeners("onBeforeRequest");
         const beforeHeadersListeners = rivet.registry.hasWebRequestListeners(
@@ -794,7 +820,7 @@ export function createRivetFramePlugins(
   if (!rivet || !ManagedPlugin || !Number.isFinite(tabId)) return [];
   return [
     createRivetContentScriptPlugin(ManagedPlugin, rivet, tabId),
-    createDnrPlugin(ManagedPlugin, rivet, tabId),
+    createDnrPlugin(ManagedPlugin, rivet, tabId, ublockFiltering),
   ];
 }
 

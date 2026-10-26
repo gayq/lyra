@@ -36,6 +36,8 @@ const UPSTREAM_REQUEST_BUDGET: Duration = Duration::from_secs(12);
 const UPSTREAM_BODY_TIMEOUT: Duration = Duration::from_secs(30);
 const SOURCE_RESOLUTION_TIMEOUT: Duration = Duration::from_secs(21);
 const QUALITY_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
+const QUALITY_SETTLE_GRACE: Duration = Duration::from_millis(500);
+const AUTO_4K_GRACE: Duration = Duration::from_millis(1500);
 const MEDIA_ACCEPT: &str = "video/mp2t,video/mp4,application/octet-stream,*/*";
 const DISK_READ_CHUNK_BYTES: usize = 256 * 1024;
 
@@ -170,6 +172,7 @@ struct EpisodeKey {
     language: String,
     session: String,
     prefer_4k: bool,
+    auto_4k: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -453,6 +456,20 @@ static QUALITY_DISCOVERY: LazyLock<Cache<EpisodeKey, Option<Arc<ResolvedSource>>
     });
 static QUALITY_DISCOVERY_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
+static KNOWN_4K: LazyLock<Cache<EpisodeKey, Option<StreamProvider>>> = LazyLock::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(6 * 60 * 60))
+        .max_capacity(10_000)
+        .build()
+});
+
+static WARMED_SOURCES: LazyLock<Cache<u64, ()>> = LazyLock::new(|| {
+    Cache::builder()
+        .time_to_live(Duration::from_secs(10 * 60))
+        .max_capacity(10_000)
+        .build()
+});
+
 static PROVIDER_FAILURES: LazyLock<Cache<(StreamProvider, EpisodeKey), ResolveError>> =
     LazyLock::new(|| {
         Cache::builder()
@@ -477,6 +494,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
     let mut language = "sub".to_string();
     let mut session = String::new();
     let mut prefer_4k = false;
+    let mut auto_4k = false;
     let path_parts: Vec<_> = uri
         .path()
         .split('/')
@@ -496,7 +514,10 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
             "episode" => episode = value.parse().unwrap_or(0),
             "language" => language = value.into_owned(),
             "session" => session = value.into_owned(),
-            "preferred_quality" => prefer_4k = value == "2160p",
+            "preferred_quality" => {
+                prefer_4k = value == "2160p";
+                auto_4k = value == "auto";
+            }
             _ => {}
         }
     }
@@ -530,6 +551,7 @@ fn parse_episode_key(uri: &Uri) -> Result<EpisodeKey, ResolveError> {
         language: language.to_string(),
         session,
         prefer_4k,
+        auto_4k,
     })
 }
 
@@ -538,9 +560,20 @@ fn query_value(uri: &Uri, name: &str) -> Option<String> {
         .find_map(|(key, value)| (key == name).then(|| value.into_owned()))
 }
 
-fn query_string(key: &EpisodeKey, extra: &[(&str, String)]) -> String {
+fn received_anilist_ids(uri: &Uri) -> Vec<String> {
+    url::form_urlencoded::parse(uri.query().unwrap_or_default().as_bytes())
+        .filter(|(key, _)| key == "anilist_id")
+        .map(|(_, value)| value.into_owned())
+        .collect()
+}
+
+fn query_string(key: &EpisodeKey, anilist_ids: &[String], extra: &[(&str, String)]) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
-    if key.anilist_id > 0 {
+    if !anilist_ids.is_empty() {
+        for anilist_id in anilist_ids {
+            query.append_pair("anilist_id", anilist_id);
+        }
+    } else if key.anilist_id > 0 {
         query.append_pair("anilist_id", &key.anilist_id.to_string());
     }
     if key.mal_id > 0 {
@@ -553,6 +586,8 @@ fn query_string(key: &EpisodeKey, extra: &[(&str, String)]) -> String {
     query.append_pair("language", &key.language);
     if key.prefer_4k {
         query.append_pair("preferred_quality", "2160p");
+    } else if key.auto_4k {
+        query.append_pair("preferred_quality", "auto");
     }
     if !key.session.is_empty() {
         query.append_pair("session", &key.session);
@@ -1098,6 +1133,7 @@ fn provider_cache_key(provider: StreamProvider, key: &EpisodeKey) -> (StreamProv
     let mut episode = key.clone();
     episode.session.clear();
     episode.prefer_4k = false;
+    episode.auto_4k = false;
     (provider, episode)
 }
 
@@ -1127,6 +1163,7 @@ fn has_4k(source: &ResolvedSource) -> bool {
 async fn prefer_ready<T>(
     preferred: impl std::future::Future<Output = Result<T, ResolveError>>,
     fallback: impl std::future::Future<Output = Result<T, ResolveError>>,
+    fallback_grace: Option<Duration>,
 ) -> Result<T, ResolveError> {
     tokio::pin!(preferred, fallback);
     tokio::select! {
@@ -1134,7 +1171,13 @@ async fn prefer_ready<T>(
             Ok(source) => Ok(source),
             Err(_) => fallback.await,
         },
-        backup = &mut fallback => preferred.await.or(backup),
+        backup = &mut fallback => match fallback_grace {
+            Some(grace) => tokio::time::timeout(grace, preferred)
+                .await
+                .unwrap_or(Err(ResolveError::NotFound))
+                .or(backup),
+            None => preferred.await.or(backup),
+        },
     }
 }
 
@@ -1260,11 +1303,12 @@ async fn select_source(
     client: &reqwest::Client,
     key: &EpisodeKey,
 ) -> Result<Arc<ResolvedSource>, ResolveError> {
-    if !key.prefer_4k {
+    if !key.prefer_4k && !key.auto_4k {
         return default_source(client, key).await;
     }
     let mut normal_key = key.clone();
     normal_key.prefer_4k = false;
+    normal_key.auto_4k = false;
     let current = SESSION_SOURCES
         .get(&normal_key)
         .await
@@ -1274,14 +1318,17 @@ async fn select_source(
             return Ok(session.source.clone());
         }
     }
+    let current_provider = current.as_ref().map(|session| session.source.provider);
+    let discovery = tokio::spawn({
+        let client = client.clone();
+        let key = key.clone();
+        async move { discover_4k(&client, &key, current_provider).await }
+    });
     let preferred = async {
-        discover_4k(
-            client,
-            key,
-            current.as_ref().map(|session| session.source.as_ref()),
-        )
-        .await?
-        .ok_or(ResolveError::NotFound)
+        discovery
+            .await
+            .map_err(|_| ResolveError::Upstream)??
+            .ok_or(ResolveError::NotFound)
     };
     let fallback = async {
         match &current {
@@ -1289,7 +1336,8 @@ async fn select_source(
             None => default_source(client, key).await,
         }
     };
-    prefer_ready(preferred, fallback).await
+    let grace = (!key.prefer_4k).then_some(AUTO_4K_GRACE);
+    prefer_ready(preferred, fallback, grace).await
 }
 
 fn quality_providers(key: &EpisodeKey) -> impl Iterator<Item = StreamProvider> + '_ {
@@ -1302,7 +1350,7 @@ fn quality_providers(key: &EpisodeKey) -> impl Iterator<Item = StreamProvider> +
 async fn discover_4k(
     client: &reqwest::Client,
     key: &EpisodeKey,
-    current: Option<&ResolvedSource>,
+    current: Option<StreamProvider>,
 ) -> Result<Option<Arc<ResolvedSource>>, ResolveError> {
     let cache_key = provider_cache_key(StreamProvider::Megaplay, key).1;
     if let Some(Some(source)) = QUALITY_DISCOVERY.get(&cache_key).await {
@@ -1311,7 +1359,21 @@ async fn discover_4k(
         }
     }
     QUALITY_DISCOVERY
-        .try_get_with(cache_key, async {
+        .try_get_with(cache_key.clone(), async {
+            match KNOWN_4K.get(&cache_key).await {
+                Some(None) => return Ok(None),
+                Some(Some(provider)) => {
+                    if current != Some(provider) {
+                        if let Ok(source) = guarded_source(client, provider, key).await {
+                            if has_4k(&source) {
+                                return Ok(Some(source));
+                            }
+                        }
+                    }
+                    KNOWN_4K.invalidate(&cache_key).await;
+                }
+                None => {}
+            }
             let _slot = QUALITY_DISCOVERY_SLOTS
                 .try_acquire()
                 .map_err(|_| ResolveError::Busy)?;
@@ -1319,9 +1381,7 @@ async fn discover_4k(
                 Duration::from_secs(9),
                 first_ready(
                     quality_providers(key)
-                        .filter(|provider| {
-                            current.is_none_or(|source| source.provider != *provider)
-                        })
+                        .filter(|provider| current != Some(*provider))
                         .map(|provider| async move {
                             if let Some(error) = PROVIDER_FAILURES
                                 .get(&provider_cache_key(provider, key))
@@ -1347,6 +1407,15 @@ async fn discover_4k(
             )
             .await
             .unwrap_or(Err(ResolveError::Upstream));
+            match &result {
+                Ok(source) => {
+                    KNOWN_4K
+                        .insert(cache_key.clone(), Some(source.provider))
+                        .await
+                }
+                Err(ResolveError::NotFound) => KNOWN_4K.insert(cache_key.clone(), None).await,
+                Err(_) => {}
+            }
             Ok::<_, ResolveError>(result.ok())
         })
         .await
@@ -1459,7 +1528,8 @@ async fn validate_source(
         let variants = hls_variant_references(&source.playlist_url, &master);
         let count = variants.len();
         let provider = source.provider;
-        let checks =
+        let settle_all = matches!(provider, StreamProvider::Framex4k(_));
+        let mut checks =
             futures_util::stream::iter(variants.into_iter().enumerate().map(|(index, url)| {
                 let client = client.clone();
                 async move {
@@ -1474,13 +1544,29 @@ async fn validate_source(
                     (index, valid)
                 }
             }))
-            .buffer_unordered(4)
-            .collect::<Vec<_>>()
-            .await;
-        let mut available = vec![false; count];
-        for (index, valid) in checks {
-            available[index] = valid;
+            .buffer_unordered(4);
+        let mut settled = vec![None; count];
+        let mut grace_deadline = None;
+        loop {
+            let next = match grace_deadline {
+                Some(deadline) => match tokio::time::timeout_at(deadline, checks.next()).await {
+                    Ok(next) => next,
+                    Err(_) => break,
+                },
+                None => checks.next().await,
+            };
+            let Some((index, valid)) = next else {
+                break;
+            };
+            settled[index] = Some(valid);
+            if valid && !settle_all && grace_deadline.is_none() {
+                grace_deadline = Some(tokio::time::Instant::now() + QUALITY_SETTLE_GRACE);
+            }
         }
+        let available: Vec<bool> = settled
+            .into_iter()
+            .map(|valid| valid != Some(false))
+            .collect();
         return filter_variants(&master, &available).map(Arc::new);
     }
     probe_media(client, &source.playlist_url, &master, source.provider).await?;
@@ -1532,6 +1618,17 @@ async fn probe_media(
     media: &str,
     provider: StreamProvider,
 ) -> Result<(), ResolveError> {
+    let resources = first_media_resources(base, media)?;
+    futures_util::future::try_join_all(
+        resources
+            .iter()
+            .map(|url| probe_resource(client, url, provider)),
+    )
+    .await?;
+    Ok(())
+}
+
+fn first_media_resources(base: &str, media: &str) -> Result<Vec<String>, ResolveError> {
     if !is_media_playlist(media) {
         return Err(ResolveError::Upstream);
     }
@@ -1554,13 +1651,7 @@ async fn probe_media(
     if resources.is_empty() {
         return Err(ResolveError::Upstream);
     }
-    futures_util::future::try_join_all(
-        resources
-            .iter()
-            .map(|url| probe_resource(client, url, provider)),
-    )
-    .await?;
-    Ok(())
+    Ok(resources)
 }
 
 async fn probe_resource(
@@ -1615,7 +1706,7 @@ async fn get_source(
         if !selected.invalidated.load(Ordering::Acquire) {
             return Ok(selected.source.clone());
         }
-        let source = if key.prefer_4k && has_4k(&selected.source) {
+        let source = if (key.prefer_4k || key.auto_4k) && has_4k(&selected.source) {
             select_source(client, key).await?
         } else {
             ordered_source(client, key, selected.source.provider).await?
@@ -2191,11 +2282,17 @@ fn error_response(error: ResolveError) -> Response {
     response
 }
 
-async fn master_handler(state: &AppState, key: &EpisodeKey) -> Result<Response, ResolveError> {
+async fn master_handler(
+    state: &Arc<AppState>,
+    key: &EpisodeKey,
+    uri: &Uri,
+) -> Result<Response, ResolveError> {
     let (source, master) = source_master(state, key).await?;
+    warm_source(state, &source);
     let source_generation = source.generation.to_string();
+    let anilist_ids = received_anilist_ids(uri);
     if is_master_playlist(&master) {
-        let query = query_string(key, &[]);
+        let query = query_string(key, &anilist_ids, &[]);
         let rewritten = rewrite_hls_master(
             &master,
             |variant| {
@@ -2211,7 +2308,7 @@ async fn master_handler(state: &AppState, key: &EpisodeKey) -> Result<Response, 
         )?;
         Ok(playlist_response(rewritten))
     } else {
-        let query = query_string(key, &[]);
+        let query = query_string(key, &anilist_ids, &[]);
         let rewritten = rewrite_hls(&master, |resource| {
             format!(
                 "/stream/anikoto/resource?{query}&source_generation={source_generation}&variant=-1&resource={resource}"
@@ -2233,6 +2330,7 @@ async fn variant_handler(
     let (source, _, playlist) = media_playlist(state, key, variant, requested_generation).await?;
     let query = query_string(
         key,
+        &received_anilist_ids(uri),
         &[
             ("source_generation", source.generation.to_string()),
             ("variant", variant.to_string()),
@@ -2965,6 +3063,7 @@ async fn get_cached_upstream_resource(
             STREAM_METRICS
                 .segment_memory_hits
                 .fetch_add(1, Ordering::Relaxed);
+            crate::cache::touch_cache_file(crate::cache::get_stream_cache_path(&cache_key));
             return Ok(cached_response(
                 cached,
                 method,
@@ -3061,6 +3160,7 @@ async fn get_cached_upstream_resource(
             STREAM_METRICS
                 .segment_memory_hits
                 .fetch_add(1, Ordering::Relaxed);
+            crate::cache::touch_cache_file(crate::cache::get_stream_cache_path(&cache_key));
             return Ok(cached_response(
                 cached,
                 method,
@@ -3365,6 +3465,54 @@ fn prefetch_resources(
     }
 }
 
+fn warm_source(state: &Arc<AppState>, source: &Arc<ResolvedSource>) {
+    if state.stream_prefetch_segments == 0 || state.memory_pressure.shedding() {
+        return;
+    }
+    let state = state.clone();
+    let source = source.clone();
+    tokio::spawn(async move {
+        if !WARMED_SOURCES
+            .entry(source.generation)
+            .or_insert(())
+            .await
+            .is_fresh()
+        {
+            return;
+        }
+        let resources = startup_resources(&state.asset_client, &source).await;
+        futures_util::future::join_all(
+            resources
+                .iter()
+                .map(|url| prefetch_resource(&state, source.provider, url)),
+        )
+        .await;
+    });
+}
+
+async fn startup_resources(client: &reqwest::Client, source: &ResolvedSource) -> Vec<String> {
+    let playlists: Vec<String> = if is_master_playlist(&source.master) {
+        hls_variant_references(&source.playlist_url, &source.master)
+            .into_iter()
+            .take(1)
+            .chain(source.language.as_deref().and_then(|language| {
+                framex::audio_url(&source.master, &source.playlist_url, language)
+            }))
+            .collect()
+    } else {
+        vec![source.playlist_url.clone()]
+    };
+    futures_util::future::join_all(playlists.iter().map(|url| async {
+        let playlist = fetch_playlist(client, url, source.provider).await.ok()?;
+        first_media_resources(url, &playlist).ok()
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .flatten()
+    .collect()
+}
+
 async fn prefetch_resource(state: &AppState, provider: StreamProvider, upstream_url: &str) {
     let cache_key = segment_cache_key(provider, upstream_url, true);
     let cached = || async {
@@ -3473,6 +3621,7 @@ async fn resource_handler(
         if query_value(uri, "resource").is_none() {
             let query = query_string(
                 key,
+                &received_anilist_ids(uri),
                 &[
                     ("source_generation", source.generation.to_string()),
                     ("master_resource", master_resource.to_string()),
@@ -3625,12 +3774,14 @@ pub async fn stream_info_handler(
                 return Err(ResolveError::Busy);
             }
             let available = has_4k(&selected.source)
-                || discover_4k(&state.asset_client, &key, Some(&selected.source))
+                || discover_4k(&state.asset_client, &key, Some(selected.source.provider))
                     .await?
                     .is_some();
             return Ok(Json(serde_json::json!({ "available_4k": available })).into_response());
         }
         let (source, master) = source_master(&state, &key).await?;
+        warm_source(&state, &source);
+        let anilist_ids = received_anilist_ids(&uri);
         let tracks = source
             .tracks
             .iter()
@@ -3642,6 +3793,7 @@ pub async fn stream_info_handler(
                     "/stream/anikoto/track?{}",
                     query_string(
                         &key,
+                        &anilist_ids,
                         &[
                             ("source_generation", source.generation.to_string()),
                             ("track", index.to_string()),
@@ -3728,11 +3880,11 @@ pub async fn stream_handler(
         Err(error) => return error_response(error),
     };
     let result = match uri.path() {
-        "/stream/anikoto" => master_handler(&state, &key).await,
+        "/stream/anikoto" => master_handler(&state, &key, &uri).await,
         "/stream/anikoto/variant" => variant_handler(&state, &key, &uri).await,
         "/stream/anikoto/resource" => resource_handler(&state, &key, &uri, &method, &headers).await,
         "/stream/anikoto/track" => track_handler(&state, &key, &uri, &method, &headers).await,
-        path if path.starts_with("/stream/s-2/") => master_handler(&state, &key).await,
+        path if path.starts_with("/stream/s-2/") => master_handler(&state, &key, &uri).await,
         _ => Err(ResolveError::Invalid),
     };
     if let Err(error) = &result {
