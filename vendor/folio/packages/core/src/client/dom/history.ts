@@ -28,8 +28,16 @@ export default function (client: FolioClient, _self: Self) {
 
 				if (url !== undefined) {
 					const parsedUrl = new _URL(url, relevantclient.url.href);
-					if (parsedUrl.origin !== relevantclient.url.origin) {
-						return ctx.return(undefined);
+					const documentUrl = relevantclient.url;
+					if (parsedUrl.origin !== documentUrl.origin) {
+						const method =
+							ctx.fn === client.natives.store["History.prototype.pushState"]
+								? "pushState"
+								: "replaceState";
+						throw new relevantclient.global.DOMException(
+							`Failed to execute '${method}' on 'History': A history state object with URL '${parsedUrl.href}' cannot be created in a document with origin '${documentUrl.origin}' and URL '${documentUrl.href}'.`,
+							"SecurityError"
+						);
 					}
 				}
 

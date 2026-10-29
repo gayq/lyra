@@ -25,6 +25,7 @@ export default function (client: FolioClient, self: Self) {
 	if (iswindow)
 		client.Proxy("window.postMessage", {
 			apply(ctx) {
+				if ((ctx.args as unknown[]).length === 0) return;
 				const args = ctx.args as unknown as PostMessageArgs;
 				let pollutant: object;
 
@@ -67,6 +68,7 @@ export default function (client: FolioClient, self: Self) {
 
 	client.Proxy("BroadcastChannel.prototype.postMessage", {
 		apply(ctx) {
+			if ((ctx.args as unknown[]).length === 0) return;
 			ctx.args[0] = {
 				$folio$messagetype: "window",
 				$folio$origin: client.url.origin,
@@ -82,6 +84,7 @@ export default function (client: FolioClient, self: Self) {
 
 	client.Proxy(toproxy, {
 		apply(ctx) {
+			if (ctx.args.length === 0) return;
 			ctx.args[0] = {
 				$folio$messagetype: "worker",
 				$folio$data: ctx.args[0],

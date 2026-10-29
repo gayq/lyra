@@ -7,14 +7,24 @@ import {
 } from "./htmlInject";
 import type { RivetRegistry } from "./registry";
 import type { RivetHostBindings } from "./types";
+import { NEGATIVE } from "./messages";
 import {
   buildExtensionUrl,
   chromeExtensionUrl,
+  decodeRivetUrl,
   extensionDocumentUrl,
+  RIVET_CHILD_FRAME_MOUNT_KEY,
   RIVET_PREFIX,
 } from "./urlScheme";
 
 const extensionPageMountVersions = new WeakMap<HTMLIFrameElement, number>();
+const mountedExtensionDocuments = new WeakSet<Document>();
+
+export function isMountedExtensionDocument(
+  document: Document | null | undefined,
+): boolean {
+  return !!document && mountedExtensionDocuments.has(document);
+}
 
 export function cancelExtensionPageMount(frame: HTMLIFrameElement): void {
   extensionPageMountVersions.set(
@@ -82,6 +92,68 @@ export function extensionPageReloadTarget(
   }
 }
 
+function keepBaseRelativeNavigationsInDocument(realm: Window): void {
+  const navigation = realm.navigation as Navigation | undefined;
+  navigation?.addEventListener("navigate", (event) => {
+    if (
+      !event.cancelable ||
+      event.hashChange ||
+      event.formData ||
+      (event.navigationType !== "push" && event.navigationType !== "replace")
+    )
+      return;
+    let destination: URL;
+    let base: URL;
+    try {
+      destination = new URL(event.destination.url);
+      base = new URL(realm.document.baseURI);
+    } catch {
+      return;
+    }
+    if (
+      destination.origin !== base.origin ||
+      destination.pathname !== base.pathname
+    )
+      return;
+    const target = new URL(realm.location.href);
+    if (destination.search) target.search = destination.search;
+    target.hash = destination.hash;
+    if (target.href === destination.href) return;
+    event.preventDefault();
+    navigation.navigate(target.href, {
+      history: event.navigationType,
+      info: event.info,
+    });
+  });
+}
+
+function exposeChildFrameMount(
+  realm: Window,
+  extId: string,
+  mountChild: (
+    frame: HTMLIFrameElement,
+    pagePath: string,
+    childWindow: Window,
+  ) => void,
+): void {
+  Object.defineProperty(realm, Symbol.for(RIVET_CHILD_FRAME_MOUNT_KEY), {
+    configurable: true,
+    value: (childWindow: Window) => {
+      try {
+        const frame = childWindow.frameElement;
+        if (childWindow.parent !== realm || frame?.tagName !== "IFRAME")
+          return false;
+        const target = decodeRivetUrl(childWindow.location.href);
+        if (target?.extId !== extId) return false;
+        mountChild(frame as HTMLIFrameElement, target.path, childWindow);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
+}
+
 function extensionPageSenderUrl(
   extId: string,
   pagePath: string,
@@ -101,13 +173,18 @@ export async function mountExtensionPage(
   registry: RivetRegistry,
   host: RivetHostBindings,
   skipTabRegistration: boolean,
+  childFrameWindow?: Window,
 ): Promise<boolean> {
   const mountVersion = (extensionPageMountVersions.get(frame) ?? 0) + 1;
   extensionPageMountVersions.set(frame, mountVersion);
   const isCurrent = () =>
     extensionPageMountVersions.get(frame) === mountVersion &&
-    frame.isConnected !== false;
-  const win = await bootstrapExtensionFrame(frame, extId, isCurrent);
+    frame.isConnected !== false &&
+    (!childFrameWindow || frame.contentWindow === childFrameWindow);
+  const isPopup = skipTabRegistration && !childFrameWindow;
+  const win =
+    childFrameWindow ??
+    (await bootstrapExtensionFrame(frame, extId, isCurrent));
   if (!win || !isCurrent()) return false;
   const resourcePath = pagePath.replace(/[?#].*$/, "").replace(/^\//, "");
   if (!resourcePath) return false;
@@ -120,7 +197,7 @@ export async function mountExtensionPage(
   const documentPath = extensionPageDocumentPath(
     pagePath,
     tabId,
-    skipTabRegistration,
+    isPopup,
     ext?.manifest.name,
   );
   win.history.replaceState(null, "", buildExtensionUrl(extId, documentPath));
@@ -129,7 +206,27 @@ export async function mountExtensionPage(
     win,
     html,
     (realm) => {
-      if (skipTabRegistration && host.closeExtensionPopup) {
+      mountedExtensionDocuments.add(realm.document);
+      keepBaseRelativeNavigationsInDocument(realm);
+      exposeChildFrameMount(realm, extId, (childFrame, childPath, childWin) => {
+        void mountExtensionPage(
+          childFrame,
+          extId,
+          childPath,
+          tabId,
+          registry,
+          host,
+          true,
+          childWin,
+        ).catch((error) =>
+          console.warn(
+            "[rivet] child extension frame failed to mount",
+            error,
+            NEGATIVE,
+          ),
+        );
+      });
+      if (isPopup && host.closeExtensionPopup) {
         const closePopup = () => host.closeExtensionPopup?.(extId);
         try {
           Object.defineProperty(realm, "close", {
@@ -161,7 +258,7 @@ export async function mountExtensionPage(
 
   if (!isCurrent()) return false;
 
-  if (skipTabRegistration) {
+  if (isPopup) {
     if (ext) ext.popupEvents = events;
   }
   return true;

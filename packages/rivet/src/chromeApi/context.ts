@@ -15,4 +15,4 @@ export interface ChromeApiContext {
   senderDocumentId: string | undefined;
 }
 
-export type InstallApiInTab = (realm: Window, tabId: number) => void;
+export type ContentScopeInTab = (realm: Window, tabId: number) => object;

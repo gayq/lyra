@@ -4,9 +4,8 @@ import {
 	TextEncoder_encode,
 	Object_keys,
 	Object_defineProperty,
-	atob,
 } from "@/shared/snapshot";
-import { bytesToBase64 } from "@/shared/util";
+import { base64Decode, bytesToBase64 } from "@/shared/util";
 import { rewriteCss, unrewriteCss } from "@rewriters/css";
 import { rewriteHtml, unrewriteHtml } from "@rewriters/html";
 import { rewriteJs } from "@rewriters/js";
@@ -414,7 +413,7 @@ export default function (client: FolioClient, self: typeof window) {
 					"Element.prototype.setAttribute",
 					ctx.this,
 					"folio-attr-script-source-src",
-					bytesToBase64(TextEncoder_encode(newval))
+					bytesToBase64(TextEncoder_encode(html))
 				);
 			} else if (client.box.instanceof(ctx.this, "HTMLStyleElement")) {
 				newval = rewriteCss(html, client.context, client.meta);
@@ -443,7 +442,7 @@ export default function (client: FolioClient, self: typeof window) {
 				);
 
 				if (scriptSource) {
-					return atob(scriptSource);
+					return base64Decode(scriptSource);
 				}
 
 				return ctx.get();
@@ -496,7 +495,7 @@ export default function (client: FolioClient, self: typeof window) {
 				element,
 				"folio-attr-script-source-src"
 			);
-			if (scriptSource) return atob(scriptSource);
+			if (scriptSource) return base64Decode(scriptSource);
 			return text;
 		}
 		if (client.box.instanceof(element, "HTMLStyleElement")) {
@@ -517,6 +516,15 @@ export default function (client: FolioClient, self: typeof window) {
 			},
 		}
 	);
+	client.Trap("HTMLScriptElement.prototype.text", {
+		set(ctx, value) {
+			const text = String(value);
+			return ctx.set(rewriteTextForElement(ctx.this, text));
+		},
+		get(ctx) {
+			return getTextForElement(ctx.this, ctx.get());
+		},
+	});
 	client.Trap(["HTMLElement.prototype.innerText", "HTMLScriptElement.prototype.innerText"], {
 		set(ctx, value: string) {
 			const text = String(value);

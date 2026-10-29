@@ -2,6 +2,10 @@ import {
   withBrowserPromiseFallback,
   withMissingMemberFallback,
 } from "../autoStub";
+import {
+  contentScriptScope,
+  createContentScriptScope,
+} from "../contentScope";
 import { NEGATIVE, negativeMessage } from "../messages";
 import { installExtensionNetwork } from "../network";
 import {
@@ -39,10 +43,31 @@ export interface InstallChromeApiOptions {
   senderDocumentId?: string | undefined;
 }
 
+export interface ChromeApiBindings {
+  chrome: unknown;
+  browser: unknown;
+  events: RealmEvents;
+}
+
 export function installChromeApi(
   realm: Window,
   options: InstallChromeApiOptions,
 ): RealmEvents {
+  const { chrome, browser, events } = createChromeApi(realm, options);
+  setRealmApi(realm, "chrome", chrome);
+  if (!setRealmApi(realm, "browser", browser)) {
+    console.warn(
+      "[rivet] browser api could not be installed in this frame",
+      NEGATIVE,
+    );
+  }
+  return events;
+}
+
+export function createChromeApi(
+  realm: Window,
+  options: InstallChromeApiOptions,
+): ChromeApiBindings {
   const {
     extId,
     tabId,
@@ -125,7 +150,9 @@ export function installChromeApi(
   const { contentScripts, scripting, userScripts } = createScriptingApis(
     context,
     (targetRealm, targetTabId) => {
-      installChromeApi(targetRealm, {
+      const existing = contentScriptScope(targetRealm, extId);
+      if (existing) return existing;
+      const { chrome, browser } = createChromeApi(targetRealm, {
         extId,
         tabId: targetTabId,
         isBackground: false,
@@ -135,6 +162,7 @@ export function installChromeApi(
         senderFrameId: 0,
         senderDocumentId: generateDocumentId(),
       });
+      return createContentScriptScope(targetRealm, extId, { chrome, browser });
     },
   );
   const { alarms, permissions, history, bookmarks, downloads } =
@@ -194,13 +222,9 @@ export function installChromeApi(
     (realm as unknown as { Promise: PromiseConstructor }).Promise,
   );
 
-  setRealmApi(realm, "chrome", chromeApiWithFallback);
-  if (!setRealmApi(realm, "browser", browserApiWithFallback)) {
-    console.warn(
-      "[rivet] browser api could not be installed in this frame",
-      NEGATIVE,
-    );
-  }
-
-  return events;
+  return {
+    chrome: chromeApiWithFallback,
+    browser: browserApiWithFallback,
+    events,
+  };
 }

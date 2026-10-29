@@ -1,5 +1,6 @@
 export const RIVET_APP_BASE = (globalThis as { __LYRA_APP_BASE__?: string }).__LYRA_APP_BASE__ || "/";
 export const RIVET_PREFIX = `${RIVET_APP_BASE}f/__rivet__/ext/`;
+export const RIVET_CHILD_FRAME_MOUNT_KEY = "rivet.mountChildFrame";
 
 export function rivetBootstrapUrl(extId: string): string {
   return `${rivetExtensionBase(extId)}__bootstrap__`;

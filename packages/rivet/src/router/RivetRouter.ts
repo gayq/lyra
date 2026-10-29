@@ -1,6 +1,6 @@
 import { dbGet, EXT_FILES_STORE } from "../db";
 import { guessMime } from "../crx";
-import { decodeRivetPath, RIVET_APP_BASE, RIVET_PREFIX } from "../urlScheme";
+import { decodeRivetPath, RIVET_APP_BASE, RIVET_CHILD_FRAME_MOUNT_KEY, RIVET_PREFIX } from "../urlScheme";
 import { negativeMessage } from "../messages";
 
 const MAX_TRACKED_CLIENTS = 256;
@@ -46,6 +46,18 @@ function responseHeaders(contentType: string): HeadersInit {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "cross-origin",
   };
+}
+
+function frameDocumentStub(): string {
+  return `<!DOCTYPE html><html><head></head><body><script>(()=>{try{const mount=parent[Symbol.for(${JSON.stringify(RIVET_CHILD_FRAME_MOUNT_KEY)})];if(typeof mount==="function"&&mount(window))return}catch{}fetch(location.href).then((response)=>response.text()).then((html)=>{document.open();document.write(html);document.close()})})()</script></body></html>`;
+}
+
+function isFrameDocumentNavigation(request: Request, path: string): boolean {
+  return (
+    request.mode === "navigate" &&
+    request.destination === "iframe" &&
+    guessMime(path) === "text/html"
+  );
 }
 
 function bootstrapExtensionId(pathname: string): string | null {
@@ -131,6 +143,15 @@ export async function route(event: FetchEvent): Promise<Response> {
     if (event.clientId) rememberClient(event.clientId, decoded.extId);
 
     const response = await serveExtensionFile(decoded.extId, decoded.path);
+    if (response && isFrameDocumentNavigation(event.request, decoded.path)) {
+      const clientId = (event as unknown as { resultingClientId?: string })
+        .resultingClientId;
+      if (clientId) rememberClient(clientId, decoded.extId);
+      return new Response(frameDocumentStub(), {
+        status: 200,
+        headers: responseHeaders("text/html"),
+      });
+    }
     if (response) return response;
     return new Response(negativeMessage("extension file was not found"), {
       status: 404,

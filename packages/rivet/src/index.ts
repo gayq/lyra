@@ -5,7 +5,10 @@ export {
 } from "./RivetPlugin";
 export { findMatchingCommand, triggerCommand } from "./commands";
 export { buildExtensionUrl } from "./urlScheme";
-export { extensionPageReloadTarget } from "./pageMount";
+export {
+  extensionPageReloadTarget,
+  isMountedExtensionDocument,
+} from "./pageMount";
 export type { InstalledExtensionSummary } from "./extensions";
 export type {
   RivetContextMenuRequest,

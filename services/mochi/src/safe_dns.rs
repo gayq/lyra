@@ -33,14 +33,29 @@ impl Resolve for PublicDnsResolver {
     fn resolve(&self, name: Name) -> Resolving {
         let host = name.as_str().to_owned();
         Box::pin(async move {
-            validate_hostname(&host)?;
-            let addresses = RESOLVED
-                .try_get_with(host.clone(), lookup_public(host))
-                .await
-                .map_err(|error| io::Error::new(error.0, error.1))?;
+            let addresses = resolve_public_host(host).await?;
             Ok(Box::new((0..addresses.len()).map(move |index| addresses[index])) as Addrs)
         })
     }
+}
+
+impl wreq::dns::Resolve for PublicDnsResolver {
+    fn resolve(&self, name: wreq::dns::Name) -> wreq::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addresses = resolve_public_host(host).await?;
+            Ok(Box::new((0..addresses.len()).map(move |index| addresses[index]))
+                as wreq::dns::Addrs)
+        })
+    }
+}
+
+async fn resolve_public_host(host: String) -> io::Result<Arc<[SocketAddr]>> {
+    validate_hostname(&host)?;
+    RESOLVED
+        .try_get_with(host.clone(), lookup_public(host))
+        .await
+        .map_err(|error| io::Error::new(error.0, error.1))
 }
 
 async fn lookup_public(host: String) -> Result<Arc<[SocketAddr]>, LookupError> {

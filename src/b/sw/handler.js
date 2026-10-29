@@ -139,15 +139,32 @@ async function runProxyEngine(
   const timeoutMs = isNavigate
     ? PROXY_NAV_TIMEOUT_MS
     : PROXY_SUBRESOURCE_TIMEOUT_MS;
+  const fallbackRequest =
+    realUrl &&
+    isGoogleVideoUrl(realUrl) &&
+    request.method !== "GET" &&
+    request.method !== "HEAD"
+      ? request.clone()
+      : request;
   try {
     const response = await runFolioProxy(engine, event, timeoutMs, true);
     if (response) {
+      if (
+        !isNavigate &&
+        response.headers.get("x-lyra-error-class") === "gateway"
+      ) {
+        return Response.error();
+      }
       if (
         realUrl &&
         (response.status === 401 || response.status === 403) &&
         isGoogleVideoUrl(realUrl)
       ) {
-        const fallback = await mochiFetch(request, realUrl, LARGE_TIMEOUT_MS);
+        const fallback = await mochiFetch(
+          fallbackRequest,
+          realUrl,
+          LARGE_TIMEOUT_MS,
+        );
         if (fallback?.ok) return fallback;
       }
       return response;
@@ -349,6 +366,7 @@ async function handleCacheableCrossOrigin(request, url, realUrl) {
     isFolio && (dest === "script" || ext === ".js" || ext === ".mjs");
   if (
     !isCacheableAsset ||
+    (request.method !== "GET" && request.method !== "HEAD") ||
     realUrl.includes(self.location.host) ||
     preferProxyOverMochi
   ) {

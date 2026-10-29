@@ -1,10 +1,7 @@
-import { installChromeApi } from "./chromeApi";
+import { createChromeApi } from "./chromeApi";
+import { createContentScriptScope, runInContentScope } from "./contentScope";
 import { readExtFileText } from "./fileStore";
-import {
-  injectScript,
-  injectStyle,
-  type NativeDomOperations,
-} from "./htmlInject";
+import { injectStyle, type NativeDomOperations } from "./htmlInject";
 import { urlMatchesPatterns } from "./manifest";
 import type { ExtensionState, RivetRegistry } from "./registry";
 import type {
@@ -126,6 +123,7 @@ export async function injectContentScripts(
   registry: RivetRegistry,
   host: RivetHostBindings,
   nativeDom?: NativeDomOperations,
+  scopeBindings: Record<string, unknown> = {},
 ): Promise<void> {
   if (!url) return;
   const matching = registry.contentScripts.filter(
@@ -140,11 +138,11 @@ export async function injectContentScripts(
 
   const { documentId, frameId } = getDocumentContext(tabId, isTopLevel);
 
-  const installedExts = new Set<string>();
-  const ensureChromeApi = (extId: string) => {
-    if (installedExts.has(extId)) return;
-    installedExts.add(extId);
-    installChromeApi(win, {
+  const scopes = new Map<string, object>();
+  const contentScope = (extId: string): object => {
+    const existing = scopes.get(extId);
+    if (existing) return existing;
+    const { chrome, browser } = createChromeApi(win, {
       extId,
       tabId,
       isBackground: false,
@@ -154,6 +152,13 @@ export async function injectContentScripts(
       senderFrameId: frameId,
       senderDocumentId: documentId,
     });
+    const scope = createContentScriptScope(win, extId, {
+      ...scopeBindings,
+      chrome,
+      browser,
+    });
+    scopes.set(extId, scope);
+    return scope;
   };
 
   const byRunAt: Record<
@@ -172,7 +177,7 @@ export async function injectContentScripts(
 
   const injectGroup = async (group: ContentScriptRegistration[]) => {
     for (const cs of group) {
-      ensureChromeApi(cs.extId);
+      const scope = contentScope(cs.extId);
       for (const asset of cs.css) {
         const cached = cachedContentScriptAsset(cs.extId, asset, registry);
         const css =
@@ -187,7 +192,7 @@ export async function injectContentScripts(
           cached === undefined
             ? await readContentScriptAsset(cs.extId, asset)
             : cached;
-        if (code) injectScript(win, code, nativeDom);
+        if (code) runInContentScope(win, scope, code);
       }
     }
   };
@@ -204,14 +209,14 @@ export async function injectContentScripts(
       return false;
     }
     for (const cs of group) {
-      ensureChromeApi(cs.extId);
+      const scope = contentScope(cs.extId);
       for (const asset of cs.css) {
         const css = cachedContentScriptAsset(cs.extId, asset, registry);
         if (css) injectStyle(win, css, nativeDom);
       }
       for (const asset of cs.js) {
         const code = cachedContentScriptAsset(cs.extId, asset, registry);
-        if (code) injectScript(win, code, nativeDom);
+        if (code) runInContentScope(win, scope, code);
       }
     }
     return true;

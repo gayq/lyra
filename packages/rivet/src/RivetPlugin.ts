@@ -35,13 +35,19 @@ type FolioFrame = {
 };
 
 const contextMenuWindows = new WeakSet<Window>();
-const CONTENT_SCRIPT_DOCUMENT = "__rivetContentScriptDocument";
-const CONTENT_SCRIPT_MUTATION_OBSERVER = "__rivetContentScriptMutationObserver";
 
-function installContentScriptDocumentProxy(
+function isCloudflareChallengeFrame(url: string): boolean {
+  try {
+    return new URL(url).hostname === "challenges.cloudflare.com";
+  } catch {
+    return false;
+  }
+}
+
+function contentScriptDocumentBindings(
   win: Window,
   location: Location,
-): void {
+): Record<string, unknown> {
   const nativeStyleSheets = win.document.styleSheets;
   const contentStyleSheets = new Proxy(nativeStyleSheets, {
     get(target, property) {
@@ -99,11 +105,6 @@ function installContentScriptDocumentProxy(
       return Reflect.set(target, property, value, target);
     },
   });
-  Object.defineProperty(win, CONTENT_SCRIPT_DOCUMENT, {
-    configurable: true,
-    enumerable: false,
-    value: documentProxy,
-  });
   const NativeMutationObserver = (
     win as unknown as { MutationObserver: typeof MutationObserver }
   ).MutationObserver;
@@ -112,11 +113,10 @@ function installContentScriptDocumentProxy(
       super.observe(target === documentProxy ? win.document : target, options);
     }
   }
-  Object.defineProperty(win, CONTENT_SCRIPT_MUTATION_OBSERVER, {
-    configurable: true,
-    enumerable: false,
-    value: ContentScriptMutationObserver,
-  });
+  return {
+    document: documentProxy,
+    MutationObserver: ContentScriptMutationObserver,
+  };
 }
 
 function installContextMenuBridge(
@@ -179,23 +179,19 @@ export function createRivetContentScriptPlugin(
         const win = context?.window;
         if (!win) return;
         const url = context.client?.url?.href || win.location.href;
+        if (isCloudflareChallengeFrame(url)) return;
         installContextMenuBridge(win, rivet, tabId);
         const nativeDom =
           context.client?.natives && context.client.descriptors
             ? {
                 natives: context.client.natives,
                 descriptors: context.client.descriptors,
-                ...(context.client.locationProxy
-                  ? {
-                      prepareScript: (code: string) =>
-                        `(function(document, MutationObserver) {\n${code}\n}).call(globalThis, globalThis.${CONTENT_SCRIPT_DOCUMENT}, globalThis.${CONTENT_SCRIPT_MUTATION_OBSERVER});`,
-                    }
-                  : {}),
               }
             : undefined;
-        if (context.client?.locationProxy && nativeDom) {
-          installContentScriptDocumentProxy(win, context.client.locationProxy);
-        }
+        const scopeBindings =
+          context.client?.locationProxy && nativeDom
+            ? contentScriptDocumentBindings(win, context.client.locationProxy)
+            : {};
         await injectContentScripts(
           win,
           tabId,
@@ -204,6 +200,7 @@ export function createRivetContentScriptPlugin(
           rivet.registry,
           rivet.host,
           nativeDom,
+          scopeBindings,
         );
       });
     }

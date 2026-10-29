@@ -1,9 +1,9 @@
 import { readExtFileText } from "../fileStore";
-import { injectScript } from "../htmlInject";
+import { runInContentScope } from "../contentScope";
 import { installExtensionNetwork } from "../network";
 import type { ContentScriptRegistration } from "../types";
 import { injectCss } from "./common";
-import type { ChromeApiContext, InstallApiInTab } from "./context";
+import type { ChromeApiContext, ContentScopeInTab } from "./context";
 
 interface UserScriptRegistration {
   id: string;
@@ -18,7 +18,7 @@ interface UserScriptRegistration {
 
 export function createScriptingApis(
   context: ChromeApiContext,
-  installApiInTab: InstallApiInTab,
+  contentScopeInTab: ContentScopeInTab,
 ) {
   const { extId, tabId, registry, host } = context;
 
@@ -77,28 +77,25 @@ export function createScriptingApis(
       if (win && targetTabId !== null) {
         installExtensionNetwork(win, host.getTab(targetTabId)?.url);
       }
-      if (
-        win &&
-        targetTabId !== null &&
-        !(win as unknown as { chrome?: unknown }).chrome
-      ) {
-        installApiInTab(win, targetTabId);
-      }
+      const scope =
+        win && targetTabId !== null ? contentScopeInTab(win, targetTabId) : null;
       let results: unknown[] = [];
-      if (win && injection.func) {
+      if (win && scope && injection.func) {
         try {
           const args = JSON.stringify(injection.args ?? []);
-          const value = (
-            win as unknown as { eval: (source: string) => unknown }
-          ).eval(`(${injection.func.toString()})(...${args})`);
+          const value = runInContentScope(
+            win,
+            scope,
+            `return (${injection.func.toString()})(...${args});`,
+          );
           results = [{ result: await Promise.resolve(value) }];
         } catch {
           results = [];
         }
-      } else if (win && injection.files?.length) {
+      } else if (win && scope && injection.files?.length) {
         for (const file of injection.files) {
           const code = await readExtFileText(extId, file);
-          if (code !== null) injectScript(win, code);
+          if (code !== null) runInContentScope(win, scope, code);
         }
         results = injection.files.map(() => ({ result: undefined }));
       }

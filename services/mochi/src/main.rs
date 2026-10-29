@@ -12,6 +12,7 @@ mod safe_dns;
 mod state;
 mod stream;
 mod tuning;
+mod upload;
 mod websocket;
 
 pub(crate) const NEGATIVE: &str = "... /ᐠ - ˕ -マ";
@@ -165,6 +166,20 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         .read_timeout(Duration::from_secs(120))
         .build()?;
 
+    let folio_client = wreq::Client::builder()
+        .emulation(wreq_util::Profile::Chrome149)
+        .no_proxy()
+        .retry(wreq::retry::Policy::never())
+        .dns_resolver(Arc::new(safe_dns::PublicDnsResolver))
+        .redirect(wreq::redirect::Policy::none())
+        .pool_idle_timeout(Duration::from_secs(tuning.pool_idle_timeout_secs))
+        .pool_max_idle_per_host(tuning.pool_idle_per_host_asset)
+        .tcp_nodelay(true)
+        .tcp_keepalive(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(10))
+        .read_timeout(Duration::from_secs(120))
+        .build()?;
+
     let patterns = [
         "google-analytics.com",
         "googletagmanager.com",
@@ -223,6 +238,7 @@ async fn async_main(tuning: tuning::MochiTuning) -> AppResult<()> {
         html_client,
         asset_client,
         raw_client,
+        folio_client,
         cache,
         stream_cache,
         stream_fills,

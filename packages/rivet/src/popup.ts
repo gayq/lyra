@@ -1,6 +1,7 @@
 import {
   cancelExtensionPageMount,
   extensionPageReloadTarget,
+  isMountedExtensionDocument,
   mountExtensionPage,
 } from "./pageMount";
 import type { RivetRegistry } from "./registry";
@@ -127,6 +128,10 @@ export async function mountExtensionPopup(
 
     state.loadListener = () => {
       if (!isCurrent()) return;
+      if (isMountedExtensionDocument(frame.contentDocument)) {
+        frame.style.visibility = "";
+        return;
+      }
       let currentUrl = "";
       try {
         currentUrl = frame.contentWindow?.location.href ?? "";

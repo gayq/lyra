@@ -43,11 +43,17 @@ export default function (client: FolioClient) {
 			if (!f) return f;
 
 			const win = f.ownerDocument.defaultView;
-			if (win[FOLIOCLIENT]) {
-				return f;
-			} else {
+			const parentClient = win[FOLIOCLIENT];
+			if (!parentClient) return null;
+
+			const ownUrl = client.url;
+			const inherits =
+				ownUrl.href === "about:blank" || ownUrl.href === "about:srcdoc";
+			if (!inherits && ownUrl.origin !== parentClient.url.origin) {
 				return null;
 			}
+
+			return f;
 		},
 	});
 }

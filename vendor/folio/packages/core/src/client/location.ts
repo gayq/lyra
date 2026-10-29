@@ -4,10 +4,71 @@ import { encodeRouteToken } from "@/shared/route";
 import { iswindow } from "@client/entry";
 import {
 	Reflect_apply,
+	Reflect_get,
 	Object_setPrototypeOf,
 	_URL,
 	Object_defineProperty,
+	Number,
+	String,
 } from "@/shared/snapshot";
+import { FOLIOCLIENT } from "@/symbols";
+
+function siteAncestorOrigins(self: GlobalThis): string[] {
+	const origins: string[] = [];
+	let current: GlobalThis | Window = self;
+	for (;;) {
+		let ancestorClient: FolioClient | undefined;
+		try {
+			const parent: Window = current.parent;
+			if (parent === current) break;
+			ancestorClient = parent[FOLIOCLIENT];
+			current = parent;
+		} catch {
+			break;
+		}
+		if (!ancestorClient) break;
+		origins.push(ancestorClient.url.origin);
+	}
+
+	return origins;
+}
+
+function createAncestorOriginsList(
+	self: GlobalThis,
+	origins: string[]
+): DOMStringList {
+	const proto = self.DOMStringList.prototype;
+	const list: Record<number, string> = {};
+	Object_setPrototypeOf(list, proto);
+	for (let i = 0; i < origins.length; i++) {
+		Object_defineProperty(list, i, {
+			value: origins[i],
+			writable: false,
+			enumerable: true,
+			configurable: true,
+		});
+	}
+	const item = new Proxy(proto.item, {
+		apply(_target, _that, args) {
+			return origins[Number(args[0]) >>> 0] ?? null;
+		},
+	});
+	const contains = new Proxy(proto.contains, {
+		apply(_target, _that, args) {
+			return origins.includes(String(args[0]));
+		},
+	});
+
+	return new Proxy(list, {
+		get(target, prop, receiver) {
+			if (prop === "length") return origins.length;
+			if (prop === "item") return item;
+			if (prop === "contains") return contains;
+
+			return Reflect_get(target, prop, receiver);
+		},
+	}) as unknown as DOMStringList;
+}
 
 export function createLocationProxy(client: FolioClient, self: GlobalThis) {
 	const Location = iswindow ? self.Location : self.WorkerLocation;
@@ -78,6 +139,32 @@ export function createLocationProxy(client: FolioClient, self: GlobalThis) {
 			});
 		}
 		Object_defineProperty(fakeLocation, prop, desc);
+	}
+
+	if (iswindow) {
+		const native = client.natives.call(
+			"Object.getOwnPropertyDescriptor",
+			null,
+			self.location,
+			"ancestorOrigins"
+		);
+		if (native?.get) {
+			let ancestorOrigins: DOMStringList | undefined;
+			Object_defineProperty(fakeLocation, "ancestorOrigins", {
+				configurable: false,
+				enumerable: true,
+				get: new Proxy(native.get, {
+					apply() {
+						ancestorOrigins ??= createAncestorOriginsList(
+							self,
+							siteAncestorOrigins(self)
+						);
+
+						return ancestorOrigins;
+					},
+				}),
+			});
+		}
 	}
 
 	fakeLocation.toString = new Proxy(self.location.toString, {

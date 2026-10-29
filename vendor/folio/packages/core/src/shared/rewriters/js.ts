@@ -12,8 +12,10 @@ import {
 	Performance_now,
 } from "../snapshot";
 
-// eslint-disable-next-line folio-core/no-globals
-Error.stackTraceLimit = 50;
+if ("ServiceWorkerGlobalScope" in globalThis) {
+	// eslint-disable-next-line folio-core/no-globals
+	Error.stackTraceLimit = 50;
+}
 
 type RewriterResult = {
 	js: string | Uint8Array;

@@ -16,6 +16,7 @@ import {
 } from "../config/settingsOptions.ts";
 import { ensureProxyRuntime } from "../proxy/proxyRuntime.ts";
 import { getRivet } from "../proxy/rivetBridge.ts";
+import { folioPageStateDocuments } from "../proxy/folioPageState.ts";
 import { hostFromUrl, recordGameMetric } from "../media/gameDiagnostics.ts";
 import { NEGATIVE } from "../runtime/messages.ts";
 import { appPath } from "../runtime/hosting.ts";
@@ -85,6 +86,15 @@ declare global {
 
 const GAME_LOAD_TIMEOUT_MS = 45_000;
 const navigationVersions = new WeakMap<HTMLIFrameElement, number>();
+
+type ContentWindowListeners = {
+  historyCleanup?: () => void;
+  beforeUnload?: EventListener;
+  domContentLoaded?: EventListener;
+  focus?: EventListener;
+};
+
+const contentWindowListeners = new WeakMap<Window, ContentWindowListeners>();
 
 function syncGlobalLoadingState(): void {
   window.Lyra.isLoading = Boolean(
@@ -373,34 +383,23 @@ async function navigateExternalThroughFolio(
 
 function detachContentWindowListeners(iframe: HTMLIFrameElement): void {
   try {
-    const iframeWindow = iframe.contentWindow as
-      (Window & Record<string, unknown>) | null;
+    const iframeWindow = iframe.contentWindow;
     if (!iframeWindow) return;
-    if (typeof iframeWindow.__lyraHistoryCleanup === "function") {
-      iframeWindow.__lyraHistoryCleanup();
-      delete iframeWindow.__lyraHistoryCleanup;
+    const listeners = contentWindowListeners.get(iframeWindow);
+    if (!listeners) return;
+    contentWindowListeners.delete(iframeWindow);
+    listeners.historyCleanup?.();
+    if (listeners.beforeUnload) {
+      iframeWindow.removeEventListener("beforeunload", listeners.beforeUnload);
     }
-    if (iframeWindow.__beforeUnloadHandler) {
-      iframeWindow.removeEventListener(
-        "beforeunload",
-        iframeWindow.__beforeUnloadHandler as EventListener,
-      );
-      iframeWindow.__beforeUnloadHandler = null;
-    }
-    if (iframeWindow.__domContentLoadedHandler) {
+    if (listeners.domContentLoaded) {
       iframeWindow.removeEventListener(
         "DOMContentLoaded",
-        iframeWindow.__domContentLoadedHandler as EventListener,
+        listeners.domContentLoaded,
       );
-      iframeWindow.__domContentLoadedHandler = null;
     }
-    if (iframeWindow.__lyraFocusHandler) {
-      iframeWindow.removeEventListener(
-        "mousedown",
-        iframeWindow.__lyraFocusHandler as EventListener,
-        true,
-      );
-      iframeWindow.__lyraFocusHandler = null;
+    if (listeners.focus) {
+      iframeWindow.removeEventListener("mousedown", listeners.focus, true);
     }
   } catch (e) {
     console.warn("unable to detach iframe window listeners:", e, NEGATIVE);
@@ -706,10 +705,11 @@ function setupIframeContentListeners(
       return;
 
     detachContentWindowListeners(iframe);
+    const listeners: ContentWindowListeners = {};
+    contentWindowListeners.set(iframeWindow, listeners);
     const navigation = iframeWindow.navigation;
-    const hasPageStatePlugin = Boolean(
-      (iframeWindow as Window & { __lyraFolioPageStateInstalled?: boolean })
-        .__lyraFolioPageStateInstalled,
+    const hasPageStatePlugin = folioPageStateDocuments.has(
+      iframeWindow.document,
     );
     if (navigation && !hasPageStatePlugin) {
       const onEntryChange = (event: NavigationCurrentEntryChangeEvent) => {
@@ -721,9 +721,8 @@ function setupIframeContentListeners(
         );
       };
       navigation.addEventListener("currententrychange", onEntryChange);
-      (iframeWindow as Window & Record<string, unknown>).__lyraHistoryCleanup =
-        () =>
-          navigation.removeEventListener("currententrychange", onEntryChange);
+      listeners.historyCleanup = () =>
+        navigation.removeEventListener("currententrychange", onEntryChange);
     }
 
     const handleNav = (type = "history-push"): void => {
@@ -780,11 +779,10 @@ function setupIframeContentListeners(
       const onHashChange = () => handleNav("hashchange");
       iframeWindow.addEventListener("popstate", onPopState);
       iframeWindow.addEventListener("hashchange", onHashChange);
-      (iframeWindow as Window & Record<string, unknown>).__lyraHistoryCleanup =
-        () => {
-          iframeWindow.removeEventListener("popstate", onPopState);
-          iframeWindow.removeEventListener("hashchange", onHashChange);
-        };
+      listeners.historyCleanup = () => {
+        iframeWindow.removeEventListener("popstate", onPopState);
+        iframeWindow.removeEventListener("hashchange", onHashChange);
+      };
     }
 
     const beforeUnloadHandler = () => {
@@ -802,16 +800,13 @@ function setupIframeContentListeners(
         if (window.Lyra.renderTabs) (window.Lyra.renderTabs as () => void)();
       }
     };
-    (iframeWindow as Window & Record<string, unknown>).__beforeUnloadHandler =
-      beforeUnloadHandler;
+    listeners.beforeUnload = beforeUnloadHandler;
     iframeWindow.addEventListener("beforeunload", beforeUnloadHandler);
 
     const domLoadedHandler = () => {
       updateTabDetails(iframe);
     };
-    (
-      iframeWindow as Window & Record<string, unknown>
-    ).__domContentLoadedHandler = domLoadedHandler;
+    listeners.domContentLoaded = domLoadedHandler;
     iframeWindow.addEventListener("DOMContentLoaded", domLoadedHandler);
 
     const mouseDownHandler = () => {
@@ -821,8 +816,7 @@ function setupIframeContentListeners(
       });
       iframe.dispatchEvent(focusEvent);
     };
-    (iframeWindow as Window & Record<string, unknown>).__lyraFocusHandler =
-      mouseDownHandler;
+    listeners.focus = mouseDownHandler;
     iframeWindow.addEventListener("mousedown", mouseDownHandler, true);
   } catch (e) {
     console.warn("could not attach listeners to iframe content", NEGATIVE);
@@ -982,10 +976,7 @@ function installIframeLoadHandlers(
       const nativeUrl = win?.location.href;
       if (nativeUrl && nativeUrl !== "about:blank") {
         newUrl = navigationUrl(nativeUrl);
-        if (
-          !(win as Window & { __lyraFolioPageStateInstalled?: boolean })
-            .__lyraFolioPageStateInstalled
-        ) {
+        if (!win || !folioPageStateDocuments.has(win.document)) {
           historyManager.observe(
             newUrl,
             win?.navigation?.activation?.navigationType ?? "load",

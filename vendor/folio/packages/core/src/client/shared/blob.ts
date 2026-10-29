@@ -18,7 +18,12 @@ export default function (client: FolioClient) {
 		apply(ctx) {
 			setTimeout(() => {
 				const url = String(ctx.args[0]);
-				ctx.args[0] = unrewriteBlob(url, client.context, client.meta);
+				if (!url.startsWith("blob:")) return;
+				try {
+					ctx.args[0] = unrewriteBlob(url, client.context, client.meta);
+				} catch {
+					return;
+				}
 				ctx.call();
 			}, 1000);
 			ctx.return(undefined);

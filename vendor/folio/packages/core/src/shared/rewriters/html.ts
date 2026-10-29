@@ -7,13 +7,12 @@ import { rewriteJs } from "@rewriters/js";
 import { FolioContext } from "@/shared";
 import { htmlRules } from "@/shared/htmlRules";
 import { parseDeclarativeRefresh } from "@/shared/refresh";
-import { bytesToBase64 } from "@/shared/util";
+import { base64Decode, bytesToBase64 } from "@/shared/util";
 import { Tap } from "@/Tap";
 import { RawHeaders } from "@mercuryworkshop/proxy-transports";
 import { TrackedHistoryState } from "@/fetch";
 import {
 	Performance_now,
-	atob,
 	Object_entries,
 	JSON_parse,
 	JSON_stringify,
@@ -337,7 +336,8 @@ export function unrewriteHtml(html: string, foreignContext?: ForeignContext) {
 			for (const key in node.attribs) {
 				if (key == "folio-attr-script-source-src") {
 					if (node.children[0] && "data" in node.children[0])
-						node.children[0].data = atob(node.attribs[key]);
+						node.children[0].data = base64Decode(node.attribs[key]);
+					delete node.attribs[key];
 					continue;
 				}
 

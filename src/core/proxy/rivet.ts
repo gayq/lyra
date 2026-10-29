@@ -5,6 +5,7 @@ import {
   triggerCommand,
   buildExtensionUrl,
   extensionPageReloadTarget,
+  isMountedExtensionDocument,
   type FolioManagedPluginConstructor,
   type RivetContextMenuRequest,
   type RivetHostBindings,
@@ -180,13 +181,16 @@ function openExtensionPage(
   extensionPageMountVersions.set(frame, mountVersion);
   let activePage = page;
 
-  const updatePageState = (nextPage: string) => {
+  const updatePageState = (nextPage: string, isLoading = true) => {
     activePage = nextPage;
     const extensionUrl = buildExtensionUrl(extId, nextPage);
     tab.extensionPage = { extId, page: nextPage, url: extensionUrl };
     frame.dataset.manualUrl = extensionUrl;
-    store.showLoading(tab.id);
-    rivet.notifyTabUpdated(tab.id, { status: "loading", url: extensionUrl });
+    if (isLoading) store.showLoading(tab.id);
+    rivet.notifyTabUpdated(tab.id, {
+      status: isLoading ? "loading" : "complete",
+      url: extensionUrl,
+    });
     store.notify();
     if (store.activeTabId === tab.id) {
       updateHistoryUI(tab as never, {
@@ -204,6 +208,7 @@ function openExtensionPage(
       tab.extensionPage.page !== activePage
     )
       return;
+    if (isMountedExtensionDocument(frame.contentDocument)) return;
 
     const targetPage = extensionPageReloadTarget(
       activePage,
@@ -248,7 +253,8 @@ function openExtensionPage(
       location.origin,
       extId,
     );
-    if (targetPage && targetPage !== activePage) updatePageState(targetPage);
+    if (targetPage && targetPage !== activePage)
+      updatePageState(targetPage, false);
   };
 
   const installRouteListener = () => {

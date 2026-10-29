@@ -321,8 +321,8 @@ const controllerConfig = createGenericConfig({
 		path: join(controllerdir, "dist"),
 		iife: true,
 		library: {
-			type: "var",
-			name: "$folioController",
+			type: "assign",
+			name: "self.$folioController",
 		},
 	},
 	target: "web",

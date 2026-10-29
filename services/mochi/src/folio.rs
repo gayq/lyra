@@ -23,6 +23,7 @@ const SESSION_HEADER: &str = "x-mochi-folio-session";
 const UPSTREAM_META_HEADER: &str = "x-mochi-upstream-meta";
 const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
 const MAX_HEADER_COUNT: usize = 128;
+const BROWSER_ACCEPT_ENCODING: &str = "gzip, deflate, br, zstd";
 
 #[derive(Serialize)]
 struct UpstreamMeta {
@@ -155,6 +156,19 @@ pub async fn request_handler(
         .cache_misses
         .fetch_add(1, Ordering::Relaxed);
 
+    let bodyless = method == Method::GET || method == Method::HEAD;
+    let upload = if bodyless {
+        None
+    } else {
+        match crate::upload::content_length(&headers) {
+            Some(length) => Some((body, length)),
+            None => match crate::upload::spool(body, crate::upload::MAX_SPOOLED_BODY).await {
+                Ok(spooled) => Some(spooled),
+                Err(error) => return gateway_error(error.status(), error.message()),
+            },
+        }
+    };
+
     let Some(permit) = state
         .request_permit
         .acquire_timeout(std::time::Duration::from_secs(5))
@@ -164,23 +178,43 @@ pub async fn request_handler(
     };
     let active = ActiveRequestGuard::new(state.clone());
 
-    let mut request = state
-        .raw_client
-        .request(method.clone(), target.clone())
-        .headers(upstream_headers.clone());
-    if let Some(stale) = cached.as_ref() {
-        if let Some(etag) = raw_header(&stale.raw_headers, "etag") {
-            request = request.header("if-none-match", etag);
-        } else if let Some(last_modified) = raw_header(&stale.raw_headers, "last-modified") {
-            request = request.header("if-modified-since", last_modified);
+    let build_request = || {
+        let mut request = state
+            .folio_client
+            .request(method.clone(), target.as_str())
+            .default_headers(false)
+            .headers(upstream_headers.clone());
+        if !upstream_headers.contains_key("range") {
+            request = request.header("accept-encoding", BROWSER_ACCEPT_ENCODING);
         }
-    }
-    if method != Method::GET && method != Method::HEAD {
-        request = request.body(reqwest::Body::wrap_stream(body.into_data_stream()));
+        if let Some(stale) = cached.as_ref() {
+            if let Some(etag) = raw_header(&stale.raw_headers, "etag") {
+                request = request.header("if-none-match", etag);
+            } else if let Some(last_modified) = raw_header(&stale.raw_headers, "last-modified")
+            {
+                request = request.header("if-modified-since", last_modified);
+            }
+        }
+        request
+    };
+    let mut request = build_request();
+    if let Some((body, length)) = upload {
+        request = request
+            .header(axum::http::header::CONTENT_LENGTH, length)
+            .body(wreq::Body::wrap_stream(body.into_data_stream()));
     }
 
     let request_started = std::time::Instant::now();
-    let upstream = match request.send().await {
+    let sent = match request.send().await {
+        Err(error)
+            if bodyless && upstream_error_category(&error) == "network" =>
+        {
+            tracing::debug!("folio upstream connection dropped, retrying once");
+            build_request().send().await
+        }
+        sent => sent,
+    };
+    let upstream = match sent {
         Ok(response) => response,
         Err(error) => {
             state
@@ -188,7 +222,7 @@ pub async fn request_handler(
                 .upstream_errors
                 .fetch_add(1, Ordering::Relaxed);
             tracing::warn!(
-                category = crate::proxy::upstream_error_category(&error),
+                category = upstream_error_category(&error),
                 "folio upstream request failed{}",
                 NEGATIVE
             );
@@ -203,7 +237,7 @@ pub async fn request_handler(
         invalidate_target(&state, target.as_str()).await;
     }
 
-    if upstream.status() == reqwest::StatusCode::NOT_MODIFIED {
+    if upstream.status() == StatusCode::NOT_MODIFIED {
         if let Some(stale) = cached {
             let refreshed = Arc::new(refresh_cached_response(
                 stale.as_ref(),
@@ -227,7 +261,7 @@ pub async fn request_handler(
 
     let status = upstream.status();
     let status_text = status.canonical_reason().unwrap_or("").to_owned();
-    let upstream_url = upstream.url().to_string();
+    let upstream_url = upstream.uri().to_string();
     let stored_at_ms = now_ms();
     let raw_headers = aged_headers(upstream.headers(), request_started.elapsed());
     let cache_policy = cache_policy(
@@ -370,6 +404,33 @@ async fn publish_cache(
     state.folio_cache.insert(key.clone(), entry).await;
     if generation != state.folio_cache_generation.load(Ordering::Acquire) {
         state.folio_cache.invalidate(&key).await;
+    }
+}
+
+fn upstream_error_category(error: &wreq::Error) -> &'static str {
+    use std::error::Error;
+    let mut source: Option<&(dyn Error + 'static)> = Some(error);
+    while let Some(current) = source {
+        if let Some(io) = current.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::PermissionDenied {
+                return "policy-denied";
+            }
+            if io.kind() == std::io::ErrorKind::InvalidInput {
+                return "invalid-request";
+            }
+        }
+        source = current.source();
+    }
+    if error.is_timeout() {
+        "network-timeout"
+    } else if error.is_connect() || error.is_dns() || error.is_tls() {
+        "connect"
+    } else if error.is_redirect() {
+        "redirect"
+    } else if error.is_body() || error.is_decode() {
+        "upstream-data"
+    } else {
+        "network"
     }
 }
 

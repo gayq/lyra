@@ -744,10 +744,7 @@ return { apply, construct };
 						return returnValue;
 					},
 				};
-				if (
-					!this.flagEnabled("debugTrampolines") &&
-					this.flagEnabled("allowFailedIntercepts")
-				) {
+				if (!this.flagEnabled("debugTrampolines")) {
 					handler.apply(ctx);
 
 					if (earlyreturn) {
@@ -867,23 +864,33 @@ return { apply, construct };
 		delete target[prop];
 
 		const desc: PropertyDescriptor = {};
+		const accessors = Object_getOwnPropertyDescriptor(
+			{
+				get [prop]() {
+					ctx.this = this;
+
+					return descriptor.get(ctx);
+				},
+				set [prop](v: any) {
+					ctx.this = this;
+
+					descriptor.set(ctx, v);
+				},
+			},
+			prop
+		);
+		const nativeAccessor = oldDescriptor && !("value" in oldDescriptor);
 
 		if (descriptor.get) {
-			desc.get = function () {
-				ctx.this = this;
-
-				return descriptor.get(ctx);
-			};
+			desc.get = accessors.get;
+			if (oldDescriptor?.get) this.box.unproxy.set(desc.get, oldDescriptor.get);
 		} else if (oldDescriptor?.get) {
 			desc.get = oldDescriptor.get;
 		}
 
-		if (descriptor.set) {
-			desc.set = function (v: any) {
-				ctx.this = this;
-
-				descriptor.set(ctx, v);
-			};
+		if (descriptor.set && (!nativeAccessor || oldDescriptor.set)) {
+			desc.set = accessors.set;
+			if (oldDescriptor?.set) this.box.unproxy.set(desc.set, oldDescriptor.set);
 		} else if (oldDescriptor?.set) {
 			desc.set = oldDescriptor.set;
 		}

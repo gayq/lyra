@@ -140,6 +140,7 @@ export class MochiTransport implements ProxyTransport {
   private serverAvailable = false;
   private failures = 0;
   private circuitOpenUntil = 0;
+  private uploadsStreamable = false;
   private readonly sessionId = createSessionId();
 
   constructor(
@@ -169,6 +170,7 @@ export class MochiTransport implements ProxyTransport {
 
       const abort = new AbortController();
       const timeout = setTimeout(() => abort.abort(), 3_000);
+      const stopWatchingProtocol = this.watchUploadProtocol();
       try {
         const response = await fetch(endpoint(this.base, "capabilities"), {
           cache: "no-store",
@@ -181,6 +183,7 @@ export class MochiTransport implements ProxyTransport {
         this.serverAvailable = false;
       } finally {
         clearTimeout(timeout);
+        if (!this.serverAvailable) stopWatchingProtocol();
       }
       await fallbackInit;
       this.ready = true;
@@ -213,6 +216,38 @@ export class MochiTransport implements ProxyTransport {
     );
   }
 
+  private watchUploadProtocol(): () => void {
+    if (typeof PerformanceObserver === "undefined") return () => {};
+    const capabilities = endpoint(this.base, "capabilities").href;
+    const observer = new PerformanceObserver((list) => {
+      const entries = list.getEntriesByName(
+        capabilities,
+      ) as PerformanceResourceTiming[];
+      if (!entries.length) return;
+      observer.disconnect();
+      if (entries.some((entry) => /^h[23]/.test(entry.nextHopProtocol))) {
+        this.uploadsStreamable = true;
+      }
+    });
+    try {
+      observer.observe({ type: "resource" });
+    } catch {
+      return () => {};
+    }
+    return () => observer.disconnect();
+  }
+
+  private streamsUploads(): boolean {
+    if (this.uploadsStreamable) return true;
+    const entries = performance.getEntriesByName(
+      endpoint(this.base, "capabilities").href,
+    ) as PerformanceResourceTiming[];
+    this.uploadsStreamable = entries.some((entry) =>
+      /^h[23]/.test(entry.nextHopProtocol),
+    );
+    return this.uploadsStreamable;
+  }
+
   async request(
     remote: URL,
     method: string,
@@ -237,6 +272,14 @@ export class MochiTransport implements ProxyTransport {
         headers,
         signal,
       );
+    }
+
+    if (
+      typeof ReadableStream !== "undefined" &&
+      body instanceof ReadableStream &&
+      !this.streamsUploads()
+    ) {
+      body = await new Response(body).arrayBuffer();
     }
 
     const requestUrl = endpoint(

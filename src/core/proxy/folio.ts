@@ -1,6 +1,7 @@
 import { createRivetFramePlugins, initializeRivet } from "./rivet";
 import type { ProxyTransport } from "@mercuryworkshop/proxy-transports";
 import { MochiTransport, resolveMochiOrigin } from "./mochiTransport";
+import { folioPageStateDocuments } from "./folioPageState";
 import { negativeMessage } from "../runtime/messages.ts";
 import { runtimeAssetPath } from "../runtime/build.ts";
 import { appPath } from "../runtime/hosting.ts";
@@ -520,12 +521,9 @@ function createFolioPageStatePlugin(iframe: HTMLIFrameElement): unknown {
       this.tap(frame.hooks.init.post, (context: FolioPageState) => {
         if (!context.isTopLevel || !context.window?.document) return;
 
-        const win = context.window as Window &
-          typeof globalThis & {
-            __lyraFolioPageStateInstalled?: boolean;
-          };
-        if (win.__lyraFolioPageStateInstalled) return;
-        win.__lyraFolioPageStateInstalled = true;
+        const win = context.window as Window & typeof globalThis;
+        if (folioPageStateDocuments.has(win.document)) return;
+        folioPageStateDocuments.add(win.document);
 
         const doc = win.document;
         let navigationVersion = iframe.dataset.navigationVersion;

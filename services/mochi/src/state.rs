@@ -79,6 +79,7 @@ pub struct AppState {
     pub html_client: Client,
     pub asset_client: Client,
     pub raw_client: Client,
+    pub folio_client: wreq::Client,
     pub cache: Cache<String, Arc<CachedResponse>>,
     pub stream_cache: Cache<String, Arc<CachedResponse>>,
     pub stream_fills: Cache<String, Arc<StreamFill>>,

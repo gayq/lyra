@@ -34,7 +34,7 @@ export const defaultConfig: FolioConfig = {
 		disableComputedWrap: false,
 		rewriterLogs: false,
 		captureErrors: false,
-		cleanErrors: false,
+		cleanErrors: true,
 		scramitize: false,
 		sourcemaps: true,
 		destructureRewrites: true,

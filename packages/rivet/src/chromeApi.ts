@@ -1,2 +1,2 @@
 export { buildTabObject } from "./chromeApi/common";
-export { installChromeApi } from "./chromeApi/install";
+export { createChromeApi, installChromeApi } from "./chromeApi/install";

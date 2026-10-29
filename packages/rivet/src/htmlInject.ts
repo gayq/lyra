@@ -20,7 +20,6 @@ export type NativeDomOperations = {
   descriptors: {
     set: (target: string, that: unknown, value: unknown) => void;
   };
-  prepareScript?: (code: string) => string;
 };
 
 function defineNavigatorValue(
@@ -225,28 +224,6 @@ export async function writeDocument(
   load.initEvent("load", false, false);
   realm.dispatchEvent(load);
   return realm;
-}
-
-export function injectScript(
-  win: Window,
-  code: string,
-  nativeDom?: NativeDomOperations,
-): void {
-  try {
-    const doc = win.document;
-    if (nativeDom) {
-      const source = nativeDom.prepareScript?.(code) ?? code;
-      const script = doc.createElement("script");
-      script.appendChild(doc.createTextNode(source));
-      (doc.head || doc.documentElement).appendChild(script);
-    } else {
-      const script = doc.createElement("script");
-      script.textContent = code;
-      (doc.head || doc.documentElement).appendChild(script);
-    }
-  } catch (e) {
-    console.warn("[rivet] script injection failed", e, NEGATIVE);
-  }
 }
 
 export function injectScriptFromUrl(

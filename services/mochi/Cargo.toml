@@ -17,7 +17,7 @@ tokio-stream = "0.1"
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["io"] }
 urlencoding = "2.1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "http2", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "gzip", "brotli", "deflate", "zstd", "http2", "json"] }
 lol_html = "1.0"
 moka = { version = "0.12", features = ["future"] }
 aho-corasick = "1.1"
@@ -34,6 +34,8 @@ serde_json = "1"
 sha2 = "0.10"
 hex = "0.4"
 sysinfo = "0.38.3"
+wreq = { version = "=6.0.0-rc.31", features = ["stream", "gzip", "brotli", "deflate", "zstd"] }
+wreq-util = "=3.0.0-rc.14"
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["test-util"] }

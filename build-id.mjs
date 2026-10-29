@@ -60,7 +60,7 @@ function collectBuildFiles(directory, files = []) {
 export function createSourceBuildId(root, deployment = "") {
   const hasher = createHash("sha1");
   if (deployment) hasher.update(`deployment\0${deployment}\0`);
-  for (const directory of ["src", "public", ...BUILD_FINGERPRINT_DIRECTORIES]) {
+  for (const directory of ["src", "public", path.join("packages", "rivet"), ...BUILD_FINGERPRINT_DIRECTORIES]) {
     const directoryPath = path.join(root, directory);
     if (!fs.existsSync(directoryPath)) continue;
     for (const filePath of collectBuildFiles(directoryPath)) {

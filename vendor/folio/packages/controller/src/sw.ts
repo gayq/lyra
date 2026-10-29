@@ -10,9 +10,67 @@ function makeId(): string {
 	return Math.random().toString(36).substring(2, 10);
 }
 
-async function requestBodyForTransfer(request: Request): Promise<ArrayBuffer | null> {
-	if (!request.body) return null;
-	return request.arrayBuffer();
+const STREAMED_BODY_MIN_BYTES = 1024 * 1024;
+
+let streamTransferSupported: boolean | undefined;
+function canTransferStreams(): boolean {
+	if (streamTransferSupported === undefined) {
+		try {
+			const probe = new ReadableStream();
+			structuredClone(probe, { transfer: [probe] });
+			streamTransferSupported = true;
+		} catch {
+			streamTransferSupported = false;
+		}
+	}
+	return streamTransferSupported;
+}
+
+function joinChunks(chunks: Uint8Array[], size: number): ArrayBuffer {
+	const joined = new Uint8Array(size);
+	let offset = 0;
+	for (const chunk of chunks) {
+		joined.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return joined.buffer;
+}
+
+async function requestBodyForTransfer(
+	request: Request
+): Promise<ArrayBuffer | ReadableStream<Uint8Array> | null> {
+	if (request.method === "GET" || request.method === "HEAD") return null;
+	if (
+		!(request.body instanceof ReadableStream) ||
+		!canTransferStreams()
+	) {
+		const body = await request.arrayBuffer();
+		return body.byteLength ? body : null;
+	}
+
+	const reader = request.body.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	while (size < STREAMED_BODY_MIN_BYTES) {
+		const { done, value } = await reader.read();
+		if (done) return size ? joinChunks(chunks, size) : null;
+		chunks.push(value);
+		size += value.byteLength;
+	}
+
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk);
+		},
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) controller.close();
+			else controller.enqueue(value);
+		},
+		cancel(reason) {
+			return reader.cancel(reason);
+		},
+	});
 }
 
 const cookieResolvers: Record<string, (value: void) => void> = {};

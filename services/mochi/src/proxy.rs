@@ -147,6 +147,63 @@ pub(crate) fn safe_to_retry(method: &Method) -> bool {
     matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
 }
 
+const MAX_BUFFERED_REQUEST_BODY: usize = 2 * 1024 * 1024;
+
+pub(crate) enum UpstreamBody {
+    Buffered(Bytes),
+    Streamed {
+        body: Option<Body>,
+        content_length: u64,
+    },
+}
+
+impl UpstreamBody {
+    fn buffered(&self) -> Bytes {
+        match self {
+            Self::Buffered(bytes) => bytes.clone(),
+            Self::Streamed { .. } => Bytes::new(),
+        }
+    }
+}
+
+async fn upstream_body(
+    method: &Method,
+    headers: &HeaderMap,
+    body: Body,
+) -> Result<UpstreamBody, Box<Response>> {
+    let content_length = crate::upload::content_length(headers);
+    if safe_to_retry(method)
+        || content_length.is_some_and(|length| length <= MAX_BUFFERED_REQUEST_BODY as u64)
+    {
+        return axum::body::to_bytes(body, MAX_BUFFERED_REQUEST_BODY)
+            .await
+            .map(UpstreamBody::Buffered)
+            .map_err(|_| {
+                Box::new(classified_error_response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "invalid-request",
+                    "request body is too large",
+                ))
+            });
+    }
+    let (body, length) = match content_length {
+        Some(length) => (body, length),
+        None => crate::upload::spool(body, crate::upload::MAX_SPOOLED_BODY)
+            .await
+            .map_err(|error| {
+                Box::new(classified_error_response(
+                    error.status(),
+                    "invalid-request",
+                    error.message(),
+                ))
+            })?,
+    };
+    Ok(UpstreamBody::Streamed {
+        body: Some(body),
+        content_length: length,
+    })
+}
+
 fn is_retryable_upstream_status(status: u16) -> bool {
     matches!(status, 408 | 425 | 429) || status >= 500
 }
@@ -461,7 +518,7 @@ async fn send_upstream_with_retries(
     method: &Method,
     target_url: &Url,
     headers: &HeaderMap,
-    req_body: &Bytes,
+    mut req_body: UpstreamBody,
     is_likely_asset: bool,
     is_html_page: bool,
 ) -> Result<reqwest::Response, reqwest::Error> {
@@ -485,8 +542,22 @@ async fn send_upstream_with_retries(
             is_html_page,
         );
 
-        if !req_body.is_empty() {
-            req_builder = req_builder.body(req_body.clone());
+        match &mut req_body {
+            UpstreamBody::Buffered(bytes) => {
+                if !bytes.is_empty() {
+                    req_builder = req_builder.body(bytes.clone());
+                }
+            }
+            UpstreamBody::Streamed {
+                body,
+                content_length,
+            } => {
+                req_builder = req_builder.header(reqwest::header::CONTENT_LENGTH, *content_length);
+                if let Some(body) = body.take() {
+                    req_builder =
+                        req_builder.body(reqwest::Body::wrap_stream(body.into_data_stream()));
+                }
+            }
         }
         let started = std::time::Instant::now();
         match req_builder.send().await {
@@ -667,7 +738,7 @@ pub async fn raw_proxy_handler(
         &method,
         &target_url,
         &headers,
-        &req_body,
+        UpstreamBody::Buffered(req_body),
         is_likely_asset,
         looks_like_html_page,
     )
@@ -797,9 +868,13 @@ pub async fn proxy_handler(
     uri: Uri,
     ws: Option<WebSocketUpgrade>,
     client_permit: Option<axum::Extension<Arc<crate::admission::ClientPermit>>>,
-    req_body: Bytes,
+    req_body: Body,
 ) -> Response {
     proxy_metrics().requests.fetch_add(1, Ordering::Relaxed);
+    let req_body = match upstream_body(&method, &headers, req_body).await {
+        Ok(body) => body,
+        Err(response) => return *response,
+    };
     let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("");
     let is_cover_request = uri.path().starts_with(constants::COVER_PREFIX);
     let prefix = if is_cover_request { constants::COVER_PREFIX } else { constants::MOCHI_PREFIX };
@@ -985,7 +1060,7 @@ pub async fn proxy_handler(
             &target_url_string,
             target_url_str,
             &headers,
-            &req_body,
+            &req_body.buffered(),
             Some(MAX_COVER_BODY_SIZE),
         )
         .await
@@ -1006,7 +1081,7 @@ pub async fn proxy_handler(
             &target_url_string,
             target_url_str,
             &headers,
-            &req_body,
+            &req_body.buffered(),
             None,
         )
         .await
@@ -1036,7 +1111,7 @@ pub async fn proxy_handler(
         &method,
         &target_url,
         &headers,
-        &req_body,
+        req_body,
         is_likely_asset,
         looks_like_html_page,
     )
@@ -1467,7 +1542,7 @@ async fn fetch_and_cache(
         &Method::GET,
         target_url,
         headers,
-        req_body,
+        UpstreamBody::Buffered(req_body.clone()),
         true,
         false,
     )

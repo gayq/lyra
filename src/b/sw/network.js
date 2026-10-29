@@ -22,6 +22,77 @@ function mochiTarget(realUrl) {
     : `${MOCHI_PREFIX}${realUrl}`;
 }
 
+const STREAMED_BODY_MIN_BYTES = 1024 * 1024;
+
+function mochiStreamsUploads() {
+  try {
+    const origin = new URL(mochiBase()).origin;
+    return self.performance
+      .getEntriesByType("resource")
+      .some(
+        (entry) =>
+          entry.name.startsWith(origin) && /^h[23]/.test(entry.nextHopProtocol),
+      );
+  } catch {
+    return false;
+  }
+}
+
+const requestBodies = new WeakMap();
+
+async function readRequestBody(request) {
+  if (!(request.body instanceof ReadableStream) || !mochiStreamsUploads()) {
+    return request.arrayBuffer();
+  }
+  const reader = request.body.getReader();
+  const chunks = [];
+  let size = 0;
+  while (size < STREAMED_BODY_MIN_BYTES) {
+    const { done, value } = await reader.read();
+    if (done) {
+      const joined = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        joined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return joined.buffer;
+    }
+    chunks.push(value);
+    size += value.byteLength;
+  }
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+    },
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
+async function applyRequestBody(request, init) {
+  let pending = requestBodies.get(request);
+  if (!pending) {
+    if (request.bodyUsed) return false;
+    pending = readRequestBody(request);
+    requestBodies.set(request, pending);
+  }
+  const body = await pending;
+  if (body === null) return false;
+  if (body instanceof ReadableStream) {
+    requestBodies.set(request, Promise.resolve(null));
+    init.duplex = "half";
+  }
+  init.body = body;
+  return true;
+}
+
 async function mochiFetch(request, realUrl, timeoutMs = MOCHI_TIMEOUT_MS) {
   const headers = new Headers(request.headers);
   headers.delete("host");
@@ -36,8 +107,10 @@ async function mochiFetch(request, realUrl, timeoutMs = MOCHI_TIMEOUT_MS) {
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
-      init.body = request.clone().body;
-    } catch {}
+      if (!(await applyRequestBody(request, init))) return null;
+    } catch {
+      return null;
+    }
   }
   const target = mochiTarget(realUrl);
   try {
@@ -79,15 +152,18 @@ async function fetchLargeFileStreaming(
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     try {
-      init.body = request.clone().body;
-    } catch {}
+      if (!(await applyRequestBody(request, init))) return null;
+    } catch {
+      return null;
+    }
   }
   const target = mochiTarget(realUrl);
   try {
-    const response = await coalescedFetch(
-      mochiCoalesceKey(request, target),
-      () => fetchWithTimeout(target, init, timeoutMs),
-    );
+    const send = () => fetchWithTimeout(target, init, timeoutMs);
+    const response =
+      init.method === "GET" || init.method === "HEAD"
+        ? await coalescedFetch(mochiCoalesceKey(request, target), send)
+        : await send();
     if (!response) return null;
     const contentLength = response.headers.get("Content-Length");
     const newHeaders = new Headers(response.headers);
@@ -274,7 +350,7 @@ function isUnreadableFolioRoute(url) {
 
 function staleFolioRouteResponse(isNavigate) {
   const message = swNegativeMessage(
-    "this link expired after an update, open the site again",
+    "this link expired after an update, reopen the site",
   );
   const headers = {
     "Cache-Control": "no-store",

@@ -131,7 +131,11 @@ export function rewriteRequestHeaders(
 		rawOriginUrl &&
 		rawOriginUrl.pathname.startsWith(handler.context.prefix.pathname)
 	) {
-		headers.set("Origin", originUrl.origin);
+		if (requestSendsOrigin(request, parsed, originUrl)) {
+			headers.set("Origin", originUrl.origin);
+		} else {
+			headers.delete("Origin");
+		}
 
 		const referer = createReferrerString(
 			originUrl,
@@ -153,8 +157,61 @@ export function rewriteRequestHeaders(
 	}
 
 	applyFetchMetadataHeaders(headers, request, parsed, handler);
+	applyBrowserHeaders(headers, parsed);
 
 	return headers;
+}
+
+type BrowserNavigator = Navigator & {
+	userAgentData?: {
+		brands: { brand: string; version: string }[];
+		mobile: boolean;
+		platform: string;
+	};
+};
+
+function formatAcceptLanguage(languages: readonly string[]): string {
+	return languages
+		.map((language, i) =>
+			i === 0 ? language : `${language};q=${Math.max(1, 10 - i) / 10}`
+		)
+		.join(",");
+}
+
+function applyBrowserHeaders(headers: FolioHeaders, parsed: FolioFetchParsed) {
+	const browser = globalThis.navigator as BrowserNavigator | undefined;
+	if (!browser) return;
+
+	if (!headers.has("user-agent") && browser.userAgent) {
+		headers.set("User-Agent", browser.userAgent);
+	}
+
+	if (!headers.has("accept-language")) {
+		const languages = browser.languages?.length
+			? browser.languages
+			: browser.language
+				? [browser.language]
+				: [];
+		if (languages.length) {
+			headers.set("Accept-Language", formatAcceptLanguage(languages));
+		}
+	}
+
+	const userAgentData = browser.userAgentData;
+	if (
+		userAgentData &&
+		isPotentiallyTrustworthy(parsed.url) &&
+		!headers.has("sec-ch-ua")
+	) {
+		headers.set(
+			"sec-ch-ua",
+			userAgentData.brands
+				.map(({ brand, version }) => `"${brand}";v="${version}"`)
+				.join(", ")
+		);
+		headers.set("sec-ch-ua-mobile", userAgentData.mobile ? "?1" : "?0");
+		headers.set("sec-ch-ua-platform", `"${userAgentData.platform}"`);
+	}
 }
 
 function applyFetchMetadataHeaders(
@@ -225,6 +282,18 @@ function requestIncludesCredentials(
 	if (dest === "" || dest === "report") return false;
 	if (parsed.isModule) return false;
 	return true;
+}
+
+function requestSendsOrigin(
+	request: FolioFetchRequest,
+	parsed: FolioFetchParsed,
+	originUrl: URL
+): boolean {
+	if (request.method !== "GET" && request.method !== "HEAD") return true;
+	return (
+		computeFetchMode(request, parsed) === "cors" &&
+		originUrl.origin !== parsed.url.origin
+	);
 }
 
 function computeFetchMode(

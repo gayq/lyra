@@ -2,6 +2,7 @@ import {
 	atob,
 	btoa,
 	TextEncoder_encode,
+	TextDecoder_decode,
 	String_fromCharCode,
 } from "@/shared/snapshot";
 
@@ -45,4 +46,8 @@ export const base64ToBytes: (base64: string) => Uint8Array =
 
 export function base64Encode(text: string) {
 	return bytesToBase64(TextEncoder_encode(text));
+}
+
+export function base64Decode(base64: string) {
+	return TextDecoder_decode(base64ToBytes(base64));
 }
